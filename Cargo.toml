@@ -6,3 +6,12 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+#enterpolation = "0.2.0"
+ndarray = "0.15.6"
+
+[dependencies.enterpolation]
+version = "0.2"
+default-features = false
+# re-enable all wanted features
+features = ["std","linear"]
+

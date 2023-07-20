@@ -1,13 +1,14 @@
 use crate::xafs;
-use ndarray::Array1;
-trait Normalization {
-    fn calc_normalize(&self, energy: &Array1<f64>, mu: &Array1<f64>) -> (Array1<f64>, Array1<f64>);
-}
+use ndarray::{Array1, ArrayBase, Ix1, OwnedRepr};
 
-impl xafs::XASGroup {
-    pub fn calc_normalize(&self) -> Result<(), &str> {
-        todo!();
-    }
+use std::error::Error;
+
+trait Normalization {
+    fn calc_normalize(
+        &self,
+        energy: &ArrayBase<OwnedRepr<f64>, Ix1>,
+        mu: &ArrayBase<OwnedRepr<f64>, Ix1>,
+    ) -> Result<(Array1<f64>, Array1<f64>), Box<dyn Error>>;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -53,11 +54,12 @@ impl PrePostEdge {
 }
 
 impl Normalization for PrePostEdge {
-    fn calc_normalize(&self, energy: &Array1<f64>, mu: &Array1<f64>) -> (Array1<f64>, Array1<f64>) {
-        let norm = Array1::<f64>::zeros(energy.len());
-        let flat = Array1::<f64>::zeros(energy.len());
-
-        (norm, flat)
+    fn calc_normalize(
+        &self,
+        energy: &ArrayBase<OwnedRepr<f64>, Ix1>,
+        mu: &ArrayBase<OwnedRepr<f64>, Ix1>,
+    ) -> Result<(Array1<f64>, Array1<f64>), Box<dyn Error>> {
+        todo!()
     }
 }
 

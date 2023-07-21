@@ -6,7 +6,7 @@ use ndarray::{Array, Array1, ArrayBase, Axis, Ix1, OwnedRepr, Slice};
 use std::cmp;
 use std::error::Error;
 
-const TINY_ENERGY: f64 = 0.005;
+pub const TINY_ENERGY: f64 = 0.005;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub enum ConvolveForm {

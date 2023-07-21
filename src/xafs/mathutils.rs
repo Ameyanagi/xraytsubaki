@@ -5,6 +5,7 @@ use enterpolation::{
 use errorfunctions::ComplexErrorFunctions;
 use ndarray::{Array1, ArrayBase, Ix1, OwnedRepr};
 use num_complex::Complex64;
+use std::error::Error;
 pub trait MathUtils {
     fn interpolate(&self, x: &Vec<f64>, y: &Vec<f64>) -> Result<Self, LinearError>
     where
@@ -61,6 +62,42 @@ pub trait MathUtils {
         Self: IntoIterator<Item = f64> + Sized,
     {
         self.max() - self.min()
+    }
+
+    fn argmin(&self) -> usize
+    where
+        Self: IntoIterator<Item = f64> + Sized + Clone,
+    {
+        self.clone()
+            .into_iter()
+            .enumerate()
+            .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .unwrap()
+            .0
+    }
+
+    fn argmax(&self) -> usize
+    where
+        Self: IntoIterator<Item = f64> + Sized + Clone,
+    {
+        self.clone()
+            .into_iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .unwrap()
+            .0
+    }
+
+    fn abs_argmin(&self) -> usize
+    where
+        Self: IntoIterator<Item = f64> + Sized + Clone,
+    {
+        self.clone()
+            .into_iter()
+            .enumerate()
+            .min_by(|(_, a), (_, b)| a.abs().partial_cmp(&b.abs()).unwrap())
+            .unwrap()
+            .0
     }
 }
 
@@ -273,101 +310,57 @@ fn voigt<T: Into<Array1<f64>>>(x: T, center: f64, sigma: f64, gamma: f64) -> Arr
         })
         .collect()
 }
+/// Find the index of array *at or below* the value
+/// returns 0 if the value is below the minimum of the array
+///
+/// # Arguments
+/// * `array` - The array to search
+/// * `value` - The value to search for
+///
+/// # Returns
+/// Result<usize, Box<dyn Error>>
+///
+/// # Example
+/// ```
+/// use xraytsubaki::xafs::mathutils::index_of;
+/// let array = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+/// let value = 3.4;
+/// assert_eq!(index_of(&array, &value).unwrap(), 2);
+/// ```
 
-// impl MathUtils for Array1<f64> {
-//     fn interpolate(&self, x: &Vec<f64>, y: &Vec<f64>) -> Result<Self, LinearError> {
-//         let x_left = x.min();
-//         let x_right = x.max();
-//         let lin = Linear::builder().elements(y).knots(x).build()?;
-//         let result: Vec<f64> = lin
-//             .sample(self.map(|a| match a {
-//                 a if a > &x_right => x_right,
-//                 a if a < &x_left => x_left,
-//                 _ => *a,
-//             }))
-//             .collect();
+pub fn index_of(array: &Vec<f64>, value: &f64) -> Result<usize, Box<dyn Error>> {
+    if &array.min() > value {
+        return Ok(0);
+    }
 
-//         Ok(result.into())
-//     }
+    Ok(array
+        .iter()
+        .enumerate()
+        .find_map(|(i, x)| if x > value { Some(i - 1) } else { None })
+        .unwrap_or(array.len() - 1))
+}
 
-//     fn is_sorted(&self) -> bool {
-//         is_sorted(self.to_vec())
-//     }
-
-//     fn argsort(&self) -> Vec<usize> {
-//         argsort(&self.to_vec())
-//     }
-
-//     fn min(&self) -> f64 {
-//         self.iter()
-//             .min_by(|a, b| a.partial_cmp(b).unwrap())
-//             .unwrap()
-//             .clone()
-//     }
-
-//     fn max(&self) -> f64 {
-//         self.iter()
-//             .max_by(|a, b| a.partial_cmp(b).unwrap())
-//             .unwrap()
-//             .clone()
-//     }
-
-//     fn diff(&self) -> Self {
-//         &self.slice(ndarray::s![1..]) - &self.slice(ndarray::s![..-1])
-//     }
-
-//     fn gaussian(self, center: f64, sigma: f64) -> Array1<f64> {
-//         let x: Array1<f64> = self - center;
-//         let sigma = sigma.max(f64::EPSILON);
-//         let inverse_of_coefficient = sigma * (2.0 * std::f64::consts::PI).sqrt();
-//         x.map(|x| (-x.powi(2) / (2.0 * sigma.powi(2))).exp() / inverse_of_coefficient)
-//     }
-
-//     fn lorentzian(self, center: f64, sigma: f64) -> Array1<f64> {
-//         let x: Array1<f64> = self - center;
-//         let sigma = sigma.max(f64::EPSILON);
-//         let coefficient = sigma / std::f64::consts::PI;
-//         x.map(|x| coefficient / (x.powi(2) + sigma.powi(2)))
-//     }
-
-//     fn voigt(self, center: f64, sigma: f64, gamma: f64) -> Array1<f64> {
-//         let x: Array1<f64> = self - center;
-//         let sigma = sigma.max(f64::EPSILON);
-//         let gamma = gamma.max(f64::EPSILON);
-//         let inverse_of_coefficient = sigma * (2.0 * std::f64::consts::PI).sqrt();
-
-//         x.iter()
-//             .map(|x| {
-//                 let z = Complex64::new(*x, gamma) / sigma / (2.0 as f64).sqrt();
-//                 z.w().re / inverse_of_coefficient
-//             })
-//             .collect()
-//     }
-
-//     /// Calculate the central difference gradient of the Array
-//     ///
-//     /// # Example
-//     /// ```
-//     /// use xraytsubaki::xafs::mathutils::MathUtils;
-//     /// use ndarray::Array1;
-//     ///
-//     /// let v = Array1::from_vec(vec![1., 2., 4., 7., 11., 16.]);
-//     /// assert_eq!(v.gradient(), Array1::from_vec(vec![1. , 1.5, 2.5, 3.5, 4.5, 5. ]));
-//     /// ```
-//     fn gradient(&self) -> Self {
-//         let mut result = Array1::zeros(self.len());
-//         result
-//             .slice_mut(ndarray::s![0])
-//             .assign(&(&self.slice(ndarray::s![1]) - &self.slice(ndarray::s![0])));
-//         result
-//             .slice_mut(ndarray::s![1..-1])
-//             .assign(&((&self.slice(ndarray::s![2..]) - &self.slice(ndarray::s![..-2])) / 2.0));
-//         result
-//             .slice_mut(ndarray::s![-1])
-//             .assign(&(&self.slice(ndarray::s![-1]) - &self.slice(ndarray::s![-2])));
-//         result
-//     }
-// }
+/// Find the index of the nearest value in the array
+///
+/// # Arguments
+/// * `array` - The array to search
+/// * `value` - The value to search for
+///
+/// # Example
+/// ```
+/// use xraytsubaki::xafs::mathutils::index_nearest;
+/// let array = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+/// let value = 3.4;
+/// assert_eq!(index_nearest(&array, &value).unwrap(), 2);
+/// ```
+pub fn index_nearest(array: &Vec<f64>, value: &f64) -> Result<usize, Box<dyn Error>> {
+    Ok(array
+        .iter()
+        .enumerate()
+        .min_by(|(_, a), (_, b)| (*a - value).abs().partial_cmp(&(*b - value).abs()).unwrap())
+        .unwrap()
+        .0)
+}
 
 #[cfg(test)]
 mod tests {

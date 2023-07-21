@@ -147,6 +147,10 @@ impl XASGroup {
     }
 }
 
+pub enum XAFSError {
+    NotEnoughData,
+}
+
 // Simple unit tests for this file.
 
 #[cfg(test)]

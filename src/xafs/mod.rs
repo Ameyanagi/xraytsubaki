@@ -2,20 +2,23 @@
 //!
 //!
 
+#![allow(dead_code)]
+#![allow(unused_imports)]
+
 // Tests are stored in separate tests module
 #[cfg(tests)]
 mod tests;
 
 #[cfg_attr(debug_assertions, allow(dead_code, unused_imports))]
 // Standard library dependencies
-use std::cmp;
 use std::error::Error;
 
 // External dependencies
-use ndarray::{Array1, ArrayBase, Ix1, OwnedRepr};
+use ndarray::{ArrayBase, Ix1, OwnedRepr};
 
 // load dependencies
 pub mod background;
+pub mod bessel_i0;
 pub mod io;
 pub mod mathutils;
 pub mod normalization;
@@ -24,6 +27,7 @@ pub mod xrayfft;
 
 // Load local traits
 use mathutils::MathUtils;
+use normalization::Normalization;
 
 /// XASGroup is a struct that contains all the data and parameters for a single XAS spectrum.
 ///
@@ -38,8 +42,6 @@ pub struct XASGroup {
     pub energy: Option<ArrayBase<OwnedRepr<f64>, Ix1>>,
     pub mu: Option<ArrayBase<OwnedRepr<f64>, Ix1>>,
     pub e0: Option<f64>,
-    pub norm: Option<ArrayBase<OwnedRepr<f64>, Ix1>>,
-    pub flat: Option<ArrayBase<OwnedRepr<f64>, Ix1>>,
     pub k: Option<ArrayBase<OwnedRepr<f64>, Ix1>>,
     pub chi: Option<ArrayBase<OwnedRepr<f64>, Ix1>>,
     pub chi_kweighted: Option<ArrayBase<OwnedRepr<f64>, Ix1>>,
@@ -63,8 +65,6 @@ impl Default for XASGroup {
             energy: None,
             mu: None,
             e0: None,
-            norm: None,
-            flat: None,
             k: None,
             chi: None,
             chi_kweighted: None,
@@ -145,6 +145,41 @@ impl XASGroup {
         let energy = self.energy.clone().unwrap();
         xafsutils::find_energy_step(energy, frac_ignore, nave, None)
     }
+
+    pub fn set_normalization_method(
+        &mut self,
+        method: Option<normalization::NormalizationMethod>,
+    ) -> Result<(), Box<dyn Error>> {
+        if let Some(method) = method {
+            self.normalization = Some(method);
+        } else {
+            let normalization_method = normalization::PrePostEdge::new();
+            self.normalization = Some(normalization::NormalizationMethod::PrePostEdge(
+                normalization_method,
+            ));
+        }
+
+        let e0 = self.e0.clone();
+        self.normalization.as_mut().unwrap().set_e0(e0);
+
+        Ok(())
+    }
+
+    pub fn normalize(&mut self) -> Result<(), Box<dyn Error>> {
+        if self.normalization.is_none() {
+            self.set_normalization_method(None)?;
+        }
+
+        let energy = self.energy.clone().unwrap();
+        let mu = self.mu.clone().unwrap();
+
+        self.normalization
+            .as_mut()
+            .unwrap()
+            .normalize(&energy, &mu)?;
+
+        Ok(())
+    }
 }
 
 pub enum XAFSError {
@@ -158,6 +193,18 @@ pub enum XAFSError {
 mod tests {
 
     use super::*;
+    use crate::xafs::io;
+    use data_reader::reader::{load_txt_f64, Delimiter, ReaderParams};
+    use ndarray::{Array1, ArrayBase, Ix1, OwnedRepr};
+    const TOP_DIR: &'static str = env!("CARGO_MANIFEST_DIR");
+    const PARAM_LOADTXT: ReaderParams = ReaderParams {
+        comments: Some(b'#'),
+        delimiter: Delimiter::WhiteSpace,
+        skip_footer: None,
+        skip_header: None,
+        usecols: None,
+        max_rows: None,
+    };
 
     #[test]
     fn test_xafs_group_name_from_string() {
@@ -195,5 +242,32 @@ mod tests {
             xafs_group.raw_mu,
             Some(Array1::from_vec(vec![4.0, 5.0, 6.0]))
         );
+    }
+
+    #[test]
+    fn test_xafs_group_normalization() {
+        let accepted_error = 1e-12;
+
+        let test_file = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
+        let mut xafs_group = io::load_spectrum(&test_file).unwrap();
+
+        let _ = xafs_group.normalize();
+
+        let reference_path =
+            String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS_pre_post_edge_expected.dat";
+        let reference = load_txt_f64(&reference_path, &PARAM_LOADTXT).unwrap();
+
+        let expected_norm = reference.get_col(4);
+
+        xafs_group
+            .normalization
+            .unwrap()
+            .get_norm()
+            .to_owned()
+            .unwrap()
+            .to_vec()
+            .iter()
+            .zip(expected_norm.iter())
+            .for_each(|(x, y)| assert!((x - y).abs() < accepted_error, "calc: {}, ref: {}", x, y));
     }
 }

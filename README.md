@@ -19,5 +19,7 @@ Additionally, this project seeks to leverage Rust's ecosystem to create a genera
 - [ ] Create a GUI application using Tauri.
 - [ ] Develop a web assembly version of the library for web application usage.
 
+- [ ] Optimization using LAPACK or related libraries.
+
 ## Licensing
 (To be completed...)

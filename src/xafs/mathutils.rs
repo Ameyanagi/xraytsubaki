@@ -362,6 +362,21 @@ pub fn index_nearest(array: &Vec<f64>, value: &f64) -> Result<usize, Box<dyn Err
         .0)
 }
 
+pub fn bessel_I0(x: f64) -> f64 {
+    let base = x * x / 4.0;
+    let mut addend = 1.0;
+    let mut sum = 1.0;
+    for j in 1.. {
+        addend = addend * base / (j * j) as f64;
+        let old = sum;
+        sum = sum + addend;
+        if sum == old || !sum.is_finite() {
+            break;
+        }
+    }
+    sum
+}
+
 #[cfg(test)]
 mod tests {
     use std::vec;

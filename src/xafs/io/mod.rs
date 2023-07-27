@@ -1,6 +1,9 @@
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+
 use crate::xafs::XASGroup;
 use data_reader::reader::{load_txt_f64, Delimiter, ReaderParams};
-use ndarray;
 use std::error::Error;
 
 pub fn load_spectrum(path: &String) -> Result<XASGroup, Box<dyn Error>> {
@@ -30,7 +33,6 @@ pub fn load_spectrum(path: &String) -> Result<XASGroup, Box<dyn Error>> {
 }
 
 mod tests {
-
     use super::*;
 
     const TOP_DIR: &'static str = env!("CARGO_MANIFEST_DIR");

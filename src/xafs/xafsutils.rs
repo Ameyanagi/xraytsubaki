@@ -1,3 +1,8 @@
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+
+use super::bessel_i0;
 use super::io;
 use super::mathutils::MathUtils;
 
@@ -7,6 +12,66 @@ use std::cmp;
 use std::error::Error;
 
 pub const TINY_ENERGY: f64 = 0.005;
+
+/// Physical constants used in xraytsubaki
+///
+/// # Example
+/// ```
+/// use xraytsubaki::xafs::xafsutils::constants;
+///
+/// assert_eq!(constants::h, 6.62607015e-34);
+/// ```
+pub mod constants {
+    #[warn(non_upper_case_globals)]
+
+    pub const h: f64 = 6.62607015e-34; // Planck constant
+    pub const hbar: f64 = h / (2.0 * std::f64::consts::PI); // reduced Planck constant
+    pub const m_e: f64 = 9.1093837015e-31; // electron mass
+    pub const e: f64 = 1.602176634e-19; // elementary charge
+    pub const KTOE: f64 = 1.0e20 * hbar * hbar / (2.0 * m_e * e); // convert wavenumber to energy
+    pub const ETOK: f64 = 1.0 / KTOE; // convert energy to wavenumber
+}
+
+/// Trait for xafs utilities
+/// functions for f64, Vec<f64>, and ArrayBase<OwnedRepr<f64>, Ix1>
+pub trait XAFSUtils {
+    fn etok(&self) -> Self;
+    fn ktoe(&self) -> Self;
+}
+
+impl XAFSUtils for f64 {
+    fn etok(&self) -> Self {
+        if *self < 0.0 {
+            return 0.0;
+        }
+
+        self.sqrt() * constants::KTOE
+    }
+
+    fn ktoe(&self) -> Self {
+        self.powi(2) * constants::ETOK
+    }
+}
+
+impl XAFSUtils for Vec<f64> {
+    fn etok(&self) -> Self {
+        self.iter().map(|x| x.etok()).collect()
+    }
+
+    fn ktoe(&self) -> Self {
+        self.iter().map(|x| x.ktoe()).collect()
+    }
+}
+
+impl XAFSUtils for ArrayBase<OwnedRepr<f64>, Ix1> {
+    fn etok(&self) -> Self {
+        self.mapv(|x| x.sqrt() * constants::KTOE)
+    }
+
+    fn ktoe(&self) -> Self {
+        self.mapv(|x| x.powi(2) * constants::ETOK)
+    }
+}
 
 #[derive(Debug, Clone, Copy, Default)]
 pub enum ConvolveForm {
@@ -177,6 +242,20 @@ pub fn remove_dups<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>>>(
 
     arr
 }
+
+pub fn remove_nan2(
+    arr1: &ArrayBase<OwnedRepr<f64>, Ix1>,
+    arr2: &ArrayBase<OwnedRepr<f64>, Ix1>,
+) -> (Array1<f64>, Array1<f64>) {
+    let (arr1, arr2): (Vec<f64>, Vec<f64>) = arr1
+        .iter()
+        .zip(arr2.iter())
+        .filter(|(e, m)| e.is_finite() && m.is_finite())
+        .unzip();
+
+    (arr1.into(), arr2.into())
+}
+
 /// Function to find the energy step of an array of energies.
 /// It ignores the smallest fraction of energy steps (frac_ignore) and then averages the next nave steps.
 ///
@@ -256,7 +335,6 @@ pub fn find_e0<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>>>(
     let mu: ArrayBase<OwnedRepr<f64>, Ix1> = mu.into();
 
     let (e1, ie0, estep) = _find_e0(energy.clone(), mu.clone(), None, None)?;
-    println!("e1: {}, ie0: {}, estep: {}", e1, ie0, estep);
     let istart = (ie0 as i32 - 75).max(2) as usize;
     let istop = (ie0 + 75).min(energy.len() - 2);
 
@@ -398,16 +476,194 @@ pub fn _find_e0<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>> + Clone>(
     Ok((en[imax], imax, estep))
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub enum FTWindow {
+    #[default]
+    Hanning, // Hanning window, cosine-squared tamper
+    Parzen,       // Parzen window, linear tamper
+    Welch,        // Welch window, quadratic tamper
+    Gaussian,     // Gaussian window, Gaussian (normal) tamper
+    Sine,         // Sine window, sine function window
+    KaiserBessel, // Kaiser-Bessel function-derived window
+    FHanning,     // I am not sure what this is. It is in the Larch code, but it is not used.
+}
+
+pub fn ftwindow(
+    x: &ArrayBase<OwnedRepr<f64>, Ix1>,
+    xmin: Option<f64>,
+    xmax: Option<f64>,
+    dx: Option<f64>,
+    dx2: Option<f64>,
+    window: Option<FTWindow>,
+) -> Result<Array1<f64>, Box<dyn Error>> {
+    let window = if window.is_none() {
+        FTWindow::default()
+    } else {
+        window.unwrap()
+    };
+
+    let mut dx1 = dx.unwrap_or(1.0);
+    let mut dx2 = dx2.unwrap_or(dx1.clone());
+
+    let xmin = xmin.unwrap_or(x.min());
+    let xmax = xmax.unwrap_or(x.max());
+
+    let xstep = (x[x.len() - 1] - x[0]) / (x.len() as f64 - 1.0);
+    let xeps = &xstep * 1e-4;
+
+    let mut x1 = x.min().max(&xmin - &dx1 / 2.0);
+    let mut x2 = &xmin + &dx1 / 2.0 + &xeps;
+    let mut x3 = &xmax - &dx2 / 2.0 - &xeps;
+    let mut x4 = x.max().min(&xmax + &dx2 / 2.0);
+
+    let asint = |val: &f64| ((val + &xeps) / &xstep) as i32;
+
+    match window {
+        FTWindow::Gaussian => {
+            dx1 = dx1.max(xeps.clone());
+        }
+
+        FTWindow::FHanning => {
+            if dx1 < 0.0 {
+                dx1 = 0.0;
+            }
+            if dx2 > 1.0 {
+                dx2 = 1.0;
+            }
+            x2 = &x1 + &xeps + &dx1 * (&xmax - &xmin) / 2.0;
+            x3 = &x4 - &xeps - &dx2 * (&xmax - &xmin) / 2.0;
+        }
+        _ => {}
+    }
+
+    let (mut i1, mut i2, mut i3, mut i4) = (asint(&x1), asint(&x2), asint(&x3), asint(&x4));
+    i1 = i1.max(0);
+    i2 = i2.max(0);
+    i3 = i3.min((x.len() - 1) as i32);
+    i4 = i4.min((x.len() - 1) as i32);
+
+    if i1 == i2 {
+        i1 = (i2 - 1).max(0);
+    }
+
+    if i3 == i4 {
+        i3 = (i4 - 1).max(i2);
+    }
+
+    (x1, x2, x3, x4) = (
+        x[i1 as usize],
+        x[i2 as usize],
+        x[i3 as usize],
+        x[i4 as usize],
+    );
+    if x1 == x2 {
+        x2 += xeps;
+    }
+
+    if x3 == x4 {
+        x4 += xeps;
+    }
+
+    let mut fwin = Array1::zeros(x.len());
+
+    if i3 > i2 {
+        fwin.slice_mut(ndarray::s![i2..i3]).fill(1.0);
+    }
+
+    // if nam in ('han', 'fha'):
+    //     fwin[i1:i2+1] = sin((pi/2)*(x[i1:i2+1]-x1) / (x2-x1))**2
+    //     fwin[i3:i4+1] = cos((pi/2)*(x[i3:i4+1]-x3) / (x4-x3))**2
+    // elif nam == 'par':
+    //     fwin[i1:i2+1] =     (x[i1:i2+1]-x1) / (x2-x1)
+    //     fwin[i3:i4+1] = 1 - (x[i3:i4+1]-x3) / (x4-x3)
+    // elif nam == 'wel':
+    //     fwin[i1:i2+1] = 1 - ((x[i1:i2+1]-x2) / (x2-x1))**2
+    //     fwin[i3:i4+1] = 1 - ((x[i3:i4+1]-x3) / (x4-x3))**2
+    // elif nam  in ('kai', 'bes'):
+    //     cen  = (x4+x1)/2
+    //     wid  = (x4-x1)/2
+    //     arg  = 1 - (x-cen)**2 / (wid**2)
+    //     arg[where(arg<0)] = 0
+    //     if nam == 'bes': # 'bes' : ifeffit 1.0 implementation of kaiser-bessel
+    //         fwin = bessel_i0(dx* sqrt(arg)) / bessel_i0(dx)
+    //         fwin[where(x<=x1)] = 0
+    //         fwin[where(x>=x4)] = 0
+    //     else: # better version
+    //         scale = max(1.e-10, bessel_i0(dx)-1)
+    //         fwin = (bessel_i0(dx * sqrt(arg)) - 1) / scale
+    // elif nam == 'sin':
+    //     fwin[i1:i4+1] = sin(pi*(x4-x[i1:i4+1]) / (x4-x1))
+    // elif nam == 'gau':
+    //     cen  = (x4+x1)/2
+    //     fwin =  exp(-(((x - cen)**2)/(2*dx1*dx1)))
+
+    match window {
+        FTWindow::Hanning | FTWindow::FHanning => {
+            fwin.slice_mut(ndarray::s![i1..=i2])
+                .assign(&x.slice(ndarray::s![i1..=i2]).mapv(|x| {
+                    (std::f64::consts::PI / 2.0 * (x - x1) / (x2 - x1))
+                        .sin()
+                        .powi(2)
+                }));
+            fwin.slice_mut(ndarray::s![i3..=i4])
+                .assign(&x.slice(ndarray::s![i3..=i4]).mapv(|x| {
+                    (std::f64::consts::PI / 2.0 * (x - x3) / (x4 - x3))
+                        .cos()
+                        .powi(2)
+                }));
+        }
+        FTWindow::Parzen => {
+            fwin.slice_mut(ndarray::s![i1..=i2])
+                .assign(&x.slice(ndarray::s![i1..=i2]).mapv(|x| (x - x1) / (x2 - x1)));
+            fwin.slice_mut(ndarray::s![i3..=i4]).assign(
+                &x.slice(ndarray::s![i3..=i4])
+                    .mapv(|x| 1.0 - (x - x3) / (x4 - x3)),
+            );
+        }
+        FTWindow::Welch => {
+            fwin.slice_mut(ndarray::s![i1..=i2]).assign(
+                &x.slice(ndarray::s![i1..=i2])
+                    .mapv(|x| 1.0 - ((x - x2) / (x2 - x1)).powi(2)),
+            );
+            fwin.slice_mut(ndarray::s![i3..=i4]).assign(
+                &x.slice(ndarray::s![i3..=i4])
+                    .mapv(|x| 1.0 - ((x - x3) / (x4 - x3)).powi(2)),
+            );
+        }
+        FTWindow::KaiserBessel => {
+            let cen = (x4 + x1) / 2.0;
+            let wid = (x4 - x1) / 2.0;
+            let arg = (x - cen)
+                .mapv(|x| 1.0 - x.powi(2) / wid.powi(2))
+                .mapv(|x| x.max(0.0));
+            let scale = (bessel_i0::bessel_i0(dx1) - 1.0).max(1e-10);
+
+            fwin = arg.mapv(|x| (bessel_i0::bessel_i0(dx1 * x.sqrt()) - 1.0) / scale);
+        }
+        FTWindow::Sine => {
+            fwin.slice_mut(ndarray::s![i1..=i4]).assign(
+                &x.slice(ndarray::s![i1..=i4])
+                    .mapv(|x| (std::f64::consts::PI * (x4 - x) / (x4 - x1)).sin()),
+            );
+        }
+        FTWindow::Gaussian => {
+            let cen = (x4 + x1) / 2.0;
+            fwin = x.mapv(|x| (-(x - cen).powi(2) / (2.0 * dx1.powi(2))).exp());
+        }
+        _ => {}
+    }
+
+    Ok(fwin)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use data_reader::reader::{load_txt_f64, Delimiter, ReaderParams};
-    use std::fs::File;
-    use std::io::prelude::*;
 
     const TOP_DIR: &'static str = env!("CARGO_MANIFEST_DIR");
 
-    const param_loadtxt: ReaderParams = ReaderParams {
+    const PARAM_LOADTXT: ReaderParams = ReaderParams {
         comments: Some(b'#'),
         delimiter: Delimiter::WhiteSpace,
         skip_footer: None,
@@ -426,10 +682,10 @@ mod tests {
             String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS_smooth_larch.txt";
         let xafs_group = io::load_spectrum(&filepath)?;
 
-        let expected_data = load_txt_f64(&expected_filepath, &param_loadtxt)?;
+        let expected_data = load_txt_f64(&expected_filepath, &PARAM_LOADTXT)?;
         let expected_data = expected_data.get_col(0);
 
-        let expected_data_larch = load_txt_f64(&expected_filepath_larch, &param_loadtxt)?;
+        let expected_data_larch = load_txt_f64(&expected_filepath_larch, &PARAM_LOADTXT)?;
         let expected_data_larch = expected_data_larch.get_col(0);
 
         let x = xafs_group.raw_energy.unwrap();
@@ -497,5 +753,130 @@ mod tests {
         assert_eq!(result.unwrap(), 0.4004004004004004);
 
         // Result calculated by Larch is 0.3003003003003003
+    }
+
+    #[test]
+    fn test_KTOE() {
+        let acceptable_error = 1e-12;
+        assert!(
+            (constants::KTOE - 3.8099821161548597).abs() < acceptable_error,
+            "KTOE is not equal to 3.8099821161548597"
+        );
+    }
+
+    #[test]
+    fn test_ftwindow_hanning() {
+        let expected_filepath = String::from(TOP_DIR) + "/tests/testfiles/window_Hanning.txt";
+        let expected_data = load_txt_f64(&expected_filepath, &PARAM_LOADTXT).unwrap();
+        let x = expected_data.get_col(0);
+        let y_expected = expected_data.get_col(1);
+
+        let y = ftwindow(
+            &Array1::from_vec(x),
+            None,
+            None,
+            None,
+            None,
+            Some(FTWindow::Hanning),
+        )
+        .unwrap();
+
+        assert_eq!(y.to_vec(), y_expected);
+    }
+    #[test]
+    fn test_ftwindow_parzen() {
+        let expected_filepath = String::from(TOP_DIR) + "/tests/testfiles/window_Parzen.txt";
+        let expected_data = load_txt_f64(&expected_filepath, &PARAM_LOADTXT).unwrap();
+        let x = expected_data.get_col(0);
+        let y_expected = expected_data.get_col(1);
+
+        let y = ftwindow(
+            &Array1::from_vec(x),
+            None,
+            None,
+            None,
+            None,
+            Some(FTWindow::Parzen),
+        )
+        .unwrap();
+
+        assert_eq!(y.to_vec(), y_expected);
+    }
+    #[test]
+    fn test_ftwindow_welch() {
+        let expected_filepath = String::from(TOP_DIR) + "/tests/testfiles/window_Welch.txt";
+        let expected_data = load_txt_f64(&expected_filepath, &PARAM_LOADTXT).unwrap();
+        let x = expected_data.get_col(0);
+        let y_expected = expected_data.get_col(1);
+
+        let y = ftwindow(
+            &Array1::from_vec(x),
+            None,
+            None,
+            None,
+            None,
+            Some(FTWindow::Welch),
+        )
+        .unwrap();
+
+        assert_eq!(y.to_vec(), y_expected);
+    }
+    #[test]
+    fn test_ftwindow_gaussian() {
+        let expected_filepath = String::from(TOP_DIR) + "/tests/testfiles/window_Gaussian.txt";
+        let expected_data = load_txt_f64(&expected_filepath, &PARAM_LOADTXT).unwrap();
+        let x = expected_data.get_col(0);
+        let y_expected = expected_data.get_col(1);
+
+        let y = ftwindow(
+            &Array1::from_vec(x),
+            None,
+            None,
+            None,
+            None,
+            Some(FTWindow::Gaussian),
+        )
+        .unwrap();
+
+        assert_eq!(y.to_vec(), y_expected);
+    }
+    #[test]
+    fn test_ftwindow_sine() {
+        let expected_filepath = String::from(TOP_DIR) + "/tests/testfiles/window_Sine.txt";
+        let expected_data = load_txt_f64(&expected_filepath, &PARAM_LOADTXT).unwrap();
+        let x = expected_data.get_col(0);
+        let y_expected = expected_data.get_col(1);
+
+        let y = ftwindow(
+            &Array1::from_vec(x),
+            None,
+            None,
+            None,
+            None,
+            Some(FTWindow::Sine),
+        )
+        .unwrap();
+
+        assert_eq!(y.to_vec(), y_expected);
+    }
+
+    #[test]
+    fn test_ftwindow_kaiserbessel() {
+        let expected_filepath = String::from(TOP_DIR) + "/tests/testfiles/window_Kaiser-Bessel.txt";
+        let expected_data = load_txt_f64(&expected_filepath, &PARAM_LOADTXT).unwrap();
+        let x = expected_data.get_col(0);
+        let y_expected = expected_data.get_col(1);
+
+        let y = ftwindow(
+            &Array1::from_vec(x),
+            None,
+            None,
+            None,
+            None,
+            Some(FTWindow::KaiserBessel),
+        )
+        .unwrap();
+
+        assert_eq!(y.to_vec(), y_expected);
     }
 }

@@ -10,8 +10,10 @@ data_reader = "0.4.0"
 errorfunctions = "0.2.0"
 fftconvolve = "0.1.1"
 finitediff = { version = "0.1.4", features = ["ndarray"] }
+itertools = "0.11.0"
 ndarray = "0.15.6"
 num-complex = "0.4.3"
+polyfit-rs = "0.2.1"
 
 
 [dependencies.enterpolation]

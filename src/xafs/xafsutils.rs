@@ -476,7 +476,7 @@ pub fn _find_e0<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>> + Clone>(
     Ok((en[imax], imax, estep))
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub enum FTWindow {
     #[default]
     Hanning, // Hanning window, cosine-squared tamper

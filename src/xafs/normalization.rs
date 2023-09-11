@@ -20,14 +20,14 @@ pub trait Normalization {
         &mut self,
         energy: &ArrayBase<OwnedRepr<f64>, Ix1>,
         mu: &ArrayBase<OwnedRepr<f64>, Ix1>,
-    ) -> Result<(), Box<dyn Error>>;
+    ) -> Result<&mut Self, Box<dyn Error>>;
 
     fn get_norm(&self) -> &Option<Array1<f64>>;
     fn get_flat(&self) -> &Option<Array1<f64>>;
     fn get_edge_step(&self) -> Option<f64>;
     fn get_e0(&self) -> Option<f64>;
-    fn set_e0(&mut self, e0: Option<f64>);
-    fn set_edge_step(&mut self, edge_step: Option<f64>);
+    fn set_e0(&mut self, e0: Option<f64>) -> &mut Self;
+    fn set_edge_step(&mut self, edge_step: Option<f64>) -> &mut Self;
 }
 
 /// Enum for normalization method
@@ -78,7 +78,7 @@ impl NormalizationMethod {
         &mut self,
         energy: &Array1<f64>,
         mu: &Array1<f64>,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<&mut Self, Box<dyn Error>> {
         match self {
             NormalizationMethod::PrePostEdge(pre_post_edge) => {
                 pre_post_edge.fill_parameter(energy, mu)?;
@@ -88,14 +88,14 @@ impl NormalizationMethod {
             }
         }
 
-        Ok(())
+        Ok(self)
     }
 
     pub fn normalize(
         &mut self,
         energy: &ArrayBase<OwnedRepr<f64>, Ix1>,
         mu: &ArrayBase<OwnedRepr<f64>, Ix1>,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<&mut Self, Box<dyn Error>> {
         match self {
             NormalizationMethod::PrePostEdge(pre_post_edge) => {
                 pre_post_edge.normalize(energy, mu)?;
@@ -105,7 +105,7 @@ impl NormalizationMethod {
             }
         }
 
-        Ok(())
+        Ok(self)
     }
 
     pub fn get_e0(&self) -> Option<f64> {
@@ -136,20 +136,30 @@ impl NormalizationMethod {
         }
     }
 
-    pub fn set_e0(&mut self, e0: Option<f64>) {
-        match self {
-            NormalizationMethod::PrePostEdge(pre_post_edge) => pre_post_edge.set_e0(e0),
-            NormalizationMethod::MBack(mback) => mback.set_e0(e0),
-        }
-    }
-
-    pub fn set_edge_step(&mut self, edge_step: Option<f64>) {
+    pub fn set_e0(&mut self, e0: Option<f64>) -> &mut Self {
         match self {
             NormalizationMethod::PrePostEdge(pre_post_edge) => {
-                pre_post_edge.set_edge_step(edge_step)
+                pre_post_edge.set_e0(e0);
             }
-            NormalizationMethod::MBack(mback) => mback.set_edge_step(edge_step),
+            NormalizationMethod::MBack(mback) => {
+                mback.set_e0(e0);
+            }
         }
+
+        self
+    }
+
+    pub fn set_edge_step(&mut self, edge_step: Option<f64>) -> &mut Self {
+        match self {
+            NormalizationMethod::PrePostEdge(pre_post_edge) => {
+                pre_post_edge.set_edge_step(edge_step);
+            }
+            NormalizationMethod::MBack(mback) => {
+                mback.set_edge_step(edge_step);
+            }
+        }
+
+        self
     }
 }
 
@@ -222,7 +232,7 @@ impl PrePostEdge {
         &mut self,
         energy: &Array1<f64>,
         mu: &Array1<f64>,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<&mut Self, Box<dyn Error>> {
         if self.e0.is_none()
             || self.e0.unwrap().is_nan()
             || self.e0.unwrap() > energy[&energy.len() - 2]
@@ -299,7 +309,7 @@ impl PrePostEdge {
                 .max(0),
         );
 
-        Ok(())
+        Ok(self)
     }
 }
 
@@ -308,7 +318,7 @@ impl Normalization for PrePostEdge {
         &mut self,
         energy: &ArrayBase<OwnedRepr<f64>, Ix1>,
         mu: &ArrayBase<OwnedRepr<f64>, Ix1>,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<&mut Self, Box<dyn Error>> {
         // let (energy, mu): (Vec<f64>, Vec<f64>) = energy
         //     .iter()
         //     .zip(mu.iter())
@@ -406,7 +416,7 @@ impl Normalization for PrePostEdge {
         self.norm_coefficients = Some(post_coefficients);
         self.pre_coefficients = Some(pre_coefficients);
 
-        Ok(())
+        Ok(self)
     }
 
     fn get_e0(&self) -> Option<f64> {
@@ -425,12 +435,16 @@ impl Normalization for PrePostEdge {
         &self.norm
     }
 
-    fn set_e0(&mut self, e0: Option<f64>) {
+    fn set_e0(&mut self, e0: Option<f64>) -> &mut Self {
         self.e0 = e0;
+
+        self
     }
 
-    fn set_edge_step(&mut self, edge_step: Option<f64>) {
+    fn set_edge_step(&mut self, edge_step: Option<f64>) -> &mut Self {
         self.edge_step = edge_step;
+
+        self
     }
 }
 
@@ -470,8 +484,10 @@ impl Normalization for MBack {
         &mut self,
         energy: &ArrayBase<OwnedRepr<f64>, Ix1>,
         mu: &ArrayBase<OwnedRepr<f64>, Ix1>,
-    ) -> Result<(), Box<dyn Error>> {
-        todo!("Implement MBack normalization")
+    ) -> Result<&mut Self, Box<dyn Error>> {
+        todo!("Implement MBack normalization");
+
+        Ok(self)
     }
 
     fn get_e0(&self) -> Option<f64> {
@@ -490,12 +506,16 @@ impl Normalization for MBack {
         &self.norm
     }
 
-    fn set_e0(&mut self, e0: Option<f64>) {
+    fn set_e0(&mut self, e0: Option<f64>) -> &mut Self {
         self.e0 = e0;
+
+        self
     }
 
-    fn set_edge_step(&mut self, edge_step: Option<f64>) {
+    fn set_edge_step(&mut self, edge_step: Option<f64>) -> &mut Self {
         self.edge_step = edge_step;
+
+        self
     }
 }
 
@@ -515,6 +535,8 @@ mod tests {
 
     #[test]
     fn test_pre_post_edge_fill_parameter() {
+        let acceptable_e0_diff = 1.5;
+
         let acceptable_e0_diff = 1.5;
 
         let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
@@ -542,7 +564,6 @@ mod tests {
             norm_coefficients: None,
             pre_coefficients: None,
         };
-
         assert_eq!(pre_post_edge.e0, expected.e0);
         assert_eq!(pre_post_edge.pre_edge_start, expected.pre_edge_start);
         assert_eq!(pre_post_edge.pre_edge_end, expected.pre_edge_end);

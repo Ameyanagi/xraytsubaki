@@ -86,8 +86,9 @@ impl XASGroup {
         XASGroup::default()
     }
 
-    pub fn set_name<S: Into<String>>(&mut self, name: S) {
+    pub fn set_name<S: Into<String>>(&mut self, name: S) -> &mut Self {
         self.name = Some(name.into());
+        self
     }
 
     pub fn set_spectrum<
@@ -97,7 +98,7 @@ impl XASGroup {
         &mut self,
         energy: T,
         mu: M,
-    ) {
+    ) -> &mut Self {
         let raw_energy = energy.into();
         let raw_mu = mu.into();
 
@@ -111,12 +112,14 @@ impl XASGroup {
         }
         self.energy = self.raw_energy.clone();
         self.mu = self.raw_mu.clone();
+
+        self
     }
 
     pub fn interpolate_spectrum<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>>>(
         &mut self,
         energy: T,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<&mut Self, Box<dyn Error>> {
         self.energy = Some(energy.into());
 
         let energy = self.energy.clone().unwrap();
@@ -125,20 +128,22 @@ impl XASGroup {
 
         self.mu = Some(energy.interpolate(&knot, &mu).unwrap());
 
-        Ok(())
+        Ok(self)
     }
 
-    pub fn set_e0<S: Into<f64>>(&mut self, e0: S) {
+    pub fn set_e0<S: Into<f64>>(&mut self, e0: S) -> &mut Self {
         self.e0 = Some(e0.into());
+
+        self
     }
 
-    pub fn find_e0(&mut self) -> Result<(), Box<dyn Error>> {
+    pub fn find_e0(&mut self) -> Result<&mut Self, Box<dyn Error>> {
         self.e0 = Some(xafsutils::find_e0(
             self.energy.clone().unwrap(),
             self.mu.clone().unwrap(),
         )?);
 
-        Ok(())
+        Ok(self)
     }
 
     fn find_energy_step(&mut self, frac_ignore: Option<f64>, nave: Option<usize>) -> f64 {
@@ -149,7 +154,7 @@ impl XASGroup {
     pub fn set_normalization_method(
         &mut self,
         method: Option<normalization::NormalizationMethod>,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<&mut Self, Box<dyn Error>> {
         if let Some(method) = method {
             self.normalization = Some(method);
         } else {
@@ -162,10 +167,10 @@ impl XASGroup {
         let e0 = self.e0.clone();
         self.normalization.as_mut().unwrap().set_e0(e0);
 
-        Ok(())
+        Ok(self)
     }
 
-    pub fn normalize(&mut self) -> Result<(), Box<dyn Error>> {
+    pub fn normalize(&mut self) -> Result<&mut Self, Box<dyn Error>> {
         if self.normalization.is_none() {
             self.set_normalization_method(None)?;
         }
@@ -178,7 +183,7 @@ impl XASGroup {
             .unwrap()
             .normalize(&energy, &mu)?;
 
-        Ok(())
+        Ok(self)
     }
 }
 

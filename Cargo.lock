@@ -104,7 +104,7 @@ version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ff11ddd2af3b5e80dd0297fee6e56ac038d9bdc549573cdb51bd6d2efe7f05e"
 dependencies = [
- "num-complex",
+ "num-complex 0.4.3",
  "num-traits",
  "rand",
  "serde",
@@ -181,7 +181,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b2614883d4665aa4e3a34cdac27df4407913705fbc64e2e759cac60b3d11f1e6"
 dependencies = [
  "num",
- "num-complex",
+ "num-complex 0.4.3",
 ]
 
 [[package]]
@@ -219,7 +219,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4bd4c3afe5e8acbff8e48300022e5b7b535acb43af95111b7cbf227100ce538c"
 dependencies = [
  "easyfft",
- "ndarray",
+ "ndarray 0.15.6",
  "ndarray-linalg",
  "num",
  "num-traits",
@@ -231,7 +231,7 @@ version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e29b3f2b07b398985f495a66466e0a1fd105e022c25e1fd7042b60402cba765a"
 dependencies = [
- "ndarray",
+ "ndarray 0.15.6",
 ]
 
 [[package]]
@@ -259,6 +259,15 @@ name = "gimli"
 version = "0.27.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6c80984affa11d98d1b88b66ac8853f143217b399d3c74116778ff8fdb4ed2e"
+
+[[package]]
+name = "itertools"
+version = "0.7.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d47946d458e94a1b7bcabbf6521ea7c037062c81f534615abcad76e84d4970d"
+dependencies = [
+ "either",
+]
 
 [[package]]
 name = "itertools"
@@ -303,6 +312,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "levenberg-marquardt"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1204bd21e2f239566fdebafcab83adfd0b8cb0977bb43e09abfe18041d48ad8"
+dependencies = [
+ "cfg-if",
+ "nalgebra 0.32.3",
+ "num-traits",
+ "rustc_version",
+]
+
+[[package]]
 name = "lexical"
 version = "5.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -332,13 +353,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4668fb0ea861c1df094127ac5f1da3409a82116a4ba74fca2e58ef927159bb3"
 
 [[package]]
+name = "libm"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7012b1bbb0719e1097c47611d3898568c546d597c2e74d66f6087edd5233ff4"
+
+[[package]]
+name = "matrixmultiply"
+version = "0.1.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dcad67dcec2d58ff56f6292582377e6921afdf3bfbd533e26fb8900ae575e002"
+dependencies = [
+ "rawpointer 0.1.0",
+]
+
+[[package]]
 name = "matrixmultiply"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "090126dc04f95dc0d1c1c91f61bdd474b3930ca064c1edc8a849da2c6cbe1e77"
 dependencies = [
  "autocfg",
- "rawpointer",
+ "rawpointer 0.2.1",
 ]
 
 [[package]]
@@ -363,12 +399,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20bd243ab3dbb395b39ee730402d2e5405e448c75133ec49cc977762c4cba3d1"
 dependencies = [
  "approx 0.5.1",
- "matrixmultiply",
+ "matrixmultiply 0.3.7",
  "nalgebra-macros",
- "num-complex",
+ "num-complex 0.4.3",
  "num-rational",
  "num-traits",
- "simba",
+ "simba 0.7.3",
+ "typenum",
+]
+
+[[package]]
+name = "nalgebra"
+version = "0.32.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "307ed9b18cc2423f29e83f84fd23a8e73628727990181f18641a8b5dc2ab1caa"
+dependencies = [
+ "approx 0.5.1",
+ "num-complex 0.4.3",
+ "num-rational",
+ "num-traits",
+ "simba 0.8.1",
  "typenum",
 ]
 
@@ -385,6 +435,18 @@ dependencies = [
 
 [[package]]
 name = "ndarray"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7cf380a8af901ad627594013a3bbac903ae0a6f94e176e47e46b5bbc1877b928"
+dependencies = [
+ "itertools 0.7.11",
+ "matrixmultiply 0.1.15",
+ "num-complex 0.2.4",
+ "num-traits",
+]
+
+[[package]]
+name = "ndarray"
 version = "0.15.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "adb12d4e967ec485a5f71c6311fe28158e9d6f4bc4a447b474184d0f91a8fa32"
@@ -392,11 +454,11 @@ dependencies = [
  "approx 0.4.0",
  "cblas-sys",
  "libc",
- "matrixmultiply",
- "num-complex",
+ "matrixmultiply 0.3.7",
+ "num-complex 0.4.3",
  "num-integer",
  "num-traits",
- "rawpointer",
+ "rawpointer 0.2.1",
 ]
 
 [[package]]
@@ -408,8 +470,8 @@ dependencies = [
  "cauchy",
  "katexit",
  "lax",
- "ndarray",
- "num-complex",
+ "ndarray 0.15.6",
+ "num-complex 0.4.3",
  "num-traits",
  "rand",
  "thiserror",
@@ -422,7 +484,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b05180d69e3da0e530ba2a1dae5110317e49e3b7f3d41be227dc5f92e49ee7af"
 dependencies = [
  "num-bigint",
- "num-complex",
+ "num-complex 0.4.3",
  "num-integer",
  "num-iter",
  "num-rational",
@@ -437,6 +499,16 @@ checksum = "f93ab6289c7b344a8a9f60f88d80aa20032336fe78da341afc91c8a2341fc75f"
 dependencies = [
  "autocfg",
  "num-integer",
+ "num-traits",
+]
+
+[[package]]
+name = "num-complex"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6b19411a9719e753aff12e5187b74d60d3dc449ec3f4dc21e3989c3f554bc95"
+dependencies = [
+ "autocfg",
  "num-traits",
 ]
 
@@ -491,6 +563,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "578ede34cf02f8924ab9447f50c28075b4d3e5b269972345e7e0372b38c6cdcd"
 dependencies = [
  "autocfg",
+ "libm",
 ]
 
 [[package]]
@@ -514,7 +587,7 @@ version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab98d9704c7300e37472a6790a447eaf501d664a1889737faa53c26790d2b697"
 dependencies = [
- "nalgebra",
+ "nalgebra 0.31.4",
 ]
 
 [[package]]
@@ -582,6 +655,12 @@ dependencies = [
 
 [[package]]
 name = "rawpointer"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ebac11a9d2e11f2af219b8b8d833b76b1ea0e054aa0e8d8e9e4cbde353bdf019"
+
+[[package]]
+name = "rawpointer"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "60a357793950651c4ed0f3f52338f53b2f809f32d83a07f72909fa13e4c6c1e3"
@@ -602,18 +681,35 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d626bb9dae77e28219937af045c257c28bfd3f69333c512553507f5f9798cb76"
 
 [[package]]
+name = "rustc_version"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bfa0f585226d2e68097d4f95d113b15b83a82e819ab25717ec0590d9584ef366"
+dependencies = [
+ "semver",
+]
+
+[[package]]
 name = "rustfft"
 version = "6.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e17d4f6cbdb180c9f4b2a26bbf01c4e647f1e1dea22fe8eb9db54198b32f9434"
 dependencies = [
- "num-complex",
+ "num-complex 0.4.3",
  "num-integer",
  "num-traits",
  "primal-check",
  "strength_reduce",
  "transpose",
  "version_check",
+]
+
+[[package]]
+name = "rusty-fitpack"
+version = "0.1.0"
+source = "git+https://github.com/mitric-lab/Rusty-FITPACK#2275dfe6739b5e6c7cba50d4a023446d7e1345ce"
+dependencies = [
+ "ndarray 0.12.1",
 ]
 
 [[package]]
@@ -630,6 +726,12 @@ checksum = "f398075ce1e6a179b46f51bd88d0598b92b00d3551f1a2d4ac49e771b56ac354"
 dependencies = [
  "bytemuck",
 ]
+
+[[package]]
+name = "semver"
+version = "1.0.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b0293b4b29daaf487284529cc2f5675b8e57c61f70167ba415a463651fd6a918"
 
 [[package]]
 name = "serde"
@@ -658,10 +760,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2f3fd720c48c53cace224ae62bef1bbff363a70c68c4802a78b5cc6159618176"
 dependencies = [
  "approx 0.5.1",
- "num-complex",
+ "num-complex 0.4.3",
  "num-traits",
  "paste",
  "wide",
+]
+
+[[package]]
+name = "simba"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "061507c94fc6ab4ba1c9a0305018408e312e17c041eb63bef8aa726fa33aceae"
+dependencies = [
+ "approx 0.5.1",
+ "num-complex 0.4.3",
+ "num-traits",
+ "paste",
 ]
 
 [[package]]
@@ -798,8 +912,10 @@ dependencies = [
  "errorfunctions",
  "fftconvolve",
  "finitediff",
- "itertools",
- "ndarray",
- "num-complex",
+ "itertools 0.11.0",
+ "levenberg-marquardt",
+ "ndarray 0.15.6",
+ "num-complex 0.4.3",
  "polyfit-rs",
+ "rusty-fitpack",
 ]

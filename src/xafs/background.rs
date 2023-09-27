@@ -4,18 +4,26 @@
 
 // Import standard library dependencies
 use std::error::Error;
+use std::ops::Deref;
 
 // Import external dependencies
+use levenberg_marquardt::{LeastSquaresProblem, LevenbergMarquardt};
+use nalgebra::{DMatrix, DVector, Dyn, Owned};
 use ndarray::{Array1, ArrayBase, Axis, Ix1, OwnedRepr};
 use rusty_fitpack;
 
 // Import internal dependencies
+use super::lmutils::LMParameters;
 use super::mathutils::{self, MathUtils};
 use super::normalization::{self, Normalization};
-use super::xafsutils;
-
+use super::nshare::{ToNalgebra, ToNdarray1};
 use super::xafsutils::FTWindow;
+use super::xrayfft::{FFTUtils, XFFTReverse, XFFT};
+use super::{xafsutils, xrayfft};
 
+/// Enum for background subtraction methods
+/// AUTOBK: M. Newville, P. Livins, Y. Yacoby, J. J. Rehr, and E. A. Stern. Near-edge x-ray-absorption fine structure of Pb: A comparison of theory and experiment. Phys. Rev. B, 47:14126–14131, Jun 1993. doi:10.1103/PhysRevB.47.14126.
+/// ILPBkg: To be implemented
 #[derive(Debug, Clone, PartialEq)]
 pub enum BackgroundMethod {
     AUTOBK(AUTOBK),
@@ -43,23 +51,49 @@ impl BackgroundMethod {
     }
 }
 
+/// Struct for AUTOBK
+///
+/// Parameters and the output are stored in this struct
 #[derive(Debug, Clone, PartialEq)]
 pub struct AUTOBK {
+    /// Edge energy in eV (this is used for starting point of k). If None, it will be determined.
     pub ek0: Option<f64>,
+    /// Rbkg parameter: distance (in Ang) for chi(R) above which the signal is ignored. Default = 1.
     pub rbkg: Option<f64>,
+    /// Number of knots in spline. If None, it will be determined.
     pub nknots: Option<i32>,
+    /// Minimum k value. Default = 0.
     pub kmin: Option<f64>,
+    /// Maximum k value. Default = full data range.
     pub kmax: Option<f64>,
+    /// k step size to use for FFT. Default = 0.05.
     pub kstep: Option<f64>,
+    /// Number of energy end-points for clamp. Default = 3.
     pub nclamp: Option<i32>,
+    /// Weight of low-energy clamp. Default = 0.
     pub clamp_lo: Option<i32>,
+    /// Weight of high-energy clamp. Default = 1.
     pub clamp_hi: Option<i32>,
+    /// Array size to use for FFT. Default = 2048.
     pub nfft: Option<i32>,
+    /// Optional chi array for standard chi(k).
     pub chi_std: Option<Array1<f64>>,
+    /// Optional k array for standard chi(k).
     pub k_std: Option<Array1<f64>>,
+    /// k weight for FFT. Default = 1.
     pub k_weight: Option<i32>,
+    /// FFT window function name. Default = Hanning.
     pub window: FTWindow,
+    /// FFT window window parameter. Default = 0.1.
     pub dk: Option<f64>,
+    /// Background of mu(E)
+    pub bkg: Option<Array1<f64>>,
+    /// Edge normalized mu(E) - bkg
+    pub chie: Option<Array1<f64>>,
+    /// k grid
+    pub k: Option<Array1<f64>>,
+    /// chi(k)
+    pub chi: Option<Array1<f64>>,
 }
 
 impl Default for AUTOBK {
@@ -79,16 +113,22 @@ impl Default for AUTOBK {
             k_std: None,
             k_weight: Some(1),
             window: FTWindow::Hanning,
-            dk: None,
+            dk: Some(0.1),
+            bkg: None,
+            chie: None,
+            k: None,
+            chi: None,
         }
     }
 }
 
+/// Implementation of AUTOBK
 impl AUTOBK {
     pub fn new() -> AUTOBK {
         AUTOBK::default()
     }
 
+    /// Fill in default values for parameters that are not set
     pub fn fill_parameter(&mut self) -> Result<(), Box<dyn Error>> {
         if self.rbkg.is_none() {
             self.rbkg = Some(1.0);
@@ -123,13 +163,25 @@ impl AUTOBK {
         }
 
         if self.dk.is_none() {
-            self.dk = Some(1.);
+            self.dk = Some(0.1);
         }
 
         Ok(())
     }
 
-    pub fn calc_background<'a>(
+    /// Calculate background
+    ///
+    /// # Arguments
+    ///
+    /// * `energy` - 1-d array of x-ray energies, in eV, or group
+    /// * `mu` - 1-d array of mu(E)
+    /// * `normalization_param` - xraytsubaki::normalization::NormalizationMethod struct which contains parameters for normalization
+    ///
+    /// # Example
+    ///
+    /// TODO: Add example
+    ///
+    pub fn calc_background(
         &mut self,
         energy: &ArrayBase<OwnedRepr<f64>, Ix1>,
         mu: &ArrayBase<OwnedRepr<f64>, Ix1>,
@@ -192,7 +244,7 @@ impl AUTOBK {
         };
 
         let kout = self.kstep.unwrap().clone()
-            * &Array1::range(0.0, 1.01 + &kmax / &self.kstep.unwrap(), 1.0);
+            * &Array1::range(0.0, (1.01 + &kmax / &self.kstep.unwrap()).floor(), 1.0);
 
         let iemax = &energy.len().min(
             2 + mathutils::index_of(
@@ -220,40 +272,12 @@ impl AUTOBK {
                 Some(self.window.clone()),
             )?;
 
-        // nspl = 1 + int(2*rbkg*(kmax-kmin)/np.pi)
-        // irbkg = int(1 + (nspl-1)*np.pi/(2*rgrid*(kmax-kmin)))
-        // if nknots is not None:
-        //     nspl = nknots
-        // nspl = max(5, min(128, nspl))
-        // spl_y, spl_k  = np.ones(nspl), np.zeros(nspl)
-        // for i in range(nspl):
-        //     q  = kmin + i*(kmax-kmin)/(nspl - 1)
-        //     ik = index_nearest(kraw, q)
-        //     i1 = min(len(kraw)-1, ik + 5)
-        //     i2 = max(0, ik - 5)
-        //     spl_k[i] = kraw[ik]
-        //     spl_y[i] = (2*mu[ik+iek0] + mu[i1+iek0] + mu[i2+iek0] ) / 4.0
-
-        // order = 3
-        // qmin, qmax  = spl_k[0], spl_k[nspl-1]
-        // knots = [spl_k[0] - 1.e-4*(order-i) for i in range(order)]
-
-        // for i in range(order, nspl):
-        //     knots.append((i-order)*(qmax - qmin)/(nspl-order+1))
-        // qlast = knots[-1]
-        // for i in range(order+1):
-        //     knots.append(qlast + 1.e-4*(i+1))
-
-        // # coefs = [mu[index_nearest(energy, ek0 + q**2/ETOK)] for q in knots]
-        // knots, coefs, order = splrep(spl_k, spl_y, k=order)
-        // coefs[nspl:] = coefs[nspl-1]
-
         let mut nspl = 1
             + (2.0 * self.rbkg.unwrap() * (kmax - self.kmin.unwrap()) / std::f64::consts::PI)
                 .round() as i32;
         let irbkg = (1.0
             + (nspl - 1) as f64 * std::f64::consts::PI
-                / (2.0 * self.rbkg.unwrap() * (kmax - self.kmin.unwrap())))
+                / (2.0 * rgrid * (kmax - self.kmin.unwrap())))
         .round() as i32;
 
         if self.nknots.is_some() {
@@ -281,15 +305,15 @@ impl AUTOBK {
             });
 
         let order = 3;
-        let (qmin, qmax) = (spl_k[0], spl_k[-1]);
+        let (qmin, qmax) = (spl_k[0], spl_k[nspl as usize - 1]);
 
         let mut knots = Vec::with_capacity(order);
         for i in 0..order {
             knots.push(spl_k[0] - 1e-4 * (order - i) as f64);
         }
 
-        for i in order..nspl {
-            knots.push((i - order) as f64 * (qmax - qmin) / (nspl - order + 1) as f64);
+        for i in order..nspl as usize {
+            knots.push((i - order) as f64 * (qmax - qmin) / (nspl - order as i32 + 1) as f64);
         }
 
         let qlast = knots[order - 1];
@@ -297,10 +321,9 @@ impl AUTOBK {
         for i in 0..order {
             knots.push(qlast + 1e-4 * (i + 1) as f64);
         }
+        let coefs;
 
-        let mut coefs = Vec::with_capacity(nspl as usize);
-
-        (knots, coefs, order) = rusty_fitpack::splrep(
+        (knots, coefs, _) = rusty_fitpack::splrep(
             spl_k.to_vec(),
             spl_y.to_vec(),
             None,
@@ -315,17 +338,223 @@ impl AUTOBK {
             None,
         );
 
-        coefs[nspl as usize..]
-            .iter_mut()
-            .for_each(|x| *x = coefs[nspl as usize - 1]);
+        let spline_opt = AUTOBKSpline {
+            coefs: DVector::from_vec(coefs),
+            knots: DVector::from_vec(knots),
+            order: order,
+            irbkg: irbkg as usize,
+            nfft: self.nfft.unwrap() as usize,
+            kraw: kraw
+                .slice_axis(Axis(0), ndarray::Slice::from(0..iemax - iek0 + 1))
+                .clone()
+                .to_owned()
+                .into_nalgebra(),
+            mu: mu
+                .slice_axis(Axis(0), ndarray::Slice::from(iek0..iemax + 1))
+                .clone()
+                .to_owned()
+                .into_nalgebra(),
+            kout: kout.clone().into_nalgebra(),
+            ftwin: ftwin.into_nalgebra(),
+            kweight: self.k_weight.unwrap(),
+            chi_std: if let Some(chi_std) = chi_std {
+                Some(chi_std.into_nalgebra())
+            } else {
+                None
+            },
+            nclamp: self.nclamp.unwrap(),
+            clamp_lo: self.clamp_lo.unwrap(),
+            clamp_hi: self.clamp_hi.unwrap(),
+            kstep: self.kstep.unwrap(),
+        };
+
+        let (fit_result, report) = LevenbergMarquardt::new()
+            .with_gtol(1.0e-6)
+            .with_ftol(1.0e-6)
+            .with_xtol(1.0e-6)
+            .with_stepbound(1.0e-6)
+            .minimize(spline_opt);
+
+        let (bkg, chi) = spline_eval_nalgebra(
+            &fit_result.kraw,
+            &fit_result.mu,
+            &fit_result.knots,
+            &fit_result.coefs,
+            fit_result.order,
+            &fit_result.kout,
+        );
+
+        let bkg = bkg.into_ndarray1();
+        let chi = chi.into_ndarray1();
+
+        let mut obkg = mu.clone();
+        obkg.slice_mut(ndarray::s![iek0..iek0 + bkg.len()])
+            .assign(&bkg);
+
+        self.bkg = Some(obkg.clone());
+        self.chie = Some((mu - &obkg) / edge_step.unwrap());
+        self.k = Some(kout);
+        self.chi = Some(chi / edge_step.unwrap());
 
         Ok(self)
     }
 }
 
+/// Evaluation of the spline used in AUTOBK
+///
+/// In puts and outputs are in DVector struct from nalgebra crate
+///
+/// # Arguments
+///
+/// * `kraw` - kraw, the k grid converted from energy
+/// * `mu` - mu(E)
+/// * `knots` - knots of the spline
+/// * `coefs` - coefficients of the spline
+/// * `order` - order of the spline
+/// * `kout` - k grid ready for FFT
+fn spline_eval_nalgebra(
+    kraw: &DVector<f64>,
+    mu: &DVector<f64>,
+    knots: &DVector<f64>,
+    coefs: &DVector<f64>,
+    order: usize,
+    kout: &DVector<f64>,
+) -> (DVector<f64>, DVector<f64>) {
+    let bkg = DVector::from_vec(rusty_fitpack::splev(
+        knots.data.as_vec().clone(),
+        coefs.data.as_vec().clone(),
+        order,
+        kraw.data.as_vec().clone(),
+        3,
+    ));
+
+    let chi: DVector<f64> = DVector::from_vec(
+        kout.data
+            .as_vec()
+            .interpolate(kraw.data.as_vec(), &(mu - &bkg).data.as_vec())
+            .unwrap(),
+    );
+
+    (bkg, chi)
+}
+
+/// Struct for solving Levenberg-Marquardt optimization for AUTOBK
+#[derive(Debug, Clone, PartialEq)]
+struct AUTOBKSpline {
+    pub coefs: DVector<f64>,
+    pub knots: DVector<f64>,
+    pub order: usize,
+    pub irbkg: usize,
+    pub nfft: usize,
+    pub kraw: DVector<f64>,
+    pub mu: DVector<f64>,
+    pub kout: DVector<f64>,
+    pub ftwin: DVector<f64>,
+    pub kweight: i32,
+    pub chi_std: Option<DVector<f64>>,
+    pub nclamp: i32,
+    pub clamp_lo: i32,
+    pub clamp_hi: i32,
+    pub kstep: f64,
+}
+
+impl Default for AUTOBKSpline {
+    fn default() -> Self {
+        AUTOBKSpline {
+            coefs: DVector::zeros(0),
+            knots: DVector::zeros(0),
+            order: 3,
+            irbkg: 1,
+            nfft: 2048,
+            kraw: DVector::zeros(0),
+            mu: DVector::zeros(0),
+            kout: DVector::zeros(0),
+            ftwin: DVector::zeros(0),
+            kweight: 1,
+            chi_std: None,
+            nclamp: 0,
+            clamp_lo: 1,
+            clamp_hi: 1,
+            kstep: 0.05,
+        }
+    }
+}
+
+impl AUTOBKSpline {
+    /// The Loss function in 1-d array for the Levenberg-Marquardt optimization
+    pub fn residual_vec(&self, coefs: &DVector<f64>) -> DVector<f64> {
+        let (bkg, chi) = spline_eval_nalgebra(
+            &self.kraw,
+            &self.mu,
+            &self.knots,
+            coefs,
+            self.order,
+            &self.kout,
+        );
+
+        let chi: DVector<f64> = if self.chi_std.is_some() {
+            chi - self.chi_std.as_ref().unwrap()
+        } else {
+            chi
+        };
+
+        let chi = chi.component_mul(&self.ftwin);
+
+        let mut out: DVector<f64> = chi.xftf_fast(self.nfft, self.kstep)[..self.irbkg].realimg();
+
+        if self.nclamp == 0 {
+            return out;
+        }
+
+        let scale = 1.0 + 100.0 * out.dot(&out) / out.len() as f64;
+        let low_clamp = self.clamp_lo as f64 * scale * chi.view((0, 0), (self.nclamp as usize, 1));
+
+        let high_clamp = self.clamp_hi as f64
+            * scale
+            * chi.view(
+                (chi.len() - self.nclamp as usize - 1, 0),
+                (self.nclamp as usize, 1),
+            );
+
+        out.extend(low_clamp.data.as_vec().to_owned());
+
+        out.extend(high_clamp.data.as_vec().to_owned());
+
+        out
+    }
+}
+
+/// Implementation of LeastSquaresProblem trait for AUTOBK algorithm
+impl LeastSquaresProblem<f64, Dyn, Dyn> for AUTOBKSpline {
+    type ParameterStorage = Owned<f64, Dyn>;
+    type ResidualStorage = Owned<f64, Dyn>;
+    type JacobianStorage = Owned<f64, Dyn, Dyn>;
+
+    fn set_params(&mut self, coefs: &DVector<f64>) {
+        self.coefs.copy_from(coefs);
+    }
+
+    fn params(&self) -> DVector<f64> {
+        self.coefs.clone()
+    }
+
+    fn residuals(&self) -> Option<DVector<f64>> {
+        Some(self.residual_vec(&self.coefs))
+    }
+
+    /// Jacobian matrix for the Levenberg-Marquardt optimization
+    /// Jacobian matrix is calculated by numerical differentiation using foward difference
+    fn jacobian(&self) -> Option<DMatrix<f64>> {
+        let residual_vec = |coefs: &DVector<f64>| AUTOBKSpline::residual_vec(&self, &coefs);
+        Some(self.coefs.jacobian(&residual_vec))
+    }
+}
+
+/// TODO: Implement ILPBkg
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ILPBkg {}
 
+/// TODO: Implement ILPBkg
 impl ILPBkg {
     pub fn new() -> ILPBkg {
         ILPBkg::default()
@@ -345,6 +574,7 @@ mod tests {
         skip_header: None,
         usecols: None,
         max_rows: None,
+        row_format: true,
     };
     use crate::xafs::normalization::PrePostEdge;
 
@@ -365,7 +595,7 @@ mod tests {
             .set_normalization_method(Some(normalization::NormalizationMethod::PrePostEdge(
                 PrePostEdge::new(),
             )))?
-            .normalize();
+            .normalize()?;
 
         let mut autobk = AUTOBK::new();
 
@@ -374,8 +604,6 @@ mod tests {
             &xafs_test_group.mu.clone().unwrap(),
             &mut xafs_test_group.normalization,
         )?;
-
-        println!("ek0: {:?}", autobk);
 
         Ok(())
     }

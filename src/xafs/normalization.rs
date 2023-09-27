@@ -486,8 +486,6 @@ impl Normalization for MBack {
         mu: &ArrayBase<OwnedRepr<f64>, Ix1>,
     ) -> Result<&mut Self, Box<dyn Error>> {
         todo!("Implement MBack normalization");
-
-        Ok(self)
     }
 
     fn get_e0(&self) -> Option<f64> {
@@ -521,6 +519,8 @@ impl Normalization for MBack {
 
 mod tests {
     use super::*;
+    use approx::assert_abs_diff_eq;
+
     use crate::xafs::io;
     use data_reader::reader::{load_txt_f64, Delimiter, ReaderParams};
     const TOP_DIR: &'static str = env!("CARGO_MANIFEST_DIR");
@@ -531,12 +531,12 @@ mod tests {
         skip_header: None,
         usecols: None,
         max_rows: None,
+        row_format: true,
     };
+    const ASSERT_ERROR: f64 = 1.0e-8;
 
     #[test]
     fn test_pre_post_edge_fill_parameter() {
-        let acceptable_e0_diff = 1.5;
-
         let acceptable_e0_diff = 1.5;
 
         let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
@@ -552,10 +552,10 @@ mod tests {
             pre_edge_start: Some(-200.0),
             pre_edge_end: Some(-65.0),
             norm_start: Some(25.0),
-            norm_end: Some(945.0),
+            norm_end: Some(944.5331719999995),
             norm_polyorder: Some(2),
             n_victoreen: None,
-            e0: Some(22117.6),
+            e0: Some(22118.8),
             edge_step: None,
             pre_edge: None,
             post_edge: None,
@@ -564,34 +564,42 @@ mod tests {
             norm_coefficients: None,
             pre_coefficients: None,
         };
-        assert_eq!(pre_post_edge.e0, expected.e0);
-        assert_eq!(pre_post_edge.pre_edge_start, expected.pre_edge_start);
-        assert_eq!(pre_post_edge.pre_edge_end, expected.pre_edge_end);
-        assert_eq!(pre_post_edge.norm_start, expected.norm_start);
-        assert_eq!(pre_post_edge.norm_end, expected.norm_end);
-        assert_eq!(pre_post_edge.norm_polyorder, expected.norm_polyorder);
 
-        // compare with the data obtained from xraylarch
-        // assert approximate
-
-        assert!(
-            (pre_post_edge.e0.unwrap() - expected.e0.unwrap()).abs() < acceptable_e0_diff,
-            "e0: {} != {}",
+        assert_abs_diff_eq!(
             pre_post_edge.e0.unwrap(),
-            expected.e0.unwrap()
+            expected.e0.unwrap(),
+            epsilon = ASSERT_ERROR
         );
 
-        assert_eq!(pre_post_edge.pre_edge_start, Some(-200.0));
-        assert_eq!(pre_post_edge.pre_edge_end, Some(-65.0));
-        assert_eq!(pre_post_edge.norm_start, Some(25.0));
+        assert_abs_diff_eq!(
+            pre_post_edge.pre_edge_start.unwrap(),
+            expected.pre_edge_start.unwrap(),
+            epsilon = ASSERT_ERROR
+        );
 
-        assert!(
-            (pre_post_edge.norm_end.unwrap() - expected.norm_end.unwrap()).abs() < 1.0,
-            "norm_end: {} != {}",
+        assert_abs_diff_eq!(
+            pre_post_edge.pre_edge_end.unwrap(),
+            expected.pre_edge_end.unwrap(),
+            epsilon = ASSERT_ERROR
+        );
+
+        assert_abs_diff_eq!(
+            pre_post_edge.norm_start.unwrap(),
+            expected.norm_start.unwrap(),
+            epsilon = ASSERT_ERROR
+        );
+
+        assert_abs_diff_eq!(
             pre_post_edge.norm_end.unwrap(),
-            expected.norm_end.unwrap()
+            expected.norm_end.unwrap(),
+            epsilon = ASSERT_ERROR
         );
-        assert_eq!(pre_post_edge.norm_polyorder, Some(2));
+
+        assert_abs_diff_eq!(
+            pre_post_edge.norm_polyorder.unwrap() as f64,
+            expected.norm_polyorder.unwrap() as f64,
+            epsilon = ASSERT_ERROR
+        );
     }
 
     #[test]
@@ -613,7 +621,7 @@ mod tests {
             &xafs_test_group.mu.clone().unwrap(),
         );
 
-        assert_eq!(pre_post_edge.edge_step, Some(0.8614006777730155));
+        assert_eq!(pre_post_edge.edge_step, Some(0.862815921384477));
         assert_eq!(
             pre_post_edge.pre_coefficients,
             Some(vec![-0.05298882571982536, -1.9039451808611713e-7])
@@ -621,13 +629,19 @@ mod tests {
         assert_eq!(
             pre_post_edge.norm_coefficients,
             Some(vec![
-                5.407257135242474,
-                -0.00023816551010395775,
-                1.4754914057518429e-9
+                8.985714230146124,
+                -0.0005540674890038064,
+                8.446567273641622e-9
             ])
         );
 
-        // Write results to a file
+        assert_abs_diff_eq!(
+            pre_post_edge.edge_step.unwrap(),
+            0.862815921384477,
+            epsilon = ASSERT_ERROR
+        );
+
+        // // Write results to a file
 
         // use itertools::izip;
         // use std::fs::File;

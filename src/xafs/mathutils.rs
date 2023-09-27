@@ -362,6 +362,7 @@ pub fn index_nearest(array: &Vec<f64>, value: &f64) -> Result<usize, Box<dyn Err
         .0)
 }
 
+#[allow(non_snake_case)]
 pub fn bessel_I0(x: f64) -> f64 {
     let base = x * x / 4.0;
     let mut addend = 1.0;

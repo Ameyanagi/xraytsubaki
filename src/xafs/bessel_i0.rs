@@ -64,9 +64,6 @@ pub fn chvevl(x: f64, array: &[f64]) -> f64 {
     let mut b1: f64 = 0.0;
     let mut b2: f64 = 0.0;
 
-    b0 = array[0];
-    b1 = 0.0;
-
     for p0 in &array[1..] {
         b2 = b1;
         b1 = b0;

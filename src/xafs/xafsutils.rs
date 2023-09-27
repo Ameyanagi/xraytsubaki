@@ -22,7 +22,7 @@ pub const TINY_ENERGY: f64 = 0.005;
 /// assert_eq!(constants::h, 6.62607015e-34);
 /// ```
 pub mod constants {
-    #[warn(non_upper_case_globals)]
+    #![allow(non_upper_case_globals)]
 
     pub const h: f64 = 6.62607015e-34; // Planck constant
     pub const hbar: f64 = h / (2.0 * std::f64::consts::PI); // reduced Planck constant
@@ -275,7 +275,7 @@ pub fn remove_nan2(
 ///
 /// let energy = array![0.0, 1.1, 2.2, 2.2, 3.3];
 /// let estep = find_energy_step(energy, None, None, None);
-/// assert_eq!(estep, 0.7333333333333334);
+/// assert_eq!(estep, 0.7333333333333333);
 /// ```
 pub fn find_energy_step<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>>>(
     energy: T,
@@ -293,14 +293,17 @@ pub fn find_energy_step<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>>>(
 
     let frac_ignore = frac_ignore.unwrap_or(0.01);
     let nave = nave.unwrap_or(10);
-    let ediff = &energy.slice(ndarray::s![1..]) - &energy.slice(ndarray::s![..-1]);
+    let mut ediff = (&energy.slice(ndarray::s![1..]) - &energy.slice(ndarray::s![..-1]))
+        .to_owned()
+        .to_vec();
+
     let nskip = (frac_ignore * energy.len() as f64) as usize;
 
-    ediff.to_vec().sort_by(|a, b| a.partial_cmp(b).unwrap());
+    ediff.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
     let ediff_end = cmp::min(nskip + nave, ediff.len() - 1);
 
-    return ediff.slice(ndarray::s![nskip..ediff_end]).mean().unwrap();
+    return ediff[nskip..ediff_end].iter().sum::<f64>() / (ediff_end - nskip) as f64;
 }
 /// Calculate the $E_0$, the energy threshold of absoption, or the edge energy, given $\mu(E)$.
 ///
@@ -375,7 +378,7 @@ pub fn find_e0<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>>>(
 /// let mu = &energy.map(|x| (x-50.0).powi(3) - (x-50.0).powi(2) + x);
 ///
 /// let result = _find_e0(energy.clone(), mu.clone(), None, None);
-/// assert_eq!(result.unwrap(), (1.001001001001001, 10, 0.05005005005005005));
+/// assert_eq!(result.unwrap(), (1.001001001001001, 10, 0.05005005005004648));
 ///
 /// // the result obtained by xraylarch is (1.001001001001001, 10, 0.05005005005004648)
 /// ```
@@ -650,7 +653,6 @@ pub fn ftwindow(
             let cen = (x4 + x1) / 2.0;
             fwin = x.mapv(|x| (-(x - cen).powi(2) / (2.0 * dx1.powi(2))).exp());
         }
-        _ => {}
     }
 
     Ok(fwin)
@@ -670,6 +672,7 @@ mod tests {
         skip_header: None,
         usecols: None,
         max_rows: None,
+        row_format: true,
     };
 
     #[test]
@@ -735,7 +738,7 @@ mod tests {
     fn test_find_energy_step_neg() {
         let energy = Array1::from_vec(vec![0.0, 1.0, 2.0, 3.0, 4.0, 2.0]);
         let step = find_energy_step(energy, None, None, None);
-        assert_eq!(step, 1.0);
+        assert_eq!(step, 0.25);
     }
 
     #[test]
@@ -755,6 +758,7 @@ mod tests {
         // Result calculated by Larch is 0.3003003003003003
     }
 
+    #[allow(non_snake_case)]
     #[test]
     fn test_KTOE() {
         let acceptable_error = 1e-12;

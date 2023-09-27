@@ -20,8 +20,10 @@ use ndarray::{ArrayBase, Ix1, OwnedRepr};
 pub mod background;
 pub mod bessel_i0;
 pub mod io;
+pub mod lmutils;
 pub mod mathutils;
 pub mod normalization;
+pub mod nshare;
 pub mod xafsutils;
 pub mod xrayfft;
 
@@ -185,6 +187,10 @@ impl XASGroup {
 
         Ok(self)
     }
+
+    pub fn get_e0(&self) -> Option<f64> {
+        self.e0
+    }
 }
 
 pub enum XAFSError {
@@ -209,6 +215,7 @@ mod tests {
         skip_header: None,
         usecols: None,
         max_rows: None,
+        row_format: true,
     };
 
     #[test]

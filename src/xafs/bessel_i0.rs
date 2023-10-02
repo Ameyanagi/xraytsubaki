@@ -88,12 +88,14 @@ pub fn bessel_i0(mut x: f64) -> f64 {
     x.exp() * chvevl(32.0 / x - 2.0, B) / x.sqrt()
 }
 
+#[cfg(test)]
 mod tests {
+    use itertools::Itertools;
     use std::vec;
 
-    use itertools::Itertools;
-
     use super::*;
+    use crate::xafs::tests::TEST_TOL;
+    use approx::assert_abs_diff_eq;
 
     #[test]
     fn test_bessel_i0() {
@@ -114,6 +116,9 @@ mod tests {
             1093.5883545113745,
             2815.716628466254,
         ];
-        assert_eq!(y, expected)
+
+        y.iter()
+            .zip(expected.iter())
+            .for_each(|(y, expected)| assert_abs_diff_eq!(y, expected, epsilon = TEST_TOL));
     }
 }

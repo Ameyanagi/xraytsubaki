@@ -97,7 +97,12 @@ impl LMParameters<&dyn Fn(&DVector<f64>) -> DVector<f64>> for DVector<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::xafs::tests::PARAM_LOADTXT;
+    use crate::xafs::tests::TEST_TOL;
+    use crate::xafs::tests::TOP_DIR;
     use approx::assert_abs_diff_eq;
+
+    const NUM_DIFF_TOL: f64 = 1e-6;
 
     fn residuals(p: &DVector<f64>) -> DVector<f64> {
         let mut res = DVector::zeros(p.len());
@@ -126,7 +131,7 @@ mod tests {
             vec![2.0, 0.0, 0.0, 3.0, 3.0, (2.0 as f64).exp(), 4.0, 4.0, 4.0],
         );
 
-        assert_abs_diff_eq!(jac, jac_ref, epsilon = 1e-6);
+        assert_abs_diff_eq!(jac, jac_ref, epsilon = NUM_DIFF_TOL);
     }
 
     #[test]
@@ -146,6 +151,6 @@ mod tests {
             vec![2.0, 0.0, 0.0, 3.0, 3.0, (2.0 as f64).exp(), 4.0, 4.0, 4.0],
         );
 
-        assert_abs_diff_eq!(jac, jac_ref, epsilon = 1e-6);
+        assert_abs_diff_eq!(jac, jac_ref, epsilon = NUM_DIFF_TOL);
     }
 }

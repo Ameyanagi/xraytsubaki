@@ -1,5 +1,7 @@
 use super::*;
 
+pub const TEST_TOL: f64 = 1e-16;
+
 #[test]
 fn test_xafs_group_name_from_string() {
     let mut xafs_group = XASGroup::new();

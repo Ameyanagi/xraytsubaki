@@ -491,6 +491,19 @@ pub enum FTWindow {
     FHanning,     // I am not sure what this is. It is in the Larch code, but it is not used.
 }
 
+impl FTWindow {
+    pub fn window(
+        &self,
+        x: &ArrayBase<OwnedRepr<f64>, Ix1>,
+        xmin: Option<f64>,
+        xmax: Option<f64>,
+        dx: Option<f64>,
+        dx2: Option<f64>,
+    ) -> Result<Array1<f64>, Box<dyn Error>> {
+        ftwindow(x, xmin, xmax, dx, dx2, Some(self.clone()))
+    }
+}
+
 pub fn ftwindow(
     x: &ArrayBase<OwnedRepr<f64>, Ix1>,
     xmin: Option<f64>,
@@ -661,24 +674,15 @@ pub fn ftwindow(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::xafs::tests::PARAM_LOADTXT;
+    use crate::xafs::tests::TEST_TOL;
+    use crate::xafs::tests::TOP_DIR;
+    use approx::{assert_abs_diff_eq, assert_abs_diff_ne};
     use data_reader::reader::{load_txt_f64, Delimiter, ReaderParams};
-
-    const TOP_DIR: &'static str = env!("CARGO_MANIFEST_DIR");
-
-    const PARAM_LOADTXT: ReaderParams = ReaderParams {
-        comments: Some(b'#'),
-        delimiter: Delimiter::WhiteSpace,
-        skip_footer: None,
-        skip_header: None,
-        usecols: None,
-        max_rows: None,
-        row_format: true,
-    };
+    const ACCEPTABLE_MU_DIFF: f64 = 1e-2;
 
     #[test]
     fn test_smooth() -> Result<(), Box<dyn std::error::Error>> {
-        let criteria = 1e-2;
-
         let filepath = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
         let expected_filepath = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS_smooth.txt";
         let expected_filepath_larch =
@@ -696,12 +700,15 @@ mod tests {
 
         let result = smooth(x, y, None, None, None, None, ConvolveForm::Lorentzian)?;
 
-        assert_eq!(result.to_vec(), expected_data);
+        result
+            .iter()
+            .zip(expected_data)
+            .for_each(|(a, b)| assert_abs_diff_eq!(a, &b, epsilon = TEST_TOL));
 
         result
             .iter()
             .zip(expected_data_larch.iter())
-            .for_each(|(a, b)| assert!((a - b).abs() < criteria));
+            .for_each(|(a, b)| assert_abs_diff_eq!(a, &b, epsilon = ACCEPTABLE_MU_DIFF));
 
         Ok(())
     }
@@ -710,20 +717,30 @@ mod tests {
     fn test_remove_dups() {
         let arr = Array1::from_vec(vec![0.0, 1.1, 2.2, 2.2, 3.3]);
         let arr = remove_dups(arr, None, None, None);
-        assert_eq!(arr, Array1::from_vec(vec![0., 1.1, 2.2, 2.2000001, 3.3]));
+        let expected = Array1::from_vec(vec![0.0, 1.1, 2.2, 2.2000001, 3.3]);
+
+        arr.iter().zip(expected.iter()).for_each(|(a, b)| {
+            assert_abs_diff_eq!(a, &b, epsilon = TEST_TOL);
+        });
     }
 
     #[test]
     fn test_remove_dups_sort() {
         let arr = Array1::from_vec(vec![0.0, 1.1, 2.2, 3.3, 2.2]);
         let arr = remove_dups(arr, None, None, Some(true));
-        assert_eq!(arr, Array1::from_vec(vec![0., 1.1, 2.2, 2.2000001, 3.3]));
+        let expected = Array1::from_vec(vec![0.0, 1.1, 2.2, 2.2000001, 3.3]);
+
+        arr.iter().zip(expected.iter()).for_each(|(a, b)| {
+            assert_abs_diff_eq!(a, &b, epsilon = TEST_TOL);
+        });
     }
 
     #[test]
     fn test_remove_dups_unsorted() {
         let arr = Array1::from_vec(vec![0.0, 1.1, 2.2, 3.3, 2.2]);
         let arr = remove_dups(arr, None, None, Some(false));
+        let expected = Array1::from_vec(vec![0.0, 1.1, 2.2, 2.2000001, 3.3]);
+
         assert_ne!(arr, Array1::from_vec(vec![0., 1.1, 2.2, 2.2000001, 3.3]));
     }
 
@@ -753,19 +770,16 @@ mod tests {
         let energy: Array1<f64> = Array1::linspace(0.0, 100.0, 1000);
         let mu = &energy.map(|x| (x - 50.0).powi(3) - (x - 50.0).powi(2) + x);
         let result = find_e0(energy.clone(), mu.clone());
-        assert_eq!(result.unwrap(), 0.4004004004004004);
 
-        // Result calculated by Larch is 0.3003003003003003
+        assert_abs_diff_eq!(result.unwrap(), 0.4004004004004004, epsilon = TEST_TOL);
     }
 
     #[allow(non_snake_case)]
     #[test]
     fn test_KTOE() {
-        let acceptable_error = 1e-12;
-        assert!(
-            (constants::KTOE - 3.8099821161548597).abs() < acceptable_error,
-            "KTOE is not equal to 3.8099821161548597"
-        );
+        let expected_KTOE = 3.8099821161548606;
+
+        assert_abs_diff_eq!(constants::KTOE, expected_KTOE, epsilon = TEST_TOL);
     }
 
     #[test]
@@ -785,7 +799,9 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(y.to_vec(), y_expected);
+        y.iter()
+            .zip(y_expected.iter())
+            .for_each(|(a, b)| assert_abs_diff_eq!(a, &b, epsilon = TEST_TOL));
     }
     #[test]
     fn test_ftwindow_parzen() {
@@ -804,7 +820,9 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(y.to_vec(), y_expected);
+        y.iter()
+            .zip(y_expected.iter())
+            .for_each(|(a, b)| assert_abs_diff_eq!(a, &b, epsilon = TEST_TOL));
     }
     #[test]
     fn test_ftwindow_welch() {
@@ -823,7 +841,9 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(y.to_vec(), y_expected);
+        y.iter()
+            .zip(y_expected.iter())
+            .for_each(|(a, b)| assert_abs_diff_eq!(a, &b, epsilon = TEST_TOL));
     }
     #[test]
     fn test_ftwindow_gaussian() {
@@ -842,7 +862,9 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(y.to_vec(), y_expected);
+        y.iter()
+            .zip(y_expected.iter())
+            .for_each(|(a, b)| assert_abs_diff_eq!(a, &b, epsilon = TEST_TOL));
     }
     #[test]
     fn test_ftwindow_sine() {
@@ -861,7 +883,9 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(y.to_vec(), y_expected);
+        y.iter()
+            .zip(y_expected.iter())
+            .for_each(|(a, b)| assert_abs_diff_eq!(a, &b, epsilon = TEST_TOL));
     }
 
     #[test]
@@ -881,6 +905,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(y.to_vec(), y_expected);
+        y.iter()
+            .zip(y_expected.iter())
+            .for_each(|(a, b)| assert_abs_diff_eq!(a, &b, epsilon = TEST_TOL));
     }
 }

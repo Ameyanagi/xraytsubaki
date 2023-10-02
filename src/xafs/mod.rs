@@ -13,6 +13,7 @@ mod tests;
 // Standard library dependencies
 use std::error::Error;
 
+use easyfft::dyn_size::realfft::DynRealDft;
 // External dependencies
 use ndarray::{ArrayBase, Ix1, OwnedRepr};
 
@@ -36,7 +37,7 @@ use normalization::Normalization;
 /// # Examples
 ///
 /// TODO: Add examples
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct XASGroup {
     pub name: Option<String>,
     pub raw_energy: Option<ArrayBase<OwnedRepr<f64>, Ix1>>,
@@ -54,8 +55,8 @@ pub struct XASGroup {
     pub q: Option<ArrayBase<OwnedRepr<f64>, Ix1>>,
     pub normalization: Option<normalization::NormalizationMethod>,
     pub background: Option<background::BackgroundMethod>,
-    pub xftf: Option<xrayfft::XrayForwardFFT>,
-    pub xftr: Option<xrayfft::XrayReverseFFT>,
+    pub xftf: Option<xrayfft::XrayFFTF>,
+    pub xftr: Option<xrayfft::XrayFFTR>,
 }
 
 impl Default for XASGroup {
@@ -188,13 +189,174 @@ impl XASGroup {
         Ok(self)
     }
 
+    pub fn set_background_method(
+        &mut self,
+        method: Option<background::BackgroundMethod>,
+    ) -> Result<&mut Self, Box<dyn Error>> {
+        if let Some(method) = method {
+            self.background = Some(method);
+        } else {
+            let backgound_method = background::AUTOBK::new();
+            self.background = Some(background::BackgroundMethod::AUTOBK(backgound_method));
+        }
+
+        Ok(self)
+    }
+
+    pub fn calc_background(&mut self) -> Result<&mut Self, Box<dyn Error>> {
+        if self.background.is_none() {
+            self.set_background_method(None)?;
+        }
+
+        let energy = self.energy.clone().unwrap();
+        let mu = self.mu.clone().unwrap();
+
+        self.background
+            .as_mut()
+            .unwrap()
+            .calc_background(&energy, &mu, &mut self.normalization)?;
+
+        Ok(self)
+    }
+
+    pub fn fft(&mut self) -> Result<&mut Self, Box<dyn Error>> {
+        let k = self.get_k();
+        let chi = self.get_chi();
+
+        if k.is_none() || chi.is_none() {
+            panic!("Need to calculate k and chi first, Error type");
+            todo!("Implement Error type");
+        }
+
+        let k = k.unwrap();
+        let chi = chi.unwrap();
+
+        if self.xftf.is_none() {
+            self.xftf = Some(xrayfft::XrayFFTF::new());
+        }
+
+        self.xftf.as_mut().unwrap().xftf(&k, &chi);
+
+        Ok(self)
+    }
+
+    pub fn ifft(&mut self) -> Result<&mut Self, Box<dyn Error>> {
+        let r = self.get_r();
+        let chi_r = self.get_chir();
+
+        if r.is_none() || chi_r.is_none() {
+            panic!("Need to calculate r and chi_r first, Error type");
+            todo!("Implement Error type");
+        }
+
+        let r = r.unwrap();
+        let chi_r = chi_r.unwrap();
+
+        if self.xftr.is_none() {
+            self.xftr = Some(xrayfft::XrayFFTR::new());
+        }
+
+        self.xftr.as_mut().unwrap().xftr(&r, &chi_r);
+
+        Ok(self)
+    }
+
     pub fn get_e0(&self) -> Option<f64> {
         self.e0
+    }
+
+    pub fn get_k(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+        if self.background.is_none() {
+            return None;
+        }
+
+        self.background.as_ref().unwrap().get_k()
+    }
+
+    pub fn get_chi(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+        if self.background.is_none() {
+            return None;
+        }
+
+        self.background.as_ref().unwrap().get_chi()
+    }
+
+    pub fn get_kweight(&self) -> Option<f64> {
+        if self.xftf.is_none() {
+            return None;
+        }
+
+        self.xftf.as_ref().unwrap().get_kweight()
+    }
+
+    pub fn get_chi_kweighted(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+        if self.background.is_none() {
+            return None;
+        }
+
+        if self.xftf.is_none() {
+            return None;
+        }
+
+        let k = self.get_k();
+        let chi = self.get_chi();
+        let kweight = self.get_kweight();
+
+        if k.is_none() || chi.is_none() || kweight.is_none() {
+            return None;
+        };
+
+        let k = k.unwrap();
+        let chi = chi.unwrap();
+        let kweight = kweight.unwrap();
+
+        Some(chi * k.mapv(|x| x.powf(kweight)))
+    }
+
+    pub fn get_chir(&self) -> Option<DynRealDft<f64>> {
+        if self.xftf.is_none() {
+            return None;
+        }
+
+        self.xftf.as_ref().unwrap().get_chir()
+    }
+
+    pub fn get_chir_mag(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+        if self.xftf.is_none() {
+            return None;
+        }
+
+        self.xftf.as_ref().unwrap().get_chir_mag()
+    }
+
+    pub fn get_chir_real(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+        if self.xftf.is_none() {
+            return None;
+        }
+
+        self.xftf.as_ref().unwrap().get_chir_real()
+    }
+
+    pub fn get_chir_imag(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+        if self.xftf.is_none() {
+            return None;
+        }
+
+        self.xftf.as_ref().unwrap().get_chir_imag()
+    }
+
+    pub fn get_r(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+        if self.xftf.is_none() {
+            return None;
+        }
+
+        self.xftf.as_ref().unwrap().get_r()
     }
 }
 
 pub enum XAFSError {
     NotEnoughData,
+    NotEnoughDataForXFTF,
 }
 
 // Simple unit tests for this file.
@@ -207,8 +369,8 @@ mod tests {
     use crate::xafs::io;
     use data_reader::reader::{load_txt_f64, Delimiter, ReaderParams};
     use ndarray::{Array1, ArrayBase, Ix1, OwnedRepr};
-    const TOP_DIR: &'static str = env!("CARGO_MANIFEST_DIR");
-    const PARAM_LOADTXT: ReaderParams = ReaderParams {
+    pub const TOP_DIR: &'static str = env!("CARGO_MANIFEST_DIR");
+    pub const PARAM_LOADTXT: ReaderParams = ReaderParams {
         comments: Some(b'#'),
         delimiter: Delimiter::WhiteSpace,
         skip_footer: None,
@@ -217,6 +379,9 @@ mod tests {
         max_rows: None,
         row_format: true,
     };
+    pub const TEST_TOL: f64 = 1e-16;
+
+    use approx::assert_abs_diff_eq;
 
     #[test]
     fn test_xafs_group_name_from_string() {
@@ -258,8 +423,6 @@ mod tests {
 
     #[test]
     fn test_xafs_group_normalization() {
-        let accepted_error = 1e-12;
-
         let test_file = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
         let mut xafs_group = io::load_spectrum(&test_file).unwrap();
 
@@ -280,6 +443,6 @@ mod tests {
             .to_vec()
             .iter()
             .zip(expected_norm.iter())
-            .for_each(|(x, y)| assert!((x - y).abs() < accepted_error, "calc: {}, ref: {}", x, y));
+            .for_each(|(x, y)| assert_abs_diff_eq!(x, y, epsilon = TEST_TOL));
     }
 }

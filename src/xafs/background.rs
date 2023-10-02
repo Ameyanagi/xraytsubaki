@@ -49,6 +49,42 @@ impl BackgroundMethod {
     pub fn new_ilpbkg() -> BackgroundMethod {
         BackgroundMethod::ILPBkg(ILPBkg::new())
     }
+
+    pub fn calc_background(
+        &mut self,
+        energy: &ArrayBase<OwnedRepr<f64>, Ix1>,
+        mu: &ArrayBase<OwnedRepr<f64>, Ix1>,
+        normalization_param: &mut Option<normalization::NormalizationMethod>,
+    ) -> Result<&mut Self, Box<dyn Error>> {
+        match self {
+            BackgroundMethod::AUTOBK(autobk) => {
+                autobk.calc_background(energy, mu, normalization_param);
+                Ok(self)
+            }
+            BackgroundMethod::ILPBkg(ilpbkg) => {
+                todo!("Implement ILPBkg");
+                // ilpbkg.calc_background(energy, mu, normalization_param);
+                Ok(self)
+            }
+            BackgroundMethod::None => Ok(self),
+        }
+    }
+
+    pub fn get_k(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+        match self {
+            BackgroundMethod::AUTOBK(autobk) => autobk.k.clone(),
+            BackgroundMethod::ILPBkg(ilpbkg) => None,
+            BackgroundMethod::None => None,
+        }
+    }
+
+    pub fn get_chi(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+        match self {
+            BackgroundMethod::AUTOBK(autobk) => autobk.chi.clone(),
+            BackgroundMethod::ILPBkg(ilpbkg) => None,
+            BackgroundMethod::None => None,
+        }
+    }
 }
 
 /// Struct for AUTOBK
@@ -212,11 +248,12 @@ impl AUTOBK {
         }
 
         let e0 = normalization_method.get_e0();
-        let edge_step = normalization_method.get_edge_step();
+        let mut edge_step = normalization_method.get_edge_step();
         let ek0 = self.ek0;
 
         if (ek0.is_none() && e0.is_none()) || edge_step.is_none() {
             normalization_method.normalize(&energy, &mu)?;
+            edge_step = normalization_method.get_edge_step();
         }
 
         self.ek0 = if self.ek0.is_none() {
@@ -565,18 +602,13 @@ impl ILPBkg {
 mod tests {
     use super::*;
     use crate::xafs::io;
-    use data_reader::reader::{load_txt_f64, Delimiter, ReaderParams};
-    const TOP_DIR: &'static str = env!("CARGO_MANIFEST_DIR");
-    const PARAM_LOADTXT: ReaderParams = ReaderParams {
-        comments: Some(b'#'),
-        delimiter: Delimiter::WhiteSpace,
-        skip_footer: None,
-        skip_header: None,
-        usecols: None,
-        max_rows: None,
-        row_format: true,
-    };
     use crate::xafs::normalization::PrePostEdge;
+    use data_reader::reader::{load_txt_f64, Delimiter, ReaderParams};
+
+    use crate::xafs::tests::PARAM_LOADTXT;
+    use crate::xafs::tests::TEST_TOL;
+    use crate::xafs::tests::TOP_DIR;
+    use approx::assert_abs_diff_eq;
 
     #[test]
     fn test_autobk() -> Result<(), Box<dyn Error>> {

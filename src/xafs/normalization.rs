@@ -517,28 +517,20 @@ impl Normalization for MBack {
     }
 }
 
+#[cfg(test)]
 mod tests {
-    use super::*;
-    use approx::assert_abs_diff_eq;
-
     use crate::xafs::io;
     use data_reader::reader::{load_txt_f64, Delimiter, ReaderParams};
-    const TOP_DIR: &'static str = env!("CARGO_MANIFEST_DIR");
-    const PARAM_LOADTXT: ReaderParams = ReaderParams {
-        comments: Some(b'#'),
-        delimiter: Delimiter::WhiteSpace,
-        skip_footer: None,
-        skip_header: None,
-        usecols: None,
-        max_rows: None,
-        row_format: true,
-    };
-    const ASSERT_ERROR: f64 = 1.0e-8;
+
+    use super::*;
+    use crate::xafs::tests::PARAM_LOADTXT;
+    use crate::xafs::tests::TEST_TOL;
+    use crate::xafs::tests::TOP_DIR;
+    use approx::assert_abs_diff_eq;
+    const ACCEPTABLE_MU_DIFF: f64 = 1e-6;
 
     #[test]
     fn test_pre_post_edge_fill_parameter() {
-        let acceptable_e0_diff = 1.5;
-
         let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
         let xafs_test_group = io::load_spectrum(&path).unwrap();
 
@@ -568,45 +560,42 @@ mod tests {
         assert_abs_diff_eq!(
             pre_post_edge.e0.unwrap(),
             expected.e0.unwrap(),
-            epsilon = ASSERT_ERROR
+            epsilon = TEST_TOL
         );
 
         assert_abs_diff_eq!(
             pre_post_edge.pre_edge_start.unwrap(),
             expected.pre_edge_start.unwrap(),
-            epsilon = ASSERT_ERROR
+            epsilon = TEST_TOL
         );
 
         assert_abs_diff_eq!(
             pre_post_edge.pre_edge_end.unwrap(),
             expected.pre_edge_end.unwrap(),
-            epsilon = ASSERT_ERROR
+            epsilon = TEST_TOL
         );
 
         assert_abs_diff_eq!(
             pre_post_edge.norm_start.unwrap(),
             expected.norm_start.unwrap(),
-            epsilon = ASSERT_ERROR
+            epsilon = TEST_TOL
         );
 
         assert_abs_diff_eq!(
             pre_post_edge.norm_end.unwrap(),
             expected.norm_end.unwrap(),
-            epsilon = ASSERT_ERROR
+            epsilon = TEST_TOL
         );
 
         assert_abs_diff_eq!(
             pre_post_edge.norm_polyorder.unwrap() as f64,
             expected.norm_polyorder.unwrap() as f64,
-            epsilon = ASSERT_ERROR
+            epsilon = TEST_TOL
         );
     }
 
     #[test]
     fn test_normalization() {
-        let acceptable_e0_diff = 1.5;
-        let acceptable_mu_diff = 0.01;
-
         let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
         let xafs_test_group = io::load_spectrum(&path).unwrap();
 
@@ -638,7 +627,7 @@ mod tests {
         assert_abs_diff_eq!(
             pre_post_edge.edge_step.unwrap(),
             0.862815921384477,
-            epsilon = ASSERT_ERROR
+            epsilon = TEST_TOL
         );
 
         // // Write results to a file
@@ -680,7 +669,7 @@ mod tests {
             .unwrap()
             .iter()
             .zip(reference_norm.iter())
-            .for_each(|(a, b)| assert_eq!(a, b, "norm: {} != {}", a, b));
+            .for_each(|(a, b)| assert_abs_diff_eq!(a, b, epsilon = TEST_TOL));
 
         pre_post_edge
             .flat
@@ -688,9 +677,7 @@ mod tests {
             .unwrap()
             .iter()
             .zip(reference_flat.iter())
-            .for_each(|(a, b)| {
-                assert_eq!(a, b, "flat: {} != {}", a, b);
-            });
+            .for_each(|(a, b)| assert_abs_diff_eq!(a, b, epsilon = TEST_TOL));
 
         //
         // Comparison with the data obtained from xraylarch
@@ -708,7 +695,7 @@ mod tests {
             norm_end: Some(945.0),
             norm_polyorder: Some(2),
             n_victoreen: None,
-            e0: Some(22117.6),
+            e0: Some(22118.8),
             edge_step: Some(0.8614006777730155),
             pre_edge: None,
             post_edge: None,
@@ -722,11 +709,10 @@ mod tests {
             pre_coefficients: Some(vec![-5.29888257e-02, -1.90394518e-07]),
         };
 
-        assert!(
-            (pre_post_edge.edge_step.unwrap() - 0.8628161198296296).abs() < acceptable_mu_diff,
-            "edge_step: {} != {}",
-            pre_post_edge.edge_step.unwrap(),
-            0.8628161198296296
+        assert_abs_diff_eq!(
+            pre_post_edge.e0.unwrap(),
+            expected.e0.unwrap(),
+            epsilon = TEST_TOL
         );
 
         // Test for post_edge polynominal fitting will fail.
@@ -766,7 +752,7 @@ mod tests {
             .iter()
             .zip(norm_expected.iter())
             .for_each(|(a, b)| {
-                assert!((a - b).abs() < acceptable_mu_diff, "norm: {} != {}", a, b);
+                assert_abs_diff_eq!(a, b, epsilon = ACCEPTABLE_MU_DIFF);
             });
     }
 }

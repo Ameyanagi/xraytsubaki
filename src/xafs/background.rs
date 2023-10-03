@@ -58,7 +58,7 @@ impl BackgroundMethod {
     ) -> Result<&mut Self, Box<dyn Error>> {
         match self {
             BackgroundMethod::AUTOBK(autobk) => {
-                autobk.calc_background(energy, mu, normalization_param);
+                autobk.calc_background(energy, mu, normalization_param)?;
                 Ok(self)
             }
             BackgroundMethod::ILPBkg(ilpbkg) => {
@@ -435,6 +435,62 @@ impl AUTOBK {
 
         Ok(self)
     }
+
+    pub fn get_k(&self) -> Option<Array1<f64>> {
+        self.k.clone()
+    }
+
+    pub fn get_chi(&self) -> Option<Array1<f64>> {
+        self.chi.clone()
+    }
+
+    pub fn get_kweight(&self) -> Option<i32> {
+        self.k_weight.clone()
+    }
+
+    pub fn get_chi_k_weighted(&self) -> Option<Array1<f64>> {
+        if self.k_weight.is_none() || self.k.is_none() || self.chi.is_none() {
+            return None;
+        }
+
+        let kweight = self.k_weight.unwrap();
+        let k = self.k.clone().unwrap();
+        let chi = self.chi.clone().unwrap();
+
+        if kweight == 0 {
+            return Some(chi);
+        } else {
+            return Some(chi * &k.mapv(|x| x.powi(kweight)));
+        }
+    }
+
+    pub fn get_bkg(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+        self.bkg.clone()
+    }
+
+    pub fn get_chie(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+        self.chie.clone()
+    }
+
+    pub fn get_ftwin(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+        if self.k_weight.is_none() || self.k.is_none() {
+            return None;
+        }
+
+        let k = self.k.as_ref().unwrap();
+
+        let ftwin = xafsutils::ftwindow(
+            k,
+            self.kmin.clone(),
+            self.kmax.clone(),
+            self.dk.clone(),
+            self.dk.clone(),
+            Some(self.window.clone()),
+        )
+        .unwrap();
+
+        Some(ftwin.clone())
+    }
 }
 
 /// Evaluation of the spline used in AUTOBK
@@ -610,6 +666,8 @@ mod tests {
     use crate::xafs::tests::TOP_DIR;
     use approx::assert_abs_diff_eq;
 
+    const CHI_MSE_TOL: f64 = 1.0e-4;
+
     #[test]
     fn test_autobk() -> Result<(), Box<dyn Error>> {
         let acceptable_e0_diff = 1.5;
@@ -637,6 +695,38 @@ mod tests {
             &mut xafs_test_group.normalization,
         )?;
 
+        // Test for chi with larch
+        // The chi is not exactly the same as the one calculated by larch, but it is comparable in k**kweight*chi*ftwin
+        // The MSE is below 1.0e-4
+
+        let larch_k_path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS_autobk_k_larch.txt";
+        let larch_k = load_txt_f64(&larch_k_path, &PARAM_LOADTXT).unwrap();
+
+        let k_expected = larch_k.get_col(0);
+        let chi_expected = larch_k.get_col(1);
+
+        let k = autobk.get_k().unwrap();
+        let chi = autobk.get_chi_k_weighted().unwrap();
+        let ftwin = autobk.get_ftwin().unwrap();
+        let kweight = autobk.get_kweight().unwrap();
+
+        let chi_weighted = chi * &ftwin;
+
+        let chi_k2_weighted_expected = chi_expected
+            .iter()
+            .zip(k_expected.iter())
+            .zip(ftwin.clone().iter())
+            .map(|((x, y), z)| x * y.powi(kweight) * z)
+            .collect::<Vec<f64>>();
+
+        let mse = chi_weighted
+            .iter()
+            .zip(chi_k2_weighted_expected.iter())
+            .map(|(x, y)| (x - y).powi(2))
+            .sum::<f64>()
+            / chi_weighted.len() as f64;
+
+        assert!(mse < CHI_MSE_TOL);
         Ok(())
     }
 }

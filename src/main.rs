@@ -13,26 +13,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
     let mut xafs_test_group = io::load_spectrum(&path).unwrap();
 
-    println!("{:?}", xafs_test_group.find_e0()?.get_e0());
+    xafs_test_group.normalize()?;
+    xafs_test_group.calc_background()?;
 
-    let test = Array1::range(0., 100., 0.1);
+    let k = xafs_test_group.get_k().unwrap();
+    let chi = xafs_test_group.get_chi().unwrap();
 
-    println!("{:?}", find_energy_step(test, None, None, None));
+    // println!("k: {:?}", k);
+    // println!("chi: {:?}", chi);
+    // println!("e0: {:?}", xafs_test_group.normalization.unwrap().get_e0());
 
-    use easyfft::prelude::*;
-    use nalgebra::DVector;
-
-    let x: Array1<f64> = Array1::linspace(0., 10., 10);
-    let sin_x = x.map(|x| x.sin());
-
-    let fft = sin_x.to_vec().real_fft();
-
-    println!("{:?}", fft);
-
-    let ifft = fft.real_ifft();
-
-    println!("{:?}", sin_x);
-    println!("{:?}", ifft);
+    println!("{:?}", xafs_test_group);
 
     Ok(())
 

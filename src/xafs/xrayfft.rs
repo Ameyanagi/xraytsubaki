@@ -138,7 +138,7 @@ impl XrayFFTF {
         self.r = Some(Array1::range(0.0, irmax as f64 * rstep, rstep));
 
         self.chir = Some(cchi_fft.clone());
-        self.chir_mag = Some(cchi_fft.norm());
+        self.chir_mag = Some(cchi_fft[0..irmax].norm());
         self.kwin = Some(win);
 
         self
@@ -153,11 +153,19 @@ impl XrayFFTF {
     }
 
     pub fn get_chir_real(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
-        self.chir.clone().map(|x| x.re())
+        let len_r = self.r.as_ref().unwrap().len();
+
+        let chir: Array1<f64> = self.chir.clone().unwrap().re();
+
+        Some(chir.slice_axis(Axis(0), (0..len_r).into()).to_owned())
     }
 
     pub fn get_chir_imag(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
-        self.chir.clone().map(|x| x.im())
+        let len_r = self.r.as_ref().unwrap().len();
+
+        let chir: Array1<f64> = self.chir.clone().unwrap().re();
+
+        Some(chir.slice_axis(Axis(0), (0..len_r).into()).to_owned())
     }
 
     pub fn get_chir_mag(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
@@ -258,8 +266,8 @@ impl XrayFFTR {
     ) -> Result<(DynRealDft<f64>, ArrayBase<OwnedRepr<f64>, Ix1>), Box<dyn std::error::Error>> {
         self.fill_parameter(r);
         let rweight = self.rweight.unwrap() as i32;
-        let r_max = r.max();
-        let npts = (1.01 + &r_max / self.kstep.unwrap()) as usize;
+        // let r_max = r.max();
+        // let npts = (1.01 + &r_max / self.kstep.unwrap()) as usize;
         let nfft = self.nfft.unwrap();
         let r_len = chir.len();
         let rstep = std::f64::consts::PI / self.kstep.unwrap() / nfft as f64;
@@ -311,7 +319,19 @@ impl XrayFFTR {
     }
 
     pub fn get_chiq(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
-        self.chiq.clone()
+        if self.q.is_none() || self.chiq.is_none() {
+            return None;
+        }
+
+        let len_q = self.q.as_ref().unwrap().len();
+
+        Some(
+            self.chiq
+                .as_ref()
+                .unwrap()
+                .slice_axis(Axis(0), (0..len_q).into())
+                .to_owned(),
+        )
     }
 
     pub fn get_rwin(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
@@ -541,12 +561,17 @@ mod test {
     use crate::xafs::io;
     use crate::xafs::nshare::ToNalgebra;
     use approx::assert_abs_diff_eq;
+    use data_reader::reader::{load_txt_f64, Delimiter, ReaderParams};
 
     use crate::xafs::tests::PARAM_LOADTXT;
     use crate::xafs::tests::TEST_TOL;
     use crate::xafs::tests::TOP_DIR;
 
+    use crate::xafs::background::BackgroundMethod;
+    use crate::xafs::background::AUTOBK;
+
     const ACCEPTABLE_MU_DIFF: f64 = 1e-6;
+    const CHI_MSE_TOL: f64 = 1e-2;
 
     #[test]
     fn test_xftf_fast() {
@@ -623,15 +648,119 @@ mod test {
     }
 
     #[test]
+    #[allow(non_snake_case)]
     fn test_Xray_FFTF() -> Result<(), Box<dyn std::error::Error>> {
         let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
         let mut xafs_test_group = io::load_spectrum(&path).unwrap();
 
+        xafs_test_group.set_background_method(Some(BackgroundMethod::AUTOBK(AUTOBK {
+            rbkg: Some(1.4),
+            k_weight: Some(2),
+            ..Default::default()
+        })));
         xafs_test_group.calc_background()?;
+
+        xafs_test_group.xftf = Some(XrayFFTF {
+            window: Some(FTWindow::Hanning),
+            dk: Some(1.0),
+            kmin: Some(2.0),
+            kmax: Some(15.0),
+            kweight: Some(2.0),
+            ..Default::default()
+        });
         xafs_test_group.fft()?;
 
-        println!("{:?}", xafs_test_group.get_r().unwrap().len());
-        println!("{:?}", xafs_test_group.get_chir_mag().unwrap().len());
+        let larch_r_path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS_xftf_larch.txt";
+        let larch_r = load_txt_f64(&larch_r_path, &PARAM_LOADTXT).unwrap();
+
+        let r_expected = larch_r.get_col(0);
+        let chir_expected = larch_r.get_col(1);
+
+        let r = xafs_test_group.get_r().unwrap();
+        let chir = xafs_test_group.get_chir_mag().unwrap();
+
+        r.iter().zip(r_expected.iter()).for_each(|(x, y)| {
+            assert_abs_diff_eq!(x, y, epsilon = TEST_TOL);
+        });
+
+        let mse = chir
+            .iter()
+            .zip(chir_expected.iter())
+            .map(|(x, y)| (x - y).powi(2))
+            .sum::<f64>()
+            / r.len() as f64;
+
+        // println!("mse: {}", mse);
+        assert!(mse < CHI_MSE_TOL);
+
+        // chir.iter().zip(chir_expected.iter()).for_each(|(x, y)| {
+        //     println!("[{}, {}],", x, y);
+        // });
+
+        // mse = r
+        // .iter()
+        // .zip(r_expected.iter())
+        // .map(|(x, y)| (x - y).powi(2))
+        // .sum::<f64>()
+        // / r.len() as f64;
+
+        // println!("mse: {}", mse);
+
+        // assert!(mse < CHI_MSE_TOL);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_XrayFFTR() -> Result<(), Box<dyn std::error::Error>> {
+        let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
+        let mut xafs_test_group = io::load_spectrum(&path).unwrap();
+
+        xafs_test_group.set_background_method(Some(BackgroundMethod::AUTOBK(AUTOBK {
+            rbkg: Some(1.4),
+            ..Default::default()
+        })));
+        xafs_test_group.calc_background()?;
+
+        xafs_test_group.xftf = Some(XrayFFTF {
+            window: Some(FTWindow::Hanning),
+            dk: Some(1.0),
+            kmin: Some(2.0),
+            kmax: Some(15.0),
+            kweight: Some(2.0),
+            ..Default::default()
+        });
+        xafs_test_group.fft()?;
+
+        xafs_test_group.xftr = Some(XrayFFTR {
+            window: Some(FTWindow::Hanning),
+            rweight: Some(0.0),
+            dr: Some(std::f64::EPSILON),
+            ..Default::default()
+        });
+        xafs_test_group.ifft()?;
+
+        let q = xafs_test_group.get_q().unwrap();
+        let chiq = xafs_test_group.get_chiq().unwrap();
+
+        // println!("q: {:?}", q.len());
+        // println!("chiq: {:?}", chiq.len());
+
+        assert!(q.len() == chiq.len());
+        println!("q: {:?}", q.len());
+
+        let chi = xafs_test_group.get_chi_kweighted().unwrap()
+            * xafs_test_group.xftf.unwrap().get_kwin().unwrap();
+        println!("chi: {:?}", chi.len());
+
+        let chi = chi.slice_axis(Axis(0), (0..chi.len()).into()).to_owned();
+
+        println!("chi: {:?}", chi.len());
+
+        chi.iter().zip(chiq.iter()).for_each(|(x, y)| {
+            // assert_abs_diff_eq!(x, y, epsilon = TEST_TOL);
+            println!("[{}, {}],", x, y);
+        });
 
         Ok(())
     }

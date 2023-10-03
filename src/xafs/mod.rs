@@ -15,7 +15,7 @@ use std::error::Error;
 
 use easyfft::dyn_size::realfft::DynRealDft;
 // External dependencies
-use ndarray::{ArrayBase, Ix1, OwnedRepr};
+use ndarray::{ArrayBase, Axis, Ix1, OwnedRepr};
 
 // load dependencies
 pub mod background;
@@ -351,6 +351,22 @@ impl XASGroup {
         }
 
         self.xftf.as_ref().unwrap().get_r()
+    }
+
+    pub fn get_q(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+        if self.xftr.is_none() {
+            return None;
+        }
+
+        self.xftr.as_ref().unwrap().get_q()
+    }
+
+    pub fn get_chiq(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+        if self.xftr.is_none() {
+            return None;
+        }
+
+        self.xftr.as_ref().unwrap().get_chiq()
     }
 }
 

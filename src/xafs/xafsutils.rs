@@ -680,6 +680,7 @@ mod tests {
     use approx::{assert_abs_diff_eq, assert_abs_diff_ne};
     use data_reader::reader::{load_txt_f64, Delimiter, ReaderParams};
     const ACCEPTABLE_MU_DIFF: f64 = 1e-2;
+    const TEST_TOL_FTWINDOW: f64 = 1e-15;
 
     #[test]
     fn test_smooth() -> Result<(), Box<dyn std::error::Error>> {
@@ -907,6 +908,6 @@ mod tests {
 
         y.iter()
             .zip(y_expected.iter())
-            .for_each(|(a, b)| assert_abs_diff_eq!(a, &b, epsilon = TEST_TOL));
+            .for_each(|(a, b)| assert_abs_diff_eq!(a, &b, epsilon = TEST_TOL_FTWINDOW));
     }
 }

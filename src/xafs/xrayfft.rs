@@ -232,10 +232,6 @@ impl XrayFFTR {
 
         self.rweight = Some(self.rweight.unwrap().max(0.0).floor());
 
-        if self.kstep.is_none() {
-            self.kstep = Some(r[1] - r[0]);
-        }
-
         if self.rmin.is_none() {
             self.rmin = Some(r[0]);
         }
@@ -256,6 +252,9 @@ impl XrayFFTR {
             self.qmax_out = Some(10.0);
         }
 
+        if self.kstep.is_none() {
+            self.kstep = Some(std::f64::consts::PI / (r[1] - r[0]) / self.nfft.unwrap() as f64);
+        }
         self
     }
 
@@ -560,7 +559,8 @@ mod test {
     use super::*;
     use crate::xafs::io;
     use crate::xafs::nshare::ToNalgebra;
-    use approx::assert_abs_diff_eq;
+    use approx::{assert_abs_diff_eq, assert_relative_eq};
+
     use data_reader::reader::{load_txt_f64, Delimiter, ReaderParams};
 
     use crate::xafs::tests::PARAM_LOADTXT;
@@ -572,6 +572,7 @@ mod test {
 
     const ACCEPTABLE_MU_DIFF: f64 = 1e-6;
     const CHI_MSE_TOL: f64 = 1e-2;
+    const CHI_Q_TOL: f64 = 1e-1;
 
     #[test]
     fn test_xftf_fast() {
@@ -724,8 +725,8 @@ mod test {
 
         xafs_test_group.xftf = Some(XrayFFTF {
             window: Some(FTWindow::Hanning),
-            dk: Some(1.0),
-            kmin: Some(2.0),
+            dk: Some(std::f64::EPSILON),
+            kmin: Some(0.0),
             kmax: Some(15.0),
             kweight: Some(2.0),
             ..Default::default()
@@ -736,6 +737,8 @@ mod test {
             window: Some(FTWindow::Hanning),
             rweight: Some(0.0),
             dr: Some(std::f64::EPSILON),
+            rmin: Some(0.0),
+            rmax: Some(10.0),
             ..Default::default()
         });
         xafs_test_group.ifft()?;
@@ -747,19 +750,14 @@ mod test {
         // println!("chiq: {:?}", chiq.len());
 
         assert!(q.len() == chiq.len());
-        println!("q: {:?}", q.len());
 
         let chi = xafs_test_group.get_chi_kweighted().unwrap()
             * xafs_test_group.xftf.unwrap().get_kwin().unwrap();
-        println!("chi: {:?}", chi.len());
 
         let chi = chi.slice_axis(Axis(0), (0..chi.len()).into()).to_owned();
 
-        println!("chi: {:?}", chi.len());
-
         chi.iter().zip(chiq.iter()).for_each(|(x, y)| {
-            // assert_abs_diff_eq!(x, y, epsilon = TEST_TOL);
-            println!("[{}, {}],", x, y);
+            assert_relative_eq!(x, y, epsilon = CHI_Q_TOL);
         });
 
         Ok(())

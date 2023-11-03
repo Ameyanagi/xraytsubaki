@@ -713,7 +713,6 @@ pub fn ftwindow(
 // 2 If xanes_step is None, it will be found from the data as E0/25000,
 // truncated down to the nearest 0.05: xanes_step = 0.05*max(1, int(e0/1250.0))
 
-
 // 3 The EXAFS region will be spaced in k-space
 
 // 4 The rebinned data is found by determining which segments of the
@@ -813,7 +812,8 @@ pub enum RebinMethod {
     Centroid,
 }
 
-pub fn rebin(energy: ArrayBase<OwnedRepr<f64>, Ix1>,
+pub fn rebin(
+    energy: ArrayBase<OwnedRepr<f64>, Ix1>,
     mu: ArrayBase<OwnedRepr<f64>, Ix1>,
     e0: f64,
     pre1: Option<f64>,
@@ -825,7 +825,6 @@ pub fn rebin(energy: ArrayBase<OwnedRepr<f64>, Ix1>,
     exafs_kstep: Option<f64>,
     method: RebinMethod,
 ) -> Result<(Array1<f64>, Array1<f64>, Array1<f64>), Box<dyn Error>> {
-    
     let pre2 = pre2.unwrap_or(-30.0);
     let pre_step = pre_step.unwrap_or(2.0);
     let exafs1 = exafs1.unwrap_or(15.0);
@@ -837,11 +836,10 @@ pub fn rebin(energy: ArrayBase<OwnedRepr<f64>, Ix1>,
     let xanes_step = if xanes_step.is_none() {
         let xanes_x1 = index_of(&energy.to_vec(), &(e0 - 10.0));
         let xanes_x2 = index_of(&energy.to_vec(), &(e0 + 10.0));
-        
+
         let de_mean = (&energy.slice(ndarray::s![xanes_x1..xanes_x2]).to_owned() - e0).mean();
 
         0.05 * f64::max(1.0, (e0 / 1250.0).floor())
-
     } else {
         xanes_step.unwrap()
     };
@@ -853,7 +851,6 @@ pub fn rebin(energy: ArrayBase<OwnedRepr<f64>, Ix1>,
         (pre2, exafs1, xanes_step, false),
         (exafs1, exafs2, exafs_kstep, true),
     ] {
-
         let (start, stop) = if is_kspace {
             (etok(start), etok(stop))
         } else {
@@ -862,13 +859,7 @@ pub fn rebin(energy: ArrayBase<OwnedRepr<f64>, Ix1>,
 
         let npts = 1 + ((stop - start) / step + 0.1).abs().floor() as usize;
         let reg = Array1::linspace(start, stop, npts);
-        let reg = if is_kspace {
-            ktoe(reg)
-        } else {
-            reg
-        };
-
-
+        let reg = if is_kspace { ktoe(reg) } else { reg };
 
         en.extend(e0 + &reg.slice(ndarray::s![..-1]));
     }
@@ -926,11 +917,7 @@ pub fn rebin(energy: ArrayBase<OwnedRepr<f64>, Ix1>,
     //         mu_out.push(val);
     //         err_out.push(err);
     //     } else {
-
-    
-
-
-
+}
 
 #[cfg(test)]
 mod tests {

@@ -144,6 +144,34 @@ impl XrayFFTF {
         self
     }
 
+    pub fn get_rmax_out(&self) -> Option<f64> {
+        self.rmax_out.clone()
+    }
+
+    pub fn get_window(&self) -> Option<FTWindow> {
+        self.window.clone()
+    }
+
+    pub fn get_dk(&self) -> Option<f64> {
+        self.dk.clone()
+    }
+
+    pub fn get_dk2(&self) -> Option<f64> {
+        self.dk2.clone()
+    }
+
+    pub fn get_kmin(&self) -> Option<f64> {
+        self.kmin.clone()
+    }
+
+    pub fn get_kmax(&self) -> Option<f64> {
+        self.kmax.clone()
+    }
+
+    pub fn get_kweight(&self) -> Option<f64> {
+        self.kweight.clone()
+    }
+
     pub fn get_r(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
         self.r.clone()
     }
@@ -178,10 +206,6 @@ impl XrayFFTF {
 
     pub fn get_kstep(&self) -> Option<f64> {
         self.kstep.clone()
-    }
-
-    pub fn get_kweight(&self) -> Option<f64> {
-        self.kweight.clone()
     }
 }
 
@@ -652,13 +676,13 @@ mod test {
     #[allow(non_snake_case)]
     fn test_Xray_FFTF() -> Result<(), Box<dyn std::error::Error>> {
         let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
-        let mut xafs_test_group = io::load_spectrum(&path).unwrap();
+        let mut xafs_test_group = io::load_spectrum_QAS_trans(&path).unwrap();
 
         xafs_test_group.set_background_method(Some(BackgroundMethod::AUTOBK(AUTOBK {
             rbkg: Some(1.4),
-            k_weight: Some(2),
+            kweight: Some(2),
             ..Default::default()
-        })));
+        })))?;
         xafs_test_group.calc_background()?;
 
         xafs_test_group.xftf = Some(XrayFFTF {
@@ -713,14 +737,15 @@ mod test {
     }
 
     #[test]
+    #[allow(non_snake_case)]
     fn test_XrayFFTR() -> Result<(), Box<dyn std::error::Error>> {
         let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
-        let mut xafs_test_group = io::load_spectrum(&path).unwrap();
+        let mut xafs_test_group = io::load_spectrum_QAS_trans(&path).unwrap();
 
         xafs_test_group.set_background_method(Some(BackgroundMethod::AUTOBK(AUTOBK {
             rbkg: Some(1.4),
             ..Default::default()
-        })));
+        })))?;
         xafs_test_group.calc_background()?;
 
         xafs_test_group.xftf = Some(XrayFFTF {

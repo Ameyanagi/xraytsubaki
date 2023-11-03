@@ -2,6 +2,8 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 
+use crate::xafs::mathutils::index_of;
+
 use super::bessel_i0;
 use super::io;
 use super::mathutils::MathUtils;
@@ -671,6 +673,265 @@ pub fn ftwindow(
     Ok(fwin)
 }
 
+// def rebin_xafs(energy, mu=None, group=None, e0=None, pre1=None, pre2=-30,
+//     pre_step=2, xanes_step=None, exafs1=15, exafs2=None,
+//     exafs_kstep=0.05, method='centroid'):
+// """rebin XAFS energy and mu to a 'standard 3 region XAFS scan'
+
+// Arguments
+// ---------
+// energy       input energy array
+// mu           input mu array
+// group        output group
+// e0           energy reference -- all energy values are relative to this
+// pre1         start of pre-edge region [1st energy point]
+// pre2         end of pre-edge region, start of XANES region [-30]
+// pre_step     energy step for pre-edge region [2]
+// xanes_step   energy step for XANES region [see note]
+// exafs1       end of XANES region, start of EXAFS region [15]
+// exafs2       end of EXAFS region [last energy point]
+// exafs_kstep  k-step for EXAFS region [0.05]
+// method       one of 'boxcar', 'centroid' ['centroid']
+
+// Returns
+// -------
+// None
+
+// A group named 'rebinned' will be created in the output group, with the
+// following  attributes:
+// energy  new energy array
+// mu      mu for energy array
+// e0      e0 copied from current group
+
+// (if the output group is None, _sys.xafsGroup will be written to)
+
+// Notes
+// ------
+// 1 If the first argument is a Group, it must contain 'energy' and 'mu'.
+// See First Argrument Group in Documentation
+
+// 2 If xanes_step is None, it will be found from the data as E0/25000,
+// truncated down to the nearest 0.05: xanes_step = 0.05*max(1, int(e0/1250.0))
+
+
+// 3 The EXAFS region will be spaced in k-space
+
+// 4 The rebinned data is found by determining which segments of the
+// input energy correspond to each bin in the new energy array. That
+// is, each input energy is assigned to exactly one bin in the new
+// array.  For each new energy bin, the new value is selected from the
+// data in the segment as either
+// a) linear interpolation if there are fewer than 3 points in the segment.
+// b) mean value ('boxcar')
+// c) centroid ('centroid')
+
+// """
+// energy, mu, group = parse_group_args(energy, members=('energy', 'mu'),
+//                               defaults=(mu,), group=group,
+//                              fcn_name='rebin_xafs')
+
+// if e0 is None:
+// e0 = getattr(group, 'e0', None)
+
+// if e0 is None:
+// raise ValueError("need e0")
+
+// if pre1 is None:
+// pre1 = pre_step*int((min(energy) - e0)/pre_step)
+
+// if exafs2 is None:
+// exafs2 = max(energy) - e0
+
+// # determine xanes step size:
+// #  find mean of energy difference within 10 eV of E0
+// nx1 = index_of(energy, e0-10)
+// nx2 = index_of(energy, e0+10)
+// de_mean = np.diff(energy[nx1:nx1]).mean()
+// if xanes_step is None:
+// xanes_step = 0.05 * max(1, int(e0 / 1250.0))  # E0/25000, round down to 0.05
+
+// # create new energy array from the 3 segments (pre, xanes, exafs)
+// en = []
+// for start, stop, step, isk in ((pre1, pre2, pre_step, False),
+//                         (pre2, exafs1, xanes_step, False),
+//                         (exafs1, exafs2, exafs_kstep, True)):
+// if isk:
+//  start = etok(start)
+//  stop = etok(stop)
+
+// npts = 1 + int(0.1  + abs(stop - start) / step)
+// reg = np.linspace(start, stop, npts)
+// if isk:
+//  reg = ktoe(reg)
+// en.extend(e0 + reg[:-1])
+
+// # find the segment boundaries of the old energy array
+// bounds = [index_of(energy, e) for e in en]
+// mu_out = []
+// err_out = []
+
+// j0 = 0
+// for i in range(len(en)):
+// if i == len(en) - 1:
+//  j1 = len(energy) - 1
+// else:
+//  j1 = int((bounds[i] + bounds[i+1] + 1)/2.0)
+// if i == 0 and j0 == 0:
+//  j0 = index_of(energy, en[0]-5)
+// # if not enough points in segment, do interpolation
+// if (j1 - j0) < 3:
+//  jx = j1 + 1
+//  if (jx - j0) < 3:
+//      jx += 1
+
+//  val = interp1d(energy[j0:jx], mu[j0:jx], en[i])
+//  err = mu[j0:jx].std()
+//  if np.isnan(val):
+//      j0 = max(0, j0-1)
+//      jx = min(len(energy), jx+1)
+//      val = interp1d(energy[j0:jx], mu[j0:jx], en[i])
+//      err = mu[j0:jx].std()
+// else:
+//  if method.startswith('box'):
+//      val =  mu[j0:j1].mean()
+//  else:
+//      val = (mu[j0:j1]*energy[j0:j1]).mean()/energy[j0:j1].mean()
+// mu_out.append(val)
+// err_out.append(mu[j0:j1].std())
+// j0 = j1
+
+// newname = group.__name__ + '_rebinned'
+// group.rebinned = Group(energy=np.array(en), mu=np.array(mu_out),
+//                 delta_mu=np.array(err_out), e0=e0,
+//                 __name__=newname)
+// return
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub enum RebinMethod {
+    Boxcar,
+    #[default]
+    Centroid,
+}
+
+pub fn rebin(energy: ArrayBase<OwnedRepr<f64>, Ix1>,
+    mu: ArrayBase<OwnedRepr<f64>, Ix1>,
+    e0: f64,
+    pre1: Option<f64>,
+    pre2: Option<f64>,
+    pre_step: Option<f64>,
+    xanes_step: Option<f64>,
+    exafs1: Option<f64>,
+    exafs2: Option<f64>,
+    exafs_kstep: Option<f64>,
+    method: RebinMethod,
+) -> Result<(Array1<f64>, Array1<f64>, Array1<f64>), Box<dyn Error>> {
+    
+    let pre2 = pre2.unwrap_or(-30.0);
+    let pre_step = pre_step.unwrap_or(2.0);
+    let exafs1 = exafs1.unwrap_or(15.0);
+    let exafs_kstep = exafs_kstep.unwrap_or(0.05);
+
+    let pre1 = pre1.unwrap_or(pre_step * ((energy.min() - e0) / pre_step).floor());
+    let exafs2 = exafs2.unwrap_or(energy.max() - e0);
+
+    let xanes_step = if xanes_step.is_none() {
+        let xanes_x1 = index_of(&energy.to_vec(), &(e0 - 10.0));
+        let xanes_x2 = index_of(&energy.to_vec(), &(e0 + 10.0));
+        
+        let de_mean = (&energy.slice(ndarray::s![xanes_x1..xanes_x2]).to_owned() - e0).mean();
+
+        0.05 * f64::max(1.0, (e0 / 1250.0).floor())
+
+    } else {
+        xanes_step.unwrap()
+    };
+
+    let mut en = Array1::zeros(0);
+
+    for (start, stop, step, is_kspace) in [
+        (pre1, pre2, pre_step, false),
+        (pre2, exafs1, xanes_step, false),
+        (exafs1, exafs2, exafs_kstep, true),
+    ] {
+
+        let (start, stop) = if is_kspace {
+            (etok(start), etok(stop))
+        } else {
+            (start, stop)
+        };
+
+        let npts = 1 + ((stop - start) / step + 0.1).abs().floor() as usize;
+        let reg = Array1::linspace(start, stop, npts);
+        let reg = if is_kspace {
+            ktoe(reg)
+        } else {
+            reg
+        };
+
+
+
+        en.extend(e0 + &reg.slice(ndarray::s![..-1]));
+    }
+
+    let bounds = en
+        .iter()
+        .map(|e| index_of(&energy.to_vec(), e))
+        .collect::<Vec<usize>>();
+
+    let mut mu_out = Array1::zeros(0);
+    let mut err_out = Array1::zeros(0);
+
+    let mut j0 = 0;
+
+    todo!("finish rebin function")
+
+    // for i in 0..en.len() {
+    //     let j1 = if i == en.len() - 1 {
+    //         energy.len() - 1
+    //     } else {
+    //         ((bounds[i] + bounds[i + 1] + 1) / 2).floor() as usize
+    //     };
+
+    //     if i == 0 && j0 == 0 {
+    //         j0 = index_of(&energy.to_vec(), &(en[0] - 5.0));
+    //     }
+
+    //     if (j1 - j0) < 3 {
+    //         let jx = j1 + 1;
+    //         let jx = if (jx - j0) < 3 {
+    //             jx + 1
+    //         } else {
+    //             jx
+    //         };
+
+    //         let val = interp1d(
+    //             &energy.slice(ndarray:: s![j0..jx]).to_owned(),
+    //             &mu.slice(ndarray::s![j0..jx]).to_owned(),
+    //             en[i],
+    //         )?;
+
+    //         let err = mu.slice(ndarray::s![j0..jx]).to_owned().std_axis(Axis(0));
+
+    //         if val.is_nan() {
+    //             j0 = f64::max(0.0, j0 as f64 - 1.0) as usize;
+    //             let jx = f64::min(energy.len() as f64, jx as f64 + 1.0) as usize;
+    //             let val = interp1d(
+    //                 &energy.slice(ndarray:: s![j0..jx]).to_owned(),
+    //                 &mu.slice(ndarray::s![j0..jx]).to_owned(),
+    //                 en[i],
+    //             )?;
+    //             let err = mu.slice(ndarray::s![j0..jx]).to_owned().std_axis(Axis(0));
+    //         }
+
+    //         mu_out.push(val);
+    //         err_out.push(err);
+    //     } else {
+
+    
+
+
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -688,7 +949,7 @@ mod tests {
         let expected_filepath = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS_smooth.txt";
         let expected_filepath_larch =
             String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS_smooth_larch.txt";
-        let xafs_group = io::load_spectrum(&filepath)?;
+        let xafs_group = io::load_spectrum_QAS_trans(&filepath)?;
 
         let expected_data = load_txt_f64(&expected_filepath, &PARAM_LOADTXT)?;
         let expected_data = expected_data.get_col(0);

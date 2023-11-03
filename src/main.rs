@@ -11,7 +11,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     const TOP_DIR: &'static str = env!("CARGO_MANIFEST_DIR");
 
     let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
-    let mut xafs_test_group = io::load_spectrum(&path).unwrap();
+    let mut xafs_test_group = io::load_spectrum_QAS_trans(&path).unwrap();
 
     xafs_test_group.normalize()?;
     xafs_test_group.calc_background()?;

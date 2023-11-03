@@ -311,6 +311,46 @@ impl PrePostEdge {
 
         Ok(self)
     }
+
+    pub fn get_pre_edge_start(&self) -> Option<f64> {
+        self.pre_edge_start
+    }
+
+    pub fn get_pre_edge_end(&self) -> Option<f64> {
+        self.pre_edge_end
+    }
+
+    pub fn get_norm_start(&self) -> Option<f64> {
+        self.norm_start
+    }
+
+    pub fn get_norm_end(&self) -> Option<f64> {
+        self.norm_end
+    }
+
+    pub fn get_norm_polyorder(&self) -> Option<i32> {
+        self.norm_polyorder
+    }
+
+    pub fn get_n_victoreen(&self) -> Option<i32> {
+        self.n_victoreen
+    }
+
+    pub fn get_pre_edge(&self) -> &Option<Array1<f64>> {
+        &self.pre_edge
+    }
+
+    pub fn get_post_edge(&self) -> &Option<Array1<f64>> {
+        &self.post_edge
+    }
+
+    pub fn get_norm_coefficients(&self) -> &Option<Vec<f64>> {
+        &self.norm_coefficients
+    }
+
+    pub fn get_pre_coefficients(&self) -> &Option<Vec<f64>> {
+        &self.pre_coefficients
+    }
 }
 
 impl Normalization for PrePostEdge {
@@ -532,7 +572,7 @@ mod tests {
     #[test]
     fn test_pre_post_edge_fill_parameter() {
         let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
-        let xafs_test_group = io::load_spectrum(&path).unwrap();
+        let xafs_test_group = io::load_spectrum_QAS_trans(&path).unwrap();
 
         let mut pre_post_edge = PrePostEdge::new();
         let _ = pre_post_edge.fill_parameter(
@@ -597,7 +637,7 @@ mod tests {
     #[test]
     fn test_normalization() {
         let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
-        let xafs_test_group = io::load_spectrum(&path).unwrap();
+        let xafs_test_group = io::load_spectrum_QAS_trans(&path).unwrap();
 
         let mut pre_post_edge = PrePostEdge::new();
         let _ = pre_post_edge.fill_parameter(

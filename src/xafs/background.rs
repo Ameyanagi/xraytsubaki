@@ -117,7 +117,7 @@ pub struct AUTOBK {
     /// Optional k array for standard chi(k).
     pub k_std: Option<Array1<f64>>,
     /// k weight for FFT. Default = 1.
-    pub k_weight: Option<i32>,
+    pub kweight: Option<i32>,
     /// FFT window function name. Default = Hanning.
     pub window: FTWindow,
     /// FFT window window parameter. Default = 0.1.
@@ -147,7 +147,7 @@ impl Default for AUTOBK {
             nfft: Some(2048),
             chi_std: None,
             k_std: None,
-            k_weight: Some(1),
+            kweight: Some(1),
             window: FTWindow::Hanning,
             dk: Some(0.1),
             bkg: None,
@@ -194,8 +194,8 @@ impl AUTOBK {
             self.nfft = Some(2048);
         }
 
-        if self.k_weight.is_none() {
-            self.k_weight = Some(1);
+        if self.kweight.is_none() {
+            self.kweight = Some(1);
         }
 
         if self.dk.is_none() {
@@ -299,7 +299,7 @@ impl AUTOBK {
             None
         };
 
-        let ftwin = &kout.mapv(|x| x.powi(self.k_weight.unwrap()))
+        let ftwin = &kout.mapv(|x| x.powi(self.kweight.unwrap()))
             * xafsutils::ftwindow(
                 &kout,
                 self.kmin.clone(),
@@ -393,7 +393,7 @@ impl AUTOBK {
                 .into_nalgebra(),
             kout: kout.clone().into_nalgebra(),
             ftwin: ftwin.into_nalgebra(),
-            kweight: self.k_weight.unwrap(),
+            kweight: self.kweight.unwrap(),
             chi_std: if let Some(chi_std) = chi_std {
                 Some(chi_std.into_nalgebra())
             } else {
@@ -436,6 +436,74 @@ impl AUTOBK {
         Ok(self)
     }
 
+    pub fn get_ek0(&self) -> Option<f64> {
+        self.ek0.clone()
+    }
+
+    pub fn get_rbkg(&self) -> Option<f64> {
+        self.rbkg.clone()
+    }
+
+    pub fn get_nknots(&self) -> Option<i32> {
+        self.nknots.clone()
+    }
+
+    pub fn get_kmin(&self) -> Option<f64> {
+        self.kmin.clone()
+    }
+
+    pub fn get_kmax(&self) -> Option<f64> {
+        self.kmax.clone()
+    }
+
+    pub fn get_kstep(&self) -> Option<f64> {
+        self.kstep.clone()
+    }
+
+    pub fn get_nclamp(&self) -> Option<i32> {
+        self.nclamp.clone()
+    }
+
+    pub fn get_clamp_lo(&self) -> Option<i32> {
+        self.clamp_lo.clone()
+    }
+
+    pub fn get_clamp_hi(&self) -> Option<i32> {
+        self.clamp_hi.clone()
+    }
+
+    pub fn get_nfft(&self) -> Option<i32> {
+        self.nfft.clone()
+    }
+
+    pub fn get_chi_std(&self) -> Option<Array1<f64>> {
+        self.chi_std.clone()
+    }
+
+    pub fn get_k_std(&self) -> Option<Array1<f64>> {
+        self.k_std.clone()
+    }
+
+    pub fn get_kweight(&self) -> Option<i32> {
+        self.kweight.clone()
+    }
+
+    pub fn get_window(&self) -> FTWindow {
+        self.window.clone()
+    }
+
+    pub fn get_dk(&self) -> Option<f64> {
+        self.dk.clone()
+    }
+
+    pub fn get_bkg(&self) -> Option<Array1<f64>> {
+        self.bkg.clone()
+    }
+
+    pub fn get_chie(&self) -> Option<Array1<f64>> {
+        self.chie.clone()
+    }
+
     pub fn get_k(&self) -> Option<Array1<f64>> {
         self.k.clone()
     }
@@ -444,16 +512,12 @@ impl AUTOBK {
         self.chi.clone()
     }
 
-    pub fn get_kweight(&self) -> Option<i32> {
-        self.k_weight.clone()
-    }
-
-    pub fn get_chi_k_weighted(&self) -> Option<Array1<f64>> {
-        if self.k_weight.is_none() || self.k.is_none() || self.chi.is_none() {
+    pub fn get_chi_kweighted(&self) -> Option<Array1<f64>> {
+        if self.kweight.is_none() || self.k.is_none() || self.chi.is_none() {
             return None;
         }
 
-        let kweight = self.k_weight.unwrap();
+        let kweight = self.kweight.unwrap();
         let k = self.k.clone().unwrap();
         let chi = self.chi.clone().unwrap();
 
@@ -464,16 +528,8 @@ impl AUTOBK {
         }
     }
 
-    pub fn get_bkg(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
-        self.bkg.clone()
-    }
-
-    pub fn get_chie(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
-        self.chie.clone()
-    }
-
     pub fn get_ftwin(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
-        if self.k_weight.is_none() || self.k.is_none() {
+        if self.kweight.is_none() || self.k.is_none() {
             return None;
         }
 
@@ -673,7 +729,7 @@ mod tests {
         let acceptable_e0_diff = 1.5;
 
         let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
-        let mut xafs_test_group = io::load_spectrum(&path).unwrap();
+        let mut xafs_test_group = io::load_spectrum_QAS_trans(&path).unwrap();
 
         // let mut pre_post_edge = PrePostEdge::new();
         // let _ = pre_post_edge.fill_parameter(
@@ -706,7 +762,7 @@ mod tests {
         let chi_expected = larch_k.get_col(1);
 
         let k = autobk.get_k().unwrap();
-        let chi = autobk.get_chi_k_weighted().unwrap();
+        let chi = autobk.get_chi_kweighted().unwrap();
         let ftwin = autobk.get_ftwin().unwrap();
         let kweight = autobk.get_kweight().unwrap();
 

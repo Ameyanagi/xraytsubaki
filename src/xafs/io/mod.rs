@@ -2,11 +2,12 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 
-use crate::xafs::XASGroup;
+use crate::xafs::xasspectrum::XASSpectrum;
 use data_reader::reader::{load_txt_f64, Delimiter, ReaderParams};
 use std::error::Error;
 
-pub fn load_spectrum(path: &String) -> Result<XASGroup, Box<dyn Error>> {
+#[allow(non_snake_case)]
+pub fn load_spectrum_QAS_trans(path: &String) -> Result<XASSpectrum, Box<dyn Error>> {
     let params = ReaderParams {
         comments: Some(b'#'),
         delimiter: Delimiter::WhiteSpace,
@@ -20,7 +21,7 @@ pub fn load_spectrum(path: &String) -> Result<XASGroup, Box<dyn Error>> {
     let ir = data.get_col(3);
     let iff = data.get_col(4);
 
-    let mut xafs_group = XASGroup::new();
+    let mut xafs_group = XASSpectrum::new();
     xafs_group.set_spectrum(
         energy,
         i0.iter()
@@ -40,7 +41,7 @@ mod tests {
     #[test]
     fn test_load_spectrum() {
         let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
-        let result = load_spectrum(&path).unwrap();
+        let result = load_spectrum_QAS_trans(&path).unwrap();
         println!("{:?}", result);
     }
 }

@@ -10,16 +10,16 @@ Additionally, this project seeks to leverage Rust's ecosystem to create a genera
 
 ## Key Features
 
-(To be completed...)
+- [x] Standard EXAFS analysis (find_e0, preedge postedge normalization, AUTOBK, FFT, IFFT)
+- [x] Parallel processing using Rayon. (For example, M1 Macbook Pro with 10 cores can process 10000 spectra in 20 seconds, which is ~x10 enhancement without parallelization. Numpy + xraylarch takes 145 seconds.)
 
 ## Future Developments
 
-- [ ] Introduce EXAFS analysis features (Find_e0, Normalization, AUTOBK, FFT to R space, and more).
+- [ ] EXAFS helper funtions (rebinning and more)
 - [ ] Develop a Python wrapper for the library.
-- [ ] Create a GUI application using Tauri.
+- [ ] Create a GUI application using Dioxus.
 - [ ] Develop a web assembly version of the library for web application usage.
 
-- [ ] Optimization using LAPACK or related libraries.
-
 ## Licensing
+
 (To be completed...)

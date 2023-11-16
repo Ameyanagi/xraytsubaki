@@ -1,0 +1,62 @@
+[application]
+
+# App (Project) Name
+name = "XrayTsubaki"
+
+# Dioxus App Default Platform
+# desktop, web, mobile, ssr
+default_platform = "web"
+
+# `build` & `serve` dist path
+out_dir = "dist"
+
+# resource (public) file folder
+asset_dir = "public"
+
+base_path = "https://ameyanagi.github.io/xraytsubaki/"
+
+[web.app]
+
+# HTML title tag content
+title = "XrayTsubaki | Light and Efficient Analysis Tool for Xray Absorption Spectroscopy"
+
+[web.watcher]
+
+# when watcher trigger, regenerate the `index.html`
+reload_html = true
+
+# which files or dirs will be watcher monitoring
+watch_path = ["src", "public"]
+
+# include `assets` in web platform
+[web.resource]
+
+# CSS style file
+
+style = ["tailwind.css"]
+
+# Javascript code file
+# script = ["js/plotly-2.27.0.min.js"]
+script = []
+
+[web.resource.dev]
+
+# Javascript code file
+# serve: [dev-server] only
+script = []
+
+
+[bundle]
+name = "XrayTsubaki"
+identifier = "com.ameyanagi.xraytsubaki"
+icon = ["public/images/128x128.png"]
+version = "0.1.0"
+resources = ["public/tailwind.css", "public/images/*.png", "public/js/*.js"]
+copyright = "Copyright (c) Ryuichi Shimogawa 2023. All rights reserved."
+category = "Science"
+short_description = "XAS analysis tool"
+long_description = """
+rayTsubaki is a light and efficient analysis tool for Xray Absorption Spectroscopy.
+"""
+osx_frameworks = []
+# TODO: Must add these files

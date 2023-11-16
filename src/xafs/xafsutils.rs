@@ -825,7 +825,7 @@ pub fn rebin(
     exafs_kstep: Option<f64>,
     method: RebinMethod,
 ) -> Result<(Array1<f64>, Array1<f64>, Array1<f64>), Box<dyn Error>> {
-    let pre2 = pre2.unwrap_or(-30.0);
+    let pre2: f64 = pre2.unwrap_or(-30.0);
     let pre_step = pre_step.unwrap_or(2.0);
     let exafs1 = exafs1.unwrap_or(15.0);
     let exafs_kstep = exafs_kstep.unwrap_or(0.05);
@@ -833,46 +833,46 @@ pub fn rebin(
     let pre1 = pre1.unwrap_or(pre_step * ((energy.min() - e0) / pre_step).floor());
     let exafs2 = exafs2.unwrap_or(energy.max() - e0);
 
-    let xanes_step = if xanes_step.is_none() {
-        let xanes_x1 = index_of(&energy.to_vec(), &(e0 - 10.0));
-        let xanes_x2 = index_of(&energy.to_vec(), &(e0 + 10.0));
+    // let xanes_step = if xanes_step.is_none() {
+    //     let xanes_x1 = index_of(&energy.to_vec(), &(e0 - 10.0));
+    //     let xanes_x2 = index_of(&energy.to_vec(), &(e0 + 10.0));
 
-        let de_mean = (&energy.slice(ndarray::s![xanes_x1..xanes_x2]).to_owned() - e0).mean();
+    //     let de_mean = (&energy.slice(ndarray::s![xanes_x1..xanes_x2]).to_owned() - e0).mean();
 
-        0.05 * f64::max(1.0, (e0 / 1250.0).floor())
-    } else {
-        xanes_step.unwrap()
-    };
+    //     0.05 * f64::max(1.0, (e0 / 1250.0).floor())
+    // } else {
+    //     xanes_step.unwrap()
+    // };
 
-    let mut en = Array1::zeros(0);
+    // let mut en = Array1::zeros(0);
 
-    for (start, stop, step, is_kspace) in [
-        (pre1, pre2, pre_step, false),
-        (pre2, exafs1, xanes_step, false),
-        (exafs1, exafs2, exafs_kstep, true),
-    ] {
-        let (start, stop) = if is_kspace {
-            (etok(start), etok(stop))
-        } else {
-            (start, stop)
-        };
+    // for (start, stop, step, is_kspace) in [
+    //     (pre1, pre2, pre_step, false),
+    //     (pre2, exafs1, xanes_step, false),
+    //     (exafs1, exafs2, exafs_kstep, true),
+    // ] {
+    //     let (start, stop) = if is_kspace {
+    //         (etok(start), etok(stop))
+    //     } else {
+    //         (start, stop)
+    //     };
 
-        let npts = 1 + ((stop - start) / step + 0.1).abs().floor() as usize;
-        let reg = Array1::linspace(start, stop, npts);
-        let reg = if is_kspace { ktoe(reg) } else { reg };
+    //     let npts = 1 + ((stop - start) / step + 0.1).abs().floor() as usize;
+    //     let reg = Array1::linspace(start, stop, npts);
+    //     let reg = if is_kspace { ktoe(reg) } else { reg };
 
-        en.extend(e0 + &reg.slice(ndarray::s![..-1]));
-    }
+    //     en.extend(e0 + &reg.slice(ndarray::s![..-1]));
+    // }
 
-    let bounds = en
-        .iter()
-        .map(|e| index_of(&energy.to_vec(), e))
-        .collect::<Vec<usize>>();
+    // let bounds = en
+    //     .iter()
+    //     .map(|e| index_of(&energy.to_vec(), e))
+    //     .collect::<Vec<usize>>();
 
-    let mut mu_out = Array1::zeros(0);
-    let mut err_out = Array1::zeros(0);
+    // let mut mu_out = Array1::zeros(0);
+    // let mut err_out = Array1::zeros(0);
 
-    let mut j0 = 0;
+    // let mut j0 = 0;
 
     todo!("finish rebin function")
 

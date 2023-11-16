@@ -12,13 +12,14 @@ easyfft = "0.4.0"
 errorfunctions = "0.2.0"
 fftconvolve = "0.1.1"
 ndarray = { version = "0.15.6", features = ["approx"] }
-itertools = "0.11.0"
+itertools = "0.12.0"
 lazy_static = "1.4.0"
 levenberg-marquardt = "0.13.1"
 nalgebra = "0.32.3"
 num-complex = "0.4.3"
 polyfit-rs = "0.2.1"
 rusty-fitpack = { git = "https://github.com/mitric-lab/Rusty-FITPACK", version = "0.1.0" }
+rayon = "1.8.0"
 
 
 [dependencies.enterpolation]
@@ -26,3 +27,19 @@ version = "0.2.1"
 default-features = false
 # re-enable all wanted features
 features = ["std", "linear"]
+
+[dev-dependencies]
+pprof = { version = "0.13", features = ["flamegraph"] }
+
+criterion = { version = "0.5.1", features = ["html_reports"] }
+
+# [[bench]]
+# name = "xas_group_benchmark_single"
+# harness = false
+
+[[bench]]
+name = "xas_group_benchmark_parallel"
+harness = false
+
+[profile.bench]
+debug = true

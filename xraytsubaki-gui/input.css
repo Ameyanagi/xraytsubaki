@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+    scroll-behavior: smooth;
+}
+
+@layer base {
+    html {
+        font-family: "Arial", "ヒラギノ丸ゴ Pro W4", "ヒラギノ丸ゴ Pro", "Hiragino Maru Gothic Pro", "ヒラギノ角ゴ Pro W3", "Hiragino Kaku Gothic Pro", "游ゴシック体", "YuGothic", "游ゴシック", "Yu Gothic", "メイリオ", "Meiryo", sans-serif;
+        @apply text-[#404040];
+    }
+
+    /* 
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6 {
+        @apply font-bold;
+    }
+
+    h1 {
+        @apply text-4xl sm:text-5xl md:text-6xl
+    }
+
+    h2 {
+        @apply text-3xl sm:text-4xl md:text-5xl
+    }
+
+    h3 {
+        @apply text-2xl sm:text-3xl md:text-4xl
+    }
+
+    button {
+        @apply shadow-xl shadow-gray-400 rounded-xl uppercase bg-gradient-to-r from-[#5651e5] to-[#709dff] text-white;
+    } */
+
+}

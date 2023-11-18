@@ -22,7 +22,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     let mut group = XASGroup::new();
 
-    for _ in 0..10_000 {
+    for _ in 0..100 {
         group.add_spectrum(xafs_test_spectrum.clone());
     }
 

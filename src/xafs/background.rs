@@ -14,7 +14,7 @@ use rusty_fitpack;
 
 // Import internal dependencies
 use super::lmutils::LMParameters;
-use super::mathutils::{self, MathUtils};
+use super::mathutils::{self, splev_jacobian, MathUtils};
 use super::normalization::{self, Normalization};
 use super::nshare::{ToNalgebra, ToNdarray1};
 use super::xafsutils::FTWindow;
@@ -375,6 +375,15 @@ impl AUTOBK {
             None,
         );
 
+        // Calculate the mu interpolated to the k grid
+        let mu_out = kout.to_vec().interpolate(
+            &kraw
+                .slice_axis(Axis(0), ndarray::Slice::from(0..iemax - iek0 + 1))
+                .to_vec(),
+            &mu.slice_axis(Axis(0), ndarray::Slice::from(iek0..iemax + 1))
+                .to_vec(),
+        )?;
+
         let spline_opt = AUTOBKSpline {
             coefs: DVector::from_vec(coefs),
             knots: DVector::from_vec(knots),
@@ -386,11 +395,7 @@ impl AUTOBK {
                 .clone()
                 .to_owned()
                 .into_nalgebra(),
-            mu: mu
-                .slice_axis(Axis(0), ndarray::Slice::from(iek0..iemax + 1))
-                .clone()
-                .to_owned()
-                .into_nalgebra(),
+            mu: DVector::from_vec(mu_out),
             kout: kout.clone().into_nalgebra(),
             ftwin: ftwin.into_nalgebra(),
             kweight: self.kweight.unwrap(),
@@ -403,6 +408,7 @@ impl AUTOBK {
             clamp_lo: self.clamp_lo.unwrap(),
             clamp_hi: self.clamp_hi.unwrap(),
             kstep: self.kstep.unwrap(),
+            ..Default::default()
         };
 
         let (fit_result, report) = LevenbergMarquardt::new()
@@ -577,14 +583,18 @@ fn spline_eval_nalgebra(
         3,
     ));
 
-    let chi: DVector<f64> = DVector::from_vec(
-        kout.data
-            .as_vec()
-            .interpolate(kraw.data.as_vec(), &(mu - &bkg).data.as_vec())
-            .unwrap(),
-    );
+    // experimental
+    let bkg_out = DVector::from_vec(rusty_fitpack::splev(
+        knots.data.as_vec().clone(),
+        coefs.data.as_vec().clone(),
+        order,
+        kout.data.as_vec().clone(),
+        3,
+    ));
 
-    (bkg, chi)
+    let chi = mu - &bkg_out;
+
+    (bkg, chi.clone())
 }
 
 /// Struct for solving Levenberg-Marquardt optimization for AUTOBK
@@ -605,6 +615,7 @@ struct AUTOBKSpline {
     pub clamp_lo: i32,
     pub clamp_hi: i32,
     pub kstep: f64,
+    pub scale: f64,
 }
 
 impl Default for AUTOBKSpline {
@@ -625,6 +636,7 @@ impl Default for AUTOBKSpline {
             clamp_lo: 1,
             clamp_hi: 1,
             kstep: 0.05,
+            scale: 1.0,
         }
     }
 }
@@ -647,15 +659,17 @@ impl AUTOBKSpline {
             chi
         };
 
-        let chi = chi.component_mul(&self.ftwin);
-
-        let mut out: DVector<f64> = chi.xftf_fast(self.nfft, self.kstep)[..self.irbkg].realimg();
+        let mut out: DVector<f64> = chi
+            .component_mul(&self.ftwin)
+            .xftf_fast(self.nfft, self.kstep)[..self.irbkg]
+            .realimg();
 
         if self.nclamp == 0 {
             return out;
         }
 
         let scale = 1.0 + 100.0 * out.dot(&out) / out.len() as f64;
+
         let low_clamp = self.clamp_lo as f64 * scale * chi.view((0, 0), (self.nclamp as usize, 1));
 
         let high_clamp = self.clamp_hi as f64
@@ -671,7 +685,82 @@ impl AUTOBKSpline {
 
         out
     }
+
+    pub fn residual_jacobian(&self, coefs: &DVector<f64>) -> DMatrix<f64> {
+        // just for calculating the scale
+
+        let scale = if self.nclamp != 0 {
+            let (_, chi) = spline_eval_nalgebra(
+                &self.kraw,
+                &self.mu,
+                &self.knots,
+                coefs,
+                self.order,
+                &self.kout,
+            );
+
+            let chi: DVector<f64> = if self.chi_std.is_some() {
+                chi - self.chi_std.as_ref().unwrap()
+            } else {
+                chi
+            };
+
+            let mut out: DVector<f64> = chi
+                .component_mul(&self.ftwin)
+                .xftf_fast(self.nfft, self.kstep)[..self.irbkg]
+                .realimg();
+
+            let scale = 1.0 + 100.0 * out.dot(&out) / out.len() as f64;
+
+            scale
+        } else {
+            1.0
+        };
+
+        let spline_jacobian = -splev_jacobian(
+            self.knots.data.as_vec().clone(),
+            self.coefs.data.as_vec().clone(),
+            self.order,
+            self.kout.data.as_vec().clone(),
+            3,
+        );
+        let num_cols = self.coefs.len();
+
+        let jacobian_columns = spline_jacobian
+            .column_iter()
+            .map(|chi_der| {
+                let mut out: DVector<f64> = chi_der
+                    .component_mul(&self.ftwin)
+                    .xftf_fast(self.nfft, self.kstep)[..self.irbkg]
+                    .realimg();
+
+                if self.nclamp == 0 {
+                    return out;
+                }
+
+                // let scale = 1.0 + 100.0 * out.dot(&out) / out.len() as f64;
+
+                let low_clamp =
+                    self.clamp_lo as f64 * &scale * chi_der.view((0, 0), (self.nclamp as usize, 1));
+                let high_clamp = self.clamp_hi as f64
+                    * &scale
+                    * chi_der.view(
+                        (chi_der.len() - self.nclamp as usize - 1, 0),
+                        (self.nclamp as usize, 1),
+                    );
+
+                out.extend(low_clamp.data.as_vec().to_owned());
+                out.extend(high_clamp.data.as_vec().to_owned());
+                out
+            })
+            .collect::<Vec<DVector<f64>>>();
+
+        DMatrix::from_columns(&jacobian_columns)
+    }
 }
+
+use approx::assert_abs_diff_eq;
+use std::time::{Duration, Instant};
 
 /// Implementation of LeastSquaresProblem trait for AUTOBK algorithm
 impl LeastSquaresProblem<f64, Dyn, Dyn> for AUTOBKSpline {
@@ -694,8 +783,32 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for AUTOBKSpline {
     /// Jacobian matrix for the Levenberg-Marquardt optimization
     /// Jacobian matrix is calculated by numerical differentiation using foward difference
     fn jacobian(&self) -> Option<DMatrix<f64>> {
-        let residual_vec = |coefs: &DVector<f64>| AUTOBKSpline::residual_vec(&self, &coefs);
-        Some(self.coefs.jacobian(&residual_vec))
+        // let residual_vec = |coefs: &DVector<f64>| AUTOBKSpline::residual_vec(&self, &coefs);
+        // Some(self.coefs.jacobian(&residual_vec))
+
+        // let start = Instant::now();
+
+        // let jac1 = self.coefs.jacobian(&residual_vec);
+        // let duration = start.elapsed();
+
+        // println!("jac1: {}", duration.as_secs_f64());
+
+        // let start = Instant::now();
+        // let jac2 = self.residual_jacobian(&self.coefs);
+
+        // let duration = start.elapsed();
+        // println!("jac2: {}", duration.as_secs_f64());
+
+        // println!("jac1: {:?}", jac1.shape());
+        // println!("jac2: {:?}", jac2.shape());
+
+        // jac1.iter().zip(jac2.iter()).for_each(|(x, y)| {
+        //     println!("x: {}, y: {}", x, y);
+        //     assert_abs_diff_eq!(x, y, epsilon = 1.0e-1);
+        // });
+
+        // Some(jac2)
+        Some(self.residual_jacobian(&self.coefs))
     }
 }
 

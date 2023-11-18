@@ -3,9 +3,11 @@ use enterpolation::{
     Generator,
 };
 use errorfunctions::ComplexErrorFunctions;
+use nalgebra::DMatrix;
 use ndarray::{Array1, ArrayBase, Ix1, OwnedRepr};
 use num_complex::Complex64;
 use std::error::Error;
+
 pub trait MathUtils {
     fn interpolate(&self, x: &Vec<f64>, y: &Vec<f64>) -> Result<Self, LinearError>
     where
@@ -378,6 +380,60 @@ pub fn bessel_I0(x: f64) -> f64 {
     sum
 }
 
+/// Calculation jacobian of splev respect to c_i
+///
+///
+pub fn splev_jacobian(t: Vec<f64>, c: Vec<f64>, k: usize, x: Vec<f64>, e: usize) -> DMatrix<f64> {
+    let mut y: Vec<f64> = vec![0.0; x.len()];
+
+    let k1: usize = k + 1;
+    let k2: usize = k1 + 1;
+    let nk1: usize = t.len() - k1;
+    let tb: f64 = t[k1 - 1];
+    let te: f64 = t[nk1];
+    let mut l: usize = k1;
+    let mut l1: usize = l + 1;
+
+    let mut derivatives: Vec<Vec<f64>> = vec![vec![0.0; c.len()]; x.len()];
+
+    for (i, &arg) in x.iter().enumerate() {
+        let mut arg = arg;
+        if arg < tb && e == 3 {
+            arg = tb;
+        } else if arg > te && e == 3 {
+            arg = te;
+        }
+
+        let mut l = k1;
+        let mut l1 = l + 1;
+        while arg < t[l - 1] && l1 != k2 {
+            l1 = l;
+            l -= 1;
+        }
+        while arg >= t[l1 - 1] && l != nk1 {
+            l = l1;
+            l1 += 1;
+        }
+
+        let h = rusty_fitpack::fpbspl::fpbspl(arg, &t, k, l);
+
+        let mut ll = l - k1;
+        for j in 1..=k1 {
+            ll += 1;
+            if ll - 1 < c.len() {
+                derivatives[i][ll - 1] = h[j - 1];
+            }
+        }
+    }
+
+    DMatrix::from_vec(
+        derivatives[0].len(),
+        derivatives.len(),
+        derivatives.concat(),
+    )
+    .transpose()
+}
+
 #[cfg(test)]
 mod tests {
     use std::vec;
@@ -387,6 +443,9 @@ mod tests {
     use crate::xafs::tests::TEST_TOL;
     use crate::xafs::tests::TOP_DIR;
     use approx::assert_abs_diff_eq;
+    use nalgebra::DVector;
+
+    const NUMERICAL_TEST_TOL: f64 = 1e-6;
 
     #[test]
     fn test_argsort_float() {
@@ -598,5 +657,58 @@ mod tests {
     fn test_diff_array() {
         let v = Array1::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0]);
         assert_eq!(v.diff(), Array1::from_vec(vec![1.0, 1.0, 1.0, 1.0]));
+    }
+
+    #[test]
+    fn test_splev_jacobian() {
+        let x = vec![
+            0.0, 0.555, 1.111, 1.666, 2.222, 2.777, 3.333, 3.888, 4.444, 5.0,
+        ];
+        let y = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, -1.0, -2.0, -3.0, -4.0];
+        let order = 3;
+
+        let (t, c, k) = rusty_fitpack::splrep(
+            x.clone(),
+            y.clone(),
+            None,
+            None,
+            None,
+            Some(order),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        let e = 3; // Example end condition
+
+        let analytical_jacobian = splev_jacobian(t.clone(), c.clone(), k, x.clone(), e);
+
+        use crate::xafs::lmutils::forward_jacobian_nalgebra_f64;
+
+        let spline = rusty_fitpack::splev(t.clone(), c.clone(), k, x.clone(), e);
+
+        let spline = DVector::from(spline);
+
+        let spline_function = |coef: &DVector<f64>| {
+            DVector::from(rusty_fitpack::splev(
+                t.clone(),
+                coef.data.as_vec().clone(),
+                k,
+                x.clone(),
+                e,
+            ))
+        };
+
+        let numerical_jacobian = forward_jacobian_nalgebra_f64(&DVector::from(c), &spline_function);
+
+        analytical_jacobian
+            .iter()
+            .zip(numerical_jacobian.iter())
+            .for_each(|(a, b)| {
+                assert_abs_diff_eq!(a, b, epsilon = NUMERICAL_TEST_TOL);
+            });
     }
 }

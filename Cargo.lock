@@ -1309,8 +1309,9 @@ dependencies = [
 
 [[package]]
 name = "rusty-fitpack"
-version = "0.1.0"
-source = "git+https://github.com/mitric-lab/Rusty-FITPACK#2275dfe6739b5e6c7cba50d4a023446d7e1345ce"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92efef01d576920212b373e3ba3a3938b81f8af25a79282eb42e9ada1e577c3b"
 dependencies = [
  "ndarray 0.12.1",
 ]

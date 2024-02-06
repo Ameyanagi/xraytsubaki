@@ -1,0 +1,49 @@
+[package]
+name = "xraytsubaki"
+version = { workspace = true }
+authors = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+readme = "../../README.md"
+repository = { workspace = true }
+description = "X-ray absoption spectroscopy analysis softwware"
+
+[dependencies]
+semver = { workspace = true }
+approx = { workspace = true }
+data_reader = { workspace = true }
+easyfft = { workspace = true }
+errorfunctions = { workspace = true }
+fftconvolve = { workspace = true }
+ndarray = { workspace = true }
+itertools = { workspace = true }
+lazy_static = { workspace = true }
+levenberg-marquardt = { workspace = true }
+nalgebra = { workspace = true }
+num-complex = { workspace = true }
+polyfit-rs = { workspace = true }
+rusty-fitpack = { workspace = true }
+rayon = { workspace = true }
+serde = { workspace = true }
+serde_arrow = { workspace = true }
+bson = { workspace = true }
+version = { workspace = true }
+derivative = { workspace = true }
+enterpolation = { workspace = true }
+
+[dev-dependencies]
+pprof = { version = "0.13", features = ["flamegraph"] }
+
+criterion = { version = "0.5.1", features = ["html_reports"] }
+
+# [[bench]]
+# name = "xas_group_benchmark_single"
+# harness = false
+
+[[bench]]
+name = "xas_group_benchmark_parallel"
+harness = false
+
+[profile.bench]
+debug = true

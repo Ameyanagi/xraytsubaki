@@ -1,14 +1,29 @@
-[package]
-name = "xraytsubaki"
-version = "0.1.0"
-edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[dependencies]
+[workspace]
+resolver = "2"
+members = [
+  "crates/*",
+  "py-xraytsubaki",
+  # "examples/*",
+]
+default-members = ["crates/*"]
+# exclude = [
+#   "examples/datasets",
+# ]
+
+[workspace.package]
+name = "xraytsubaki"
+version = "0.1.0"
+edition = "2021"
+authors = ["Ryuichi Shimogawa <ryuichi.shimogawa@stonybrook.edu"]
+homepage = "https://github.com/Ameyanagi/xraytsubaki"
+repository = "https://github.com/Ameyanagi/xraytsubaki"
+license = "MIT"
+
+[workspace.dependencies]
 semver = { version = "1.0.21" }
-
-
 approx = "0.5.1"
 data_reader = "0.5.0"
 easyfft = "0.4.0"
@@ -27,24 +42,12 @@ serde = { version = "1.0.193", features = ["derive"] }
 serde_arrow = { version = "0.9.1", features = ["arrow2-0-17", "arrow-46"] }
 bson = "2.9.0"
 version = "3.0.0"
-[dependencies.enterpolation]
+derivative = "2.2.0"
+
+xraytsubaki = { version = "0.1.0", path = "crates/xraytsubaki" }
+
+[workspace.dependencies.enterpolation]
 version = "0.2.1"
 default-features = false
 # re-enable all wanted features
 features = ["std", "linear"]
-
-[dev-dependencies]
-pprof = { version = "0.13", features = ["flamegraph"] }
-
-criterion = { version = "0.5.1", features = ["html_reports"] }
-
-# [[bench]]
-# name = "xas_group_benchmark_single"
-# harness = false
-
-[[bench]]
-name = "xas_group_benchmark_parallel"
-harness = false
-
-[profile.bench]
-debug = true

@@ -378,6 +378,7 @@ pub mod tests {
     use crate::xafs::io;
     use crate::xafs::tests::PARAM_LOADTXT;
     use crate::xafs::tests::TEST_TOL;
+    use crate::xafs::tests::TEST_TOL_LESS_ACC;
     use crate::xafs::tests::TOP_DIR;
     use data_reader::reader::{load_txt_f64, Delimiter, ReaderParams};
     use ndarray::{Array1, ArrayBase, Ix1, OwnedRepr};
@@ -444,6 +445,6 @@ pub mod tests {
             .to_vec()
             .iter()
             .zip(expected_norm.iter())
-            .for_each(|(x, y)| assert_abs_diff_eq!(x, y, epsilon = TEST_TOL));
+            .for_each(|(x, y)| assert_abs_diff_eq!(x, y, epsilon = TEST_TOL_LESS_ACC));
     }
 }

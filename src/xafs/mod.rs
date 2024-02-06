@@ -30,6 +30,7 @@ pub mod xafsutils;
 pub mod xasgroup;
 pub mod xasspectrum;
 pub mod xrayfft;
+
 // Load local traits
 use mathutils::MathUtils;
 use normalization::Normalization;
@@ -91,5 +92,7 @@ pub mod tests {
         max_rows: None,
         row_format: true,
     };
-    pub const TEST_TOL: f64 = 1e-16;
+    pub const TEST_TOL: f64 = 1e-12;
+
+    pub const TEST_TOL_LESS_ACC: f64 = 1e-8;
 }

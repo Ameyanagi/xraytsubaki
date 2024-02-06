@@ -605,7 +605,7 @@ impl FFTUtils<DVector<f64>> for [Complex<f64>] {
 // pub struct XrayFFTR {}
 
 #[cfg(test)]
-mod test {
+mod tests {
     use easyfft::prelude::*;
     use ndarray::Array1;
 

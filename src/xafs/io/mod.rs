@@ -2,6 +2,8 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 
+pub mod xafs_bson;
+
 use crate::xafs::xasspectrum::XASSpectrum;
 use data_reader::reader::{load_txt_f64, Delimiter, ReaderParams};
 use std::error::Error;

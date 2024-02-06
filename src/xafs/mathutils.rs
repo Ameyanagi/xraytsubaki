@@ -8,6 +8,8 @@ use ndarray::{Array1, ArrayBase, Ix1, OwnedRepr};
 use num_complex::Complex64;
 use std::error::Error;
 
+#[deny(clippy::reversed_empty_ranges)]
+
 pub trait MathUtils {
     fn interpolate(&self, x: &Vec<f64>, y: &Vec<f64>) -> Result<Self, LinearError>
     where
@@ -25,7 +27,6 @@ pub trait MathUtils {
         let sigma = sigma.max(f64::EPSILON);
         let inverse_of_coefficient = sigma * (2.0 * std::f64::consts::PI).sqrt();
         x.map(|x| (-x.powi(2) / (2.0 * sigma.powi(2))).exp() / inverse_of_coefficient)
-            .into()
     }
 
     fn lorentzian(self, center: f64, sigma: f64) -> Array1<f64>
@@ -35,7 +36,7 @@ pub trait MathUtils {
         let x: Array1<f64> = self.into() - center;
         let sigma = sigma.max(f64::EPSILON);
         let coefficient = sigma / std::f64::consts::PI;
-        x.map(|x| coefficient / (x.powi(2) + sigma.powi(2))).into()
+        x.map(|x| coefficient / (x.powi(2) + sigma.powi(2)))
     }
 
     fn voigt(self, center: f64, sigma: f64, gamma: f64) -> Array1<f64>
@@ -155,15 +156,29 @@ impl MathUtils for Vec<f64> {
     /// use xraytsubaki::xafs::mathutils::MathUtils;
     /// let v = vec![1., 2., 4., 7., 11., 16.];
     /// assert_eq!(v.gradient(), vec![1. , 1.5, 2.5, 3.5, 4.5, 5. ]);
+    ///
+    /// let v = vec![0.];
+    /// assert_eq!(v.gradient(), vec![0.]);
+    ///
+    /// let v = vec![1., 2.];
+    /// assert_eq!(v.gradient(), vec![1., 1.]);
+    ///
     /// ```
     fn gradient(&self) -> Self {
         let mut result = Vec::with_capacity(self.len());
-        result.push(self[1] - self[0]);
-        for i in 1..self.len() - 1 {
-            result.push((self[i + 1] - self[i - 1]) / 2.0);
+
+        match self.len() {
+            0..=1 => vec![0.; self.len()],
+            2 => vec![self[1] - self[0], self[1] - self[0]],
+            _ => {
+                result.push(self[1] - self[0]);
+                for i in 1..self.len() - 1 {
+                    result.push((self[i + 1] - self[i - 1]) / 2.0);
+                }
+                result.push(self[self.len() - 1] - self[self.len() - 2]);
+                result
+            }
         }
-        result.push(self[self.len() - 1] - self[self.len() - 2]);
-        result
     }
 }
 
@@ -245,19 +260,34 @@ impl MathUtils for ArrayBase<OwnedRepr<f64>, Ix1> {
     ///
     /// let v = Array1::from_vec(vec![1., 2., 4., 7., 11., 16.]);
     /// assert_eq!(v.gradient(), Array1::from_vec(vec![1. , 1.5, 2.5, 3.5, 4.5, 5. ]));
+    ///
+    /// let v = Array1::from_vec(vec![0.]);
+    /// assert_eq!(v.gradient(), Array1::from_vec(vec![0.]));
+    ///
+    /// let v = Array1::from_vec(vec![1., 2.]);
+    /// assert_eq!(v.gradient(), Array1::from_vec(vec![1., 1.]));
+    ///
     /// ```
+    #[allow(clippy::reversed_empty_ranges)]
     fn gradient(&self) -> Self {
-        let mut result = Array1::zeros(self.len());
-        result
-            .slice_mut(ndarray::s![0])
-            .assign(&(&self.slice(ndarray::s![1]) - &self.slice(ndarray::s![0])));
-        result
-            .slice_mut(ndarray::s![1..-1])
-            .assign(&((&self.slice(ndarray::s![2..]) - &self.slice(ndarray::s![..-2])) / 2.0));
-        result
-            .slice_mut(ndarray::s![-1])
-            .assign(&(&self.slice(ndarray::s![-1]) - &self.slice(ndarray::s![-2])));
-        result
+        match self.len() {
+            0..=1 => Array1::zeros(self.len()),
+            2 => Array1::from_vec(vec![self[1] - self[0], self[1] - self[0]]),
+            _ => {
+                let mut result = Array1::zeros(self.len());
+
+                result
+                    .slice_mut(ndarray::s![0])
+                    .assign(&(&self.slice(ndarray::s![1]) - &self.slice(ndarray::s![0])));
+                result.slice_mut(ndarray::s![1..-1]).assign(
+                    &((&self.slice(ndarray::s![2..]) - &self.slice(ndarray::s![..-2])) / 2.0),
+                );
+                result
+                    .slice_mut(ndarray::s![-1])
+                    .assign(&(&self.slice(ndarray::s![-1]) - &self.slice(ndarray::s![-2])));
+                result
+            }
+        }
     }
 }
 
@@ -529,6 +559,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn test_lorentzian() {
         let x = Array1::from_vec(vec![0., 1.0, 2.0, 3.0, 4.0, 5.0, 6., 7., 8., 9.]);
         let y = lorentzian(x.clone(), 5.0, 1.0);

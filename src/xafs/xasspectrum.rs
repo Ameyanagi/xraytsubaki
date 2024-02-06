@@ -30,6 +30,7 @@ use normalization::Normalization;
 ///
 /// TODO: Add examples
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct XASSpectrum {
     pub name: Option<String>,
     pub raw_energy: Option<ArrayBase<OwnedRepr<f64>, Ix1>>,

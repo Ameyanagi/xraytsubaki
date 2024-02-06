@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 use super::mathutils::MathUtils;
 use super::xafsutils::ftwindow;
 use crate::xafs::xafsutils::FTWindow;
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct XrayFFTF {
     pub rmax_out: Option<f64>,
     pub window: Option<FTWindow>,
@@ -219,6 +219,7 @@ impl XrayFFTF {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct XrayFFTR {
     pub qmax_out: Option<f64>,
     pub window: Option<FTWindow>,

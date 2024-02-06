@@ -169,6 +169,7 @@ impl NormalizationMethod {
 /// This is the standard normalization method used in athena and larch.
 ///
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct PrePostEdge {
     pub pre_edge_start: Option<f64>,
     pub pre_edge_end: Option<f64>,
@@ -490,6 +491,7 @@ impl Normalization for PrePostEdge {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct MBack {
     pub e0: Option<f64>,
     pub edge_step: Option<f64>,

@@ -92,6 +92,7 @@ impl BackgroundMethod {
 ///
 /// Parameters and the output are stored in this struct
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AUTOBK {
     /// Edge energy in eV (this is used for starting point of k). If None, it will be determined.
     pub ek0: Option<f64>,
@@ -815,6 +816,7 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for AUTOBKSpline {
 
 /// TODO: Implement ILPBkg
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ILPBkg {}
 
 /// TODO: Implement ILPBkg

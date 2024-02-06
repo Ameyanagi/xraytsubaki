@@ -19,6 +19,7 @@ use itertools::Itertools;
 use xasspectrum::XASSpectrum;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct XASGroup {
     pub spectra: Vec<XASSpectrum>,
 }

@@ -384,15 +384,11 @@ pub fn bessel_I0(x: f64) -> f64 {
 ///
 ///
 pub fn splev_jacobian(t: Vec<f64>, c: Vec<f64>, k: usize, x: Vec<f64>, e: usize) -> DMatrix<f64> {
-    let mut y: Vec<f64> = vec![0.0; x.len()];
-
     let k1: usize = k + 1;
     let k2: usize = k1 + 1;
     let nk1: usize = t.len() - k1;
     let tb: f64 = t[k1 - 1];
     let te: f64 = t[nk1];
-    let mut l: usize = k1;
-    let mut l1: usize = l + 1;
 
     let mut derivatives: Vec<Vec<f64>> = vec![vec![0.0; c.len()]; x.len()];
 

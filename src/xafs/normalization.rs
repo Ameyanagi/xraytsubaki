@@ -8,6 +8,7 @@ use std::error::Error;
 // Import external dependencies
 use ndarray::{Array1, ArrayBase, Ix1, OwnedRepr};
 use polyfit_rs::polyfit_rs;
+use serde::{Deserialize, Serialize};
 
 // Import internal dependencies
 use super::mathutils::{self, MathUtils};
@@ -44,7 +45,7 @@ pub trait Normalization {
 ///
 /// let mut normalization_method = NormalizationMethod::new();
 /// ```
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum NormalizationMethod {
     PrePostEdge(PrePostEdge),
     MBack(MBack),
@@ -167,7 +168,7 @@ impl NormalizationMethod {
 ///
 /// This is the standard normalization method used in athena and larch.
 ///
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PrePostEdge {
     pub pre_edge_start: Option<f64>,
     pub pre_edge_end: Option<f64>,
@@ -488,7 +489,7 @@ impl Normalization for PrePostEdge {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MBack {
     pub e0: Option<f64>,
     pub edge_step: Option<f64>,

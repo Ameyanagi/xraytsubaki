@@ -11,6 +11,7 @@ use levenberg_marquardt::{LeastSquaresProblem, LevenbergMarquardt};
 use nalgebra::{DMatrix, DVector, Dyn, Owned};
 use ndarray::{Array1, ArrayBase, Axis, Ix1, OwnedRepr};
 use rusty_fitpack;
+use serde::{Deserialize, Serialize};
 
 // Import internal dependencies
 use super::lmutils::LMParameters;
@@ -24,7 +25,7 @@ use super::{xafsutils, xrayfft};
 /// Enum for background subtraction methods
 /// AUTOBK: M. Newville, P. Livins, Y. Yacoby, J. J. Rehr, and E. A. Stern. Near-edge x-ray-absorption fine structure of Pb: A comparison of theory and experiment. Phys. Rev. B, 47:14126–14131, Jun 1993. doi:10.1103/PhysRevB.47.14126.
 /// ILPBkg: To be implemented
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum BackgroundMethod {
     AUTOBK(AUTOBK),
     ILPBkg(ILPBkg),
@@ -90,7 +91,7 @@ impl BackgroundMethod {
 /// Struct for AUTOBK
 ///
 /// Parameters and the output are stored in this struct
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AUTOBK {
     /// Edge energy in eV (this is used for starting point of k). If None, it will be determined.
     pub ek0: Option<f64>,
@@ -813,7 +814,7 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for AUTOBKSpline {
 }
 
 /// TODO: Implement ILPBkg
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct ILPBkg {}
 
 /// TODO: Implement ILPBkg

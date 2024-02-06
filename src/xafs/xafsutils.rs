@@ -2,17 +2,25 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 
-use crate::xafs::mathutils::index_of;
-
-use super::bessel_i0;
-use super::io;
-use super::mathutils::MathUtils;
-
-use fftconvolve::{fftconvolve, Mode};
-use ndarray::{Array, Array1, ArrayBase, Axis, Ix1, OwnedRepr, Slice};
+// Standard library dependencies
 use std::cmp;
 use std::error::Error;
+// External dependencies
+use fftconvolve::{fftconvolve, Mode};
+use ndarray::{Array, Array1, ArrayBase, Axis, Ix1, OwnedRepr, Slice};
+use serde::{Deserialize, Serialize};
 
+// load dependencies
+use super::bessel_i0;
+use super::io;
+
+// Load local traits
+use super::mathutils::MathUtils;
+
+// Load local functions
+use crate::xafs::mathutils::index_of;
+
+// Constants
 pub const TINY_ENERGY: f64 = 0.005;
 
 /// Physical constants used in xraytsubaki
@@ -481,7 +489,7 @@ pub fn _find_e0<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>> + Clone>(
     Ok((en[imax], imax, estep))
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub enum FTWindow {
     #[default]
     Hanning, // Hanning window, cosine-squared tamper

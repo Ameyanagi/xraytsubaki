@@ -5,9 +5,10 @@
 // Standard library dependencies
 use std::error::Error;
 
-use easyfft::dyn_size::realfft::DynRealDft;
 // External dependencies
+use easyfft::dyn_size::realfft::DynRealDft;
 use ndarray::{ArrayBase, Axis, Ix1, OwnedRepr};
+use serde::{Deserialize, Serialize};
 
 // load dependencies
 use super::background;
@@ -28,7 +29,7 @@ use normalization::Normalization;
 /// # Examples
 ///
 /// TODO: Add examples
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct XASSpectrum {
     pub name: Option<String>,
     pub raw_energy: Option<ArrayBase<OwnedRepr<f64>, Ix1>>,

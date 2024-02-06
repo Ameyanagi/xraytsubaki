@@ -4,6 +4,11 @@
 use ndarray::{array, Array1};
 use xraytsubaki::xafs::mathutils::MathUtils;
 
+use serde_arrow::{
+    arrow2::{serialize_into_arrays, serialize_into_fields},
+    schema::TracingOptions,
+};
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use xraytsubaki::xafs::io;
     use xraytsubaki::xafs::xafsutils::find_energy_step;
@@ -21,9 +26,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // println!("k: {:?}", k);
     // println!("chi: {:?}", chi);
+
+    k.iter().zip(chi.iter()).for_each(|(k, chi)| {
+        println!("[{}, {}],", k, chi);
+    });
+
+    // let fields = serialize_into_fields(&xafs_test_group, TracingOptions::default())?;
+
+    // println!("fields: {:?}", fields);
+
+    // println!("k: {:?}", k);
+    // println!("chi: {:?}", chi);
     // println!("e0: {:?}", xafs_test_group.normalization.unwrap().get_e0());
 
-    println!("{:?}", xafs_test_group);
+    // println!("{:?}", xafs_test_group);
 
     Ok(())
 

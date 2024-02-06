@@ -8,6 +8,7 @@ use std::mem;
 
 // External dependencies
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 
 // load dependencies
 use super::xasspectrum;
@@ -17,7 +18,7 @@ use itertools::Itertools;
 // Load local traits
 use xasspectrum::XASSpectrum;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct XASGroup {
     pub spectra: Vec<XASSpectrum>,
 }

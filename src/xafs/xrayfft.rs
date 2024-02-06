@@ -1,14 +1,21 @@
+// Standard library dependencies
+
+// External dependencies
 use easyfft::prelude::{DynRealFft, DynRealIfft};
 use easyfft::{dyn_size::realfft::DynRealDft, num_complex::Complex};
 use nalgebra::{DVector, Owned};
 use ndarray::{Array, Array1, ArrayBase, Axis, Ix, Ix1, OwnedRepr};
+use num_complex::Complex64;
+use serde::{Deserialize, Serialize};
 
-use crate::xafs::xafsutils::FTWindow;
+// load dependencies
 
+// Load local traits
 use super::mathutils::MathUtils;
 use super::xafsutils::ftwindow;
+use crate::xafs::xafsutils::FTWindow;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct XrayFFTF {
     pub rmax_out: Option<f64>,
     pub window: Option<FTWindow>,
@@ -20,6 +27,8 @@ pub struct XrayFFTF {
     pub nfft: Option<usize>,
     pub kstep: Option<f64>,
     pub r: Option<ArrayBase<OwnedRepr<f64>, Ix1>>,
+    // currently asking for serde support in the easyfft crate
+    #[serde(skip)]
     pub chir: Option<DynRealDft<f64>>,
     pub chir_mag: Option<ArrayBase<OwnedRepr<f64>, Ix1>>,
     pub kwin: Option<ArrayBase<OwnedRepr<f64>, Ix1>>,
@@ -209,7 +218,7 @@ impl XrayFFTF {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct XrayFFTR {
     pub qmax_out: Option<f64>,
     pub window: Option<FTWindow>,
@@ -563,6 +572,25 @@ impl FFTUtils<DVector<f64>> for [Complex<f64>] {
         DVector::from_iterator(self.len(), self.iter().map(|x| x.norm_sqr()))
     }
 }
+
+// #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+// pub struct DynRealDftWrapper {
+//     zeroth_bin: f64,
+
+//     frequency_bins: Vec<Complex<f64>>,
+
+//     original_length: usize,
+// }
+
+// impl From<DynRealDft<f64>> for DynRealDftWrapper {
+//     fn from(dft: DynRealDft<f64>) -> Self {
+//         DynRealDftWrapper {
+//             zeroth_bin: dft.get_offset().clone(),
+//             frequency_bins: dft.get_frequency_bins().to_vec(),
+//             original_length: dft.get_original_length(),
+//         }
+//     }
+// }
 
 // impl PartialEq for DynRealDft<f64> {
 //     fn eq(&self, other: &Self) -> bool {

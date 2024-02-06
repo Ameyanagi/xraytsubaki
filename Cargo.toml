@@ -11,15 +11,17 @@ data_reader = "0.5.0"
 easyfft = "0.4.0"
 errorfunctions = "0.2.0"
 fftconvolve = "0.1.1"
-ndarray = { version = "0.15.6", features = ["approx"] }
+ndarray = { version = "0.15.6", features = ["approx", "serde"] }
 itertools = "0.12.0"
 lazy_static = "1.4.0"
 levenberg-marquardt = "0.13.1"
 nalgebra = "0.32.3"
-num-complex = "0.4.3"
+num-complex = { version = "0.4.3", features = ["serde"] }
 polyfit-rs = "0.2.1"
 rusty-fitpack = "0.1.1"
 rayon = "1.8.0"
+serde = { version = "1.0.193", features = ["derive"] }
+serde_arrow = { version = "0.8.0", features = ["arrow2-0-17", "arrow-46"] }
 
 
 [dependencies.enterpolation]

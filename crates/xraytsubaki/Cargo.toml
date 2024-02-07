@@ -13,7 +13,7 @@ description = "X-ray absoption spectroscopy analysis softwware"
 semver = { workspace = true }
 approx = { workspace = true }
 data_reader = { workspace = true }
-easyfft = { workspace = true }
+# easyfft = { workspace = true }
 errorfunctions = { workspace = true }
 fftconvolve = { workspace = true }
 ndarray = { workspace = true }
@@ -31,6 +31,7 @@ bson = { workspace = true }
 version = { workspace = true }
 derivative = { workspace = true }
 enterpolation = { workspace = true }
+easyfft = { workspace = true }
 
 [dev-dependencies]
 pprof = { version = "0.13", features = ["flamegraph"] }

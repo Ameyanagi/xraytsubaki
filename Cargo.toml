@@ -23,10 +23,13 @@ repository = "https://github.com/Ameyanagi/xraytsubaki"
 license = "MIT"
 
 [workspace.dependencies]
+# easyfft = { git = "https://github.com/Ameyanagi/easyfft", features = [
+#   "serde",
+# ] } # easyfft = { version = "0.4.1", feautures = ["serde"] }
+easyfft = { version = "0.4.1", features = ["serde"] }
 semver = { version = "1.0.21" }
 approx = "0.5.1"
 data_reader = "0.5.0"
-easyfft = "0.4.0"
 errorfunctions = "0.2.0"
 fftconvolve = "0.1.1"
 ndarray = { version = "0.15.6", features = ["approx", "serde"] }
@@ -34,7 +37,7 @@ itertools = "0.12.0"
 lazy_static = "1.4.0"
 levenberg-marquardt = "0.13.1"
 nalgebra = "0.32.3"
-num-complex = { version = "0.4.3", features = ["serde"] }
+num-complex = { version = "0.4.5", features = ["serde"] }
 polyfit-rs = "0.2.1"
 rusty-fitpack = "0.1.1"
 rayon = "1.8.0"

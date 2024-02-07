@@ -28,6 +28,7 @@ pub mod normalization;
 pub mod nshare;
 pub mod xafsutils;
 pub mod xasgroup;
+pub mod xasparameters;
 pub mod xasspectrum;
 pub mod xrayfft;
 

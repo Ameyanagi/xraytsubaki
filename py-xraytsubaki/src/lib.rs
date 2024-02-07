@@ -2,6 +2,7 @@ use pyo3::prelude::*;
 use xraytsubaki::prelude::*;
 
 pub mod xasgroup;
+pub mod xasspectrum;
 
 /// Formats the sum of two numbers as string.
 #[pyfunction]

@@ -33,7 +33,6 @@ pub struct XrayFFTF {
     pub r: Option<ArrayBase<OwnedRepr<f64>, Ix1>>,
     // currently asking for serde support in the easyfft crate
     #[derivative(PartialEq = "ignore")]
-    #[serde(skip)]
     pub chir: Option<DynRealDft<f64>>,
     pub chir_mag: Option<ArrayBase<OwnedRepr<f64>, Ix1>>,
     pub kwin: Option<ArrayBase<OwnedRepr<f64>, Ix1>>,

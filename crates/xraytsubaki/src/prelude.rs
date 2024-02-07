@@ -1,3 +1,4 @@
+pub use crate::xafs::xasgroup::XASGroup;
 pub use crate::xafs::xasspectrum::XASSpectrum;
 
 pub use crate::xafs::background::{BackgroundMethod, AUTOBK};

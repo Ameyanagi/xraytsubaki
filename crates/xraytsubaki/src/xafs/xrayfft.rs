@@ -115,7 +115,7 @@ impl XrayFFTF {
         self.fill_parameter(k);
         let kweight = self.kweight.unwrap() as i32;
         let mut k_max = k.max();
-        let npts = (1.01 + &k_max / self.kstep.unwrap()) as usize;
+        let npts = (1.01 + k_max / self.kstep.unwrap()) as usize;
         k_max = k_max.max(self.kmax.unwrap() + self.dk2.unwrap());
         let k_ = Array1::range(0.0, k_max + self.kstep.unwrap(), self.kstep.unwrap());
 
@@ -124,7 +124,7 @@ impl XrayFFTF {
             .window
             .unwrap()
             .window(&k_, self.kmin, self.kmax, self.dk, self.dk2)?;
-        let win = (&win).slice_axis(Axis(0), (0..npts).into()).to_owned();
+        let win = (win).slice_axis(Axis(0), (0..npts).into()).to_owned();
         let chi_ = &chi_.slice_axis(Axis(0), (0..npts).into())
             * &k_
                 .slice_axis(Axis(0), (0..npts).into())
@@ -158,31 +158,31 @@ impl XrayFFTF {
     }
 
     pub fn get_rmax_out(&self) -> Option<f64> {
-        self.rmax_out.clone()
+        self.rmax_out
     }
 
     pub fn get_window(&self) -> Option<FTWindow> {
-        self.window.clone()
+        self.window
     }
 
     pub fn get_dk(&self) -> Option<f64> {
-        self.dk.clone()
+        self.dk
     }
 
     pub fn get_dk2(&self) -> Option<f64> {
-        self.dk2.clone()
+        self.dk2
     }
 
     pub fn get_kmin(&self) -> Option<f64> {
-        self.kmin.clone()
+        self.kmin
     }
 
     pub fn get_kmax(&self) -> Option<f64> {
-        self.kmax.clone()
+        self.kmax
     }
 
     pub fn get_kweight(&self) -> Option<f64> {
-        self.kweight.clone()
+        self.kweight
     }
 
     pub fn get_r(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
@@ -209,16 +209,15 @@ impl XrayFFTF {
         Some(chir.slice_axis(Axis(0), (0..len_r).into()).to_owned())
     }
 
-    pub fn get_chir_mag(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
-        self.chir_mag.clone()
+    pub fn get_chir_mag(&self) -> Option<&ArrayBase<OwnedRepr<f64>, Ix1>> {
+        self.chir_mag.as_ref()
     }
-
-    pub fn get_kwin(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
-        self.kwin.clone()
+    pub fn get_kwin(&self) -> Option<&ArrayBase<OwnedRepr<f64>, Ix1>> {
+        self.kwin.as_ref()
     }
 
     pub fn get_kstep(&self) -> Option<f64> {
-        self.kstep.clone()
+        self.kstep
     }
 }
 

@@ -160,7 +160,7 @@ impl XASSpectrum {
             ));
         }
 
-        let e0 = self.e0.clone();
+        let e0 = self.e0;
         self.normalization.as_mut().unwrap().set_e0(e0);
 
         Ok(self)
@@ -259,107 +259,51 @@ impl XASSpectrum {
     }
 
     pub fn get_k(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
-        if self.background.is_none() {
-            return None;
-        }
-
-        self.background.as_ref().unwrap().get_k()
+        self.background.as_ref()?.get_k()
     }
 
     pub fn get_chi(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
-        if self.background.is_none() {
-            return None;
-        }
-
-        self.background.as_ref().unwrap().get_chi()
+        self.background.as_ref()?.get_chi()
     }
 
     pub fn get_kweight(&self) -> Option<f64> {
-        if self.xftf.is_none() {
-            return None;
-        }
-
-        self.xftf.as_ref().unwrap().get_kweight()
+        self.xftf.as_ref()?.get_kweight()
     }
 
     pub fn get_chi_kweighted(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
-        if self.background.is_none() {
-            return None;
-        }
-
-        if self.xftf.is_none() {
-            return None;
-        }
-
-        let k = self.get_k();
-        let chi = self.get_chi();
-        let kweight = self.get_kweight();
-
-        if k.is_none() || chi.is_none() || kweight.is_none() {
-            return None;
-        };
-
-        let k = k.unwrap();
-        let chi = chi.unwrap();
-        let kweight = kweight.unwrap();
+        let k = self.get_k()?;
+        let chi = self.get_chi()?;
+        let kweight = self.get_kweight()?;
 
         Some(chi * k.mapv(|x| x.powf(kweight)))
     }
 
     pub fn get_chir(&self) -> Option<DynRealDft<f64>> {
-        if self.xftf.is_none() {
-            return None;
-        }
-
-        self.xftf.as_ref().unwrap().get_chir()
+        self.xftf.as_ref()?.get_chir()
     }
 
-    pub fn get_chir_mag(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
-        if self.xftf.is_none() {
-            return None;
-        }
-
-        self.xftf.as_ref().unwrap().get_chir_mag()
+    pub fn get_chir_mag(&self) -> Option<&ArrayBase<OwnedRepr<f64>, Ix1>> {
+        self.xftf.as_ref()?.get_chir_mag()
     }
 
     pub fn get_chir_real(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
-        if self.xftf.is_none() {
-            return None;
-        }
-
-        self.xftf.as_ref().unwrap().get_chir_real()
+        self.xftf.as_ref()?.get_chir_real()
     }
 
     pub fn get_chir_imag(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
-        if self.xftf.is_none() {
-            return None;
-        }
-
-        self.xftf.as_ref().unwrap().get_chir_imag()
+        self.xftf.as_ref()?.get_chir_imag()
     }
 
     pub fn get_r(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
-        if self.xftf.is_none() {
-            return None;
-        }
-
-        self.xftf.as_ref().unwrap().get_r()
+        self.xftf.as_ref()?.get_r()
     }
 
     pub fn get_q(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
-        if self.xftr.is_none() {
-            return None;
-        }
-
-        self.xftr.as_ref().unwrap().get_q()
+        self.xftr.as_ref()?.get_q()
     }
 
     pub fn get_chiq(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
-        if self.xftr.is_none() {
-            return None;
-        }
-
-        self.xftr.as_ref().unwrap().get_chiq()
+        self.xftr.as_ref()?.get_chiq()
     }
 }
 

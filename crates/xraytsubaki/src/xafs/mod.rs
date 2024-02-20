@@ -83,7 +83,7 @@ pub mod tests {
     use super::*;
     use data_reader::reader::{load_txt_f64, Delimiter, ReaderParams};
 
-    pub const TOP_DIR: &'static str = env!("CARGO_MANIFEST_DIR");
+    pub const TOP_DIR: &str = env!("CARGO_MANIFEST_DIR");
     pub const PARAM_LOADTXT: ReaderParams = ReaderParams {
         comments: Some(b'#'),
         delimiter: Delimiter::WhiteSpace,

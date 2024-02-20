@@ -235,7 +235,7 @@ impl AUTOBK {
         let mut normalization_method: normalization::NormalizationMethod =
             if normalization_param.is_none() {
                 let mut normalization_method = normalization::PrePostEdge::new();
-                let ek0 = self.ek0.clone();
+                let ek0 = self.ek0;
 
                 normalization_method.set_e0(ek0);
                 normalization::NormalizationMethod::PrePostEdge(normalization_method)
@@ -254,12 +254,12 @@ impl AUTOBK {
         let ek0 = self.ek0;
 
         if (ek0.is_none() && e0.is_none()) || edge_step.is_none() {
-            normalization_method.normalize(&energy, &mu)?;
+            normalization_method.normalize(&energy, mu)?;
             edge_step = normalization_method.get_edge_step();
         }
 
         self.ek0 = if self.ek0.is_none() {
-            normalization_method.get_e0().clone()
+            normalization_method.get_e0()
         } else {
             self.ek0
         };

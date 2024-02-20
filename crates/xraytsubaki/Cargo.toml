@@ -32,6 +32,9 @@ version = { workspace = true }
 derivative = { workspace = true }
 enterpolation = { workspace = true }
 easyfft = { workspace = true }
+serde_json = { workspace = true }
+flate2 = { workspace = true }
+pest = { workspace = true }
 
 [dev-dependencies]
 pprof = { version = "0.13", features = ["flamegraph"] }

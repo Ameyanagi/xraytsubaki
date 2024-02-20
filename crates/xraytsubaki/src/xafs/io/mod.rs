@@ -3,6 +3,8 @@
 #![allow(unused_variables)]
 
 pub mod xafs_bson;
+pub mod xafs_json;
+pub mod xasdatatype;
 
 use crate::xafs::xasspectrum::XASSpectrum;
 use data_reader::reader::{load_txt_f64, Delimiter, ReaderParams};

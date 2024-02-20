@@ -4,16 +4,11 @@
 use ndarray::{array, Array1};
 use xraytsubaki::xafs::mathutils::MathUtils;
 
-use serde_arrow::{
-    arrow2::{serialize_into_arrays, serialize_into_fields},
-    schema::TracingOptions,
-};
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use xraytsubaki::xafs::io;
     use xraytsubaki::xafs::xafsutils::find_energy_step;
 
-    const TOP_DIR: &'static str = env!("CARGO_MANIFEST_DIR");
+    const TOP_DIR: &str = env!("CARGO_MANIFEST_DIR");
 
     let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
     let mut xafs_test_group = io::load_spectrum_QAS_trans(&path).unwrap();

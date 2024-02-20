@@ -17,7 +17,8 @@ use super::XAFSError;
 use itertools::Itertools;
 
 // Load local traits
-use crate::xafs::io::xafs_bson::{XASBson, XASGroupFile};
+use crate::xafs::io::xasdatatype::XASGroupFile;
+use crate::xafs::io::{xafs_bson::XASBson, xafs_json::XASJson};
 use crate::xafs::xasspectrum::XASSpectrum;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -41,6 +42,10 @@ impl XASGroup {
 
     pub fn len(&self) -> usize {
         self.spectra.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.spectra.is_empty()
     }
 
     pub fn add_spectrum(&mut self, spectrum: XASSpectrum) -> &mut Self {
@@ -71,13 +76,7 @@ impl XASGroup {
         let mut indices = indices.to_vec();
         indices.sort();
         indices.dedup();
-        let mut remove_index_iter = (0..self.len()).map(|index| {
-            if indices.contains(&index) {
-                false
-            } else {
-                true
-            }
-        });
+        let mut remove_index_iter = (0..self.len()).map(|index| !indices.contains(&index));
         self.spectra.retain(|_| remove_index_iter.next().unwrap());
         Ok(self)
     }
@@ -140,13 +139,7 @@ impl XASGroup {
         }
 
         // Create a iterator to remove the spectra from the group
-        let mut remove_index_iter = (0..self.len()).map(|index| {
-            if from_index.contains(&index) {
-                false
-            } else {
-                true
-            }
-        });
+        let mut remove_index_iter = (0..self.len()).map(|index| !from_index.contains(&index));
 
         // Calculate the shift of the insert index
         let insert_index_shift = from_index.iter().filter(|&index| *index < to_index).count();
@@ -326,7 +319,7 @@ impl XASGroup {
 
         _ = mem::replace(self, xas_group_file.data);
 
-        return Ok(self);
+        Ok(self)
     }
 
     pub fn write_bson(&self, filename: &str) -> Result<&Self, Box<dyn Error>> {

@@ -82,11 +82,11 @@ impl<'a> XASParameters<'a> {
         normalization_method: &str,
     ) -> Result<&mut Self, Box<dyn Error>> {
         match normalization_method {
-            x if x.to_lowercase().starts_with("p") => {
+            x if x.to_lowercase().starts_with('p') => {
                 self.normalization_method =
                     Some(NormalizationMethod::PrePostEdge(PrePostEdge::new()));
             }
-            x if x.to_lowercase().starts_with("m") => {
+            x if x.to_lowercase().starts_with('m') => {
                 self.normalization_method = Some(NormalizationMethod::MBack(MBack::new()))
             }
             _ => {
@@ -103,10 +103,10 @@ impl<'a> XASParameters<'a> {
         background_method: &str,
     ) -> Result<&mut Self, Box<dyn Error>> {
         match background_method {
-            x if x.to_lowercase().starts_with("a") => {
+            x if x.to_lowercase().starts_with('a') => {
                 self.background_method = Some(BackgroundMethod::AUTOBK(AUTOBK::new()));
             }
-            x if x.to_lowercase().starts_with("i") => {
+            x if x.to_lowercase().starts_with('i') => {
                 self.background_method = Some(BackgroundMethod::ILPBkg(ILPBkg::new()));
             }
             _ => {

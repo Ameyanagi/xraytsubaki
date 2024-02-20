@@ -23,8 +23,8 @@ pub trait Normalization {
         mu: &ArrayBase<OwnedRepr<f64>, Ix1>,
     ) -> Result<&mut Self, Box<dyn Error>>;
 
-    fn get_norm(&self) -> &Option<Array1<f64>>;
-    fn get_flat(&self) -> &Option<Array1<f64>>;
+    fn get_norm(&self) -> Option<&Array1<f64>>;
+    fn get_flat(&self) -> Option<&Array1<f64>>;
     fn get_edge_step(&self) -> Option<f64>;
     fn get_e0(&self) -> Option<f64>;
     fn set_e0(&mut self, e0: Option<f64>) -> &mut Self;
@@ -123,14 +123,14 @@ impl NormalizationMethod {
         }
     }
 
-    pub fn get_flat(&self) -> &Option<Array1<f64>> {
+    pub fn get_flat(&self) -> Option<&Array1<f64>> {
         match self {
             NormalizationMethod::PrePostEdge(pre_post_edge) => pre_post_edge.get_flat(),
             NormalizationMethod::MBack(mback) => mback.get_flat(),
         }
     }
 
-    pub fn get_norm(&self) -> &Option<Array1<f64>> {
+    pub fn get_norm(&self) -> Option<&Array1<f64>> {
         match self {
             NormalizationMethod::PrePostEdge(pre_post_edge) => pre_post_edge.get_norm(),
             NormalizationMethod::MBack(mback) => mback.get_norm(),
@@ -252,11 +252,11 @@ impl PrePostEdge {
 
         if self.pre_edge_start.is_none() {
             let pre_edge_start = if ie0 > 20 {
-                5.0 * ((&energy[1] - &e0) / 5.0).round()
+                5.0 * ((energy[1] - e0) / 5.0).round()
             } else {
-                2.0 * ((&energy[1] - &e0) / 2.0).round()
+                2.0 * ((energy[1] - e0) / 2.0).round()
             }
-            .max(&energy.min() - &e0);
+            .max(energy.min() - e0);
 
             self.pre_edge_start = Some(pre_edge_start);
         }
@@ -271,13 +271,13 @@ impl PrePostEdge {
         }
 
         if self.norm_end.is_none() {
-            let norm_end = 5.0 * ((&energy.max() - &e0) / 5.0).round();
-            let norm_end = if &norm_end < &0.0 {
-                &energy.max() - &e0 - norm_end
+            let norm_end = 5.0 * ((energy.max() - e0) / 5.0).round();
+            let norm_end = if norm_end < 0.0 {
+                energy.max() - e0 - norm_end
             } else {
                 norm_end
             }
-            .min(&energy.max() - &e0);
+            .min(energy.max() - e0);
 
             self.norm_end = Some(norm_end);
         }
@@ -338,12 +338,12 @@ impl PrePostEdge {
         self.n_victoreen
     }
 
-    pub fn get_pre_edge(&self) -> &Option<Array1<f64>> {
-        &self.pre_edge
+    pub fn get_pre_edge(&self) -> Option<&Array1<f64>> {
+        self.pre_edge.as_ref()
     }
 
-    pub fn get_post_edge(&self) -> &Option<Array1<f64>> {
-        &self.post_edge
+    pub fn get_post_edge(&self) -> Option<&Array1<f64>> {
+        self.post_edge.as_ref()
     }
 
     pub fn get_norm_coefficients(&self) -> &Option<Vec<f64>> {
@@ -376,14 +376,14 @@ impl Normalization for PrePostEdge {
 
         let p1 = mathutils::index_of(
             &energy.to_vec(),
-            &(&self.pre_edge_start.unwrap() + &self.e0.unwrap()),
+            &(self.pre_edge_start.unwrap() + self.e0.unwrap()),
         )?;
         let mut p2 = mathutils::index_nearest(
             &energy.to_vec(),
-            &(&self.pre_edge_end.unwrap() + &self.e0.unwrap()),
+            &(self.pre_edge_end.unwrap() + self.e0.unwrap()),
         )?;
 
-        if &p2 - &p1 < 2 {
+        if p2 - p1 < 2 {
             p2 = energy.len().min(&p1 + 2);
         }
 
@@ -399,19 +399,19 @@ impl Normalization for PrePostEdge {
         let pre_coefficients: Vec<f64> =
             polyfit_rs::polyfit(&energy_x.to_vec(), &mu_x.to_vec(), 1)?;
 
-        let pre_edge = (&energy * pre_coefficients[1].clone() + pre_coefficients[0].clone())
-            * &energy.map(|e| e.powi(-nvict));
+        let pre_edge =
+            (&energy * pre_coefficients[1] + pre_coefficients[0]) * &energy.map(|e| e.powi(-nvict));
 
         let mut p1 = mathutils::index_of(
             &energy.to_vec(),
-            &(&self.norm_start.unwrap() + &self.e0.unwrap()),
+            &(self.norm_start.unwrap() + self.e0.unwrap()),
         )?;
         let mut p2 = mathutils::index_nearest(
             &energy.to_vec(),
-            &(&self.norm_end.unwrap() + &self.e0.unwrap()),
+            &(self.norm_end.unwrap() + self.e0.unwrap()),
         )?;
 
-        if &p2 - &p1 < 2 {
+        if p2 - p1 < 2 {
             p2 = energy.len().min(&p1 + 2);
             p1 = energy.len().min(&p1 + 1);
         }
@@ -420,7 +420,7 @@ impl Normalization for PrePostEdge {
             .slice(ndarray::s![p1..p2])
             .to_vec()
             .clone();
-        let post_edge_energy = energy.slice(ndarray::s![p1..p2]).clone();
+        let post_edge_energy = energy.slice(ndarray::s![p1..p2]);
         let post_coefficients = polyfit_rs::polyfit(
             &post_edge_energy.to_vec(),
             &presub,
@@ -440,12 +440,12 @@ impl Normalization for PrePostEdge {
         }
         .max(1.0e-12);
 
-        let norm = (&mu - &pre_edge) / edge_step.clone();
+        let norm = (&mu - &pre_edge) / edge_step;
 
         // let flat_diff = (&post_edge - &mu) / edge_step.clone();
-        let flat_residue = (&post_edge - &pre_edge) / edge_step.clone();
+        let flat_residue = (&post_edge - &pre_edge) / edge_step;
 
-        let mut flat = &norm - &flat_residue + flat_residue[ie0].clone();
+        let mut flat = &norm - &flat_residue + flat_residue[ie0];
 
         flat.slice_mut(ndarray::s![..ie0])
             .assign(&norm.slice(ndarray::s![..ie0]));
@@ -469,12 +469,12 @@ impl Normalization for PrePostEdge {
         self.edge_step
     }
 
-    fn get_flat(&self) -> &Option<Array1<f64>> {
-        &self.flat
+    fn get_flat(&self) -> Option<&Array1<f64>> {
+        self.flat.as_ref()
     }
 
-    fn get_norm(&self) -> &Option<Array1<f64>> {
-        &self.norm
+    fn get_norm(&self) -> Option<&Array1<f64>> {
+        self.norm.as_ref()
     }
 
     fn set_e0(&mut self, e0: Option<f64>) -> &mut Self {
@@ -539,12 +539,12 @@ impl Normalization for MBack {
         self.edge_step
     }
 
-    fn get_flat(&self) -> &Option<Array1<f64>> {
-        &self.flat
+    fn get_flat(&self) -> Option<&Array1<f64>> {
+        self.flat.as_ref()
     }
 
-    fn get_norm(&self) -> &Option<Array1<f64>> {
-        &self.norm
+    fn get_norm(&self) -> Option<&Array1<f64>> {
+        self.norm.as_ref()
     }
 
     fn set_e0(&mut self, e0: Option<f64>) -> &mut Self {

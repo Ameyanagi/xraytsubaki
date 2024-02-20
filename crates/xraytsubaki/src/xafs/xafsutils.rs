@@ -410,7 +410,7 @@ pub fn _find_e0<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>> + Clone>(
         smooth(
             energy.into(),
             mu.gradient() / en.gradient(),
-            Some(3.0 * estep.clone()),
+            Some(3.0 * estep),
             None,
             Some(estep),
             None,
@@ -477,9 +477,7 @@ pub fn _find_e0<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>> + Clone>(
             continue;
         }
 
-        if &dmu[*i] > &dmax
-            && high_deriv_pts.contains(&(i + 1))
-            && high_deriv_pts.contains(&(i - 1))
+        if dmu[*i] > dmax && high_deriv_pts.contains(&(i + 1)) && high_deriv_pts.contains(&(i - 1))
         {
             dmax = dmu[i.clone()];
             imax = i.clone();
@@ -522,14 +520,13 @@ pub fn ftwindow(
     dx2: Option<f64>,
     window: Option<FTWindow>,
 ) -> Result<Array1<f64>, Box<dyn Error>> {
-    let window = if window.is_none() {
-        FTWindow::default()
-    } else {
-        window.unwrap()
+    let window = match window {
+        Some(x) => x,
+        None => FTWindow::default(),
     };
 
     let mut dx1 = dx.unwrap_or(1.0);
-    let mut dx2 = dx2.unwrap_or(dx1.clone());
+    let mut dx2 = dx2.unwrap_or(dx1);
 
     let xmin = xmin.unwrap_or(x.min());
     let xmax = xmax.unwrap_or(x.max());
@@ -537,16 +534,16 @@ pub fn ftwindow(
     let xstep = (x[x.len() - 1] - x[0]) / (x.len() as f64 - 1.0);
     let xeps = &xstep * 1e-4;
 
-    let mut x1 = x.min().max(&xmin - &dx1 / 2.0);
-    let mut x2 = &xmin + &dx1 / 2.0 + &xeps;
-    let mut x3 = &xmax - &dx2 / 2.0 - &xeps;
-    let mut x4 = x.max().min(&xmax + &dx2 / 2.0);
+    let mut x1 = x.min().max(xmin - dx1 / 2.0);
+    let mut x2 = xmin + dx1 / 2.0 + xeps;
+    let mut x3 = xmax - dx2 / 2.0 - xeps;
+    let mut x4 = x.max().min(xmax + dx2 / 2.0);
 
-    let asint = |val: &f64| ((val + &xeps) / &xstep) as i32;
+    let asint = |val: &f64| ((val + xeps) / xstep) as i32;
 
     match window {
         FTWindow::Gaussian => {
-            dx1 = dx1.max(xeps.clone());
+            dx1 = dx1.max(xeps);
         }
 
         FTWindow::FHanning => {
@@ -556,8 +553,8 @@ pub fn ftwindow(
             if dx2 > 1.0 {
                 dx2 = 1.0;
             }
-            x2 = &x1 + &xeps + &dx1 * (&xmax - &xmin) / 2.0;
-            x3 = &x4 - &xeps - &dx2 * (&xmax - &xmin) / 2.0;
+            x2 = x1 + xeps + dx1 * (xmax - xmin) / 2.0;
+            x3 = x4 - xeps - dx2 * (xmax - xmin) / 2.0;
         }
         _ => {}
     }
@@ -595,33 +592,6 @@ pub fn ftwindow(
     if i3 > i2 {
         fwin.slice_mut(ndarray::s![i2..i3]).fill(1.0);
     }
-
-    // if nam in ('han', 'fha'):
-    //     fwin[i1:i2+1] = sin((pi/2)*(x[i1:i2+1]-x1) / (x2-x1))**2
-    //     fwin[i3:i4+1] = cos((pi/2)*(x[i3:i4+1]-x3) / (x4-x3))**2
-    // elif nam == 'par':
-    //     fwin[i1:i2+1] =     (x[i1:i2+1]-x1) / (x2-x1)
-    //     fwin[i3:i4+1] = 1 - (x[i3:i4+1]-x3) / (x4-x3)
-    // elif nam == 'wel':
-    //     fwin[i1:i2+1] = 1 - ((x[i1:i2+1]-x2) / (x2-x1))**2
-    //     fwin[i3:i4+1] = 1 - ((x[i3:i4+1]-x3) / (x4-x3))**2
-    // elif nam  in ('kai', 'bes'):
-    //     cen  = (x4+x1)/2
-    //     wid  = (x4-x1)/2
-    //     arg  = 1 - (x-cen)**2 / (wid**2)
-    //     arg[where(arg<0)] = 0
-    //     if nam == 'bes': # 'bes' : ifeffit 1.0 implementation of kaiser-bessel
-    //         fwin = bessel_i0(dx* sqrt(arg)) / bessel_i0(dx)
-    //         fwin[where(x<=x1)] = 0
-    //         fwin[where(x>=x4)] = 0
-    //     else: # better version
-    //         scale = max(1.e-10, bessel_i0(dx)-1)
-    //         fwin = (bessel_i0(dx * sqrt(arg)) - 1) / scale
-    // elif nam == 'sin':
-    //     fwin[i1:i4+1] = sin(pi*(x4-x[i1:i4+1]) / (x4-x1))
-    // elif nam == 'gau':
-    //     cen  = (x4+x1)/2
-    //     fwin =  exp(-(((x - cen)**2)/(2*dx1*dx1)))
 
     match window {
         FTWindow::Hanning | FTWindow::FHanning => {

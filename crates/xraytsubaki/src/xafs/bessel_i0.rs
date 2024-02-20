@@ -67,7 +67,7 @@ pub fn chvevl(x: f64, array: &[f64]) -> f64 {
     for p0 in &array[1..] {
         b2 = b1;
         b1 = b0;
-        b0 = &x * &b1 - &b2 + *p0;
+        b0 = x * b1 - b2 + *p0;
     }
 
     0.5 * (b0 - b2)
@@ -103,7 +103,7 @@ mod tests {
         let y = x.iter().map(|x| bessel_i0(*x)).collect_vec();
 
         // Expected values from scipy.special.i0
-        let expected = vec![
+        let expected = [
             1.0,
             1.2660658777520082,
             2.279585302336067,

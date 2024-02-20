@@ -12,7 +12,7 @@ pub fn mod_and_calc_nalgebra_f64<T>(
 ) -> T {
     let xtmp = x[idx];
     x[idx] = xtmp + y;
-    let fx1 = (f)(&x);
+    let fx1 = (f)(x);
     x[idx] = xtmp;
     fx1
 }
@@ -22,7 +22,7 @@ pub fn forward_jacobian_nalgebra_f64(
     x: &DVector<f64>,
     fs: &dyn Fn(&DVector<f64>) -> DVector<f64>,
 ) -> DMatrix<f64> {
-    let fx = (fs)(&x);
+    let fx = (fs)(x);
     let mut xt = x.clone();
     let mut jac = DMatrix::zeros(fx.len(), x.len());
     for i in 0..x.len() {
@@ -37,7 +37,7 @@ pub fn center_jacobian_nalgebra_f64(
     x: &DVector<f64>,
     fs: &dyn Fn(&DVector<f64>) -> DVector<f64>,
 ) -> DMatrix<f64> {
-    let fx = (fs)(&x);
+    let fx = (fs)(x);
     let mut xt = x.clone();
     let mut jac = DMatrix::zeros(fx.len(), x.len());
     for i in 0..x.len() {
@@ -56,8 +56,7 @@ pub fn approx_hessian_nalgebra_f64(
     fs: &dyn Fn(&DVector<f64>) -> DVector<f64>,
 ) -> DMatrix<f64> {
     let jac = forward_jacobian_nalgebra_f64(x, fs);
-    let hess = jac.transpose() * &jac;
-    hess
+    jac.transpose() * &jac
 }
 
 /// Calculation of the approximate covariance matrix.
@@ -68,8 +67,7 @@ pub fn approx_covariance_matrix_nalgebra_f64(
     fs: &dyn Fn(&DVector<f64>) -> DVector<f64>,
 ) -> Option<DMatrix<f64>> {
     let hess = approx_hessian_nalgebra_f64(x, fs);
-    let cov = hess.try_inverse();
-    cov
+    hess.try_inverse()
 }
 
 /// Trait for Levenberg-Marquardt parameters.

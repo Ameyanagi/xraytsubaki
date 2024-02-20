@@ -9,7 +9,7 @@ use std::ops::Deref;
 // Import external dependencies
 use levenberg_marquardt::{LeastSquaresProblem, LevenbergMarquardt};
 use nalgebra::{DMatrix, DVector, Dyn, Owned};
-use ndarray::{Array1, ArrayBase, Axis, Ix1, OwnedRepr};
+use ndarray::{Array1, ArrayBase, Axis, Ix1, OwnedRepr, ViewRepr};
 use rusty_fitpack;
 use serde::{Deserialize, Serialize};
 
@@ -266,14 +266,13 @@ impl AUTOBK {
 
         // Rbkg Algorithm
         let iek0 = mathutils::index_of(&energy.to_vec(), &self.ek0.unwrap())?;
-        let mut rgrid =
-            std::f64::consts::PI / (&self.kstep.unwrap() * self.nfft.unwrap().clone() as f64);
+        let mut rgrid = std::f64::consts::PI / (self.kstep.unwrap() * self.nfft.unwrap() as f64);
 
-        if &self.rbkg.unwrap() < &(2.0 * &rgrid) {
-            rgrid = 2.0 * rgrid;
+        if self.rbkg.unwrap() < (2.0 * rgrid) {
+            rgrid *= 2.0;
         }
 
-        let enpe = &energy.slice(ndarray::s![iek0..]).clone() - self.ek0.unwrap().clone();
+        let enpe = &energy.slice(ndarray::s![iek0..]).clone() - self.ek0.unwrap();
         let kraw = &enpe.mapv(|x| x.signum() * (xafsutils::constants::ETOK * x.abs()).sqrt());
 
         let kmax = if self.kmax.is_none() {
@@ -282,13 +281,13 @@ impl AUTOBK {
             self.kmax.unwrap().min(kraw.max()).max(0.0)
         };
 
-        let kout = self.kstep.unwrap().clone()
-            * &Array1::range(0.0, (1.01 + &kmax / &self.kstep.unwrap()).floor(), 1.0);
+        let kout = self.kstep.unwrap()
+            * &Array1::range(0.0, (1.01 + kmax / self.kstep.unwrap()).floor(), 1.0);
 
         let iemax = &energy.len().min(
             2 + mathutils::index_of(
                 &energy.to_vec(),
-                &(&self.ek0.unwrap() + &kmax.powi(2) / xafsutils::constants::ETOK),
+                &(self.ek0.unwrap() + kmax.powi(2) / xafsutils::constants::ETOK),
             )?,
         ) - 1;
 
@@ -304,11 +303,11 @@ impl AUTOBK {
         let ftwin = &kout.mapv(|x| x.powi(self.kweight.unwrap()))
             * xafsutils::ftwindow(
                 &kout,
-                self.kmin.clone(),
-                Some(kmax.clone()),
-                self.dk.clone(),
-                self.dk.clone(),
-                Some(self.window.clone()),
+                self.kmin,
+                Some(kmax),
+                self.dk,
+                self.dk,
+                Some(self.window),
             )?;
 
         let mut nspl = 1
@@ -329,18 +328,18 @@ impl AUTOBK {
         let mut spl_y: Array1<f64> = Array1::ones(Ix1(nspl as usize));
         let mut spl_k: Array1<f64> = Array1::zeros(nspl as usize);
 
-        let a = spl_y
+        spl_y
             .iter_mut()
             .zip(spl_k.iter_mut())
             .enumerate()
             .for_each(|(i, (y, k))| {
-                let q = &self.kmin.unwrap()
-                    + i as f64 * (&kmax - &self.kmin.unwrap()) / (&nspl - 1) as f64;
+                let q =
+                    self.kmin.unwrap() + i as f64 * (kmax - self.kmin.unwrap()) / (nspl - 1) as f64;
                 let ik = mathutils::index_nearest(&kraw.to_vec(), &q).unwrap();
-                let i1 = (&ik + 5).min(kraw.len() - 1);
-                let i2 = (ik.clone() as i32 - 5).max(0) as usize;
+                let i1 = (ik + 5).min(kraw.len() - 1);
+                let i2 = (ik as i32 - 5).max(0) as usize;
                 *k = kraw[ik];
-                *y = (2.0 * mu[&ik + &iek0] + mu[&i1 + &iek0] + mu[&i2 + &iek0]) / 4.0;
+                *y = (2.0 * mu[ik + iek0] + mu[i1 + iek0] + mu[i2 + iek0]) / 4.0;
             });
 
         let order = 3;
@@ -401,11 +400,7 @@ impl AUTOBK {
             kout: kout.clone().into_nalgebra(),
             ftwin: ftwin.into_nalgebra(),
             kweight: self.kweight.unwrap(),
-            chi_std: if let Some(chi_std) = chi_std {
-                Some(chi_std.into_nalgebra())
-            } else {
-                None
-            },
+            chi_std: chi_std.map(|x| x.into_nalgebra()),
             nclamp: self.nclamp.unwrap(),
             clamp_lo: self.clamp_lo.unwrap(),
             clamp_hi: self.clamp_hi.unwrap(),
@@ -444,116 +439,102 @@ impl AUTOBK {
         Ok(self)
     }
 
-    pub fn get_ek0(&self) -> Option<f64> {
-        self.ek0.clone()
+    pub fn get_ek0(&self) -> Option<&f64> {
+        self.ek0.as_ref()
     }
 
-    pub fn get_rbkg(&self) -> Option<f64> {
-        self.rbkg.clone()
+    pub fn get_rbkg(&self) -> Option<&f64> {
+        self.rbkg.as_ref()
     }
 
-    pub fn get_nknots(&self) -> Option<i32> {
-        self.nknots.clone()
+    pub fn get_nknots(&self) -> Option<&i32> {
+        self.nknots.as_ref()
     }
 
-    pub fn get_kmin(&self) -> Option<f64> {
-        self.kmin.clone()
+    pub fn get_kmin(&self) -> Option<&f64> {
+        self.kmin.as_ref()
     }
 
-    pub fn get_kmax(&self) -> Option<f64> {
-        self.kmax.clone()
+    pub fn get_kmax(&self) -> Option<&f64> {
+        self.kmax.as_ref()
     }
 
-    pub fn get_kstep(&self) -> Option<f64> {
-        self.kstep.clone()
+    pub fn get_kstep(&self) -> Option<&f64> {
+        self.kstep.as_ref()
     }
 
-    pub fn get_nclamp(&self) -> Option<i32> {
-        self.nclamp.clone()
+    pub fn get_nclamp(&self) -> Option<&i32> {
+        self.nclamp.as_ref()
     }
 
-    pub fn get_clamp_lo(&self) -> Option<i32> {
-        self.clamp_lo.clone()
+    pub fn get_clamp_lo(&self) -> Option<&i32> {
+        self.clamp_lo.as_ref()
     }
 
-    pub fn get_clamp_hi(&self) -> Option<i32> {
-        self.clamp_hi.clone()
+    pub fn get_clamp_hi(&self) -> Option<&i32> {
+        self.clamp_hi.as_ref()
     }
 
-    pub fn get_nfft(&self) -> Option<i32> {
-        self.nfft.clone()
+    pub fn get_nfft(&self) -> Option<&i32> {
+        self.nfft.as_ref()
     }
 
-    pub fn get_chi_std(&self) -> Option<Array1<f64>> {
-        self.chi_std.clone()
+    pub fn get_chi_std(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
+        self.chi_std.as_ref().map(|x| x.view())
     }
 
-    pub fn get_k_std(&self) -> Option<Array1<f64>> {
-        self.k_std.clone()
+    pub fn get_k_std(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
+        self.k_std.as_ref().map(|x| x.view())
     }
 
-    pub fn get_kweight(&self) -> Option<i32> {
-        self.kweight.clone()
+    pub fn get_kweight(&self) -> Option<&i32> {
+        self.kweight.as_ref()
     }
 
     pub fn get_window(&self) -> FTWindow {
-        self.window.clone()
+        self.window
     }
 
-    pub fn get_dk(&self) -> Option<f64> {
-        self.dk.clone()
+    pub fn get_dk(&self) -> Option<&f64> {
+        self.dk.as_ref()
     }
 
-    pub fn get_bkg(&self) -> Option<Array1<f64>> {
-        self.bkg.clone()
+    pub fn get_bkg(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
+        self.bkg.as_ref().map(|x| x.view())
     }
 
-    pub fn get_chie(&self) -> Option<Array1<f64>> {
-        self.chie.clone()
+    pub fn get_chie(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
+        self.chie.as_ref().map(|x| x.view())
     }
 
-    pub fn get_k(&self) -> Option<Array1<f64>> {
-        self.k.clone()
+    pub fn get_k(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
+        self.k.as_ref().map(|x| x.view())
     }
 
-    pub fn get_chi(&self) -> Option<Array1<f64>> {
-        self.chi.clone()
+    pub fn get_chi(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
+        self.chi.as_ref().map(|x| x.view())
     }
 
-    pub fn get_chi_kweighted(&self) -> Option<Array1<f64>> {
-        if self.kweight.is_none() || self.k.is_none() || self.chi.is_none() {
-            return None;
-        }
-
-        let kweight = self.kweight.unwrap();
-        let k = self.k.clone().unwrap();
-        let chi = self.chi.clone().unwrap();
+    pub fn get_chi_kweighted(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+        let kweight = self.kweight?;
+        let k = self.k.clone()?;
+        let chi = self.chi.clone()?;
 
         if kweight == 0 {
-            return Some(chi);
+            Some(chi)
         } else {
-            return Some(chi * &k.mapv(|x| x.powi(kweight)));
+            Some(chi * &k.mapv(|x| x.powi(kweight)))
         }
     }
 
     pub fn get_ftwin(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
-        if self.kweight.is_none() || self.k.is_none() {
-            return None;
-        }
+        let k = self.k.as_ref()?;
 
-        let k = self.k.as_ref().unwrap();
+        let ftwin =
+            xafsutils::ftwindow(k, self.kmin, self.kmax, self.dk, self.dk, Some(self.window))
+                .unwrap();
 
-        let ftwin = xafsutils::ftwindow(
-            k,
-            self.kmin.clone(),
-            self.kmax.clone(),
-            self.dk.clone(),
-            self.dk.clone(),
-            Some(self.window.clone()),
-        )
-        .unwrap();
-
-        Some(ftwin.clone())
+        Some(ftwin)
     }
 }
 
@@ -707,7 +688,7 @@ impl AUTOBKSpline {
                 chi
             };
 
-            let mut out: DVector<f64> = chi
+            let out: DVector<f64> = chi
                 .component_mul(&self.ftwin)
                 .xftf_fast(self.nfft, self.kstep)[..self.irbkg]
                 .realimg();
@@ -743,9 +724,9 @@ impl AUTOBKSpline {
                 // let scale = 1.0 + 100.0 * out.dot(&out) / out.len() as f64;
 
                 let low_clamp =
-                    self.clamp_lo as f64 * &scale * chi_der.view((0, 0), (self.nclamp as usize, 1));
+                    self.clamp_lo as f64 * scale * chi_der.view((0, 0), (self.nclamp as usize, 1));
                 let high_clamp = self.clamp_hi as f64
-                    * &scale
+                    * scale
                     * chi_der.view(
                         (chi_der.len() - self.nclamp as usize - 1, 0),
                         (self.nclamp as usize, 1),
@@ -888,7 +869,7 @@ mod tests {
             .iter()
             .zip(k_expected.iter())
             .zip(ftwin.clone().iter())
-            .map(|((x, y), z)| x * y.powi(kweight) * z)
+            .map(|((x, y), z)| x * y.powi(kweight.clone()) * z)
             .collect::<Vec<f64>>();
 
         let mse = chi_weighted

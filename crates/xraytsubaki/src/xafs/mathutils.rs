@@ -385,7 +385,7 @@ pub fn index_of(array: &Vec<f64>, value: &f64) -> Result<usize, Box<dyn Error>> 
 /// let value = 3.4;
 /// assert_eq!(index_nearest(&array, &value).unwrap(), 2);
 /// ```
-pub fn index_nearest(array: &Vec<f64>, value: &f64) -> Result<usize, Box<dyn Error>> {
+pub fn index_nearest(array: &[f64], value: &f64) -> Result<usize, Box<dyn Error>> {
     Ok(array
         .iter()
         .enumerate()
@@ -402,7 +402,7 @@ pub fn bessel_I0(x: f64) -> f64 {
     for j in 1.. {
         addend = addend * base / (j * j) as f64;
         let old = sum;
-        sum = sum + addend;
+        sum += addend;
         if sum == old || !sum.is_finite() {
             break;
         }
@@ -492,7 +492,7 @@ mod tests {
         let y = vec![0.0, 2.0, 2.5, 4.0, 5.0];
         let z = vec![10.0, 20.0, 30.0, 40.0, 50.0];
 
-        let expected = vec![15.0, 20.0, 33.333333333333336, 40.0, 50.0];
+        let expected = [15.0, 20.0, 33.333333333333336, 40.0, 50.0];
         x.interpolate(&y, &z)
             .unwrap()
             .iter()
@@ -540,7 +540,7 @@ mod tests {
         // );
 
         let y = x.clone().gaussian(5.0, 1.0).to_vec();
-        let expected = vec![
+        let expected = [
             1.4867195147342979e-6,
             0.00013383022576488537,
             0.0044318484119380075,
@@ -583,7 +583,7 @@ mod tests {
 
         let y = x.clone().lorentzian(5.0, 1.0).to_vec();
 
-        let expected = vec![
+        let expected = [
             0.012242687930145796,
             0.01872411095198769,
             0.03183098861837907,
@@ -625,7 +625,7 @@ mod tests {
 
         let y = x.clone().voigt(5.0, 1.0, 1.0).to_vec();
 
-        let expected = vec![
+        let expected = [
             0.013884921288571273,
             0.022813635258707103,
             0.04338582232367969,
@@ -715,9 +715,9 @@ mod tests {
 
         use crate::xafs::lmutils::forward_jacobian_nalgebra_f64;
 
-        let spline = rusty_fitpack::splev(t.clone(), c.clone(), k, x.clone(), e);
-
-        let spline = DVector::from(spline);
+        // let spline = rusty_fitpack::splev(t.clone(), c.clone(), k, x.clone(), e);
+        //
+        // let spline = DVector::from(spline);
 
         let spline_function = |coef: &DVector<f64>| {
             DVector::from(rusty_fitpack::splev(

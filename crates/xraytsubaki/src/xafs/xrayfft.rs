@@ -4,7 +4,9 @@
 use easyfft::prelude::{DynRealFft, DynRealIfft};
 use easyfft::{dyn_size::realfft::DynRealDft, num_complex::Complex};
 use nalgebra::{DVector, Owned};
-use ndarray::{Array, Array1, ArrayBase, Axis, Ix, Ix1, OwnedRepr};
+use ndarray::{
+    Array, Array1, ArrayBase, ArrayView, ArrayView1, Axis, Ix, Ix1, OwnedRepr, ViewRepr,
+};
 use num_complex::Complex64;
 use serde::{Deserialize, Serialize};
 
@@ -63,7 +65,7 @@ impl XrayFFTF {
         XrayFFTF::default()
     }
 
-    pub fn fill_parameter(&mut self, k: &ArrayBase<OwnedRepr<f64>, Ix1>) -> &mut Self {
+    pub fn fill_parameter(&mut self, k: ArrayBase<ViewRepr<&f64>, Ix1>) -> &mut Self {
         if self.kweight.is_none() {
             self.kweight = Some(2.0);
         }
@@ -103,8 +105,8 @@ impl XrayFFTF {
 
     pub fn xftf_prep(
         &mut self,
-        k: &ArrayBase<OwnedRepr<f64>, Ix1>,
-        chi: &ArrayBase<OwnedRepr<f64>, Ix1>,
+        k: ArrayBase<ViewRepr<&f64>, Ix1>,
+        chi: ArrayBase<ViewRepr<&f64>, Ix1>,
     ) -> Result<
         (
             ArrayBase<OwnedRepr<f64>, Ix1>,
@@ -114,9 +116,9 @@ impl XrayFFTF {
     > {
         self.fill_parameter(k);
         let kweight = self.kweight.unwrap() as i32;
-        let mut k_max = k.max();
+        let k_max = k.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
         let npts = (1.01 + k_max / self.kstep.unwrap()) as usize;
-        k_max = k_max.max(self.kmax.unwrap() + self.dk2.unwrap());
+        let k_max = k_max.max(self.kmax.unwrap() + self.dk2.unwrap());
         let k_ = Array1::range(0.0, k_max + self.kstep.unwrap(), self.kstep.unwrap());
 
         let chi_ = k_.interpolate(&k.to_vec(), &chi.to_vec())?;
@@ -135,12 +137,12 @@ impl XrayFFTF {
 
     pub fn xftf(
         &mut self,
-        k: &ArrayBase<OwnedRepr<f64>, Ix1>,
-        chi: &ArrayBase<OwnedRepr<f64>, Ix1>,
+        k: ArrayBase<ViewRepr<&f64>, Ix1>,
+        chi: ArrayBase<ViewRepr<&f64>, Ix1>,
     ) -> &mut Self {
         let (cchi, win) = self.xftf_prep(k, chi).unwrap();
 
-        let cchi_fft = xftf_fast(&cchi, self.nfft.unwrap(), self.kstep.unwrap());
+        let cchi_fft = xftf_fast(cchi.view(), self.nfft.unwrap(), self.kstep.unwrap());
 
         let rstep = std::f64::consts::PI / self.kstep.unwrap() / self.nfft.unwrap() as f64;
 
@@ -157,67 +159,67 @@ impl XrayFFTF {
         self
     }
 
-    pub fn get_rmax_out(&self) -> Option<f64> {
-        self.rmax_out
+    pub fn get_rmax_out(&self) -> Option<&f64> {
+        self.rmax_out.as_ref()
     }
 
-    pub fn get_window(&self) -> Option<FTWindow> {
-        self.window
+    pub fn get_window(&self) -> Option<&FTWindow> {
+        self.window.as_ref()
     }
 
-    pub fn get_dk(&self) -> Option<f64> {
-        self.dk
+    pub fn get_dk(&self) -> Option<&f64> {
+        self.dk.as_ref()
     }
 
-    pub fn get_dk2(&self) -> Option<f64> {
-        self.dk2
+    pub fn get_dk2(&self) -> Option<&f64> {
+        self.dk2.as_ref()
     }
 
-    pub fn get_kmin(&self) -> Option<f64> {
-        self.kmin
+    pub fn get_kmin(&self) -> Option<&f64> {
+        self.kmin.as_ref()
     }
 
-    pub fn get_kmax(&self) -> Option<f64> {
-        self.kmax
+    pub fn get_kmax(&self) -> Option<&f64> {
+        self.kmax.as_ref()
     }
 
-    pub fn get_kweight(&self) -> Option<f64> {
-        self.kweight
+    pub fn get_kweight(&self) -> Option<&f64> {
+        self.kweight.as_ref()
     }
 
-    pub fn get_r(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
-        self.r.clone()
+    pub fn get_r(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
+        Some(self.r.as_ref()?.view())
     }
 
-    pub fn get_chir(&self) -> Option<DynRealDft<f64>> {
-        self.chir.clone()
+    pub fn get_chir(&self) -> Option<&DynRealDft<f64>> {
+        self.chir.as_ref()
     }
 
     pub fn get_chir_real(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
-        let len_r = self.r.as_ref().unwrap().len();
+        let len_r = self.r.as_ref()?.len();
 
-        let chir: Array1<f64> = self.chir.clone().unwrap().re();
+        let chir: Array1<f64> = self.chir.clone()?.re();
 
         Some(chir.slice_axis(Axis(0), (0..len_r).into()).to_owned())
     }
 
     pub fn get_chir_imag(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
-        let len_r = self.r.as_ref().unwrap().len();
+        let len_r = self.r.as_ref()?.len();
 
-        let chir: Array1<f64> = self.chir.clone().unwrap().re();
+        let chir: Array1<f64> = self.chir.clone()?.re();
 
         Some(chir.slice_axis(Axis(0), (0..len_r).into()).to_owned())
     }
 
-    pub fn get_chir_mag(&self) -> Option<&ArrayBase<OwnedRepr<f64>, Ix1>> {
-        self.chir_mag.as_ref()
+    pub fn get_chir_mag(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
+        Some(self.chir_mag.as_ref()?.view())
     }
-    pub fn get_kwin(&self) -> Option<&ArrayBase<OwnedRepr<f64>, Ix1>> {
-        self.kwin.as_ref()
+    pub fn get_kwin(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
+        Some(self.kwin.as_ref()?.view())
     }
 
-    pub fn get_kstep(&self) -> Option<f64> {
-        self.kstep
+    pub fn get_kstep(&self) -> Option<&f64> {
+        self.kstep.as_ref()
     }
 }
 
@@ -262,7 +264,7 @@ impl XrayFFTR {
         XrayFFTR::default()
     }
 
-    pub fn fill_parameter(&mut self, r: &ArrayBase<OwnedRepr<f64>, Ix1>) -> &mut Self {
+    pub fn fill_parameter(&mut self, r: ArrayBase<ViewRepr<&f64>, Ix1>) -> &mut Self {
         if self.rweight.is_none() {
             self.rweight = Some(0.0);
         }
@@ -297,13 +299,11 @@ impl XrayFFTR {
 
     pub fn xftr_prep(
         &mut self,
-        r: &ArrayBase<OwnedRepr<f64>, Ix1>,
+        r: ArrayBase<ViewRepr<&f64>, Ix1>,
         chir: &DynRealDft<f64>,
     ) -> Result<(DynRealDft<f64>, ArrayBase<OwnedRepr<f64>, Ix1>), Box<dyn std::error::Error>> {
         self.fill_parameter(r);
         let rweight = self.rweight.unwrap() as i32;
-        // let r_max = r.max();
-        // let npts = (1.01 + &r_max / self.kstep.unwrap()) as usize;
         let nfft = self.nfft.unwrap();
         let r_len = chir.len();
         let rstep = std::f64::consts::PI / self.kstep.unwrap() / nfft as f64;
@@ -328,11 +328,7 @@ impl XrayFFTR {
         Ok((chir_win, win))
     }
 
-    pub fn xftr(
-        &mut self,
-        r: &ArrayBase<OwnedRepr<f64>, Ix1>,
-        chir: &DynRealDft<f64>,
-    ) -> &mut Self {
+    pub fn xftr(&mut self, r: ArrayBase<ViewRepr<&f64>, Ix1>, chir: &DynRealDft<f64>) -> &mut Self {
         let (chir_win, win) = self.xftr_prep(r, chir).unwrap();
         let nfft = self.nfft.unwrap();
         let out = xftr_fast(&chir_win, nfft, self.kstep.unwrap());
@@ -350,48 +346,43 @@ impl XrayFFTR {
         self
     }
 
-    pub fn get_q(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
-        self.q.clone()
+    pub fn get_q(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
+        Some(self.q.as_ref()?.view())
     }
 
     pub fn get_chiq(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
-        if self.q.is_none() || self.chiq.is_none() {
-            return None;
-        }
-
-        let len_q = self.q.as_ref().unwrap().len();
+        let len_q = self.q.as_ref()?.len();
 
         Some(
             self.chiq
-                .as_ref()
-                .unwrap()
+                .clone()?
                 .slice_axis(Axis(0), (0..len_q).into())
                 .to_owned(),
         )
     }
 
-    pub fn get_rwin(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
-        self.rwin.clone()
+    pub fn get_rwin(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
+        Some(self.rwin.as_ref()?.view())
     }
 
-    pub fn get_kstep(&self) -> Option<f64> {
-        self.kstep.clone()
+    pub fn get_kstep(&self) -> Option<&f64> {
+        self.kstep.as_ref()
     }
 
-    pub fn get_rweight(&self) -> Option<f64> {
-        self.rweight.clone()
+    pub fn get_rweight(&self) -> Option<&f64> {
+        self.rweight.as_ref()
     }
 
-    pub fn get_nfft(&self) -> Option<usize> {
-        self.nfft.clone()
+    pub fn get_nfft(&self) -> Option<&usize> {
+        self.nfft.as_ref()
     }
 
-    pub fn get_window(&self) -> Option<FTWindow> {
-        self.window.clone()
+    pub fn get_window(&self) -> Option<&FTWindow> {
+        self.window.as_ref()
     }
 }
 
-pub fn xftf_fast(chi: &ArrayBase<OwnedRepr<f64>, Ix1>, nfft: usize, kstep: f64) -> DynRealDft<f64> {
+pub fn xftf_fast(chi: ArrayBase<ViewRepr<&f64>, Ix1>, nfft: usize, kstep: f64) -> DynRealDft<f64> {
     let mut cchi = vec![0.0 as f64; nfft];
     cchi[..chi.len()].copy_from_slice(&chi.to_vec()[..]);
 
@@ -455,7 +446,13 @@ pub trait XFFT {
 
 impl XFFT for ArrayBase<OwnedRepr<f64>, Ix1> {
     fn xftf_fast(&self, nfft: usize, kstep: f64) -> DynRealDft<f64> {
-        xftf_fast(self, nfft, kstep)
+        xftf_fast(self.view(), nfft, kstep)
+    }
+}
+
+impl XFFT for ArrayBase<ViewRepr<&f64>, Ix1> {
+    fn xftf_fast(&self, nfft: usize, kstep: f64) -> DynRealDft<f64> {
+        xftf_fast(*self, nfft, kstep)
     }
 }
 
@@ -636,7 +633,7 @@ mod tests {
         let sin_x = x.map(|x| x.sin());
         let nfft = 10;
         let kstep = 1.;
-        let fft = xftf_fast(&sin_x, nfft, kstep);
+        let fft = xftf_fast(sin_x.view(), nfft, kstep);
 
         let norm: DVector<f64> = fft.norm();
 
@@ -659,7 +656,7 @@ mod tests {
         let nfft = 1024;
         let kstep = 0.1;
 
-        let fft = xftf_fast(&sin_x, nfft, kstep);
+        let fft = xftf_fast(sin_x.view(), nfft, kstep);
         let ifft = xftr_fast(&fft, nfft, kstep);
 
         sin_x.iter().zip(ifft.iter()).for_each(|(x, y)| {

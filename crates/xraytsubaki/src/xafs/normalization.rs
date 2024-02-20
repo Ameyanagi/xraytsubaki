@@ -346,12 +346,12 @@ impl PrePostEdge {
         self.post_edge.as_ref()
     }
 
-    pub fn get_norm_coefficients(&self) -> &Option<Vec<f64>> {
-        &self.norm_coefficients
+    pub fn get_norm_coefficients(&self) -> Option<&Vec<f64>> {
+        self.norm_coefficients.as_ref()
     }
 
-    pub fn get_pre_coefficients(&self) -> &Option<Vec<f64>> {
-        &self.pre_coefficients
+    pub fn get_pre_coefficients(&self) -> Option<&Vec<f64>> {
+        self.pre_coefficients.as_ref()
     }
 }
 

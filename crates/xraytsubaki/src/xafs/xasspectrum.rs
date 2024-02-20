@@ -1,13 +1,14 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
 
+use std::borrow::Borrow;
 #[cfg_attr(debug_assertions, allow(dead_code, unused_imports))]
 // Standard library dependencies
 use std::error::Error;
 
 // External dependencies
 use easyfft::dyn_size::realfft::DynRealDft;
-use ndarray::{ArrayBase, Axis, Ix1, OwnedRepr};
+use ndarray::{ArrayBase, Axis, Ix1, OwnedRepr, ViewRepr};
 use serde::{Deserialize, Serialize};
 
 // load dependencies
@@ -228,14 +229,19 @@ impl XASSpectrum {
             self.xftf = Some(xrayfft::XrayFFTF::new());
         }
 
-        self.xftf.as_mut().unwrap().xftf(&k, &chi);
+        self.xftf.as_mut().unwrap().xftf(k.view(), chi.view());
 
         Ok(self)
     }
 
     pub fn ifft(&mut self) -> Result<&mut Self, Box<dyn Error>> {
-        let r = self.get_r();
-        let chi_r = self.get_chir();
+        if self.xftf.is_none() {
+            panic!("Please provide r and chi_r");
+            todo!("Implement Error Type")
+        }
+
+        let r = self.xftf.as_ref().unwrap().get_r();
+        let chi_r = self.xftf.as_ref().unwrap().get_chir();
 
         if r.is_none() || chi_r.is_none() {
             panic!("Need to calculate r and chi_r first, Error type");
@@ -249,7 +255,7 @@ impl XASSpectrum {
             self.xftr = Some(xrayfft::XrayFFTR::new());
         }
 
-        self.xftr.as_mut().unwrap().xftr(&r, &chi_r);
+        self.xftr.as_mut().unwrap().xftr(r.view(), chi_r);
 
         Ok(self)
     }
@@ -266,7 +272,7 @@ impl XASSpectrum {
         self.background.as_ref()?.get_chi()
     }
 
-    pub fn get_kweight(&self) -> Option<f64> {
+    pub fn get_kweight(&self) -> Option<&f64> {
         self.xftf.as_ref()?.get_kweight()
     }
 
@@ -275,14 +281,14 @@ impl XASSpectrum {
         let chi = self.get_chi()?;
         let kweight = self.get_kweight()?;
 
-        Some(chi * k.mapv(|x| x.powf(kweight)))
+        Some(chi * k.mapv(|x| x.powf(kweight.to_owned())))
     }
 
-    pub fn get_chir(&self) -> Option<DynRealDft<f64>> {
+    pub fn get_chir(&self) -> Option<&DynRealDft<f64>> {
         self.xftf.as_ref()?.get_chir()
     }
 
-    pub fn get_chir_mag(&self) -> Option<&ArrayBase<OwnedRepr<f64>, Ix1>> {
+    pub fn get_chir_mag(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
         self.xftf.as_ref()?.get_chir_mag()
     }
 
@@ -294,11 +300,11 @@ impl XASSpectrum {
         self.xftf.as_ref()?.get_chir_imag()
     }
 
-    pub fn get_r(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+    pub fn get_r(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
         self.xftf.as_ref()?.get_r()
     }
 
-    pub fn get_q(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+    pub fn get_q(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
         self.xftr.as_ref()?.get_q()
     }
 

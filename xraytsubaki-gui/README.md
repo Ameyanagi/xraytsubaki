@@ -1,3 +1,4 @@
+(Work in progress, I will work after the core functionality are implemented)
 # Development
 {% if styling == "Tailwind" %}
 1. Install npm: https://docs.npmjs.com/downloading-and-installing-node-js-and-npm

@@ -20,11 +20,12 @@ edition = "2021"
 authors = ["Ryuichi Shimogawa <ryuichi.shimogawa@stonybrook.edu"]
 homepage = "https://github.com/Ameyanagi/xraytsubaki"
 repository = "https://github.com/Ameyanagi/xraytsubaki"
-license = "MIT"
+license = "MIT OR Apache-2.0"
+
 
 [workspace.dependencies]
 easyfft = { version = "0.4.1", features = ["serde"] }
-semver = { version = "1.0.21" }
+semver = { version = "1.0.22" }
 approx = "0.5.1"
 data_reader = "0.5.0"
 errorfunctions = "0.2.0"
@@ -33,14 +34,14 @@ ndarray = { version = "0.15.6", features = ["approx", "serde"] }
 itertools = "0.12.0"
 lazy_static = "1.4.0"
 levenberg-marquardt = "0.13.1"
-nalgebra = "0.32.3"
+nalgebra = "0.32.4"
 num-complex = { version = "0.4.5", features = ["serde"] }
 polyfit-rs = "0.2.1"
-rusty-fitpack = "0.1.1"
-rayon = "1.8.0"
-serde = { version = "1.0.193", features = ["derive"] }
-serde_arrow = { version = "0.9.1", features = ["arrow2-0-17", "arrow-46"] }
-serde_json = "1.0.113"
+rusty-fitpack = "0.1.2"
+rayon = "1.8.1"
+serde = { version = "1.0.197", features = ["derive"] }
+serde_arrow = { version = "0.10.0", features = ["arrow2-0-17", "arrow-46"] }
+serde_json = "1.0.114"
 bson = "2.9.0"
 version = "3.0.0"
 derivative = "2.2.0"

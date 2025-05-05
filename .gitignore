@@ -2,3 +2,4 @@
 pythontest.ipynb
 test.txt
 .DS_Store
+**/.claude/settings.local.json

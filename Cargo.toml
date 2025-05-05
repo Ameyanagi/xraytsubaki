@@ -16,6 +16,7 @@ resolver = "2"
 members = [
   "crates/*",
   "py-xraytsubaki",
+  "pyxraytsubaki",
   # "examples/*",
 ]
 default-members = ["crates/*"]

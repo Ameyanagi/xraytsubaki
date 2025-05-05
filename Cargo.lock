@@ -1555,6 +1555,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pyxraytsubaki"
+version = "0.1.0"
+dependencies = [
+ "ndarray 0.15.6",
+ "numpy",
+ "pyo3",
+ "xraytsubaki",
+]
+
+[[package]]
 name = "quick-xml"
 version = "0.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2381,6 +2391,10 @@ dependencies = [
  "thiserror",
  "version",
 ]
+
+[[package]]
+name = "xraytsubaki-workspace"
+version = "0.1.0"
 
 [[package]]
 name = "zerocopy"

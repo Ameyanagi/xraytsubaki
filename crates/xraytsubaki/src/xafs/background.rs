@@ -62,10 +62,12 @@ impl BackgroundMethod {
                 autobk.calc_background(energy, mu, normalization_param)?;
                 Ok(self)
             }
-            BackgroundMethod::ILPBkg(ilpbkg) => {
-                todo!("Implement ILPBkg");
-                // ilpbkg.calc_background(energy, mu, normalization_param);
-                Ok(self)
+            BackgroundMethod::ILPBkg(_ilpbkg) => {
+                // Implementation for ILPBkg will be added in the future
+                Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Unsupported,
+                    "ILPBkg method not implemented yet",
+                )))
             }
             BackgroundMethod::None => Ok(self),
         }

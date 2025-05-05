@@ -185,11 +185,12 @@ impl XASGroup {
         Ok(&mut self.spectra[index])
     }
 
-    pub fn merge(&mut self, master: usize, slave: &[usize]) -> Result<&mut Self, Box<dyn Error>> {
-        todo!("merge");
-
-        // self.spectra.extend(other.spectra.clone());
-        Ok(self)
+    pub fn merge(&mut self, _master: usize, _slave: &[usize]) -> Result<&mut Self, Box<dyn Error>> {
+        // This feature is not implemented yet
+        Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Merge feature not implemented yet",
+        )))
     }
 
     pub fn find_e0(&mut self) -> Result<&mut Self, Box<dyn Error>> {
@@ -357,9 +358,8 @@ mod tests {
 
     #[test]
     fn test_xasgroup() {
-        let mut group = XASGroup::new();
-        let spectrum = XASSpectrum::new();
-
+        let group = XASGroup::new();
+        // Test empty group
         assert_eq!(group.len(), 0);
     }
 
@@ -376,7 +376,7 @@ mod tests {
         let mut group = XASGroup::new();
         let spectrum = XASSpectrum::new();
         group.add_spectrum(spectrum.clone());
-        group.remove_spectrum(0);
+        let _ = group.remove_spectrum(0);
         assert_eq!(group.len(), 0);
     }
 
@@ -409,12 +409,10 @@ mod tests {
         let mut group = XASGroup::new();
         let spectrum = XASSpectrum::new();
         group.add_spectrum(spectrum.clone().set_name("spectrum1").to_owned());
-        group
-            .add_spectrum(spectrum.clone().set_name("spectrum2").to_owned())
-            .to_owned();
-        group
-            .add_spectrum(spectrum.clone().set_name("spectrum3").to_owned())
-            .to_owned();
+        let _ = group
+            .add_spectrum(spectrum.clone().set_name("spectrum2").to_owned());
+        let _ = group
+            .add_spectrum(spectrum.clone().set_name("spectrum3").to_owned());
         group.move_spectra(&[0, 1], 3);
         assert_eq!(group.spectra[2].name.as_ref().unwrap(), "spectrum2");
     }

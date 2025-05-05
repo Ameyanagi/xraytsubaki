@@ -218,8 +218,10 @@ impl XASSpectrum {
         let chi = self.get_chi();
 
         if k.is_none() || chi.is_none() {
-            panic!("Need to calculate k and chi first, Error type");
-            todo!("Implement Error type");
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Need to calculate k and chi first",
+            )));
         }
 
         let k = k.unwrap();
@@ -236,16 +238,20 @@ impl XASSpectrum {
 
     pub fn ifft(&mut self) -> Result<&mut Self, Box<dyn Error>> {
         if self.xftf.is_none() {
-            panic!("Please provide r and chi_r");
-            todo!("Implement Error Type")
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Please provide r and chi_r - run fft() first",
+            )));
         }
 
         let r = self.xftf.as_ref().unwrap().get_r();
         let chi_r = self.xftf.as_ref().unwrap().get_chir();
 
         if r.is_none() || chi_r.is_none() {
-            panic!("Need to calculate r and chi_r first, Error type");
-            todo!("Implement Error type");
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Need to calculate r and chi_r first",
+            )));
         }
 
         let r = r.unwrap();

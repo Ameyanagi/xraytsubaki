@@ -1,4 +1,6 @@
 use super::*;
+use crate::xafs::xasgroup::XASGroup;
+use ndarray::Array1;
 
 pub const TEST_TOL: f64 = 1e-16;
 

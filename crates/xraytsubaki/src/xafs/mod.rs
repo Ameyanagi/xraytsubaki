@@ -6,8 +6,7 @@
 #![allow(unused_imports)]
 
 // Tests are stored in separate tests module
-#[cfg(tests)]
-mod tests;
+// Test constants and helpers are defined in the tests module at the end of this file
 
 use pest::error;
 use std::fmt;
@@ -24,9 +23,11 @@ use ndarray::{ArrayBase, Axis, Ix1, OwnedRepr};
 // load dependencies
 pub mod background;
 pub mod bessel_i0;
+pub mod fitting;
 pub mod io;
 pub mod lmutils;
 pub mod mathutils;
+pub mod multispectrum;
 pub mod normalization;
 pub mod nshare;
 pub mod xafsutils;

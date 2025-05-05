@@ -1,0 +1,18 @@
+[package]
+name = "pyxraytsubaki"
+version = "0.1.0"
+edition = "2021"
+authors = ["Ryuichi Shimogawa <ryuichi.shimogawa@stonybrook.edu>"]
+description = "Python bindings for XRayTsubaki, a Rust library for X-ray Absorption Spectroscopy analysis"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+
+[lib]
+name = "pyxraytsubaki"
+crate-type = ["cdylib"]
+
+[dependencies]
+numpy = "0.20.0"
+pyo3 = { version = "0.20.2", features = ["extension-module"] }
+ndarray = "0.15.6"
+xraytsubaki = { path = "../crates/xraytsubaki" }

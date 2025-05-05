@@ -1,8 +1,12 @@
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1};
-use xraytsubaki::prelude::*;
+use numpy::{PyArray1, PyReadonlyArray1, IntoPyArray};
 use xraytsubaki::xafs::{normalization, background, xafsutils, xrayfft};
+
+// Import specific types
+use xraytsubaki::xafs::normalization::NormalizationParameters;
+use xraytsubaki::xafs::background::BackgroundParameters;
+use xraytsubaki::xafs::xrayfft::{FTParameters, IFTParameters};
 
 pub mod xasgroup;
 pub mod xasspectrum;
@@ -21,7 +25,11 @@ fn find_e0(energy: PyReadonlyArray1<f64>, mu: PyReadonlyArray1<f64>) -> PyResult
     let energy_arr = energy.as_array();
     let mu_arr = mu.as_array();
     
-    match xafsutils::find_e0(energy_arr, mu_arr) {
+    // Convert to owned arrays before calling find_e0
+    let energy_owned = energy_arr.to_owned();
+    let mu_owned = mu_arr.to_owned();
+    
+    match xafsutils::find_e0(energy_owned, mu_owned) {
         Ok(e0) => Ok(e0),
         Err(err) => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
             format!("Error finding E0: {:?}", err)
@@ -350,36 +358,36 @@ impl PreEdgeBuilder {
         }
     }
     
-    fn energy(mut self, energy: PyReadonlyArray1<f64>) -> Self {
+    fn energy(&mut self, energy: PyReadonlyArray1<f64>) -> PyResult<&Self> {
         self.energy = Some(energy);
-        self
+        Ok(self)
     }
     
-    fn mu(mut self, mu: PyReadonlyArray1<f64>) -> Self {
+    fn mu(&mut self, mu: PyReadonlyArray1<f64>) -> PyResult<&Self> {
         self.mu = Some(mu);
-        self
+        Ok(self)
     }
     
-    fn e0(mut self, e0: f64) -> Self {
+    fn e0(&mut self, e0: f64) -> PyResult<&Self> {
         self.e0 = Some(e0);
-        self
+        Ok(self)
     }
     
-    fn pre_range(mut self, pre1: f64, pre2: f64) -> Self {
+    fn pre_range(&mut self, pre1: f64, pre2: f64) -> PyResult<&Self> {
         self.pre1 = Some(pre1);
         self.pre2 = Some(pre2);
-        self
+        Ok(self)
     }
     
-    fn norm_range(mut self, norm1: f64, norm2: f64) -> Self {
+    fn norm_range(&mut self, norm1: f64, norm2: f64) -> PyResult<&Self> {
         self.norm1 = Some(norm1);
         self.norm2 = Some(norm2);
-        self
+        Ok(self)
     }
     
-    fn nnorm(mut self, nnorm: i32) -> Self {
+    fn nnorm(&mut self, nnorm: i32) -> PyResult<&Self> {
         self.nnorm = Some(nnorm);
-        self
+        Ok(self)
     }
     
     fn run(&self, py: Python) -> PyResult<Py<PyDict>> {
@@ -434,45 +442,45 @@ impl AutobkBuilder {
         }
     }
     
-    fn energy(mut self, energy: PyReadonlyArray1<f64>) -> Self {
+    fn energy(&mut self, energy: PyReadonlyArray1<f64>) -> PyResult<&Self> {
         self.energy = Some(energy);
-        self
+        Ok(self)
     }
     
-    fn mu(mut self, mu: PyReadonlyArray1<f64>) -> Self {
+    fn mu(&mut self, mu: PyReadonlyArray1<f64>) -> PyResult<&Self> {
         self.mu = Some(mu);
-        self
+        Ok(self)
     }
     
-    fn e0(mut self, e0: f64) -> Self {
+    fn e0(&mut self, e0: f64) -> PyResult<&Self> {
         self.e0 = Some(e0);
-        self
+        Ok(self)
     }
     
-    fn rbkg(mut self, rbkg: f64) -> Self {
+    fn rbkg(&mut self, rbkg: f64) -> PyResult<&Self> {
         self.rbkg = Some(rbkg);
-        self
+        Ok(self)
     }
     
-    fn k_range(mut self, kmin: f64, kmax: f64) -> Self {
+    fn k_range(&mut self, kmin: f64, kmax: f64) -> PyResult<&Self> {
         self.kmin = Some(kmin);
         self.kmax = Some(kmax);
-        self
+        Ok(self)
     }
     
-    fn kweight(mut self, kweight: f64) -> Self {
+    fn kweight(&mut self, kweight: f64) -> PyResult<&Self> {
         self.kweight = Some(kweight);
-        self
+        Ok(self)
     }
     
-    fn dk(mut self, dk: f64) -> Self {
+    fn dk(&mut self, dk: f64) -> PyResult<&Self> {
         self.dk = Some(dk);
-        self
+        Ok(self)
     }
     
-    fn window(mut self, window: &str) -> Self {
+    fn window(&mut self, window: &str) -> PyResult<&Self> {
         self.window = Some(window.to_string());
-        self
+        Ok(self)
     }
     
     fn run(&self, py: Python) -> PyResult<Py<PyDict>> {
@@ -526,40 +534,40 @@ impl XftfBuilder {
         }
     }
     
-    fn k(mut self, k: PyReadonlyArray1<f64>) -> Self {
+    fn k(&mut self, k: PyReadonlyArray1<f64>) -> PyResult<&Self> {
         self.k = Some(k);
-        self
+        Ok(self)
     }
     
-    fn chi(mut self, chi: PyReadonlyArray1<f64>) -> Self {
+    fn chi(&mut self, chi: PyReadonlyArray1<f64>) -> PyResult<&Self> {
         self.chi = Some(chi);
-        self
+        Ok(self)
     }
     
-    fn k_range(mut self, kmin: f64, kmax: f64) -> Self {
+    fn k_range(&mut self, kmin: f64, kmax: f64) -> PyResult<&Self> {
         self.kmin = Some(kmin);
         self.kmax = Some(kmax);
-        self
+        Ok(self)
     }
     
-    fn dk(mut self, dk: f64) -> Self {
+    fn dk(&mut self, dk: f64) -> PyResult<&Self> {
         self.dk = Some(dk);
-        self
+        Ok(self)
     }
     
-    fn window(mut self, window: &str) -> Self {
+    fn window(&mut self, window: &str) -> PyResult<&Self> {
         self.window = Some(window.to_string());
-        self
+        Ok(self)
     }
     
-    fn kweight(mut self, kweight: f64) -> Self {
+    fn kweight(&mut self, kweight: f64) -> PyResult<&Self> {
         self.kweight = Some(kweight);
-        self
+        Ok(self)
     }
     
-    fn nfft(mut self, nfft: i32) -> Self {
+    fn nfft(&mut self, nfft: i32) -> PyResult<&Self> {
         self.nfft = Some(nfft);
-        self
+        Ok(self)
     }
     
     fn run(&self, py: Python) -> PyResult<Py<PyDict>> {
@@ -610,35 +618,35 @@ impl XftrBuilder {
         }
     }
     
-    fn r(mut self, r: PyReadonlyArray1<f64>) -> Self {
+    fn r(&mut self, r: PyReadonlyArray1<f64>) -> PyResult<&Self> {
         self.r = Some(r);
-        self
+        Ok(self)
     }
     
-    fn chir(mut self, chir: PyReadonlyArray1<f64>) -> Self {
+    fn chir(&mut self, chir: PyReadonlyArray1<f64>) -> PyResult<&Self> {
         self.chir = Some(chir);
-        self
+        Ok(self)
     }
     
-    fn r_range(mut self, rmin: f64, rmax: f64) -> Self {
+    fn r_range(&mut self, rmin: f64, rmax: f64) -> PyResult<&Self> {
         self.rmin = Some(rmin);
         self.rmax = Some(rmax);
-        self
+        Ok(self)
     }
     
-    fn dr(mut self, dr: f64) -> Self {
+    fn dr(&mut self, dr: f64) -> PyResult<&Self> {
         self.dr = Some(dr);
-        self
+        Ok(self)
     }
     
-    fn window(mut self, window: &str) -> Self {
+    fn window(&mut self, window: &str) -> PyResult<&Self> {
         self.window = Some(window.to_string());
-        self
+        Ok(self)
     }
     
-    fn kmax_out(mut self, kmax_out: f64) -> Self {
+    fn kmax_out(&mut self, kmax_out: f64) -> PyResult<&Self> {
         self.kmax_out = Some(kmax_out);
-        self
+        Ok(self)
     }
     
     fn run(&self, py: Python) -> PyResult<Py<PyDict>> {
@@ -663,8 +671,8 @@ impl XftrBuilder {
 
 /// A Python module implemented in Rust.
 #[pymodule]
-#[pyo3(name = "py_xraytsubaki")]
-fn init_module(py: Python, m: &PyModule) -> PyResult<()> {
+#[pyo3(name = "pyxraytsubaki")]
+fn init_module(_py: Python, m: &PyModule) -> PyResult<()> {
     // Add the classes
     m.add_class::<PyXASSpectrum>()?;
     m.add_class::<PyXASGroup>()?;

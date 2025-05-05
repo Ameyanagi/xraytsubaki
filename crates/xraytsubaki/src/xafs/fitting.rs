@@ -239,6 +239,19 @@ pub struct FittingDataset {
     pub k_range: Option<(f64, f64)>,
 }
 
+impl Default for FittingDataset {
+    fn default() -> Self {
+        Self {
+            k: Array1::zeros(0),
+            chi: Array1::zeros(0),
+            kweight: 2.0,
+            paths: Vec::new(),
+            window: None,
+            k_range: None,
+        }
+    }
+}
+
 impl FittingDataset {
     /// Create a new fitting dataset
     pub fn new(k: Array1<f64>, chi: Array1<f64>) -> Self {
@@ -250,6 +263,36 @@ impl FittingDataset {
             window: None,
             k_range: None,
         }
+    }
+    
+    /// Get k-values
+    pub fn get_k(&self) -> Option<&Array1<f64>> {
+        if self.k.is_empty() {
+            None
+        } else {
+            Some(&self.k)
+        }
+    }
+    
+    /// Get data (chi values)
+    pub fn get_data(&self) -> Option<&Array1<f64>> {
+        if self.chi.is_empty() {
+            None
+        } else {
+            Some(&self.chi)
+        }
+    }
+    
+    /// Set k values
+    pub fn set_k(&mut self, k: Array1<f64>) -> &mut Self {
+        self.k = k;
+        self
+    }
+    
+    /// Set data values
+    pub fn set_data(&mut self, data: Array1<f64>) -> &mut Self {
+        self.chi = data;
+        self
     }
 
     /// Add a path to the dataset
@@ -450,6 +493,9 @@ impl<'a> ExafsFitter<'a> {
             chisqr,
             redchi,
             r_factor,
+            components: None,
+            correlation_matrix: None,
+            param_names: None,
         })
     }
 }
@@ -473,6 +519,80 @@ pub struct FitResult {
     pub redchi: f64,
     /// R-factor (goodness of fit)
     pub r_factor: f64,
+    /// Individual path components
+    pub components: Option<Vec<Array1<f64>>>,
+    /// Correlation matrix between parameters
+    pub correlation_matrix: Option<DMatrix<f64>>,
+    /// Parameter names
+    pub param_names: Option<Vec<String>>,
+}
+
+impl Default for FitResult {
+    fn default() -> Self {
+        Self {
+            params: FittingParameters::new(),
+            model_chi: Array1::zeros(0),
+            ndata: 0,
+            nvarys: 0,
+            nfree: 0,
+            chisqr: 0.0,
+            redchi: 0.0,
+            r_factor: 0.0,
+            components: None,
+            correlation_matrix: None,
+            param_names: None,
+        }
+    }
+}
+
+impl FitResult {
+    /// Get the best fit model
+    pub fn get_best_fit(&self) -> Option<&Array1<f64>> {
+        if self.model_chi.is_empty() {
+            None
+        } else {
+            Some(&self.model_chi)
+        }
+    }
+    
+    /// Get the individual components
+    pub fn get_components(&self) -> Option<&Vec<Array1<f64>>> {
+        self.components.as_ref()
+    }
+    
+    /// Get the correlation matrix
+    pub fn get_correlation_matrix(&self) -> Option<&DMatrix<f64>> {
+        self.correlation_matrix.as_ref()
+    }
+    
+    /// Get the parameter names
+    pub fn get_param_names(&self) -> Option<&Vec<String>> {
+        self.param_names.as_ref()
+    }
+    
+    /// Set the best fit model
+    pub fn set_best_fit(&mut self, best_fit: Array1<f64>) -> &mut Self {
+        self.model_chi = best_fit;
+        self
+    }
+    
+    /// Set the individual components
+    pub fn set_components(&mut self, components: Vec<Array1<f64>>) -> &mut Self {
+        self.components = Some(components);
+        self
+    }
+    
+    /// Set the correlation matrix
+    pub fn set_correlation_matrix(&mut self, correlation: DMatrix<f64>) -> &mut Self {
+        self.correlation_matrix = Some(correlation);
+        self
+    }
+    
+    /// Set the parameter names
+    pub fn set_param_names(&mut self, names: Vec<String>) -> &mut Self {
+        self.param_names = Some(names);
+        self
+    }
 }
 
 // For a production implementation, we would need to implement a proper

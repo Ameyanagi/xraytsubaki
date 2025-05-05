@@ -1,0 +1,27 @@
+{
+  "name": "xraytsubaki",
+  "version": "1.0.0",
+  "description": "xraytsubaki is a Rust-based program that implements the core functionalities of [xraylarch](https://xraypy.github.io/xraylarch/). The primary aim of this project is to expedite the processing of extensive XAS data sets. The project's name, xraytsubaki, draws inspiration from [tsubaki](https://en.wikipedia.org/wiki/Camellia_japonica).",
+  "main": "index.js",
+  "directories": {
+    "doc": "doc",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ameyanagi/xraytsubaki.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Ameyanagi/xraytsubaki/issues"
+  },
+  "homepage": "https://github.com/Ameyanagi/xraytsubaki#readme",
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}

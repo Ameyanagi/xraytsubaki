@@ -8,7 +8,8 @@
     "test": "jest",
     "build": "tsc",
     "lint": "eslint . --ext .ts",
-    "prettier": "prettier --write \"**/*.ts\""
+    "prettier": "prettier --write \"**/*.ts\"",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [
     "XAS",
@@ -35,6 +36,8 @@
   "dependencies": {
     "ffi-napi": "^4.0.3",
     "node-gyp": "^9.3.1",
-    "ref-napi": "^3.0.3"
+    "ref-napi": "^3.0.3",
+    "ref-struct-napi": "^1.1.1",
+    "ref-array-napi": "^1.2.2"
   }
 }

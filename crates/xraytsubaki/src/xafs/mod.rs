@@ -9,10 +9,13 @@
 #[cfg(tests)]
 mod tests;
 
+use pest::error;
+use std::fmt;
 #[cfg_attr(debug_assertions, allow(dead_code, unused_imports))]
 // Standard library dependencies
-use std::error::Error;
-use std::fmt;
+
+// Error related dependencies
+use thiserror::Error;
 
 use easyfft::dyn_size::realfft::DynRealDft;
 // External dependencies
@@ -37,45 +40,20 @@ use mathutils::MathUtils;
 use normalization::Normalization;
 use xafsutils::XAFSUtils;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Error)]
 pub enum XAFSError {
+    #[error("Not enought data")]
     NotEnoughData,
+    #[error("Not enought data to perform XFTF")]
     NotEnoughDataForXFTF,
+    #[error("Not enought data to perform XFTR")]
     NotEnoughDataForXFTR,
+    #[error("Group index is out of range")]
     GroupIndexOutOfRange,
+    #[error("The group is empty")]
     GroupIsEmpty,
-}
-
-impl Error for XAFSError {
-    fn description(&self) -> &str {
-        match *self {
-            XAFSError::NotEnoughData => "Not enough data",
-            XAFSError::NotEnoughDataForXFTF => "Not enough data for XFTF",
-            XAFSError::NotEnoughDataForXFTR => "Not enough data for XFTR",
-            XAFSError::GroupIndexOutOfRange => "Group index out of range",
-            XAFSError::GroupIsEmpty => "Group is empty",
-        }
-    }
-
-    fn cause(&self) -> Option<&dyn Error> {
-        None
-    }
-
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        None
-    }
-}
-
-impl fmt::Display for XAFSError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            XAFSError::NotEnoughData => write!(f, "Not enough data"),
-            XAFSError::NotEnoughDataForXFTF => write!(f, "Not enough data for XFTF"),
-            XAFSError::NotEnoughDataForXFTR => write!(f, "Not enough data for XFTR"),
-            XAFSError::GroupIndexOutOfRange => write!(f, "Group index out of range"),
-            XAFSError::GroupIsEmpty => write!(f, "Group is empty"),
-        }
-    }
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
 }
 
 #[cfg(test)]

@@ -1,0 +1,12 @@
+[package]
+name = "xasio"
+version = { workspace = true }
+authors = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+readme = "../../README.md"
+repository = { workspace = true }
+description = "Input/Output library for xas"
+
+[dependencies]

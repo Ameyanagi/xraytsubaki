@@ -35,6 +35,8 @@ easyfft = { workspace = true }
 serde_json = { workspace = true }
 flate2 = { workspace = true }
 pest = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
 
 [dev-dependencies]
 pprof = { version = "0.13", features = ["flamegraph"] }
@@ -51,3 +53,7 @@ harness = false
 
 [profile.bench]
 debug = true
+
+# [target.x86_64-unknown-linux-gnu]
+# linker = "clang"
+# rustflags = ["-C", "link-arg=-fuse-ld=/usr/bin/mold"]

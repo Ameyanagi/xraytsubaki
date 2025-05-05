@@ -1,0 +1,16 @@
+[package]
+name = "py_xraytsubaki"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "py_xraytsubaki"
+crate-type = ["cdylib"]
+
+[dependencies]
+numpy = "0.20.0"
+pyo3 = { version = "0.20.2", features = ["extension-module"] }
+ndarray = "0.15.6"
+
+[build-dependencies]
+pyo3-build-config = "0.20.2"

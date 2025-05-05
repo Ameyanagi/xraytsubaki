@@ -1,0 +1,40 @@
+{
+  "name": "ts-xraytsubaki",
+  "version": "0.1.0",
+  "description": "TypeScript bindings for XRayTsubaki, a Rust implementation of X-ray absorption spectroscopy analysis tools",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "test": "jest",
+    "build": "tsc",
+    "lint": "eslint . --ext .ts",
+    "prettier": "prettier --write \"**/*.ts\""
+  },
+  "keywords": [
+    "XAS",
+    "EXAFS",
+    "X-ray",
+    "absorption",
+    "spectroscopy",
+    "analysis",
+    "science"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/jest": "^29.5.1",
+    "@types/node": "^18.16.3",
+    "@typescript-eslint/eslint-plugin": "^5.59.2",
+    "@typescript-eslint/parser": "^5.59.2",
+    "eslint": "^8.39.0",
+    "jest": "^29.5.0",
+    "prettier": "^2.8.8",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.0.4"
+  },
+  "dependencies": {
+    "ffi-napi": "^4.0.3",
+    "node-gyp": "^9.3.1",
+    "ref-napi": "^3.0.3"
+  }
+}

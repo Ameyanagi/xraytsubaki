@@ -1,0 +1,12 @@
+[package]
+name = "py_standalone"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "py_standalone"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.20.2", features = ["extension-module"] }
+numpy = "0.20.0"

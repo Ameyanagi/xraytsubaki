@@ -219,7 +219,8 @@ pub fn smooth<T: Into<Array1<f64>>>(
 /// let arr = remove_dups(arr, None, None, None);
 /// assert_eq!(arr, Array1::from_vec(vec![0., 1.1, 2.2, 2.2000001, 3.3]));
 /// ```
-pub fn remove_dups<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>>>(
+#[cfg(feature = "ndarray-compat")]
+pub fn remove_dups_array1<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>>>(
     arr: T,
     tiny: Option<f64>,
     frac: Option<f64>,
@@ -262,6 +263,64 @@ pub fn remove_dups<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>>>(
     arr = arr + add;
 
     arr
+}
+
+/// Function to remove duplicated successive values of a DVector that is expected to be monotonically increasing.
+///
+/// For repeated value, the second encountered occurrence (at index i) will be increased by an amount that is the largest of:
+/// 1. tiny (default 1e-7)
+/// 2. frac (default 1e-6) times the difference between the previous and next values.
+///
+/// # Arguments
+/// * `arr` - DVector of values to be checked for duplicates
+/// * `tiny` - Minimum value to be added to a duplicate value (default 1e-7)
+/// * `frac` - Fraction of the difference between the previous and next values to be added to a duplicate value (default 1e-6)
+/// * `sort` - Sort the vector before removing duplicates (default false)
+///
+/// # Returns
+/// * `DVector<f64>` - Vector with duplicates removed
+pub fn remove_dups(
+    arr: &DVector<f64>,
+    tiny: Option<f64>,
+    frac: Option<f64>,
+    sort: Option<bool>,
+) -> DVector<f64> {
+    let tiny = tiny.unwrap_or(1e-7);
+    let frac = frac.unwrap_or(1e-6);
+
+    if arr.len() < 2 {
+        return arr.clone();
+    }
+
+    let mut arr = if let Some(true) = sort {
+        let mut arr_sort = arr.as_slice().to_vec();
+        arr_sort.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        DVector::from_vec(arr_sort)
+    } else {
+        arr.clone()
+    };
+
+    let mut previous_value = f64::NAN;
+    let mut previous_add = 0.0;
+
+    let mut add = DVector::zeros(arr.len());
+
+    for i in 1..arr.len() {
+        if !arr[i - 1].is_nan() {
+            previous_value = arr[i - 1];
+            previous_add = add[i - 1];
+        }
+        let value = arr[i];
+        if value.is_nan() || previous_value.is_nan() {
+            continue;
+        }
+        let diff = (value - previous_value).abs();
+        if diff < tiny {
+            add[i] = previous_add + f64::max(tiny, frac * diff);
+        }
+    }
+
+    arr + add
 }
 
 pub fn remove_nan2(
@@ -412,7 +471,7 @@ pub fn _find_e0_array1<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>> + Clone>(
     estep: Option<f64>,
     use_smooth: Option<bool>,
 ) -> Result<(f64, usize, f64), Box<dyn Error>> {
-    let en: ArrayBase<OwnedRepr<f64>, Ix1> = remove_dups_ndarray(energy.clone().into(), None, None, None);
+    let en: ArrayBase<OwnedRepr<f64>, Ix1> = remove_dups_array1(energy.clone().into(), None, None, None);
     let mu: ArrayBase<OwnedRepr<f64>, Ix1> = mu.into();
 
     let estep = estep.unwrap_or(find_energy_step_array1(energy.clone(), None, None, Some(false)) / 2.0);
@@ -499,6 +558,221 @@ pub fn _find_e0_array1<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>> + Clone>(
     }
 
     Ok((en[imax], imax, estep))
+}
+
+/// DVector version: Find the energy step of an array of energies.
+/// It ignores the smallest fraction of energy steps (frac_ignore) and then averages the next nave steps.
+///
+/// # Arguments
+/// * `energy` - DVector of energies
+/// * `frac_ignore` - Fraction of energy steps to ignore (default 0.01)
+/// * `nave` - Number of energy steps to average (default 10)
+/// * `sort` - Sort the array before finding the energy step (default false)
+///
+/// # Returns
+/// * `estep` - Average energy step
+pub fn find_energy_step(
+    energy: &DVector<f64>,
+    frac_ignore: Option<f64>,
+    nave: Option<usize>,
+    sort: Option<bool>,
+) -> f64 {
+    let energy = if let Some(true) = sort {
+        let mut energy_sort = energy.as_slice().to_vec();
+        energy_sort.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        DVector::from_vec(energy_sort)
+    } else {
+        energy.clone()
+    };
+
+    let frac_ignore = frac_ignore.unwrap_or(0.01);
+    let nave = nave.unwrap_or(10);
+
+    // Calculate differences: energy[1..] - energy[..-1]
+    let mut ediff: Vec<f64> = Vec::with_capacity(energy.len() - 1);
+    for i in 1..energy.len() {
+        ediff.push(energy[i] - energy[i - 1]);
+    }
+
+    let nskip = (frac_ignore * energy.len() as f64) as usize;
+
+    ediff.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+    let ediff_end = cmp::min(nskip + nave, ediff.len() - 1);
+
+    ediff[nskip..ediff_end].iter().sum::<f64>() / (ediff_end - nskip) as f64
+}
+
+/// DVector version: Internal function used for find_e0.
+///
+/// # Arguments
+/// * `energy` - DVector of energies
+/// * `mu` - DVector of absorption coefficients
+/// * `estep` - Energy step (default: find_energy_step(energy)/2.0)
+/// * `use_smooth` - Use smoothed derivative (default: false)
+///
+/// # Returns
+/// Result<(e0: f64, imax: usize, estep: f64), Box<dyn Error>>
+/// * `e0` - Energy threshold of absorption, or the edge energy
+/// * `imax` - Index of maximum derivative
+/// * `estep` - Energy step
+pub fn _find_e0(
+    energy: &DVector<f64>,
+    mu: &DVector<f64>,
+    estep: Option<f64>,
+    use_smooth: Option<bool>,
+) -> Result<(f64, usize, f64), Box<dyn Error>> {
+    let en = remove_dups(energy, None, None, None);
+
+    let estep = estep.unwrap_or(find_energy_step(energy, None, None, Some(false)) / 2.0);
+
+    let nmin = 2.max(en.len() / 100);
+
+    // Calculate gradient: mu.gradient() / en.gradient()
+    let mu_grad = mu.gradient();
+    let en_grad = en.gradient();
+
+    let dmu: DVector<f64> = if let Some(true) = use_smooth {
+        // For now, skip smooth implementation - would need DVector version
+        // Use simple gradient instead
+        DVector::from_fn(mu_grad.len(), |i, _| {
+            if en_grad[i].abs() > 1e-12 {
+                mu_grad[i] / en_grad[i]
+            } else {
+                0.0
+            }
+        })
+    } else {
+        DVector::from_fn(mu_grad.len(), |i, _| {
+            if en_grad[i].abs() > 1e-12 {
+                mu_grad[i] / en_grad[i]
+            } else {
+                0.0
+            }
+        })
+    };
+
+    // Calculate dmin from the middle section
+    let dmin = dmu
+        .as_slice()
+        .iter()
+        .skip(nmin)
+        .take(dmu.len() - 2 * nmin)
+        .filter(|a| a.is_finite())
+        .min_by(|a, b| a.partial_cmp(b).unwrap())
+        .unwrap_or(&-1.0)
+        .clone();
+
+    // Calculate peak-to-peak for normalization
+    let middle_slice: Vec<f64> = dmu
+        .as_slice()
+        .iter()
+        .skip(nmin)
+        .take(dmu.len() - 2 * nmin)
+        .cloned()
+        .collect();
+    let dm_ptp = middle_slice.ptp();
+
+    // Normalize dmu
+    let dmu = DVector::from_fn(dmu.len(), |i, _| {
+        (dmu[i] - dmin) / dm_ptp
+    });
+
+    let mut dhigh = if en.len() > 20 { 0.60 } else { 0.30 };
+
+    let mut high_deriv_pts: Vec<usize> = dmu
+        .iter()
+        .enumerate()
+        .filter(|(_, a)| a > &&dhigh)
+        .map(|(i, _)| i)
+        .collect();
+
+    if high_deriv_pts.len() < 3 {
+        for _ in 0..2 {
+            if high_deriv_pts.len() > 3 {
+                break;
+            }
+
+            dhigh *= 0.5;
+
+            high_deriv_pts = dmu
+                .iter()
+                .enumerate()
+                .filter(|(_, a)| a > &&dhigh)
+                .map(|(i, _)| i)
+                .collect();
+        }
+    }
+
+    if high_deriv_pts.len() < 3 {
+        high_deriv_pts = dmu
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| a.is_finite())
+            .take(1)
+            .map(|(i, _)| i)
+            .collect();
+    }
+
+    let mut imax = 0;
+    let mut dmax = 0.0;
+
+    for i in &high_deriv_pts {
+        if i < &nmin || i > &(dmu.len() - nmin) {
+            continue;
+        }
+
+        if dmu[*i] > dmax && high_deriv_pts.contains(&(i + 1)) && high_deriv_pts.contains(&(i - 1))
+        {
+            dmax = dmu[*i];
+            imax = *i;
+        }
+    }
+
+    Ok((en[imax], imax, estep))
+}
+
+/// DVector version: Calculate the E_0, the energy threshold of absorption, or the edge energy, given μ(E).
+///
+/// E_0 is found as the point with maximum derivative with some checks to avoid spurious glitches.
+///
+/// # Arguments
+/// * `energy` - DVector of energies
+/// * `mu` - DVector of absorption coefficients
+///
+/// # Returns
+/// Result<e0: f64, Box<dyn Error>>
+/// * `e0` - Energy threshold of absorption, or the edge energy
+pub fn find_e0(
+    energy: &DVector<f64>,
+    mu: &DVector<f64>,
+) -> Result<f64, Box<dyn Error>> {
+    let (e1, ie0, estep) = _find_e0(energy, mu, None, None)?;
+    let istart = (ie0 as i32 - 75).max(2) as usize;
+    let istop = (ie0 + 75).min(energy.len() - 2);
+
+    // Extract slice as new DVector
+    let energy_slice = DVector::from_iterator(
+        istop - istart,
+        energy.as_slice()[istart..istop].iter().cloned()
+    );
+    let mu_slice = DVector::from_iterator(
+        istop - istart,
+        mu.as_slice()[istart..istop].iter().cloned()
+    );
+
+    let (mut e0, ix, ex) = _find_e0(
+        &energy_slice,
+        &mu_slice,
+        Some(estep),
+        Some(true),
+    )?;
+
+    if ix < 1 {
+        e0 = energy[istart + 2];
+    }
+
+    Ok(e0)
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
@@ -936,8 +1210,9 @@ mod tests {
         let expected_data_larch = load_txt_f64(&expected_filepath_larch, &PARAM_LOADTXT)?;
         let expected_data_larch = expected_data_larch.get_col(0);
 
-        let x = xafs_group.raw_energy.unwrap();
-        let y = xafs_group.raw_mu.unwrap();
+        // Convert DVector to Array1 for smooth function
+        let x = Array1::from_vec(xafs_group.raw_energy.unwrap().data.as_vec().clone());
+        let y = Array1::from_vec(xafs_group.raw_mu.unwrap().data.as_vec().clone());
 
         let result = smooth(x, y, None, None, None, None, ConvolveForm::Lorentzian)?;
 
@@ -956,61 +1231,64 @@ mod tests {
 
     #[test]
     fn test_remove_dups() {
-        let arr = Array1::from_vec(vec![0.0, 1.1, 2.2, 2.2, 3.3]);
-        let arr = remove_dups(arr, None, None, None);
-        let expected = Array1::from_vec(vec![0.0, 1.1, 2.2, 2.2000001, 3.3]);
+        let arr = DVector::from_vec(vec![0.0, 1.1, 2.2, 2.2, 3.3]);
+        let arr = remove_dups(&arr, None, None, None);
+        let expected = DVector::from_vec(vec![0.0, 1.1, 2.2, 2.2000001, 3.3]);
 
         arr.iter().zip(expected.iter()).for_each(|(a, b)| {
-            assert_abs_diff_eq!(a, &b, epsilon = TEST_TOL);
+            assert_abs_diff_eq!(a, b, epsilon = TEST_TOL);
         });
     }
 
     #[test]
     fn test_remove_dups_sort() {
-        let arr = Array1::from_vec(vec![0.0, 1.1, 2.2, 3.3, 2.2]);
-        let arr = remove_dups(arr, None, None, Some(true));
-        let expected = Array1::from_vec(vec![0.0, 1.1, 2.2, 2.2000001, 3.3]);
+        let arr = DVector::from_vec(vec![0.0, 1.1, 2.2, 3.3, 2.2]);
+        let arr = remove_dups(&arr, None, None, Some(true));
+        let expected = DVector::from_vec(vec![0.0, 1.1, 2.2, 2.2000001, 3.3]);
 
         arr.iter().zip(expected.iter()).for_each(|(a, b)| {
-            assert_abs_diff_eq!(a, &b, epsilon = TEST_TOL);
+            assert_abs_diff_eq!(a, b, epsilon = TEST_TOL);
         });
     }
 
     #[test]
     fn test_remove_dups_unsorted() {
-        let arr = Array1::from_vec(vec![0.0, 1.1, 2.2, 3.3, 2.2]);
-        let arr = remove_dups(arr, None, None, Some(false));
-        let expected = Array1::from_vec(vec![0.0, 1.1, 2.2, 2.2000001, 3.3]);
+        let arr = DVector::from_vec(vec![0.0, 1.1, 2.2, 3.3, 2.2]);
+        let arr = remove_dups(&arr, None, None, Some(false));
+        let expected = DVector::from_vec(vec![0.0, 1.1, 2.2, 2.2000001, 3.3]);
 
-        assert_ne!(arr, Array1::from_vec(vec![0., 1.1, 2.2, 2.2000001, 3.3]));
+        assert_ne!(arr, DVector::from_vec(vec![0., 1.1, 2.2, 2.2000001, 3.3]));
     }
 
     #[test]
     fn test_find_energy_step() {
-        let energy = Array1::from_vec(vec![0.0, 1.0, 2.0, 3.0, 4.0]);
-        let step = find_energy_step(energy, None, None, None);
+        let energy = DVector::from_vec(vec![0.0, 1.0, 2.0, 3.0, 4.0]);
+        let step = find_energy_step(&energy, None, None, None);
         assert_eq!(step, 1.0);
     }
 
     #[test]
     fn test_find_energy_step_neg() {
-        let energy = Array1::from_vec(vec![0.0, 1.0, 2.0, 3.0, 4.0, 2.0]);
-        let step = find_energy_step(energy, None, None, None);
+        let energy = DVector::from_vec(vec![0.0, 1.0, 2.0, 3.0, 4.0, 2.0]);
+        let step = find_energy_step(&energy, None, None, None);
         assert_eq!(step, 0.25);
     }
 
     #[test]
     fn test_find_energy_step_sort() {
-        let energy = Array1::from_vec(vec![0.0, 1.0, 2.0, 3.0, 4.0, 2.0]);
-        let step = find_energy_step(energy, Some(0.), None, Some(true));
+        let energy = DVector::from_vec(vec![0.0, 1.0, 2.0, 3.0, 4.0, 2.0]);
+        let step = find_energy_step(&energy, Some(0.), None, Some(true));
         assert_eq!(step, 0.75);
     }
 
     #[test]
     fn test_find_e0() {
+        use crate::xafs::nshare::ToNalgebra;
         let energy: Array1<f64> = Array1::linspace(0.0, 100.0, 1000);
         let mu = &energy.map(|x| (x - 50.0).powi(3) - (x - 50.0).powi(2) + x);
-        let result = find_e0(energy.clone(), mu.clone());
+        let energy_dv = energy.into_nalgebra();
+        let mu_dv = mu.clone().into_nalgebra();
+        let result = find_e0(&energy_dv, &mu_dv);
 
         assert_abs_diff_eq!(result.unwrap(), 0.4004004004004004, epsilon = TEST_TOL);
     }

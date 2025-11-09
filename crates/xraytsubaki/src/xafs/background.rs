@@ -53,8 +53,8 @@ impl BackgroundMethod {
 
     pub fn calc_background(
         &mut self,
-        energy: &ArrayBase<OwnedRepr<f64>, Ix1>,
-        mu: &ArrayBase<OwnedRepr<f64>, Ix1>,
+        energy: &DVector<f64>,
+        mu: &DVector<f64>,
         normalization_param: &mut Option<normalization::NormalizationMethod>,
     ) -> Result<&mut Self, Box<dyn Error>> {
         match self {
@@ -71,17 +71,35 @@ impl BackgroundMethod {
         }
     }
 
-    pub fn get_k(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+    pub fn get_k(&self) -> Option<DVector<f64>> {
         match self {
-            BackgroundMethod::AUTOBK(autobk) => autobk.k.clone(),
+            BackgroundMethod::AUTOBK(autobk) => {
+                #[cfg(feature = "ndarray-compat")]
+                {
+                    autobk.k.as_ref().map(|arr| DVector::from_vec(arr.to_vec()))
+                }
+                #[cfg(not(feature = "ndarray-compat"))]
+                {
+                    None
+                }
+            },
             BackgroundMethod::ILPBkg(ilpbkg) => None,
             BackgroundMethod::None => None,
         }
     }
 
-    pub fn get_chi(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+    pub fn get_chi(&self) -> Option<DVector<f64>> {
         match self {
-            BackgroundMethod::AUTOBK(autobk) => autobk.chi.clone(),
+            BackgroundMethod::AUTOBK(autobk) => {
+                #[cfg(feature = "ndarray-compat")]
+                {
+                    autobk.chi.as_ref().map(|arr| DVector::from_vec(arr.to_vec()))
+                }
+                #[cfg(not(feature = "ndarray-compat"))]
+                {
+                    None
+                }
+            },
             BackgroundMethod::ILPBkg(ilpbkg) => None,
             BackgroundMethod::None => None,
         }
@@ -221,14 +239,21 @@ impl AUTOBK {
     ///
     pub fn calc_background(
         &mut self,
-        energy: &ArrayBase<OwnedRepr<f64>, Ix1>,
-        mu: &ArrayBase<OwnedRepr<f64>, Ix1>,
+        energy: &DVector<f64>,
+        mu: &DVector<f64>,
         normalization_param: &mut Option<normalization::NormalizationMethod>,
     ) -> Result<&mut Self, Box<dyn Error>> {
         // Fill in default values for parameters that are not set
         self.fill_parameter()?;
 
-        let energy = xafsutils::remove_dups(energy.clone(), None, None, None);
+        // Convert DVector to Array1 for internal processing (temporary until full migration)
+        #[cfg(feature = "ndarray-compat")]
+        let energy = {
+            let energy_array1 = Array1::from_vec(energy.data.as_vec().clone());
+            xafsutils::remove_dups_array1(energy_array1, None, None, None)
+        };
+        #[cfg(feature = "ndarray-compat")]
+        let mu = Array1::from_vec(mu.data.as_vec().clone());
 
         // Perform normalization if necessary
 
@@ -254,7 +279,8 @@ impl AUTOBK {
         let ek0 = self.ek0;
 
         if (ek0.is_none() && e0.is_none()) || edge_step.is_none() {
-            normalization_method.normalize(&energy, mu)?;
+            #[cfg(feature = "ndarray-compat")]
+            normalization_method.normalize(&energy, &mu)?;
             edge_step = normalization_method.get_edge_step();
         }
 

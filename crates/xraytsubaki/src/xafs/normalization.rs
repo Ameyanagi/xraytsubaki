@@ -239,7 +239,7 @@ impl PrePostEdge {
             || self.e0.unwrap().is_nan()
             || self.e0.unwrap() > energy[&energy.len() - 2]
         {
-            let e0 = xafsutils::find_e0(energy.clone(), mu.clone())?;
+            let e0 = xafsutils::find_e0_array1(energy.clone(), mu.clone())?;
             self.e0 = Some(e0);
         }
 
@@ -578,10 +578,13 @@ mod tests {
         let xafs_test_group = io::load_spectrum_QAS_trans(&path).unwrap();
 
         let mut pre_post_edge = PrePostEdge::new();
-        let _ = pre_post_edge.fill_parameter(
-            &xafs_test_group.energy.clone().unwrap(),
-            &xafs_test_group.mu.clone().unwrap(),
-        );
+
+        // Convert DVector to Array1 for test
+        use ndarray::Array1;
+        let energy = Array1::from_vec(xafs_test_group.energy.clone().unwrap().data.as_vec().clone());
+        let mu = Array1::from_vec(xafs_test_group.mu.clone().unwrap().data.as_vec().clone());
+
+        let _ = pre_post_edge.fill_parameter(&energy, &mu);
 
         let expected = PrePostEdge {
             pre_edge_start: Some(-200.0),
@@ -642,16 +645,15 @@ mod tests {
         let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
         let xafs_test_group = io::load_spectrum_QAS_trans(&path).unwrap();
 
-        let mut pre_post_edge = PrePostEdge::new();
-        let _ = pre_post_edge.fill_parameter(
-            &xafs_test_group.energy.clone().unwrap(),
-            &xafs_test_group.mu.clone().unwrap(),
-        );
+        // Convert DVector to Array1 for test
+        use ndarray::Array1;
+        let energy = Array1::from_vec(xafs_test_group.energy.clone().unwrap().data.as_vec().clone());
+        let mu = Array1::from_vec(xafs_test_group.mu.clone().unwrap().data.as_vec().clone());
 
-        let _ = pre_post_edge.normalize(
-            &xafs_test_group.energy.clone().unwrap(),
-            &xafs_test_group.mu.clone().unwrap(),
-        );
+        let mut pre_post_edge = PrePostEdge::new();
+        let _ = pre_post_edge.fill_parameter(&energy, &mu);
+
+        let _ = pre_post_edge.normalize(&energy, &mu);
 
         assert_abs_diff_eq!(
             pre_post_edge.edge_step.unwrap(),

@@ -805,8 +805,10 @@ mod tests {
 
         assert!(q.len() == chiq.len());
 
-        let chi = xafs_test_group.get_chi_kweighted().unwrap()
-            * xafs_test_group.xftf.unwrap().get_kwin().unwrap();
+        // Convert DVector to Array1 for multiplication with Array1 view
+        let chi_dv = xafs_test_group.get_chi_kweighted().unwrap();
+        let chi_array = Array1::from_vec(chi_dv.data.as_vec().clone());
+        let chi = chi_array * xafs_test_group.xftf.unwrap().get_kwin().unwrap();
 
         let chi = chi.slice_axis(Axis(0), (0..chi.len()).into()).to_owned();
 

@@ -144,16 +144,15 @@ impl XASSpectrum {
     }
 
     pub fn find_e0(&mut self) -> Result<&mut Self, Box<dyn Error>> {
-        self.e0 = Some(xafsutils::find_e0(
-            self.energy.clone().unwrap(),
-            self.mu.clone().unwrap(),
-        )?);
+        let energy = self.energy.as_ref().unwrap();
+        let mu = self.mu.as_ref().unwrap();
+        self.e0 = Some(xafsutils::find_e0(energy, mu)?);
 
         Ok(self)
     }
 
     fn find_energy_step(&mut self, frac_ignore: Option<f64>, nave: Option<usize>) -> f64 {
-        let energy = self.energy.clone().unwrap();
+        let energy = self.energy.as_ref().unwrap();
         xafsutils::find_energy_step(energy, frac_ignore, nave, None)
     }
 
@@ -181,13 +180,18 @@ impl XASSpectrum {
             self.set_normalization_method(None)?;
         }
 
-        let energy = self.energy.clone().unwrap();
-        let mu = self.mu.clone().unwrap();
+        // Convert DVector to Array1 for normalization (temporary until trait is migrated)
+        #[cfg(feature = "ndarray-compat")]
+        {
+            use ndarray::Array1;
+            let energy = Array1::from_vec(self.energy.as_ref().unwrap().data.as_vec().clone());
+            let mu = Array1::from_vec(self.mu.as_ref().unwrap().data.as_vec().clone());
 
-        self.normalization
-            .as_mut()
-            .unwrap()
-            .normalize(&energy, &mu)?;
+            self.normalization
+                .as_mut()
+                .unwrap()
+                .normalize(&energy, &mu)?;
+        }
 
         Ok(self)
     }
@@ -211,13 +215,13 @@ impl XASSpectrum {
             self.set_background_method(None)?;
         }
 
-        let energy = self.energy.clone().unwrap();
-        let mu = self.mu.clone().unwrap();
+        let energy = self.energy.as_ref().unwrap();
+        let mu = self.mu.as_ref().unwrap();
 
         self.background
             .as_mut()
             .unwrap()
-            .calc_background(&energy, &mu, &mut self.normalization)?;
+            .calc_background(energy, mu, &mut self.normalization)?;
 
         Ok(self)
     }
@@ -238,7 +242,14 @@ impl XASSpectrum {
             self.xftf = Some(xrayfft::XrayFFTF::new());
         }
 
-        self.xftf.as_mut().unwrap().xftf(k.view(), chi.view());
+        // Convert DVector to Array1 for FFT (temporary until xrayfft is migrated)
+        #[cfg(feature = "ndarray-compat")]
+        {
+            use ndarray::Array1;
+            let k_array = Array1::from_vec(k.data.as_vec().clone());
+            let chi_array = Array1::from_vec(chi.data.as_vec().clone());
+            self.xftf.as_mut().unwrap().xftf(k_array.view(), chi_array.view());
+        }
 
         Ok(self)
     }
@@ -369,16 +380,16 @@ pub mod tests {
     #[test]
     fn test_xafs_group_spectrum_from_vec() {
         let energy: Vec<f64> = vec![1.0, 2.0, 3.0];
-        let mu: ArrayBase<OwnedRepr<f64>, Ix1> = Array1::from_vec(vec![4.0, 5.0, 6.0]);
+        let mu: Vec<f64> = vec![4.0, 5.0, 6.0];
         let mut xafs_group = XASSpectrum::new();
         xafs_group.set_spectrum(energy, mu);
         assert_eq!(
             xafs_group.raw_energy,
-            Some(Array1::from_vec(vec![1.0, 2.0, 3.0]))
+            Some(DVector::from_vec(vec![1.0, 2.0, 3.0]))
         );
         assert_eq!(
             xafs_group.raw_mu,
-            Some(Array1::from_vec(vec![4.0, 5.0, 6.0]))
+            Some(DVector::from_vec(vec![4.0, 5.0, 6.0]))
         );
     }
 

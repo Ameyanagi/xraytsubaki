@@ -185,6 +185,10 @@ mod tests {
         xas_group_file.name = "test.json".into();
         xas_group_file.data = xas_group;
 
+        // Write the file first
+        xas_group_file.write_json(&save_path)?;
+
+        // Then read it back
         let mut xas_group_read = XASGroupFile::new();
         xas_group_read.read_json(&save_path)?;
 
@@ -282,6 +286,10 @@ mod tests {
         xas_group_file.name = "test.json.gz".into();
         xas_group_file.data = xas_group;
 
+        // Write the file first
+        xas_group_file.write_jsongz(&save_path)?;
+
+        // Then read it back
         let mut xas_group_read = XASGroupFile::new();
         xas_group_read.read_jsongz(&save_path)?;
 

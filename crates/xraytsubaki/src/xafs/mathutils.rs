@@ -8,6 +8,8 @@ use ndarray::{Array1, ArrayBase, Ix1, OwnedRepr};
 use num_complex::Complex64;
 use std::error::Error;
 
+use super::errors::MathError;
+
 #[deny(clippy::reversed_empty_ranges)]
 
 pub trait MathUtils {
@@ -423,7 +425,7 @@ fn voigt<T: Into<Array1<f64>>>(x: T, center: f64, sigma: f64, gamma: f64) -> Arr
 /// * `value` - The value to search for
 ///
 /// # Returns
-/// Result<usize, Box<dyn Error>>
+/// Result<usize, MathError>
 ///
 /// # Example
 /// ```
@@ -433,7 +435,7 @@ fn voigt<T: Into<Array1<f64>>>(x: T, center: f64, sigma: f64, gamma: f64) -> Arr
 /// assert_eq!(index_of(&array, &value).unwrap(), 2);
 /// ```
 
-pub fn index_of(array: &Vec<f64>, value: &f64) -> Result<usize, Box<dyn Error>> {
+pub fn index_of(array: &Vec<f64>, value: &f64) -> Result<usize, MathError> {
     if &array.min() > value {
         return Ok(0);
     }
@@ -451,6 +453,9 @@ pub fn index_of(array: &Vec<f64>, value: &f64) -> Result<usize, Box<dyn Error>> 
 /// * `array` - The array to search
 /// * `value` - The value to search for
 ///
+/// # Returns
+/// Result<usize, MathError>
+///
 /// # Example
 /// ```
 /// use xraytsubaki::xafs::mathutils::index_nearest;
@@ -458,7 +463,7 @@ pub fn index_of(array: &Vec<f64>, value: &f64) -> Result<usize, Box<dyn Error>> 
 /// let value = 3.4;
 /// assert_eq!(index_nearest(&array, &value).unwrap(), 2);
 /// ```
-pub fn index_nearest(array: &[f64], value: &f64) -> Result<usize, Box<dyn Error>> {
+pub fn index_nearest(array: &[f64], value: &f64) -> Result<usize, MathError> {
     Ok(array
         .iter()
         .enumerate()

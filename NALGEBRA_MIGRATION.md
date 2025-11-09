@@ -57,25 +57,88 @@
   - ✅ Compiles WITH feature: `cargo check --features ndarray-compat`
   - ✅ Compilation verified
 
-## Next Steps
+## Completed Tasks (Phases 2-4: In Progress)
 
-### ✅ Phase 1 Complete: Foundation & Baselines
-All Phase 1 tasks completed successfully. Ready for implementation.
+### ✅ Phase 2: Core Trait Implementations for DVector
+- **MathUtils trait** (crates/xraytsubaki/src/xafs/mathutils.rs:185-262):
+  - ✅ `interpolate()` - Linear interpolation with clamping
+  - ✅ `is_sorted()` - Check if vector is sorted
+  - ✅ `argsort()` - Return indices that would sort the vector
+  - ✅ `min()` / `max()` - Find minimum/maximum values
+  - ✅ `diff()` - Calculate differences between consecutive elements
+  - ✅ `gradient()` - Numerical gradient calculation
 
-### Phase 2: Core Implementation (Starting Now)
-- Create `tests/migration/` directory structure
-- Write failing tests for DVector implementations
-- Test helpers for DVector operations
+- **XAFSUtils trait** (crates/xraytsubaki/src/xafs/xafsutils.rs:76-84):
+  - ✅ `etok()` - Convert energy (eV) to wavenumber (k) with negative value handling
+  - ✅ `ktoe()` - Convert wavenumber (k) to energy (eV)
 
-### Phase 3-11: Implementation
-Follow tasks.md sequentially:
-- Core utilities (mathutils, xafsutils, lmutils)
-- Conversion traits in nshare.rs
-- XASSpectrum core structure
-- Algorithms (normalization, AUTOBK, FFT)
-- Parallel processing (XASGroup)
-- Serialization
-- Documentation
+- **LMUtils/LMParameters trait** (crates/xraytsubaki/src/xafs/lmutils.rs:76-88):
+  - ✅ Already implemented for DVector (file was already using nalgebra)
+
+### ✅ Phase 3: Conversion Traits Enhancement
+- **nshare.rs** (crates/xraytsubaki/src/xafs/nshare.rs):
+  - ✅ Added `#[cfg(feature = "ndarray-compat")]` to all ndarray imports
+  - ✅ Feature-gated `ToNalgebra` and `ToNdarray1` custom traits
+  - ✅ Updated test module with feature gates
+  - ❌ Cannot use standard `From` traits (orphan rule violation)
+
+### ✅ Phase 4: XASSpectrum Struct Migration
+- **Core Data Structure** (crates/xraytsubaki/src/xafs/xasspectrum.rs):
+  - ✅ Migrated all vector fields to `DVector<f64>`:
+    - `raw_energy`, `raw_mu`, `energy`, `mu`
+    - `k`, `chi`, `chi_kweighted`
+    - `chi_r`, `chi_r_mag`, `chi_r_re`, `chi_r_im`, `q`
+  - ✅ Updated `set_spectrum()` - manual index-based sorting for DVector
+  - ✅ Updated `interpolate_spectrum()` - extract Vec from DVector.data
+  - ✅ Updated getter methods: `get_k()`, `get_chi()`, `get_chi_kweighted()`
+  - ✅ Used DVector methods: `component_mul()`, `map()`, `from_iterator()`
+
+## Current Status (Session 2025-11-09)
+
+### 🔄 Phase 5: Algorithm Migration (IN PROGRESS)
+**Status**: XASSpectrum migrated, but algorithms still expect Array1
+
+**Remaining Work**:
+1. **xafsutils.rs**: ~300 lines of utility functions
+   - `find_e0()` and `_find_e0()` - Edge energy detection
+   - `find_energy_step()` - Energy grid analysis
+   - `smooth()` - Signal smoothing with FFT convolution
+   - `remove_dups()` - Duplicate value handling
+   - `ftwindow()` - Fourier transform window functions
+   - Multiple view/slice operations that need DVector equivalents
+
+2. **normalization.rs**: Pre/post-edge normalization algorithm
+   - `PrePostEdge` struct and implementation
+   - Polynomial fitting for pre-edge and post-edge regions
+   - Needs DVector-compatible polynomial operations
+
+3. **background.rs**: AUTOBK background removal
+   - Most complex algorithm - spline fitting with Levenberg-Marquardt
+   - Heavy use of ndarray slicing and concatenation
+   - Critical for accurate chi(k) extraction
+
+4. **xrayfft.rs**: FFT/IFFT operations
+   - Forward and reverse Fourier transforms
+   - Window application and k-weighting
+   - Integration with easyfft library
+
+5. **xasgroup.rs**: Parallel processing
+   - Rayon-based parallel spectrum processing
+   - Needs DVector-compatible map operations
+
+### Compilation Status
+- ✅ **With ndarray-compat**: Compiles but has type errors (DVector vs Array1 mismatch)
+- ❌ **Without ndarray-compat**: Multiple missing import errors (expected until migration complete)
+
+### Next Steps
+1. **Immediate**: Migrate xafsutils functions to accept DVector
+   - Start with `find_e0()` and `find_energy_step()` (needed by XASSpectrum)
+   - Then `smooth()`, `remove_dups()`, `ftwindow()`
+2. **Then**: Migrate normalization algorithm
+3. **Then**: Migrate AUTOBK (most complex)
+4. **Then**: Migrate FFT operations
+5. **Finally**: Add feature gates to all ndarray imports
+6. **Validate**: Run tests and benchmarks to verify correctness and performance
 
 ## Migration Strategy
 

@@ -45,6 +45,9 @@ pub enum NormalizationError {
 
     #[error("edge step is too small: {edge_step} (minimum: {min})")]
     EdgeStepTooSmall { edge_step: f64, min: f64 },
+
+    #[error("normalization method not implemented: {method}")]
+    NotImplemented { method: String },
 }
 
 /// Errors related to AUTOBK background removal algorithm.

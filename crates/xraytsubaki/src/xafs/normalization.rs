@@ -11,6 +11,7 @@ use polyfit_rs::polyfit_rs;
 use serde::{Deserialize, Serialize};
 
 // Import internal dependencies
+use super::errors::NormalizationError;
 use super::mathutils::{self, MathUtils};
 use super::xafsutils;
 
@@ -21,7 +22,7 @@ pub trait Normalization {
         &mut self,
         energy: &ArrayBase<OwnedRepr<f64>, Ix1>,
         mu: &ArrayBase<OwnedRepr<f64>, Ix1>,
-    ) -> Result<&mut Self, Box<dyn Error>>;
+    ) -> Result<&mut Self, NormalizationError>;
 
     fn get_norm(&self) -> Option<&Array1<f64>>;
     fn get_flat(&self) -> Option<&Array1<f64>>;
@@ -79,7 +80,7 @@ impl NormalizationMethod {
         &mut self,
         energy: &Array1<f64>,
         mu: &Array1<f64>,
-    ) -> Result<&mut Self, Box<dyn Error>> {
+    ) -> Result<&mut Self, NormalizationError> {
         match self {
             NormalizationMethod::PrePostEdge(pre_post_edge) => {
                 pre_post_edge.fill_parameter(energy, mu)?;
@@ -96,7 +97,7 @@ impl NormalizationMethod {
         &mut self,
         energy: &ArrayBase<OwnedRepr<f64>, Ix1>,
         mu: &ArrayBase<OwnedRepr<f64>, Ix1>,
-    ) -> Result<&mut Self, Box<dyn Error>> {
+    ) -> Result<&mut Self, NormalizationError> {
         match self {
             NormalizationMethod::PrePostEdge(pre_post_edge) => {
                 pre_post_edge.normalize(energy, mu)?;
@@ -234,7 +235,7 @@ impl PrePostEdge {
         &mut self,
         energy: &Array1<f64>,
         mu: &Array1<f64>,
-    ) -> Result<&mut Self, Box<dyn Error>> {
+    ) -> Result<&mut Self, NormalizationError> {
         if self.e0.is_none()
             || self.e0.unwrap().is_nan()
             || self.e0.unwrap() > energy[&energy.len() - 2]
@@ -359,7 +360,7 @@ impl Normalization for PrePostEdge {
         &mut self,
         energy: &ArrayBase<OwnedRepr<f64>, Ix1>,
         mu: &ArrayBase<OwnedRepr<f64>, Ix1>,
-    ) -> Result<&mut Self, Box<dyn Error>> {
+    ) -> Result<&mut Self, NormalizationError> {
         // let (energy, mu): (Vec<f64>, Vec<f64>) = energy
         //     .iter()
         //     .zip(mu.iter())
@@ -517,8 +518,8 @@ impl Normalization for MBack {
         &mut self,
         energy: &ArrayBase<OwnedRepr<f64>, Ix1>,
         mu: &ArrayBase<OwnedRepr<f64>, Ix1>,
-    ) -> Result<&mut Self, Box<dyn Error>> {
-        todo!("Implement MBack normalization");
+    ) -> Result<&mut Self, NormalizationError> {
+        Err(NormalizationError::NotImplemented { method: "MBack normalization".to_string() })
     }
 
     fn get_e0(&self) -> Option<f64> {

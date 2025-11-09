@@ -10,58 +10,72 @@ use serde::{Deserialize, Serialize};
 use serde_json::{self, json};
 use version::version;
 
+use crate::xafs::errors::IOError;
 use crate::xafs::io::xasdatatype::{XASDataType, XASGroupFile};
 use crate::xafs::xasgroup::XASGroup;
 use crate::xafs::xasspectrum::XASSpectrum;
 
 pub trait XASJson {
-    fn read_json(&mut self, filename: &str) -> Result<&mut Self, Box<dyn Error>>;
+    fn read_json(&mut self, filename: &str) -> Result<&mut Self, IOError>;
 
-    fn write_json(&mut self, filename: &str) -> Result<&mut Self, Box<dyn Error>>;
+    fn write_json(&mut self, filename: &str) -> Result<&mut Self, IOError>;
 
-    fn read_jsongz(&mut self, filename: &str) -> Result<&mut Self, Box<dyn Error>>;
+    fn read_jsongz(&mut self, filename: &str) -> Result<&mut Self, IOError>;
 
-    fn write_jsongz(&mut self, filename: &str) -> Result<&mut Self, Box<dyn Error>>;
+    fn write_jsongz(&mut self, filename: &str) -> Result<&mut Self, IOError>;
 }
 
 impl XASJson for XASGroupFile {
-    fn read_json(&mut self, filename: &str) -> Result<&mut Self, Box<dyn Error>> {
-        let f_buffer = File::open(filename)?;
+    fn read_json(&mut self, filename: &str) -> Result<&mut Self, IOError> {
+        let f_buffer = File::open(filename).map_err(|e| IOError::ReadFailed {
+            path: filename.to_string(),
+            source: e.kind(),
+        })?;
 
-        let doc = serde_json::from_reader(f_buffer)?;
+        let doc = serde_json::from_reader(f_buffer).map_err(|e| IOError::JsonError {
+            message: e.to_string(),
+        })?;
         _ = mem::replace(self, doc);
 
         Ok(self)
     }
 
-    fn write_json(&mut self, filename: &str) -> Result<&mut Self, Box<dyn Error>> {
+    fn write_json(&mut self, filename: &str) -> Result<&mut Self, IOError> {
         self.version = version!().to_string();
         self.datatype = XASDataType::XASGroup;
 
-        // let data_bson = bson::to_bson(&self)?;
+        let mut data_file = File::create(filename).map_err(|e| IOError::ReadFailed {
+            path: filename.to_string(),
+            source: e.kind(),
+        })?;
 
-        let mut data_file = File::create(filename)?;
-
-        serde_json::to_writer(&mut data_file, &self)?;
+        serde_json::to_writer(&mut data_file, &self).map_err(|e| IOError::JsonError {
+            message: e.to_string(),
+        })?;
 
         Ok(self)
     }
 
-    fn read_jsongz(&mut self, filename: &str) -> Result<&mut Self, Box<dyn Error>> {
+    fn read_jsongz(&mut self, filename: &str) -> Result<&mut Self, IOError> {
         if filename.ends_with(".json") {
             return self.read_json(filename);
         }
 
-        let f_buffer = File::open(filename)?;
+        let f_buffer = File::open(filename).map_err(|e| IOError::ReadFailed {
+            path: filename.to_string(),
+            source: e.kind(),
+        })?;
         let f_buffer = GzDecoder::new(f_buffer);
-        let doc = serde_json::from_reader(f_buffer)?;
+        let doc = serde_json::from_reader(f_buffer).map_err(|e| IOError::CompressionError {
+            message: format!("decompression failed: {}", e),
+        })?;
 
         _ = mem::replace(self, doc);
 
         Ok(self)
     }
 
-    fn write_jsongz(&mut self, filename: &str) -> Result<&mut Self, Box<dyn Error>> {
+    fn write_jsongz(&mut self, filename: &str) -> Result<&mut Self, IOError> {
         if filename.ends_with(".json") {
             return self.write_json(filename);
         }
@@ -69,11 +83,16 @@ impl XASJson for XASGroupFile {
         self.version = version!().to_string();
         self.datatype = XASDataType::XASGroup;
 
-        let mut data_file = File::create(filename)?;
+        let mut data_file = File::create(filename).map_err(|e| IOError::ReadFailed {
+            path: filename.to_string(),
+            source: e.kind(),
+        })?;
 
         let mut encoder = GzEncoder::new(&mut data_file, Compression::default());
 
-        serde_json::to_writer(&mut encoder, &self)?;
+        serde_json::to_writer(&mut encoder, &self).map_err(|e| IOError::CompressionError {
+            message: format!("compression failed: {}", e),
+        })?;
 
         Ok(self)
     }

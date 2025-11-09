@@ -10,41 +10,57 @@ use bson::Document;
 use serde::{Deserialize, Serialize};
 use version::version;
 
+use crate::xafs::errors::IOError;
 use crate::xafs::io::xasdatatype::{XASDataType, XASGroupFile};
 use crate::xafs::xasgroup::XASGroup;
 use crate::xafs::xasspectrum::XASSpectrum;
 
 pub trait XASBson {
-    fn read_bson(&mut self, filename: &str) -> Result<&mut Self, Box<dyn Error>>;
+    fn read_bson(&mut self, filename: &str) -> Result<&mut Self, IOError>;
 
-    fn write_bson(&mut self, filename: &str) -> Result<&mut Self, Box<dyn Error>>;
+    fn write_bson(&mut self, filename: &str) -> Result<&mut Self, IOError>;
 }
 
 impl XASBson for XASGroupFile {
-    fn read_bson(&mut self, filename: &str) -> Result<&mut Self, Box<dyn Error>> {
-        let mut f_buffer = File::open(filename)?;
+    fn read_bson(&mut self, filename: &str) -> Result<&mut Self, IOError> {
+        let mut f_buffer = File::open(filename).map_err(|e| IOError::ReadFailed {
+            path: filename.to_string(),
+            source: e.kind(),
+        })?;
 
-        let doc = Document::from_reader(&mut f_buffer)?;
+        let doc = Document::from_reader(&mut f_buffer).map_err(|e| IOError::BsonError {
+            message: e.to_string(),
+        })?;
 
-        // let xas_group_file: XASGroupFile =
+        let deserialized = bson::from_document(doc).map_err(|e| IOError::BsonError {
+            message: e.to_string(),
+        })?;
 
-        _ = mem::replace(self, bson::from_document(doc)?);
+        _ = mem::replace(self, deserialized);
 
         Ok(self)
     }
 
-    fn write_bson(&mut self, filename: &str) -> Result<&mut Self, Box<dyn Error>> {
+    fn write_bson(&mut self, filename: &str) -> Result<&mut Self, IOError> {
         self.version = version!().to_string();
         self.datatype = XASDataType::XASGroup;
 
-        let data_bson = bson::to_bson(&self)?;
+        let data_bson = bson::to_bson(&self).map_err(|e| IOError::BsonError {
+            message: e.to_string(),
+        })?;
 
-        let mut data_file = File::create(filename)?;
+        let mut data_file = File::create(filename).map_err(|e| IOError::ReadFailed {
+            path: filename.to_string(),
+            source: e.kind(),
+        })?;
 
         data_bson
             .as_document()
             .unwrap_or(&Document::new())
-            .to_writer(&mut data_file)?;
+            .to_writer(&mut data_file)
+            .map_err(|e| IOError::BsonError {
+                message: e.to_string(),
+            })?;
 
         Ok(self)
     }

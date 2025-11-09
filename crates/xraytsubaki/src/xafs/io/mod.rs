@@ -6,19 +6,23 @@ pub mod xafs_bson;
 pub mod xafs_json;
 pub mod xasdatatype;
 
+use crate::xafs::errors::IOError;
 use crate::xafs::xasspectrum::XASSpectrum;
 use data_reader::reader::{load_txt_f64, Delimiter, ReaderParams};
 use std::error::Error;
 
 #[allow(non_snake_case)]
-pub fn load_spectrum_QAS_trans(path: &String) -> Result<XASSpectrum, Box<dyn Error>> {
+pub fn load_spectrum_QAS_trans(path: &String) -> Result<XASSpectrum, IOError> {
     let params = ReaderParams {
         comments: Some(b'#'),
         delimiter: Delimiter::WhiteSpace,
         ..Default::default()
     };
 
-    let data = load_txt_f64(path, &params)?;
+    let data = load_txt_f64(path, &params).map_err(|e| IOError::ReadFailed {
+        path: path.clone(),
+        source: e.kind(),
+    })?;
     let energy = data.get_col(0);
     let i0 = data.get_col(1);
     let it = data.get_col(2);

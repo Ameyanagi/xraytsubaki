@@ -73,6 +73,16 @@ impl XAFSUtils for Vec<f64> {
     }
 }
 
+impl XAFSUtils for nalgebra::DVector<f64> {
+    fn etok(&self) -> Self {
+        self.map(|x| if x < 0.0 { 0.0 } else { x.sqrt() * constants::KTOE })
+    }
+
+    fn ktoe(&self) -> Self {
+        self.map(|x| x.powi(2) * constants::ETOK)
+    }
+}
+
 impl XAFSUtils for ArrayBase<OwnedRepr<f64>, Ix1> {
     fn etok(&self) -> Self {
         self.mapv(|x| x.sqrt() * constants::KTOE)

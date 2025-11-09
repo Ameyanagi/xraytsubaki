@@ -8,6 +8,8 @@ use std::error::Error;
 
 // External dependencies
 use easyfft::dyn_size::realfft::DynRealDft;
+use nalgebra::DVector;
+#[cfg(feature = "ndarray-compat")]
 use ndarray::{ArrayBase, Axis, Ix1, OwnedRepr, ViewRepr};
 use serde::{Deserialize, Serialize};
 
@@ -34,19 +36,19 @@ use normalization::Normalization;
 #[serde(default)]
 pub struct XASSpectrum {
     pub name: Option<String>,
-    pub raw_energy: Option<ArrayBase<OwnedRepr<f64>, Ix1>>,
-    pub raw_mu: Option<ArrayBase<OwnedRepr<f64>, Ix1>>,
-    pub energy: Option<ArrayBase<OwnedRepr<f64>, Ix1>>,
-    pub mu: Option<ArrayBase<OwnedRepr<f64>, Ix1>>,
+    pub raw_energy: Option<DVector<f64>>,
+    pub raw_mu: Option<DVector<f64>>,
+    pub energy: Option<DVector<f64>>,
+    pub mu: Option<DVector<f64>>,
     pub e0: Option<f64>,
-    pub k: Option<ArrayBase<OwnedRepr<f64>, Ix1>>,
-    pub chi: Option<ArrayBase<OwnedRepr<f64>, Ix1>>,
-    pub chi_kweighted: Option<ArrayBase<OwnedRepr<f64>, Ix1>>,
-    pub chi_r: Option<ArrayBase<OwnedRepr<f64>, Ix1>>,
-    pub chi_r_mag: Option<ArrayBase<OwnedRepr<f64>, Ix1>>,
-    pub chi_r_re: Option<ArrayBase<OwnedRepr<f64>, Ix1>>,
-    pub chi_r_im: Option<ArrayBase<OwnedRepr<f64>, Ix1>>,
-    pub q: Option<ArrayBase<OwnedRepr<f64>, Ix1>>,
+    pub k: Option<DVector<f64>>,
+    pub chi: Option<DVector<f64>>,
+    pub chi_kweighted: Option<DVector<f64>>,
+    pub chi_r: Option<DVector<f64>>,
+    pub chi_r_mag: Option<DVector<f64>>,
+    pub chi_r_re: Option<DVector<f64>>,
+    pub chi_r_im: Option<DVector<f64>>,
+    pub q: Option<DVector<f64>>,
     pub normalization: Option<normalization::NormalizationMethod>,
     pub background: Option<background::BackgroundMethod>,
     pub xftf: Option<xrayfft::XrayFFTF>,
@@ -89,8 +91,8 @@ impl XASSpectrum {
     }
 
     pub fn set_spectrum<
-        T: Into<ArrayBase<OwnedRepr<f64>, Ix1>>,
-        M: Into<ArrayBase<OwnedRepr<f64>, Ix1>>,
+        T: Into<DVector<f64>>,
+        M: Into<DVector<f64>>,
     >(
         &mut self,
         energy: T,
@@ -101,8 +103,15 @@ impl XASSpectrum {
 
         if !raw_energy.is_sorted() {
             let sort_idx = raw_energy.argsort();
-            self.raw_energy = Some(raw_energy.select(ndarray::Axis(0), &sort_idx));
-            self.raw_mu = Some(raw_mu.select(ndarray::Axis(0), &sort_idx));
+            // For DVector, we need to manually sort by indices
+            self.raw_energy = Some(DVector::from_iterator(
+                sort_idx.len(),
+                sort_idx.iter().map(|&i| raw_energy[i])
+            ));
+            self.raw_mu = Some(DVector::from_iterator(
+                sort_idx.len(),
+                sort_idx.iter().map(|&i| raw_mu[i])
+            ));
         } else {
             self.raw_energy = Some(raw_energy);
             self.raw_mu = Some(raw_mu);
@@ -113,15 +122,15 @@ impl XASSpectrum {
         self
     }
 
-    pub fn interpolate_spectrum<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>>>(
+    pub fn interpolate_spectrum<T: Into<DVector<f64>>>(
         &mut self,
         energy: T,
     ) -> Result<&mut Self, Box<dyn Error>> {
         self.energy = Some(energy.into());
 
         let energy = self.energy.clone().unwrap();
-        let mu = self.raw_mu.clone().unwrap().to_vec();
-        let knot = self.raw_energy.clone().unwrap().to_vec();
+        let mu = self.raw_mu.clone().unwrap().data.as_vec().to_vec();
+        let knot = self.raw_energy.clone().unwrap().data.as_vec().to_vec();
 
         self.mu = Some(energy.interpolate(&knot, &mu).unwrap());
 
@@ -264,11 +273,11 @@ impl XASSpectrum {
         self.e0
     }
 
-    pub fn get_k(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+    pub fn get_k(&self) -> Option<DVector<f64>> {
         self.background.as_ref()?.get_k()
     }
 
-    pub fn get_chi(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+    pub fn get_chi(&self) -> Option<DVector<f64>> {
         self.background.as_ref()?.get_chi()
     }
 
@@ -276,12 +285,12 @@ impl XASSpectrum {
         self.xftf.as_ref()?.get_kweight()
     }
 
-    pub fn get_chi_kweighted(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+    pub fn get_chi_kweighted(&self) -> Option<DVector<f64>> {
         let k = self.get_k()?;
         let chi = self.get_chi()?;
         let kweight = self.get_kweight()?;
 
-        Some(chi * k.mapv(|x| x.powf(kweight.to_owned())))
+        Some(chi.component_mul(&k.map(|x| x.powf(kweight.to_owned()))))
     }
 
     pub fn get_chir(&self) -> Option<&DynRealDft<f64>> {

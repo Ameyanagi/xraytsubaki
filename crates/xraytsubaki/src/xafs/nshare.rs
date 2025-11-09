@@ -1,15 +1,23 @@
 use nalgebra::{DMatrix, DVector, Dyn};
+
+#[cfg(feature = "ndarray-compat")]
 use ndarray::{Array1, ArrayBase, Ix1, Ix2, OwnedRepr};
+
+// ============================================================================
+// Custom Traits (ToNalgebra, ToNdarray1) - Backward Compatibility
+// ============================================================================
 
 /// Trait for converting from ndarray to nalgebra
 ///
 /// It is specific to f64 and 1D or 2D arrays.
 /// For more general conversions, you should consider using nshare crate.
+#[cfg(feature = "ndarray-compat")]
 pub trait ToNalgebra {
     type Out;
     fn into_nalgebra(self) -> Self::Out;
 }
 
+#[cfg(feature = "ndarray-compat")]
 impl ToNalgebra for ArrayBase<OwnedRepr<f64>, Ix1> {
     type Out = DVector<f64>;
     fn into_nalgebra(self) -> DVector<f64> {
@@ -17,6 +25,7 @@ impl ToNalgebra for ArrayBase<OwnedRepr<f64>, Ix1> {
     }
 }
 
+#[cfg(feature = "ndarray-compat")]
 impl ToNalgebra for ArrayBase<OwnedRepr<f64>, Ix2> {
     type Out = DMatrix<f64>;
     fn into_nalgebra(self) -> Self::Out {
@@ -30,11 +39,13 @@ impl ToNalgebra for ArrayBase<OwnedRepr<f64>, Ix2> {
 ///
 /// It is specific to f64 and 1D arrays.
 /// For more general conversions, you should consider using nshare crate.
+#[cfg(feature = "ndarray-compat")]
 pub trait ToNdarray1 {
     type Out;
     fn into_ndarray1(self) -> Self::Out;
 }
 
+#[cfg(feature = "ndarray-compat")]
 impl ToNdarray1 for DVector<f64> {
     type Out = ArrayBase<OwnedRepr<f64>, Ix1>;
     fn into_ndarray1(self) -> Self::Out {
@@ -42,7 +53,8 @@ impl ToNdarray1 for DVector<f64> {
     }
 }
 
-#[cfg(test)]
+
+#[cfg(all(test, feature = "ndarray-compat"))]
 mod tests {
     use super::*;
     use nalgebra::{Matrix3x2, Vector3};
@@ -65,4 +77,5 @@ mod tests {
 
         assert_eq!(a, a_rev);
     }
+
 }

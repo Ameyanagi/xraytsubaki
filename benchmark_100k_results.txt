@@ -1,0 +1,887 @@
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /home/ryuichi/rust/xafs/xraytsubaki/crates/xraytsubaki/Cargo.toml
+workspace: /home/ryuichi/rust/xafs/xraytsubaki/Cargo.toml
+warning: /home/ryuichi/rust/xafs/xraytsubaki/Cargo.toml: unused manifest key: workspace.package.name
+   Compiling xraytsubaki v0.1.0 (/home/ryuichi/rust/xafs/xraytsubaki/crates/xraytsubaki)
+error[E0432]: unresolved imports `crate::xafs::nshare::ToNalgebra`, `crate::xafs::nshare::ToNdarray1`
+  --> crates/xraytsubaki/src/prelude.rs:9:31
+   |
+9  | pub use crate::xafs::nshare::{ToNalgebra, ToNdarray1};
+   |                               ^^^^^^^^^^  ^^^^^^^^^^ no `ToNdarray1` in `xafs::nshare`
+   |                               |
+   |                               no `ToNalgebra` in `xafs::nshare`
+   |
+note: found an item that was configured out
+  --> crates/xraytsubaki/src/xafs/nshare.rs:15:11
+   |
+15 | pub trait ToNalgebra {
+   |           ^^^^^^^^^^
+note: the item is gated behind the `ndarray-compat` feature
+  --> crates/xraytsubaki/src/xafs/nshare.rs:14:7
+   |
+14 | #[cfg(feature = "ndarray-compat")]
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: found an item that was configured out
+  --> crates/xraytsubaki/src/xafs/nshare.rs:43:11
+   |
+43 | pub trait ToNdarray1 {
+   |           ^^^^^^^^^^
+note: the item is gated behind the `ndarray-compat` feature
+  --> crates/xraytsubaki/src/xafs/nshare.rs:42:7
+   |
+42 | #[cfg(feature = "ndarray-compat")]
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0432]: unresolved imports `super::nshare::ToNalgebra`, `super::nshare::ToNdarray1`
+  --> crates/xraytsubaki/src/xafs/background.rs:21:21
+   |
+21 | use super::nshare::{ToNalgebra, ToNdarray1};
+   |                     ^^^^^^^^^^  ^^^^^^^^^^ no `ToNdarray1` in `xafs::nshare`
+   |                     |
+   |                     no `ToNalgebra` in `xafs::nshare`
+   |
+   = help: consider importing this unresolved item through its public re-export instead:
+           crate::prelude::ToNalgebra
+note: found an item that was configured out
+  --> crates/xraytsubaki/src/xafs/nshare.rs:15:11
+   |
+15 | pub trait ToNalgebra {
+   |           ^^^^^^^^^^
+note: the item is gated behind the `ndarray-compat` feature
+  --> crates/xraytsubaki/src/xafs/nshare.rs:14:7
+   |
+14 | #[cfg(feature = "ndarray-compat")]
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: consider importing this unresolved item through its public re-export instead:
+           crate::prelude::ToNdarray1
+note: found an item that was configured out
+  --> crates/xraytsubaki/src/xafs/nshare.rs:43:11
+   |
+43 | pub trait ToNdarray1 {
+   |           ^^^^^^^^^^
+note: the item is gated behind the `ndarray-compat` feature
+  --> crates/xraytsubaki/src/xafs/nshare.rs:42:7
+   |
+42 | #[cfg(feature = "ndarray-compat")]
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0432]: unresolved import `ndarray`
+ --> crates/xraytsubaki/src/xafs/mathutils.rs:7:5
+  |
+7 | use ndarray::{Array1, ArrayBase, Ix1, OwnedRepr};
+  |     ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0432]: unresolved import `ndarray`
+  --> crates/xraytsubaki/src/xafs/mod.rs:22:5
+   |
+22 | use ndarray::{ArrayBase, Axis, Ix1, OwnedRepr};
+   |     ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0432]: unresolved import `ndarray`
+  --> crates/xraytsubaki/src/xafs/background.rs:12:5
+   |
+12 | use ndarray::{Array1, ArrayBase, Axis, Ix1, OwnedRepr, ViewRepr};
+   |     ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0432]: unresolved import `ndarray`
+ --> crates/xraytsubaki/src/xafs/normalization.rs:9:5
+  |
+9 | use ndarray::{Array1, ArrayBase, Ix1, OwnedRepr};
+  |     ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0432]: unresolved import `ndarray`
+  --> crates/xraytsubaki/src/xafs/xafsutils.rs:11:5
+   |
+11 | use ndarray::{Array, Array1, ArrayBase, Axis, Ix1, OwnedRepr, Slice};
+   |     ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0432]: unresolved import `ndarray`
+ --> crates/xraytsubaki/src/xafs/xrayfft.rs:7:5
+  |
+7 | use ndarray::{
+  |     ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/mathutils.rs:299:21
+    |
+299 |         &self.slice(ndarray::s![1..]) - &self.slice(ndarray::s![..-1])
+    |                     ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/mathutils.rs:299:53
+    |
+299 |         &self.slice(ndarray::s![1..]) - &self.slice(ndarray::s![..-1])
+    |                                                     ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/mathutils.rs:355:32
+    |
+355 |                     .slice_mut(ndarray::s![0])
+    |                                ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/mathutils.rs:356:43
+    |
+356 |                     .assign(&(&self.slice(ndarray::s![1]) - &self.slice(ndarray::s![0])));
+    |                                           ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/mathutils.rs:356:73
+    |
+356 |                     .assign(&(&self.slice(ndarray::s![1]) - &self.slice(ndarray::s![0])));
+    |                                                                         ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/mathutils.rs:357:34
+    |
+357 |                 result.slice_mut(ndarray::s![1..-1]).assign(
+    |                                  ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/mathutils.rs:358:36
+    |
+358 |                     &((&self.slice(ndarray::s![2..]) - &self.slice(ndarray::s![..-2])) / 2.0),
+    |                                    ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/mathutils.rs:358:68
+    |
+358 |                     &((&self.slice(ndarray::s![2..]) - &self.slice(ndarray::s![..-2])) / 2.0),
+    |                                                                    ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/mathutils.rs:361:32
+    |
+361 |                     .slice_mut(ndarray::s![-1])
+    |                                ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/mathutils.rs:362:43
+    |
+362 |                     .assign(&(&self.slice(ndarray::s![-1]) - &self.slice(ndarray::s![-2])));
+    |                                           ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/mathutils.rs:362:74
+    |
+362 |                     .assign(&(&self.slice(ndarray::s![-1]) - &self.slice(ndarray::s![-2])));
+    |                                                                          ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/xafsutils.rs:924:26
+    |
+924 |                 &x.slice(ndarray::s![i1..=i4])
+    |                          ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/xafsutils.rs:923:28
+    |
+923 |             fwin.slice_mut(ndarray::s![i1..=i4]).assign(
+    |                            ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/xafsutils.rs:908:26
+    |
+908 |                 &x.slice(ndarray::s![i3..=i4])
+    |                          ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/xafsutils.rs:907:28
+    |
+907 |             fwin.slice_mut(ndarray::s![i3..=i4]).assign(
+    |                            ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/xafsutils.rs:904:26
+    |
+904 |                 &x.slice(ndarray::s![i1..=i2])
+    |                          ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/xafsutils.rs:903:28
+    |
+903 |             fwin.slice_mut(ndarray::s![i1..=i2]).assign(
+    |                            ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/xafsutils.rs:898:26
+    |
+898 |                 &x.slice(ndarray::s![i3..=i4])
+    |                          ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/xafsutils.rs:897:28
+    |
+897 |             fwin.slice_mut(ndarray::s![i3..=i4]).assign(
+    |                            ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/xafsutils.rs:896:34
+    |
+896 |                 .assign(&x.slice(ndarray::s![i1..=i2]).mapv(|x| (x - x1) / (x2 - x1)));
+    |                                  ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/xafsutils.rs:895:28
+    |
+895 |             fwin.slice_mut(ndarray::s![i1..=i2])
+    |                            ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/xafsutils.rs:888:34
+    |
+888 |                 .assign(&x.slice(ndarray::s![i3..=i4]).mapv(|x| {
+    |                                  ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/xafsutils.rs:887:28
+    |
+887 |             fwin.slice_mut(ndarray::s![i3..=i4])
+    |                            ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/xafsutils.rs:882:34
+    |
+882 |                 .assign(&x.slice(ndarray::s![i1..=i2]).mapv(|x| {
+    |                                  ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/xafsutils.rs:881:28
+    |
+881 |             fwin.slice_mut(ndarray::s![i1..=i2])
+    |                            ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/xafsutils.rs:876:24
+    |
+876 |         fwin.slice_mut(ndarray::s![i2..i3]).fill(1.0);
+    |                        ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/normalization.rs:451:33
+    |
+451 |             .assign(&norm.slice(ndarray::s![..ie0]));
+    |                                 ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/normalization.rs:450:24
+    |
+450 |         flat.slice_mut(ndarray::s![..ie0])
+    |                        ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/normalization.rs:423:45
+    |
+423 |         let post_edge_energy = energy.slice(ndarray::s![p1..p2]);
+    |                                             ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/normalization.rs:420:20
+    |
+420 |             .slice(ndarray::s![p1..p2])
+    |                    ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/normalization.rs:397:50
+    |
+397 |             xafsutils::remove_nan2(&energy.slice(ndarray::s![p1..p2]).to_owned(), &omu);
+    |                                                  ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/normalization.rs:394:29
+    |
+394 |             * &energy.slice(ndarray::s![p1..p2]).map(|e| e.powi(nvict));
+    |                             ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/normalization.rs:393:29
+    |
+393 |         let omu = &mu.slice(ndarray::s![p1..p2])
+    |                             ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/background.rs:456:24
+    |
+456 |         obkg.slice_mut(ndarray::s![iek0..iek0 + bkg.len()])
+    |                        ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/background.rs:300:34
+    |
+300 |         let enpe = &energy.slice(ndarray::s![iek0..]).clone() - self.ek0.unwrap();
+    |                                  ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/background.rs:407:38
+    |
+407 |                 .slice_axis(Axis(0), ndarray::Slice::from(0..iemax - iek0 + 1))
+    |                                      ^^^^^^^ use of undeclared crate or module `ndarray`
+    |
+help: consider importing this struct
+    |
+6   + use enterpolation::Slice;
+    |
+help: if you import `Slice`, refer to it directly
+    |
+407 -                 .slice_axis(Axis(0), ndarray::Slice::from(0..iemax - iek0 + 1))
+407 +                 .slice_axis(Axis(0), Slice::from(0..iemax - iek0 + 1))
+    |
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/background.rs:409:37
+    |
+409 |             &mu.slice_axis(Axis(0), ndarray::Slice::from(iek0..iemax + 1))
+    |                                     ^^^^^^^ use of undeclared crate or module `ndarray`
+    |
+help: consider importing this struct
+    |
+6   + use enterpolation::Slice;
+    |
+help: if you import `Slice`, refer to it directly
+    |
+409 -             &mu.slice_axis(Axis(0), ndarray::Slice::from(iek0..iemax + 1))
+409 +             &mu.slice_axis(Axis(0), Slice::from(iek0..iemax + 1))
+    |
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/background.rs:420:38
+    |
+420 |                 .slice_axis(Axis(0), ndarray::Slice::from(0..iemax - iek0 + 1))
+    |                                      ^^^^^^^ use of undeclared crate or module `ndarray`
+    |
+help: consider importing this struct
+    |
+6   + use enterpolation::Slice;
+    |
+help: if you import `Slice`, refer to it directly
+    |
+420 -                 .slice_axis(Axis(0), ndarray::Slice::from(0..iemax - iek0 + 1))
+420 +                 .slice_axis(Axis(0), Slice::from(0..iemax - iek0 + 1))
+    |
+
+error[E0425]: cannot find function `find_e0_array1` in module `xafsutils`
+   --> crates/xraytsubaki/src/xafs/normalization.rs:243:33
+    |
+243 |             let e0 = xafsutils::find_e0_array1(energy.clone(), mu.clone())?;
+    |                                 ^^^^^^^^^^^^^^ not found in `xafsutils`
+    |
+note: found an item that was configured out
+   --> crates/xraytsubaki/src/xafs/xafsutils.rs:415:8
+    |
+415 | pub fn find_e0_array1<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>>>(
+    |        ^^^^^^^^^^^^^^
+note: the item is gated behind the `ndarray-compat` feature
+   --> crates/xraytsubaki/src/xafs/xafsutils.rs:414:7
+    |
+414 | #[cfg(feature = "ndarray-compat")]
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0412]: cannot find type `ArrayBase` in this scope
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:293:42
+    |
+293 |     pub fn get_chir_mag(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
+    |                                          ^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `ViewRepr` in this scope
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:293:52
+    |
+293 |     pub fn get_chir_mag(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
+    |                                                    ^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `Ix1` in this scope
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:293:68
+    |
+293 |     pub fn get_chir_mag(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
+    |                                                                    ^^^ not found in this scope
+    |
+help: you might be missing a type parameter
+    |
+62  | impl<Ix1> XASSpectrum {
+    |     +++++
+
+error[E0412]: cannot find type `ArrayBase` in this scope
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:297:43
+    |
+297 |     pub fn get_chir_real(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+    |                                           ^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `OwnedRepr` in this scope
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:297:53
+    |
+297 |     pub fn get_chir_real(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+    |                                                     ^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `Ix1` in this scope
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:297:69
+    |
+297 |     pub fn get_chir_real(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+    |                                                                     ^^^ not found in this scope
+    |
+help: you might be missing a type parameter
+    |
+62  | impl<Ix1> XASSpectrum {
+    |     +++++
+
+error[E0412]: cannot find type `ArrayBase` in this scope
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:301:43
+    |
+301 |     pub fn get_chir_imag(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+    |                                           ^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `OwnedRepr` in this scope
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:301:53
+    |
+301 |     pub fn get_chir_imag(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+    |                                                     ^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `Ix1` in this scope
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:301:69
+    |
+301 |     pub fn get_chir_imag(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+    |                                                                     ^^^ not found in this scope
+    |
+help: you might be missing a type parameter
+    |
+62  | impl<Ix1> XASSpectrum {
+    |     +++++
+
+error[E0412]: cannot find type `ArrayBase` in this scope
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:305:35
+    |
+305 |     pub fn get_r(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
+    |                                   ^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `ViewRepr` in this scope
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:305:45
+    |
+305 |     pub fn get_r(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
+    |                                             ^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `Ix1` in this scope
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:305:61
+    |
+305 |     pub fn get_r(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
+    |                                                             ^^^ not found in this scope
+    |
+help: you might be missing a type parameter
+    |
+62  | impl<Ix1> XASSpectrum {
+    |     +++++
+
+error[E0412]: cannot find type `ArrayBase` in this scope
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:309:35
+    |
+309 |     pub fn get_q(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
+    |                                   ^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `ViewRepr` in this scope
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:309:45
+    |
+309 |     pub fn get_q(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
+    |                                             ^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `Ix1` in this scope
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:309:61
+    |
+309 |     pub fn get_q(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
+    |                                                             ^^^ not found in this scope
+    |
+help: you might be missing a type parameter
+    |
+62  | impl<Ix1> XASSpectrum {
+    |     +++++
+
+error[E0412]: cannot find type `ArrayBase` in this scope
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:313:38
+    |
+313 |     pub fn get_chiq(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+    |                                      ^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `OwnedRepr` in this scope
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:313:48
+    |
+313 |     pub fn get_chiq(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+    |                                                ^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `Ix1` in this scope
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:313:64
+    |
+313 |     pub fn get_chiq(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+    |                                                                ^^^ not found in this scope
+    |
+help: you might be missing a type parameter
+    |
+62  | impl<Ix1> XASSpectrum {
+    |     +++++
+
+warning: unexpected `cfg` condition name: `tests`
+ --> crates/xraytsubaki/src/xafs/mod.rs:9:7
+  |
+9 | #[cfg(tests)]
+  |       ^^^^^ help: there is a config with a similar name: `test`
+  |
+  = help: consider using a Cargo feature instead
+  = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
+           [lints.rust]
+           unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tests)'] }
+  = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(tests)");` to the top of the `build.rs`
+  = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+  = note: `#[warn(unexpected_cfgs)]` on by default
+
+error[E0599]: no method named `to_vec` found for reference `&Matrix<f64, Dyn, Const<1>, VecStorage<f64, Dyn, Const<1>>>` in the current scope
+   --> crates/xraytsubaki/src/xafs/background.rs:293:48
+    |
+293 |         let iek0 = mathutils::index_of(&energy.to_vec(), &self.ek0.unwrap())?;
+    |                                                ^^^^^^ method not found in `&Matrix<f64, Dyn, Const<1>, VecStorage<f64, Dyn, Const<1>>>`
+
+error[E0277]: `?` couldn't convert the error to `BackgroundError`
+   --> crates/xraytsubaki/src/xafs/background.rs:293:77
+    |
+293 |         let iek0 = mathutils::index_of(&energy.to_vec(), &self.ek0.unwrap())?;
+    |                                                                             ^ the trait `From<MathError>` is not implemented for `BackgroundError`, which is required by `std::result::Result<&mut AUTOBK, BackgroundError>: FromResidual<std::result::Result<Infallible, MathError>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut AUTOBK, BackgroundError>` to implement `FromResidual<std::result::Result<Infallible, MathError>>`
+
+warning: use of deprecated method `nalgebra::base::matrix_view::<impl nalgebra::Matrix<T, R, C, S>>::slice`: Use view instead. See [issue #1076](https://github.com/dimforge/nalgebra/issues/1076) for more information.
+   --> crates/xraytsubaki/src/xafs/background.rs:300:28
+    |
+300 |         let enpe = &energy.slice(ndarray::s![iek0..]).clone() - self.ek0.unwrap();
+    |                            ^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+error[E0061]: this method takes 2 arguments but 1 argument was supplied
+   --> crates/xraytsubaki/src/xafs/background.rs:300:28
+    |
+300 |         let enpe = &energy.slice(ndarray::s![iek0..]).clone() - self.ek0.unwrap();
+    |                            ^^^^^--------------------- argument #2 of type `(usize, usize)` is missing
+    |
+note: method defined here
+   --> /home/ryuichi/.cargo/registry/src/index.crates.io-6f17d22bba15001f/nalgebra-0.32.6/src/base/matrix_view.rs:774:6
+    |
+774 |      slice => view,
+    |      ^^^^^
+help: provide the argument
+    |
+300 |         let enpe = &energy.slice(ndarray::s![iek0..], /* (usize, usize) */).clone() - self.ek0.unwrap();
+    |                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+error[E0277]: cannot subtract `f64` from `&Matrix<f64, Dyn, Dyn, ViewStorage<'_, f64, Dyn, Dyn, Const<1>, Dyn>>`
+   --> crates/xraytsubaki/src/xafs/background.rs:300:63
+    |
+300 |         let enpe = &energy.slice(ndarray::s![iek0..]).clone() - self.ek0.unwrap();
+    |                                                               ^ no implementation for `&Matrix<f64, Dyn, Dyn, ViewStorage<'_, f64, Dyn, Dyn, Const<1>, Dyn>> - f64`
+    |
+    = help: the trait `Sub<f64>` is not implemented for `&Matrix<f64, Dyn, Dyn, ViewStorage<'_, f64, Dyn, Dyn, Const<1>, Dyn>>`
+    = help: the following other types implement trait `Sub<Rhs>`:
+              `&'a Matrix<T, R1, C1, SA>` implements `Sub<&'b Matrix<T, R2, C2, SB>>`
+              `&'a Matrix<T, R1, C1, SA>` implements `Sub<Matrix<T, R2, C2, SB>>`
+              `Matrix<T, R1, C1, SA>` implements `Sub<&'b Matrix<T, R2, C2, SB>>`
+              `Matrix<T, R1, C1, SA>` implements `Sub<Matrix<T, R2, C2, SB>>`
+
+error[E0689]: can't call method `floor` on ambiguous numeric type `{float}`
+   --> crates/xraytsubaki/src/xafs/background.rs:310:71
+    |
+310 |             * &Array1::range(0.0, (1.01 + kmax / self.kstep.unwrap()).floor(), 1.0);
+    |                                                                       ^^^^^
+
+error[E0599]: no method named `to_vec` found for reference `&Matrix<f64, Dyn, Const<1>, VecStorage<f64, Dyn, Const<1>>>` in the current scope
+   --> crates/xraytsubaki/src/xafs/background.rs:314:25
+    |
+314 |                 &energy.to_vec(),
+    |                         ^^^^^^ method not found in `&Matrix<f64, Dyn, Const<1>, VecStorage<f64, Dyn, Const<1>>>`
+
+error[E0277]: `?` couldn't convert the error to `BackgroundError`
+   --> crates/xraytsubaki/src/xafs/background.rs:316:14
+    |
+316 |             )?,
+    |              ^ the trait `From<MathError>` is not implemented for `BackgroundError`, which is required by `std::result::Result<&mut AUTOBK, BackgroundError>: FromResidual<std::result::Result<Infallible, MathError>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut AUTOBK, BackgroundError>` to implement `FromResidual<std::result::Result<Infallible, MathError>>`
+
+error[E0599]: no method named `interpolate` found for type `f64` in the current scope
+   --> crates/xraytsubaki/src/xafs/background.rs:320:23
+    |
+320 |             Some(kout.interpolate(
+    |                  -----^^^^^^^^^^^ method not found in `f64`
+    |
+    = help: items from traits can only be used if the trait is implemented and in scope
+note: `MathUtils` defines an item `interpolate`, perhaps you need to implement it
+   --> crates/xraytsubaki/src/xafs/mathutils.rs:15:1
+    |
+15  | pub trait MathUtils {
+    | ^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no method named `mapv` found for type `f64` in the current scope
+   --> crates/xraytsubaki/src/xafs/background.rs:328:27
+    |
+328 |         let ftwin = &kout.mapv(|x| x.powi(self.kweight.unwrap()))
+    |                           ^^^^ method not found in `f64`
+
+error[E0599]: no method named `to_vec` found for type `f64` in the current scope
+   --> crates/xraytsubaki/src/xafs/background.rs:405:27
+    |
+405 |         let mu_out = kout.to_vec().interpolate(
+    |                           ^^^^^^ method not found in `f64`
+
+error[E0599]: no method named `slice_axis` found for reference `&Matrix<f64, Dyn, Const<1>, VecStorage<f64, Dyn, Const<1>>>` in the current scope
+   --> crates/xraytsubaki/src/xafs/background.rs:409:17
+    |
+409 |             &mu.slice_axis(Axis(0), ndarray::Slice::from(iek0..iemax + 1))
+    |                 ^^^^^^^^^^
+    |
+help: there is a method `slice` with a similar name
+    |
+409 |             &mu.slice(Axis(0), ndarray::Slice::from(iek0..iemax + 1))
+    |                 ~~~~~
+
+error[E0599]: no method named `into_nalgebra` found for type `f64` in the current scope
+   --> crates/xraytsubaki/src/xafs/background.rs:425:32
+    |
+425 |             kout: kout.clone().into_nalgebra(),
+    |                                ^^^^^^^^^^^^^ method not found in `f64`
+
+error[E0599]: no method named `into_ndarray1` found for struct `Matrix` in the current scope
+   --> crates/xraytsubaki/src/xafs/background.rs:452:23
+    |
+452 |         let bkg = bkg.into_ndarray1();
+    |                       ^^^^^^^^^^^^^ method not found in `Matrix<f64, Dyn, Const<1>, VecStorage<f64, Dyn, Const<1>>>`
+
+error[E0599]: no method named `into_ndarray1` found for struct `Matrix` in the current scope
+   --> crates/xraytsubaki/src/xafs/background.rs:453:23
+    |
+453 |         let chi = chi.into_ndarray1();
+    |                       ^^^^^^^^^^^^^ method not found in `Matrix<f64, Dyn, Const<1>, VecStorage<f64, Dyn, Const<1>>>`
+
+warning: use of deprecated method `nalgebra::base::matrix_view::<impl nalgebra::Matrix<T, R, C, S>>::slice_mut`: Use view_mut instead. See [issue #1076](https://github.com/dimforge/nalgebra/issues/1076) for more information.
+   --> crates/xraytsubaki/src/xafs/background.rs:456:14
+    |
+456 |         obkg.slice_mut(ndarray::s![iek0..iek0 + bkg.len()])
+    |              ^^^^^^^^^
+
+error[E0061]: this method takes 2 arguments but 1 argument was supplied
+   --> crates/xraytsubaki/src/xafs/background.rs:456:14
+    |
+456 |         obkg.slice_mut(ndarray::s![iek0..iek0 + bkg.len()])
+    |              ^^^^^^^^^------------------------------------- argument #2 of type `(usize, usize)` is missing
+    |
+note: method defined here
+   --> /home/ryuichi/.cargo/registry/src/index.crates.io-6f17d22bba15001f/nalgebra-0.32.6/src/base/matrix_view.rs:804:6
+    |
+804 |      slice_mut => view_mut,
+    |      ^^^^^^^^^
+help: provide the argument
+    |
+456 |         obkg.slice_mut(ndarray::s![iek0..iek0 + bkg.len()], /* (usize, usize) */)
+    |                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+error[E0599]: no method named `assign` found for struct `Matrix` in the current scope
+   --> crates/xraytsubaki/src/xafs/background.rs:457:14
+    |
+456 | /         obkg.slice_mut(ndarray::s![iek0..iek0 + bkg.len()])
+457 | |             .assign(&bkg);
+    | |_____________-^^^^^^
+    |
+help: there is a method `add_assign` with a similar name
+    |
+457 |             .add_assign(&bkg);
+    |              ~~~~~~~~~~
+
+error[E0599]: the method `as_dyn_error` exists for reference `&ErrorKind`, but its trait bounds were not satisfied
+   --> crates/xraytsubaki/src/xafs/errors.rs:105:11
+    |
+105 |         #[source]
+    |           ^^^^^^ method cannot be called on `&ErrorKind` due to unsatisfied trait bounds
+    |
+    = note: the following trait bounds were not satisfied:
+            `std::io::ErrorKind: StdError`
+            which is required by `std::io::ErrorKind: AsDynError<'_>`
+            `&std::io::ErrorKind: StdError`
+            which is required by `&std::io::ErrorKind: AsDynError<'_>`
+
+error[E0599]: no method named `kind` found for struct `anyhow::Error` in the current scope
+  --> crates/xraytsubaki/src/xafs/io/mod.rs:24:19
+   |
+24 |         source: e.kind(),
+   |                   ^^^^ method not found in `Error`
+
+error[E0277]: `?` couldn't convert the error to `NormalizationError`
+   --> crates/xraytsubaki/src/xafs/normalization.rs:247:80
+    |
+247 |         let ie0 = mathutils::index_nearest(&energy.to_vec(), &self.e0.unwrap())?;
+    |                                                                                ^ the trait `From<MathError>` is not implemented for `NormalizationError`, which is required by `std::result::Result<&mut PrePostEdge, NormalizationError>: FromResidual<std::result::Result<Infallible, MathError>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut PrePostEdge, NormalizationError>` to implement `FromResidual<std::result::Result<Infallible, MathError>>`
+
+error[E0689]: can't call method `max` on ambiguous numeric type `{float}`
+   --> crates/xraytsubaki/src/xafs/normalization.rs:260:14
+    |
+260 |             .max(energy.min() - e0);
+    |              ^^^
+
+error[E0277]: `?` couldn't convert the error to `NormalizationError`
+   --> crates/xraytsubaki/src/xafs/normalization.rs:380:10
+    |
+380 |         )?;
+    |          ^ the trait `From<MathError>` is not implemented for `NormalizationError`, which is required by `std::result::Result<&mut PrePostEdge, NormalizationError>: FromResidual<std::result::Result<Infallible, MathError>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut PrePostEdge, NormalizationError>` to implement `FromResidual<std::result::Result<Infallible, MathError>>`
+
+error[E0277]: `?` couldn't convert the error to `NormalizationError`
+   --> crates/xraytsubaki/src/xafs/normalization.rs:384:10
+    |
+384 |         )?;
+    |          ^ the trait `From<MathError>` is not implemented for `NormalizationError`, which is required by `std::result::Result<&mut PrePostEdge, NormalizationError>: FromResidual<std::result::Result<Infallible, MathError>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut PrePostEdge, NormalizationError>` to implement `FromResidual<std::result::Result<Infallible, MathError>>`
+
+error[E0277]: `?` couldn't convert the error to `NormalizationError`
+   --> crates/xraytsubaki/src/xafs/normalization.rs:400:71
+    |
+400 |             polyfit_rs::polyfit(&energy_x.to_vec(), &mu_x.to_vec(), 1)?;
+    |                                                                       ^ the trait `From<&str>` is not implemented for `NormalizationError`, which is required by `std::result::Result<&mut PrePostEdge, NormalizationError>: FromResidual<std::result::Result<Infallible, &str>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut PrePostEdge, NormalizationError>` to implement `FromResidual<std::result::Result<Infallible, &str>>`
+
+error[E0277]: `?` couldn't convert the error to `NormalizationError`
+   --> crates/xraytsubaki/src/xafs/normalization.rs:408:10
+    |
+408 |         )?;
+    |          ^ the trait `From<MathError>` is not implemented for `NormalizationError`, which is required by `std::result::Result<&mut PrePostEdge, NormalizationError>: FromResidual<std::result::Result<Infallible, MathError>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut PrePostEdge, NormalizationError>` to implement `FromResidual<std::result::Result<Infallible, MathError>>`
+
+error[E0277]: `?` couldn't convert the error to `NormalizationError`
+   --> crates/xraytsubaki/src/xafs/normalization.rs:412:10
+    |
+412 |         )?;
+    |          ^ the trait `From<MathError>` is not implemented for `NormalizationError`, which is required by `std::result::Result<&mut PrePostEdge, NormalizationError>: FromResidual<std::result::Result<Infallible, MathError>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut PrePostEdge, NormalizationError>` to implement `FromResidual<std::result::Result<Infallible, MathError>>`
+
+error[E0277]: `?` couldn't convert the error to `NormalizationError`
+   --> crates/xraytsubaki/src/xafs/normalization.rs:428:10
+    |
+428 |         )?;
+    |          ^ the trait `From<&str>` is not implemented for `NormalizationError`, which is required by `std::result::Result<&mut PrePostEdge, NormalizationError>: FromResidual<std::result::Result<Infallible, &str>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut PrePostEdge, NormalizationError>` to implement `FromResidual<std::result::Result<Infallible, &str>>`
+
+error[E0277]: `?` couldn't convert the error to `NormalizationError`
+   --> crates/xraytsubaki/src/xafs/normalization.rs:435:80
+    |
+435 |         let ie0 = mathutils::index_nearest(&energy.to_vec(), &self.e0.unwrap())?;
+    |                                                                                ^ the trait `From<MathError>` is not implemented for `NormalizationError`, which is required by `std::result::Result<&mut PrePostEdge, NormalizationError>: FromResidual<std::result::Result<Infallible, MathError>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut PrePostEdge, NormalizationError>` to implement `FromResidual<std::result::Result<Infallible, MathError>>`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/xafsutils.rs:177:14
+    |
+177 |     let y1 = ndarray::concatenate(
+    |              ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0433]: failed to resolve: use of undeclared crate or module `ndarray`
+   --> crates/xraytsubaki/src/xafs/xafsutils.rs:178:9
+    |
+178 |         ndarray::Axis(0),
+    |         ^^^^^^^ use of undeclared crate or module `ndarray`
+
+error[E0599]: no variant named `IndexOutOfRange` found for enum `DataError`
+  --> crates/xraytsubaki/src/xafs/xasgroup.rs:69:35
+   |
+69 |             return Err(DataError::IndexOutOfRange {
+   |                                   ^^^^^^^^^^^^^^^ variant not found in `DataError`
+   |
+  ::: crates/xraytsubaki/src/xafs/errors.rs:10:1
+   |
+10 | pub enum DataError {
+   | ------------------ variant `IndexOutOfRange` not found here
+
+error[E0599]: no variant or associated item named `EmptyGroup` found for enum `DataError` in the current scope
+   --> crates/xraytsubaki/src/xafs/xasgroup.rs:169:35
+    |
+169 |             return Err(DataError::EmptyGroup.into());
+    |                                   ^^^^^^^^^^ variant or associated item not found in `DataError`
+    |
+   ::: crates/xraytsubaki/src/xafs/errors.rs:10:1
+    |
+10  | pub enum DataError {
+    | ------------------ variant or associated item `EmptyGroup` not found for this enum
+
+error[E0599]: no variant or associated item named `EmptyGroup` found for enum `DataError` in the current scope
+   --> crates/xraytsubaki/src/xafs/xasgroup.rs:181:35
+    |
+181 |             return Err(DataError::EmptyGroup.into());
+    |                                   ^^^^^^^^^^ variant or associated item not found in `DataError`
+    |
+   ::: crates/xraytsubaki/src/xafs/errors.rs:10:1
+    |
+10  | pub enum DataError {
+    | ------------------ variant or associated item `EmptyGroup` not found for this enum
+
+error[E0599]: no variant named `NotImplemented` found for enum `DataError`
+   --> crates/xraytsubaki/src/xafs/xasgroup.rs:193:24
+    |
+193 |         Err(DataError::NotImplemented {
+    |                        ^^^^^^^^^^^^^^ variant not found in `DataError`
+    |
+   ::: crates/xraytsubaki/src/xafs/errors.rs:10:1
+    |
+10  | pub enum DataError {
+    | ------------------ variant `NotImplemented` not found here
+
+error[E0277]: `?` couldn't convert the error to `XAFSError`
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:128:54
+    |
+128 |         self.e0 = Some(xafsutils::find_e0(energy, mu)?);
+    |                                                      ^ the trait `From<Box<dyn StdError>>` is not implemented for `XAFSError`, which is required by `std::result::Result<&mut XASSpectrum, XAFSError>: FromResidual<std::result::Result<Infallible, Box<dyn StdError>>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `XAFSError` implements `From<BackgroundError>`
+              `XAFSError` implements `From<DataError>`
+              `XAFSError` implements `From<FFTError>`
+              `XAFSError` implements `From<IOError>`
+              `XAFSError` implements `From<MathError>`
+              `XAFSError` implements `From<NormalizationError>`
+    = note: required for `std::result::Result<&mut XASSpectrum, XAFSError>` to implement `FromResidual<std::result::Result<Infallible, Box<dyn StdError>>>`
+
+warning: unused variable: `k`
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:218:13
+    |
+218 |         let k = k.unwrap();
+    |             ^ help: if this is intentional, prefix it with an underscore: `_k`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `chi`
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:219:13
+    |
+219 |         let chi = chi.unwrap();
+    |             ^^^ help: if this is intentional, prefix it with an underscore: `_chi`
+
+Some errors have detailed explanations: E0061, E0277, E0412, E0425, E0432, E0433, E0599, E0689.
+For more information about an error, try `rustc --explain E0061`.
+warning: `xraytsubaki` (lib) generated 5 warnings
+error: could not compile `xraytsubaki` (lib) due to 99 previous errors; 5 warnings emitted

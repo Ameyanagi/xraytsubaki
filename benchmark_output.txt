@@ -1,0 +1,106 @@
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /home/ryuichi/rust/xafs/xraytsubaki/crates/xraytsubaki/Cargo.toml
+workspace: /home/ryuichi/rust/xafs/xraytsubaki/Cargo.toml
+warning: /home/ryuichi/rust/xafs/xraytsubaki/Cargo.toml: unused manifest key: workspace.package.name
+   Compiling xraytsubaki v0.1.0 (/home/ryuichi/rust/xafs/xraytsubaki/crates/xraytsubaki)
+warning: unexpected `cfg` condition name: `tests`
+ --> crates/xraytsubaki/src/xafs/mod.rs:9:7
+  |
+9 | #[cfg(tests)]
+  |       ^^^^^ help: there is a config with a similar name: `test`
+  |
+  = help: consider using a Cargo feature instead
+  = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
+           [lints.rust]
+           unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tests)'] }
+  = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(tests)");` to the top of the `build.rs`
+  = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+  = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: unnecessary parentheses around index expression
+   --> crates/xraytsubaki/src/xafs/xafsutils.rs:554:24
+    |
+554 |             dmax = dmu[(*i)];
+    |                        ^  ^
+    |
+    = note: `#[warn(unused_parens)]` on by default
+help: remove these parentheses
+    |
+554 -             dmax = dmu[(*i)];
+554 +             dmax = dmu[*i];
+    |
+
+warning: unused variable: `err`
+   --> crates/xraytsubaki/src/xafs/errors.rs:264:13
+    |
+264 |     fn from(err: MathError) -> Self {
+    |             ^^^ help: if this is intentional, prefix it with an underscore: `_err`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `err`
+   --> crates/xraytsubaki/src/xafs/errors.rs:273:13
+    |
+273 |     fn from(err: DataError) -> Self {
+    |             ^^^ help: if this is intentional, prefix it with an underscore: `_err`
+
+warning: unused variable: `err`
+   --> crates/xraytsubaki/src/xafs/errors.rs:299:13
+    |
+299 |     fn from(err: enterpolation::linear::LinearError) -> Self {
+    |             ^^^ help: if this is intentional, prefix it with an underscore: `_err`
+
+warning: unused variable: `err`
+   --> crates/xraytsubaki/src/xafs/errors.rs:308:13
+    |
+308 |     fn from(err: Box<dyn std::error::Error>) -> Self {
+    |             ^^^ help: if this is intentional, prefix it with an underscore: `_err`
+
+warning: unused variable: `err`
+   --> crates/xraytsubaki/src/xafs/errors.rs:317:13
+    |
+317 |     fn from(err: &str) -> Self {
+    |             ^^^ help: if this is intentional, prefix it with an underscore: `_err`
+
+warning: unused `std::result::Result` that must be used
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:231:13
+    |
+231 |             self.xftf.as_mut().unwrap().xftf(k_array.view(), chi_array.view());
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+    = note: `#[warn(unused_must_use)]` on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+231 |             let _ = self.xftf.as_mut().unwrap().xftf(k_array.view(), chi_array.view());
+    |             +++++++
+
+warning: unused `std::result::Result` that must be used
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:260:9
+    |
+260 |         self.xftr.as_mut().unwrap().xftr(r.view(), chi_r);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+    |
+260 |         let _ = self.xftr.as_mut().unwrap().xftr(r.view(), chi_r);
+    |         +++++++
+
+warning: `xraytsubaki` (lib) generated 9 warnings (run `cargo fix --lib -p xraytsubaki` to apply 1 suggestion)
+    Finished `bench` profile [optimized] target(s) in 9.30s
+warning: the following packages contain code that will be rejected by a future version of Rust: anymap v1.0.0-beta.2
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
+     Running benches/xftf_bench.rs (target/release/deps/xftf_bench-57712c55377d787d)
+Gnuplot not found, using plotters backend
+Benchmarking xftf_massive_parallel/100k_spectra_xftf_parallel
+Benchmarking xftf_massive_parallel/100k_spectra_xftf_parallel: Warming up for 3.0000 s
+
+Warning: Unable to complete 10 samples in 60.0s. You may wish to increase target time to 377.1s.
+Benchmarking xftf_massive_parallel/100k_spectra_xftf_parallel: Collecting 10 samples in estimated 377.07 s (10 iterations)
+Benchmarking xftf_massive_parallel/100k_spectra_xftf_parallel: Analyzing
+xftf_massive_parallel/100k_spectra_xftf_parallel
+                        time:   [38.187 s 38.240 s 38.293 s]
+                        change: [+657.25% +661.11% +665.77%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+

@@ -1,0 +1,614 @@
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /home/ryuichi/rust/xafs/xraytsubaki/crates/xraytsubaki/Cargo.toml
+workspace: /home/ryuichi/rust/xafs/xraytsubaki/Cargo.toml
+warning: /home/ryuichi/rust/xafs/xraytsubaki/Cargo.toml: unused manifest key: workspace.package.name
+   Compiling xraytsubaki v0.1.0 (/home/ryuichi/rust/xafs/xraytsubaki/crates/xraytsubaki)
+error[E0432]: unresolved import `thiserror`
+  --> crates/xraytsubaki/src/xafs/mod.rs:18:5
+   |
+18 | use thiserror::Error;
+   |     ^^^^^^^^^ use of undeclared crate or module `thiserror`
+
+error[E0432]: unresolved import `thiserror`
+ --> crates/xraytsubaki/src/xafs/errors.rs:6:5
+  |
+6 | use thiserror::Error;
+  |     ^^^^^^^^^ use of undeclared crate or module `thiserror`
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/errors.rs:11:7
+   |
+11 |     #[error("insufficient data: need at least {min} points, got {actual}")]
+   |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/errors.rs:14:7
+   |
+14 |     #[error("data array length mismatch: energy has {energy_len} points, mu has {mu_len} points")]
+   |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/errors.rs:20:7
+   |
+20 |     #[error("invalid energy range: min={min}, max={max}")]
+   |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/errors.rs:23:7
+   |
+23 |     #[error("data contains non-finite values at indices: {indices:?}")]
+   |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/errors.rs:26:7
+   |
+26 |     #[error("missing required data: {field}")]
+   |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/errors.rs:33:7
+   |
+33 |     #[error("edge energy (e0={e0}) is outside data range [{data_min}, {data_max}]")]
+   |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/errors.rs:40:7
+   |
+40 |     #[error("pre-edge fitting failed: not enough points in range [{start}, {end}]")]
+   |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/errors.rs:43:7
+   |
+43 |     #[error("post-edge fitting failed: polynomial order {order} too high for {n_points} points")]
+   |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/errors.rs:46:7
+   |
+46 |     #[error("edge step is too small: {edge_step} (minimum: {min})")]
+   |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/errors.rs:49:7
+   |
+49 |     #[error("normalization method not implemented: {method}")]
+   |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/errors.rs:56:7
+   |
+56 |     #[error("AUTOBK optimization failed: {reason}")]
+   |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/errors.rs:59:7
+   |
+59 |     #[error("invalid rbkg parameter: {rbkg} (must be > 0)")]
+   |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/errors.rs:62:7
+   |
+62 |     #[error("spline knot calculation failed: insufficient k-range [{kmin}, {kmax}]")]
+   |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/errors.rs:65:7
+   |
+65 |     #[error("Levenberg-Marquardt did not converge after {iterations} iterations")]
+   |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/errors.rs:68:7
+   |
+68 |     #[error("background removal feature not implemented: {feature}")]
+   |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/errors.rs:75:7
+   |
+75 |     #[error("FFT requires at least {min} points for k-range [{kmin}, {kmax}], got {actual}")]
+   |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/errors.rs:83:7
+   |
+83 |     #[error("invalid FFT window: {window}")]
+   |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/errors.rs:86:7
+   |
+86 |     #[error("IFFT failed: chi(R) array has {actual} points, expected {expected}")]
+   |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/errors.rs:89:7
+   |
+89 |     #[error("interpolation failed: {reason}")]
+   |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/errors.rs:92:7
+   |
+92 |     #[error("window function calculation failed: {reason}")]
+   |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/errors.rs:99:7
+   |
+99 |     #[error("file not found: {path}")]
+   |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+   --> crates/xraytsubaki/src/xafs/errors.rs:102:7
+    |
+102 |     #[error("failed to read file {path}: {source}")]
+    |       ^^^^^
+
+error: cannot find attribute `source` in this scope
+   --> crates/xraytsubaki/src/xafs/errors.rs:105:11
+    |
+105 |         #[source]
+    |           ^^^^^^
+
+error: cannot find attribute `error` in this scope
+   --> crates/xraytsubaki/src/xafs/errors.rs:109:7
+    |
+109 |     #[error("JSON deserialization failed: {message}")]
+    |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+   --> crates/xraytsubaki/src/xafs/errors.rs:112:7
+    |
+112 |     #[error("BSON deserialization failed: {message}")]
+    |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+   --> crates/xraytsubaki/src/xafs/errors.rs:115:7
+    |
+115 |     #[error("compression error: {message}")]
+    |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+   --> crates/xraytsubaki/src/xafs/errors.rs:122:7
+    |
+122 |     #[error("interpolation failed: x value {x} is outside range [{xmin}, {xmax}]")]
+    |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+   --> crates/xraytsubaki/src/xafs/errors.rs:125:7
+    |
+125 |     #[error("polynomial fit failed: {reason}")]
+    |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+   --> crates/xraytsubaki/src/xafs/errors.rs:128:7
+    |
+128 |     #[error("spline evaluation failed at x={x}: {reason}")]
+    |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+   --> crates/xraytsubaki/src/xafs/errors.rs:131:7
+    |
+131 |     #[error("index {index} out of bounds for array of length {len}")]
+    |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/mod.rs:52:7
+   |
+52 |     #[error("data error: {0}")]
+   |       ^^^^^
+
+error: cannot find attribute `from` in this scope
+  --> crates/xraytsubaki/src/xafs/mod.rs:53:12
+   |
+53 |     Data(#[from] DataError),
+   |            ^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/mod.rs:55:7
+   |
+55 |     #[error("normalization error: {0}")]
+   |       ^^^^^
+
+error: cannot find attribute `from` in this scope
+  --> crates/xraytsubaki/src/xafs/mod.rs:56:21
+   |
+56 |     Normalization(#[from] NormalizationError),
+   |                     ^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/mod.rs:58:7
+   |
+58 |     #[error("background removal error: {0}")]
+   |       ^^^^^
+
+error: cannot find attribute `from` in this scope
+  --> crates/xraytsubaki/src/xafs/mod.rs:59:18
+   |
+59 |     Background(#[from] BackgroundError),
+   |                  ^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/mod.rs:61:7
+   |
+61 |     #[error("FFT error: {0}")]
+   |       ^^^^^
+
+error: cannot find attribute `from` in this scope
+  --> crates/xraytsubaki/src/xafs/mod.rs:62:11
+   |
+62 |     FFT(#[from] FFTError),
+   |           ^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/mod.rs:64:7
+   |
+64 |     #[error("I/O error: {0}")]
+   |       ^^^^^
+
+error: cannot find attribute `from` in this scope
+  --> crates/xraytsubaki/src/xafs/mod.rs:65:10
+   |
+65 |     IO(#[from] IOError),
+   |          ^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/mod.rs:67:7
+   |
+67 |     #[error("mathematical operation failed: {0}")]
+   |       ^^^^^
+
+error: cannot find attribute `from` in this scope
+  --> crates/xraytsubaki/src/xafs/mod.rs:68:12
+   |
+68 |     Math(#[from] MathError),
+   |            ^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/mod.rs:71:7
+   |
+71 |     #[error("not enough data")]
+   |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/mod.rs:74:7
+   |
+74 |     #[error("not enough data for XFTF")]
+   |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/mod.rs:77:7
+   |
+77 |     #[error("not enough data for XFTR")]
+   |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/mod.rs:80:7
+   |
+80 |     #[error("group index out of range")]
+   |       ^^^^^
+
+error: cannot find attribute `error` in this scope
+  --> crates/xraytsubaki/src/xafs/mod.rs:83:7
+   |
+83 |     #[error("group is empty")]
+   |       ^^^^^
+
+warning: unexpected `cfg` condition name: `tests`
+ --> crates/xraytsubaki/src/xafs/mod.rs:9:7
+  |
+9 | #[cfg(tests)]
+  |       ^^^^^ help: there is a config with a similar name: `test`
+  |
+  = help: consider using a Cargo feature instead
+  = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
+           [lints.rust]
+           unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tests)'] }
+  = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(tests)");` to the top of the `build.rs`
+  = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+  = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: unnecessary parentheses around index expression
+   --> crates/xraytsubaki/src/xafs/xafsutils.rs:554:24
+    |
+554 |             dmax = dmu[(*i)];
+    |                        ^  ^
+    |
+    = note: `#[warn(unused_parens)]` on by default
+help: remove these parentheses
+    |
+554 -             dmax = dmu[(*i)];
+554 +             dmax = dmu[*i];
+    |
+
+error[E0277]: `?` couldn't convert the error to `BackgroundError`
+   --> crates/xraytsubaki/src/xafs/background.rs:282:57
+    |
+282 |             normalization_method.normalize(&energy, &mu)?;
+    |                                                         ^ the trait `From<NormalizationError>` is not implemented for `BackgroundError`, which is required by `std::result::Result<&mut AUTOBK, BackgroundError>: FromResidual<std::result::Result<Infallible, NormalizationError>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut AUTOBK, BackgroundError>` to implement `FromResidual<std::result::Result<Infallible, NormalizationError>>`
+
+error[E0277]: `?` couldn't convert the error to `BackgroundError`
+   --> crates/xraytsubaki/src/xafs/background.rs:293:77
+    |
+293 |         let iek0 = mathutils::index_of(&energy.to_vec(), &self.ek0.unwrap())?;
+    |                                                                             ^ the trait `From<MathError>` is not implemented for `BackgroundError`, which is required by `std::result::Result<&mut AUTOBK, BackgroundError>: FromResidual<std::result::Result<Infallible, MathError>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut AUTOBK, BackgroundError>` to implement `FromResidual<std::result::Result<Infallible, MathError>>`
+
+error[E0277]: `?` couldn't convert the error to `BackgroundError`
+   --> crates/xraytsubaki/src/xafs/background.rs:316:14
+    |
+316 |             )?,
+    |              ^ the trait `From<MathError>` is not implemented for `BackgroundError`, which is required by `std::result::Result<&mut AUTOBK, BackgroundError>: FromResidual<std::result::Result<Infallible, MathError>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut AUTOBK, BackgroundError>` to implement `FromResidual<std::result::Result<Infallible, MathError>>`
+
+error[E0277]: `?` couldn't convert the error to `BackgroundError`
+   --> crates/xraytsubaki/src/xafs/background.rs:323:14
+    |
+323 |             )?)
+    |              ^ the trait `From<LinearError>` is not implemented for `BackgroundError`, which is required by `std::result::Result<&mut AUTOBK, BackgroundError>: FromResidual<std::result::Result<Infallible, LinearError>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut AUTOBK, BackgroundError>` to implement `FromResidual<std::result::Result<Infallible, LinearError>>`
+
+error[E0277]: `?` couldn't convert the error to `BackgroundError`
+   --> crates/xraytsubaki/src/xafs/background.rs:336:14
+    |
+336 |             )?;
+    |              ^ the trait `From<Box<dyn StdError>>` is not implemented for `BackgroundError`, which is required by `std::result::Result<&mut AUTOBK, BackgroundError>: FromResidual<std::result::Result<Infallible, Box<dyn StdError>>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut AUTOBK, BackgroundError>` to implement `FromResidual<std::result::Result<Infallible, Box<dyn StdError>>>`
+
+error[E0277]: `?` couldn't convert the error to `BackgroundError`
+   --> crates/xraytsubaki/src/xafs/background.rs:411:10
+    |
+411 |         )?;
+    |          ^ the trait `From<LinearError>` is not implemented for `BackgroundError`, which is required by `std::result::Result<&mut AUTOBK, BackgroundError>: FromResidual<std::result::Result<Infallible, LinearError>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut AUTOBK, BackgroundError>` to implement `FromResidual<std::result::Result<Infallible, LinearError>>`
+
+error[E0599]: no method named `kind` found for struct `anyhow::Error` in the current scope
+  --> crates/xraytsubaki/src/xafs/io/mod.rs:24:19
+   |
+24 |         source: e.kind(),
+   |                   ^^^^ method not found in `Error`
+
+error[E0277]: `?` couldn't convert the error to `NormalizationError`
+   --> crates/xraytsubaki/src/xafs/normalization.rs:243:75
+    |
+243 |             let e0 = xafsutils::find_e0_array1(energy.clone(), mu.clone())?;
+    |                                                                           ^ the trait `From<Box<dyn StdError>>` is not implemented for `NormalizationError`, which is required by `std::result::Result<&mut PrePostEdge, NormalizationError>: FromResidual<std::result::Result<Infallible, Box<dyn StdError>>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut PrePostEdge, NormalizationError>` to implement `FromResidual<std::result::Result<Infallible, Box<dyn StdError>>>`
+
+error[E0277]: `?` couldn't convert the error to `NormalizationError`
+   --> crates/xraytsubaki/src/xafs/normalization.rs:247:80
+    |
+247 |         let ie0 = mathutils::index_nearest(&energy.to_vec(), &self.e0.unwrap())?;
+    |                                                                                ^ the trait `From<MathError>` is not implemented for `NormalizationError`, which is required by `std::result::Result<&mut PrePostEdge, NormalizationError>: FromResidual<std::result::Result<Infallible, MathError>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut PrePostEdge, NormalizationError>` to implement `FromResidual<std::result::Result<Infallible, MathError>>`
+
+error[E0277]: `?` couldn't convert the error to `NormalizationError`
+   --> crates/xraytsubaki/src/xafs/normalization.rs:380:10
+    |
+380 |         )?;
+    |          ^ the trait `From<MathError>` is not implemented for `NormalizationError`, which is required by `std::result::Result<&mut PrePostEdge, NormalizationError>: FromResidual<std::result::Result<Infallible, MathError>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut PrePostEdge, NormalizationError>` to implement `FromResidual<std::result::Result<Infallible, MathError>>`
+
+error[E0277]: `?` couldn't convert the error to `NormalizationError`
+   --> crates/xraytsubaki/src/xafs/normalization.rs:384:10
+    |
+384 |         )?;
+    |          ^ the trait `From<MathError>` is not implemented for `NormalizationError`, which is required by `std::result::Result<&mut PrePostEdge, NormalizationError>: FromResidual<std::result::Result<Infallible, MathError>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut PrePostEdge, NormalizationError>` to implement `FromResidual<std::result::Result<Infallible, MathError>>`
+
+error[E0277]: `?` couldn't convert the error to `NormalizationError`
+   --> crates/xraytsubaki/src/xafs/normalization.rs:400:71
+    |
+400 |             polyfit_rs::polyfit(&energy_x.to_vec(), &mu_x.to_vec(), 1)?;
+    |                                                                       ^ the trait `From<&str>` is not implemented for `NormalizationError`, which is required by `std::result::Result<&mut PrePostEdge, NormalizationError>: FromResidual<std::result::Result<Infallible, &str>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut PrePostEdge, NormalizationError>` to implement `FromResidual<std::result::Result<Infallible, &str>>`
+
+error[E0277]: `?` couldn't convert the error to `NormalizationError`
+   --> crates/xraytsubaki/src/xafs/normalization.rs:408:10
+    |
+408 |         )?;
+    |          ^ the trait `From<MathError>` is not implemented for `NormalizationError`, which is required by `std::result::Result<&mut PrePostEdge, NormalizationError>: FromResidual<std::result::Result<Infallible, MathError>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut PrePostEdge, NormalizationError>` to implement `FromResidual<std::result::Result<Infallible, MathError>>`
+
+error[E0277]: `?` couldn't convert the error to `NormalizationError`
+   --> crates/xraytsubaki/src/xafs/normalization.rs:412:10
+    |
+412 |         )?;
+    |          ^ the trait `From<MathError>` is not implemented for `NormalizationError`, which is required by `std::result::Result<&mut PrePostEdge, NormalizationError>: FromResidual<std::result::Result<Infallible, MathError>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut PrePostEdge, NormalizationError>` to implement `FromResidual<std::result::Result<Infallible, MathError>>`
+
+error[E0277]: `?` couldn't convert the error to `NormalizationError`
+   --> crates/xraytsubaki/src/xafs/normalization.rs:428:10
+    |
+428 |         )?;
+    |          ^ the trait `From<&str>` is not implemented for `NormalizationError`, which is required by `std::result::Result<&mut PrePostEdge, NormalizationError>: FromResidual<std::result::Result<Infallible, &str>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut PrePostEdge, NormalizationError>` to implement `FromResidual<std::result::Result<Infallible, &str>>`
+
+error[E0277]: `?` couldn't convert the error to `NormalizationError`
+   --> crates/xraytsubaki/src/xafs/normalization.rs:435:80
+    |
+435 |         let ie0 = mathutils::index_nearest(&energy.to_vec(), &self.e0.unwrap())?;
+    |                                                                                ^ the trait `From<MathError>` is not implemented for `NormalizationError`, which is required by `std::result::Result<&mut PrePostEdge, NormalizationError>: FromResidual<std::result::Result<Infallible, MathError>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut PrePostEdge, NormalizationError>` to implement `FromResidual<std::result::Result<Infallible, MathError>>`
+
+error[E0599]: no variant named `IndexOutOfRange` found for enum `DataError`
+  --> crates/xraytsubaki/src/xafs/xasgroup.rs:69:35
+   |
+69 |             return Err(DataError::IndexOutOfRange {
+   |                                   ^^^^^^^^^^^^^^^ variant not found in `DataError`
+   |
+  ::: crates/xraytsubaki/src/xafs/errors.rs:10:1
+   |
+10 | pub enum DataError {
+   | ------------------ variant `IndexOutOfRange` not found here
+
+error[E0599]: no variant or associated item named `EmptyGroup` found for enum `DataError` in the current scope
+   --> crates/xraytsubaki/src/xafs/xasgroup.rs:169:35
+    |
+169 |             return Err(DataError::EmptyGroup.into());
+    |                                   ^^^^^^^^^^ variant or associated item not found in `DataError`
+    |
+   ::: crates/xraytsubaki/src/xafs/errors.rs:10:1
+    |
+10  | pub enum DataError {
+    | ------------------ variant or associated item `EmptyGroup` not found for this enum
+
+error[E0599]: no variant or associated item named `EmptyGroup` found for enum `DataError` in the current scope
+   --> crates/xraytsubaki/src/xafs/xasgroup.rs:181:35
+    |
+181 |             return Err(DataError::EmptyGroup.into());
+    |                                   ^^^^^^^^^^ variant or associated item not found in `DataError`
+    |
+   ::: crates/xraytsubaki/src/xafs/errors.rs:10:1
+    |
+10  | pub enum DataError {
+    | ------------------ variant or associated item `EmptyGroup` not found for this enum
+
+error[E0599]: no variant named `NotImplemented` found for enum `DataError`
+   --> crates/xraytsubaki/src/xafs/xasgroup.rs:193:24
+    |
+193 |         Err(DataError::NotImplemented {
+    |                        ^^^^^^^^^^^^^^ variant not found in `DataError`
+    |
+   ::: crates/xraytsubaki/src/xafs/errors.rs:10:1
+    |
+10  | pub enum DataError {
+    | ------------------ variant `NotImplemented` not found here
+
+error[E0277]: `?` couldn't convert the error to `XAFSError`
+   --> crates/xraytsubaki/src/xafs/xasgroup.rs:321:43
+    |
+321 |         xas_group_file.read_bson(filename)?;
+    |                                           ^ the trait `From<IOError>` is not implemented for `XAFSError`, which is required by `std::result::Result<&mut XASGroup, XAFSError>: FromResidual<std::result::Result<Infallible, IOError>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut XASGroup, XAFSError>` to implement `FromResidual<std::result::Result<Infallible, IOError>>`
+
+error[E0277]: `?` couldn't convert the error to `XAFSError`
+   --> crates/xraytsubaki/src/xafs/xasgroup.rs:333:44
+    |
+333 |         xas_group_file.write_bson(filename)?;
+    |                                            ^ the trait `From<IOError>` is not implemented for `XAFSError`, which is required by `std::result::Result<&XASGroup, XAFSError>: FromResidual<std::result::Result<Infallible, IOError>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&XASGroup, XAFSError>` to implement `FromResidual<std::result::Result<Infallible, IOError>>`
+
+error[E0277]: `?` couldn't convert the error to `XAFSError`
+   --> crates/xraytsubaki/src/xafs/xasgroup.rs:340:43
+    |
+340 |         xas_group_file.read_bson(filename)?;
+    |                                           ^ the trait `From<IOError>` is not implemented for `XAFSError`, which is required by `std::result::Result<&mut XASGroup, XAFSError>: FromResidual<std::result::Result<Infallible, IOError>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut XASGroup, XAFSError>` to implement `FromResidual<std::result::Result<Infallible, IOError>>`
+
+error[E0277]: `?` couldn't convert the error to `XAFSError`
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:128:54
+    |
+128 |         self.e0 = Some(xafsutils::find_e0(energy, mu)?);
+    |                                                      ^ the trait `From<Box<dyn StdError>>` is not implemented for `XAFSError`, which is required by `std::result::Result<&mut XASSpectrum, XAFSError>: FromResidual<std::result::Result<Infallible, Box<dyn StdError>>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut XASSpectrum, XAFSError>` to implement `FromResidual<std::result::Result<Infallible, Box<dyn StdError>>>`
+
+error[E0277]: `?` couldn't convert the error to `XAFSError`
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:172:41
+    |
+172 |                 .normalize(&energy, &mu)?;
+    |                                         ^ the trait `From<NormalizationError>` is not implemented for `XAFSError`, which is required by `std::result::Result<&mut XASSpectrum, XAFSError>: FromResidual<std::result::Result<Infallible, NormalizationError>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut XASSpectrum, XAFSError>` to implement `FromResidual<std::result::Result<Infallible, NormalizationError>>`
+
+error[E0277]: `?` couldn't convert the error to `XAFSError`
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:203:66
+    |
+203 |             .calc_background(energy, mu, &mut self.normalization)?;
+    |                                                                  ^ the trait `From<BackgroundError>` is not implemented for `XAFSError`, which is required by `std::result::Result<&mut XASSpectrum, XAFSError>: FromResidual<std::result::Result<Infallible, BackgroundError>>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the trait `FromResidual<std::result::Result<Infallible, E>>` is implemented for `std::result::Result<T, F>`
+    = note: required for `std::result::Result<&mut XASSpectrum, XAFSError>` to implement `FromResidual<std::result::Result<Infallible, BackgroundError>>`
+
+error[E0277]: the trait bound `XAFSError: From<DataError>` is not satisfied
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:215:15
+    |
+215 |             }.into());
+    |               ^^^^ the trait `From<DataError>` is not implemented for `XAFSError`, which is required by `DataError: Into<_>`
+    |
+    = note: required for `DataError` to implement `Into<XAFSError>`
+
+error[E0277]: the trait bound `XAFSError: From<DataError>` is not satisfied
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:241:15
+    |
+241 |             }.into());
+    |               ^^^^ the trait `From<DataError>` is not implemented for `XAFSError`, which is required by `DataError: Into<_>`
+    |
+    = note: required for `DataError` to implement `Into<XAFSError>`
+
+error[E0277]: the trait bound `XAFSError: From<DataError>` is not satisfied
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:250:15
+    |
+250 |             }.into());
+    |               ^^^^ the trait `From<DataError>` is not implemented for `XAFSError`, which is required by `DataError: Into<_>`
+    |
+    = note: required for `DataError` to implement `Into<XAFSError>`
+
+Some errors have detailed explanations: E0277, E0432, E0599.
+For more information about an error, try `rustc --explain E0277`.
+warning: `xraytsubaki` (lib) generated 2 warnings
+error: could not compile `xraytsubaki` (lib) due to 78 previous errors; 2 warnings emitted

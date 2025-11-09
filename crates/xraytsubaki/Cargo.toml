@@ -35,6 +35,7 @@ easyfft = { workspace = true }
 serde_json = { workspace = true }
 flate2 = { workspace = true }
 pest = { workspace = true }
+thiserror = { workspace = true }
 
 [features]
 default = []
@@ -51,6 +52,10 @@ criterion = { version = "0.5.1", features = ["html_reports"] }
 
 [[bench]]
 name = "xas_group_benchmark_parallel"
+harness = false
+
+[[bench]]
+name = "xas_group_benchmark_100k_temp"
 harness = false
 
 [profile.bench]

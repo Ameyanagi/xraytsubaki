@@ -4,21 +4,21 @@
 
 ### Day 1-2: Precompute Basis
 
-- [ ] **Add precomputed_basis field**
+- [x] **Add precomputed_basis field**
   - File: `crates/xraytsubaki/src/xafs/background.rs:608`
   - Add `precomputed_basis: DMatrix<f64>` to `AUTOBKSpline` struct
   - Update struct documentation
 
-- [ ] **Compute in constructor**
-  - File: `crates/xraytsubaki/src/xafs/background.rs:~353`
+- [x] **Compute in constructor**
+  - File: `crates/xraytsubaki/src/xafs/background.rs:~413`
   - Add computation after knot/coef initialization
-  - Use dummy coefficient vector: `vec![0.0; num_coefs]`
+  - Use coefficient vector for sizing only
   - Store result in struct field
 
-- [ ] **Replace runtime call**
-  - File: `crates/xraytsubaki/src/xafs/background.rs:728-734`
+- [x] **Replace runtime call**
+  - File: `crates/xraytsubaki/src/xafs/background.rs:749-751`
   - Replace `splev_jacobian()` call with `&self.precomputed_basis`
-  - Remove vector clones (no longer needed)
+  - Vector clones eliminated by using reference
 
 - [ ] **Unit tests: verify identical results**
   - Create `test_precomputed_basis_correctness()`

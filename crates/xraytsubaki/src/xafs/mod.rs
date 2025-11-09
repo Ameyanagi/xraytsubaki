@@ -84,6 +84,15 @@ pub enum XAFSError {
     GroupIsEmpty,
 }
 
+// Additional error conversions
+impl From<Box<dyn std::error::Error>> for XAFSError {
+    fn from(err: Box<dyn std::error::Error>) -> Self {
+        XAFSError::Math(MathError::PolyfitFailed {
+            reason: err.to_string(),
+        })
+    }
+}
+
 /// Convenience type alias for Results using XAFSError.
 pub type Result<T> = std::result::Result<T, XAFSError>;
 

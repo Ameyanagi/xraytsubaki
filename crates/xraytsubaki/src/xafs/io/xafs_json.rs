@@ -29,7 +29,7 @@ impl XASJson for XASGroupFile {
     fn read_json(&mut self, filename: &str) -> Result<&mut Self, IOError> {
         let f_buffer = File::open(filename).map_err(|e| IOError::ReadFailed {
             path: filename.to_string(),
-            source: e.kind(),
+            error_kind: e.kind(),
         })?;
 
         let doc = serde_json::from_reader(f_buffer).map_err(|e| IOError::JsonError {
@@ -46,7 +46,7 @@ impl XASJson for XASGroupFile {
 
         let mut data_file = File::create(filename).map_err(|e| IOError::ReadFailed {
             path: filename.to_string(),
-            source: e.kind(),
+            error_kind: e.kind(),
         })?;
 
         serde_json::to_writer(&mut data_file, &self).map_err(|e| IOError::JsonError {
@@ -63,7 +63,7 @@ impl XASJson for XASGroupFile {
 
         let f_buffer = File::open(filename).map_err(|e| IOError::ReadFailed {
             path: filename.to_string(),
-            source: e.kind(),
+            error_kind: e.kind(),
         })?;
         let f_buffer = GzDecoder::new(f_buffer);
         let doc = serde_json::from_reader(f_buffer).map_err(|e| IOError::CompressionError {
@@ -85,7 +85,7 @@ impl XASJson for XASGroupFile {
 
         let mut data_file = File::create(filename).map_err(|e| IOError::ReadFailed {
             path: filename.to_string(),
-            source: e.kind(),
+            error_kind: e.kind(),
         })?;
 
         let mut encoder = GzEncoder::new(&mut data_file, Compression::default());

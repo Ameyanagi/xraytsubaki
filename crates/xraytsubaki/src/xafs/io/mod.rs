@@ -19,9 +19,8 @@ pub fn load_spectrum_QAS_trans(path: &String) -> Result<XASSpectrum, IOError> {
         ..Default::default()
     };
 
-    let data = load_txt_f64(path, &params).map_err(|e| IOError::ReadFailed {
-        path: path.clone(),
-        source: e.kind(),
+    let data = load_txt_f64(path, &params).map_err(|e| IOError::JsonError {
+        message: format!("Failed to read file: {}", e),
     })?;
     let energy = data.get_col(0);
     let i0 = data.get_col(1);

@@ -25,6 +25,15 @@ pub enum DataError {
 
     #[error("missing required data: {field}")]
     MissingData { field: String },
+
+    #[error("index {index} out of range for collection with {length} items")]
+    IndexOutOfRange { index: usize, length: usize },
+
+    #[error("feature not implemented: {feature}")]
+    NotImplemented { feature: String },
+
+    #[error("operation requires non-empty group")]
+    EmptyGroup,
 }
 
 /// Errors related to pre/post-edge normalization operations.
@@ -99,11 +108,10 @@ pub enum IOError {
     #[error("file not found: {path}")]
     FileNotFound { path: String },
 
-    #[error("failed to read file {path}: {source}")]
+    #[error("failed to read file {path}: {error_kind:?}")]
     ReadFailed {
         path: String,
-        #[source]
-        source: std::io::ErrorKind,
+        error_kind: std::io::ErrorKind,
     },
 
     #[error("JSON deserialization failed: {message}")]
@@ -130,6 +138,93 @@ pub enum MathError {
 
     #[error("index {index} out of bounds for array of length {len}")]
     IndexOutOfBounds { index: usize, len: usize },
+}
+
+// Cross-domain error conversions for the `?` operator
+// These allow functions returning domain-specific errors to use `?` with errors from other domains
+
+impl From<NormalizationError> for BackgroundError {
+    fn from(err: NormalizationError) -> Self {
+        BackgroundError::OptimizationFailed {
+            reason: format!("normalization error: {}", err),
+        }
+    }
+}
+
+impl From<MathError> for BackgroundError {
+    fn from(err: MathError) -> Self {
+        BackgroundError::OptimizationFailed {
+            reason: format!("math error: {}", err),
+        }
+    }
+}
+
+impl From<DataError> for BackgroundError {
+    fn from(err: DataError) -> Self {
+        BackgroundError::OptimizationFailed {
+            reason: format!("data error: {}", err),
+        }
+    }
+}
+
+impl From<enterpolation::linear::LinearError> for BackgroundError {
+    fn from(err: enterpolation::linear::LinearError) -> Self {
+        BackgroundError::OptimizationFailed {
+            reason: format!("interpolation error: {:?}", err),
+        }
+    }
+}
+
+impl From<Box<dyn std::error::Error>> for BackgroundError {
+    fn from(err: Box<dyn std::error::Error>) -> Self {
+        BackgroundError::OptimizationFailed {
+            reason: format!("error: {}", err),
+        }
+    }
+}
+
+impl From<MathError> for NormalizationError {
+    fn from(err: MathError) -> Self {
+        NormalizationError::PreEdgeFitFailed {
+            start: 0.0,
+            end: 0.0,
+        }
+    }
+}
+
+impl From<DataError> for NormalizationError {
+    fn from(err: DataError) -> Self {
+        NormalizationError::EdgeStepTooSmall {
+            edge_step: 0.0,
+            min: 0.0,
+        }
+    }
+}
+
+impl From<FFTError> for NormalizationError {
+    fn from(err: FFTError) -> Self {
+        NormalizationError::PreEdgeFitFailed {
+            start: 0.0,
+            end: 0.0,
+        }
+    }
+}
+
+impl From<Box<dyn std::error::Error>> for NormalizationError {
+    fn from(err: Box<dyn std::error::Error>) -> Self {
+        NormalizationError::PreEdgeFitFailed {
+            start: 0.0,
+            end: 0.0,
+        }
+    }
+}
+
+impl From<&str> for NormalizationError {
+    fn from(err: &str) -> Self {
+        NormalizationError::NotImplemented {
+            method: err.to_string(),
+        }
+    }
 }
 
 #[cfg(test)]

@@ -1,0 +1,143 @@
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /home/ryuichi/rust/xafs/xraytsubaki/crates/xraytsubaki/Cargo.toml
+workspace: /home/ryuichi/rust/xafs/xraytsubaki/Cargo.toml
+warning: /home/ryuichi/rust/xafs/xraytsubaki/Cargo.toml: unused manifest key: workspace.package.name
+   Compiling ndarray v0.15.6
+   Compiling ndarray-linalg v0.16.0
+   Compiling fftconvolve v0.1.1
+   Compiling xraytsubaki v0.1.0 (/home/ryuichi/rust/xafs/xraytsubaki/crates/xraytsubaki)
+warning: unexpected `cfg` condition name: `tests`
+ --> crates/xraytsubaki/src/xafs/mod.rs:9:7
+  |
+9 | #[cfg(tests)]
+  |       ^^^^^ help: there is a config with a similar name: `test`
+  |
+  = help: consider using a Cargo feature instead
+  = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
+           [lints.rust]
+           unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tests)'] }
+  = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(tests)");` to the top of the `build.rs`
+  = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+  = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: unreachable expression
+  --> crates/xraytsubaki/src/xafs/background.rs:68:17
+   |
+66 |                 todo!("Implement ILPBkg");
+   |                 ------------------------- any code following this expression is unreachable
+67 |                 // ilpbkg.calc_background(energy, mu, normalization_param);
+68 |                 Ok(self)
+   |                 ^^^^^^^^ unreachable expression
+   |
+   = note: `#[warn(unreachable_code)]` on by default
+
+warning: unreachable expression
+   --> crates/xraytsubaki/src/xafs/xasgroup.rs:192:9
+    |
+189 |         todo!("merge");
+    |         -------------- any code following this expression is unreachable
+...
+192 |         Ok(self)
+    |         ^^^^^^^^ unreachable expression
+
+warning: unreachable statement
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:222:13
+    |
+221 |             panic!("Need to calculate k and chi first, Error type");
+    |             ------------------------------------------------------- any code following this expression is unreachable
+222 |             todo!("Implement Error type");
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unreachable statement
+    |
+    = note: this warning originates in the macro `$crate::panic` which comes from the expansion of the macro `todo` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unreachable expression
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:240:13
+    |
+239 |             panic!("Please provide r and chi_r");
+    |             ------------------------------------ any code following this expression is unreachable
+240 |             todo!("Implement Error Type")
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unreachable expression
+    |
+    = note: this warning originates in the macro `$crate::panic::panic_2021` which comes from the expansion of the macro `todo` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unreachable statement
+   --> crates/xraytsubaki/src/xafs/xasspectrum.rs:248:13
+    |
+247 |             panic!("Need to calculate r and chi_r first, Error type");
+    |             --------------------------------------------------------- any code following this expression is unreachable
+248 |             todo!("Implement Error type");
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unreachable statement
+    |
+    = note: this warning originates in the macro `$crate::panic` which comes from the expansion of the macro `todo` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused variable: `master`
+   --> crates/xraytsubaki/src/xafs/xasgroup.rs:188:29
+    |
+188 |     pub fn merge(&mut self, master: usize, slave: &[usize]) -> Result<&mut Self, Box<dyn Error>> {
+    |                             ^^^^^^ help: if this is intentional, prefix it with an underscore: `_master`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `slave`
+   --> crates/xraytsubaki/src/xafs/xasgroup.rs:188:44
+    |
+188 |     pub fn merge(&mut self, master: usize, slave: &[usize]) -> Result<&mut Self, Box<dyn Error>> {
+    |                                            ^^^^^ help: if this is intentional, prefix it with an underscore: `_slave`
+
+warning: `xraytsubaki` (lib) generated 8 warnings
+warning: unused import: `load_txt_f64`
+ --> crates/xraytsubaki/benches/xas_group_benchmark_100k_temp.rs:3:27
+  |
+3 | use data_reader::reader::{load_txt_f64, Delimiter, ReaderParams};
+  |                           ^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused `Result` that must be used
+  --> crates/xraytsubaki/benches/xas_group_benchmark_100k_temp.rs:37:13
+   |
+37 | /             black_box(
+38 | |                 group
+39 | |                     .normalize_par()
+40 | |                     .unwrap()
+...  |
+43 | |                     .fft_par(),
+44 | |             );
+   | |_____________^
+   |
+   = note: this `Result` may be an `Err` variant, which should be handled
+   = note: `#[warn(unused_must_use)]` on by default
+help: use `let _ = ...` to ignore the resulting value
+   |
+37 |             let _ = black_box(
+   |             +++++++
+
+warning: `xraytsubaki` (bench "xas_group_benchmark_100k_temp") generated 2 warnings (run `cargo fix --bench "xas_group_benchmark_100k_temp"` to apply 1 suggestion)
+    Finished `bench` profile [optimized] target(s) in 9.26s
+warning: the following packages contain code that will be rejected by a future version of Rust: anymap v1.0.0-beta.2
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
+     Running benches/xas_group_benchmark_100k_temp.rs (target/release/deps/xas_group_benchmark_100k_temp-a9a06eee1b6a5a3f)
+Gnuplot not found, using plotters backend
+Loading 100,000 spectra...
+  Loaded 0 spectra...
+  Loaded 10000 spectra...
+  Loaded 20000 spectra...
+  Loaded 30000 spectra...
+  Loaded 40000 spectra...
+  Loaded 50000 spectra...
+  Loaded 60000 spectra...
+  Loaded 70000 spectra...
+  Loaded 80000 spectra...
+  Loaded 90000 spectra...
+All spectra loaded!
+Benchmarking normalize_100k_parallel
+Benchmarking normalize_100k_parallel: Warming up for 3.0000 s
+
+Warning: Unable to complete 10 samples in 5.0s. You may wish to increase target time to 441.7s.
+Benchmarking normalize_100k_parallel: Collecting 10 samples in estimated 441.75 s (10 iterations)
+Benchmarking normalize_100k_parallel: Analyzing
+normalize_100k_parallel time:   [45.419 s 45.675 s 45.895 s]
+Found 2 outliers among 10 measurements (20.00%)
+  1 (10.00%) low mild
+  1 (10.00%) high mild
+

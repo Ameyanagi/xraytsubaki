@@ -11,6 +11,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 // load dependencies
+use super::errors::DataError;
 use super::xasspectrum;
 use super::XAFSError;
 
@@ -63,16 +64,19 @@ impl XASGroup {
         self
     }
 
-    pub fn remove_spectrum(&mut self, index: usize) -> Result<&mut Self, Box<dyn Error>> {
+    pub fn remove_spectrum(&mut self, index: usize) -> Result<&mut Self, XAFSError> {
         if index >= self.spectra.len() {
-            return Err(Box::new(XAFSError::GroupIndexOutOfRange));
+            return Err(DataError::IndexOutOfRange {
+                index,
+                length: self.spectra.len(),
+            }.into());
         }
 
         self.spectra.remove(index);
         Ok(self)
     }
 
-    pub fn remove_spectra(&mut self, indices: &[usize]) -> Result<&mut Self, Box<dyn Error>> {
+    pub fn remove_spectra(&mut self, indices: &[usize]) -> Result<&mut Self, XAFSError> {
         let mut indices = indices.to_vec();
         indices.sort();
         indices.dedup();
@@ -160,9 +164,9 @@ impl XASGroup {
         self
     }
 
-    pub fn get_spectrum(&self, index: usize) -> Result<&XASSpectrum, Box<dyn Error>> {
+    pub fn get_spectrum(&self, index: usize) -> Result<&XASSpectrum, XAFSError> {
         if self.spectra.is_empty() {
-            return Err(Box::new(XAFSError::GroupIsEmpty));
+            return Err(DataError::EmptyGroup.into());
         }
 
         if index >= self.spectra.len() {
@@ -172,9 +176,9 @@ impl XASGroup {
         Ok(&self.spectra[index])
     }
 
-    pub fn get_spectrum_mut(&mut self, index: usize) -> Result<&mut XASSpectrum, Box<dyn Error>> {
+    pub fn get_spectrum_mut(&mut self, index: usize) -> Result<&mut XASSpectrum, XAFSError> {
         if self.spectra.is_empty() {
-            return Err(Box::new(XAFSError::GroupIsEmpty));
+            return Err(DataError::EmptyGroup.into());
         }
 
         if index >= self.spectra.len() {
@@ -184,14 +188,14 @@ impl XASGroup {
         Ok(&mut self.spectra[index])
     }
 
-    pub fn merge(&mut self, _master: usize, _slave: &[usize]) -> Result<&mut Self, Box<dyn Error>> {
-        todo!("merge");
-
-        // self.spectra.extend(other.spectra.clone());
-        Ok(self)
+    pub fn merge(&mut self, _master: usize, _slave: &[usize]) -> Result<&mut Self, XAFSError> {
+        // This feature is not implemented yet
+        Err(DataError::NotImplemented {
+            feature: "spectrum merge".to_string(),
+        }.into())
     }
 
-    pub fn find_e0(&mut self) -> Result<&mut Self, Box<dyn Error>> {
+    pub fn find_e0(&mut self) -> Result<&mut Self, XAFSError> {
         self.spectra.par_iter_mut().for_each(|spectrum| {
             spectrum.find_e0().unwrap();
         });
@@ -199,7 +203,7 @@ impl XASGroup {
         Ok(self)
     }
 
-    pub fn find_e0_seq(&mut self) -> Result<&mut Self, Box<dyn Error>> {
+    pub fn find_e0_seq(&mut self) -> Result<&mut Self, XAFSError> {
         self.spectra.iter_mut().for_each(|spectrum| {
             spectrum.find_e0().unwrap();
         });
@@ -207,7 +211,7 @@ impl XASGroup {
         Ok(self)
     }
 
-    pub fn find_e0_par(&mut self) -> Result<&mut Self, Box<dyn Error>> {
+    pub fn find_e0_par(&mut self) -> Result<&mut Self, XAFSError> {
         self.spectra.par_iter_mut().for_each(|spectrum| {
             spectrum.find_e0().unwrap();
         });
@@ -215,7 +219,7 @@ impl XASGroup {
         Ok(self)
     }
 
-    pub fn normalize(&mut self) -> Result<&mut Self, Box<dyn Error>> {
+    pub fn normalize(&mut self) -> Result<&mut Self, XAFSError> {
         self.spectra.par_iter_mut().for_each(|spectrum| {
             spectrum.normalize().unwrap();
         });
@@ -223,7 +227,7 @@ impl XASGroup {
         Ok(self)
     }
 
-    pub fn normalize_seq(&mut self) -> Result<&mut Self, Box<dyn Error>> {
+    pub fn normalize_seq(&mut self) -> Result<&mut Self, XAFSError> {
         self.spectra.iter_mut().for_each(|spectrum| {
             spectrum.normalize().unwrap();
         });
@@ -231,7 +235,7 @@ impl XASGroup {
         Ok(self)
     }
 
-    pub fn normalize_par(&mut self) -> Result<&mut Self, Box<dyn Error>> {
+    pub fn normalize_par(&mut self) -> Result<&mut Self, XAFSError> {
         self.spectra.par_iter_mut().for_each(|spectrum| {
             spectrum.normalize().unwrap();
         });
@@ -239,7 +243,7 @@ impl XASGroup {
         Ok(self)
     }
 
-    pub fn calc_background(&mut self) -> Result<&mut Self, Box<dyn Error>> {
+    pub fn calc_background(&mut self) -> Result<&mut Self, XAFSError> {
         self.spectra.par_iter_mut().for_each(|spectrum| {
             spectrum.calc_background().unwrap();
         });
@@ -247,7 +251,7 @@ impl XASGroup {
         Ok(self)
     }
 
-    pub fn calc_background_seq(&mut self) -> Result<&mut Self, Box<dyn Error>> {
+    pub fn calc_background_seq(&mut self) -> Result<&mut Self, XAFSError> {
         self.spectra.iter_mut().for_each(|spectrum| {
             spectrum.calc_background().unwrap();
         });
@@ -255,7 +259,7 @@ impl XASGroup {
         Ok(self)
     }
 
-    pub fn calc_background_par(&mut self) -> Result<&mut Self, Box<dyn Error>> {
+    pub fn calc_background_par(&mut self) -> Result<&mut Self, XAFSError> {
         self.spectra.par_iter_mut().for_each(|spectrum| {
             spectrum.calc_background().unwrap();
         });
@@ -263,7 +267,7 @@ impl XASGroup {
         Ok(self)
     }
 
-    pub fn fft(&mut self) -> Result<&mut Self, Box<dyn Error>> {
+    pub fn fft(&mut self) -> Result<&mut Self, XAFSError> {
         self.spectra.par_iter_mut().for_each(|spectrum| {
             spectrum.fft().unwrap();
         });
@@ -271,7 +275,7 @@ impl XASGroup {
         Ok(self)
     }
 
-    pub fn fft_seq(&mut self) -> Result<&mut Self, Box<dyn Error>> {
+    pub fn fft_seq(&mut self) -> Result<&mut Self, XAFSError> {
         self.spectra.iter_mut().for_each(|spectrum| {
             spectrum.fft().unwrap();
         });
@@ -279,7 +283,7 @@ impl XASGroup {
         Ok(self)
     }
 
-    pub fn fft_par(&mut self) -> Result<&mut Self, Box<dyn Error>> {
+    pub fn fft_par(&mut self) -> Result<&mut Self, XAFSError> {
         self.spectra.par_iter_mut().for_each(|spectrum| {
             spectrum.fft().unwrap();
         });
@@ -287,7 +291,7 @@ impl XASGroup {
         Ok(self)
     }
 
-    pub fn ifft(&mut self) -> Result<&mut Self, Box<dyn Error>> {
+    pub fn ifft(&mut self) -> Result<&mut Self, XAFSError> {
         self.spectra.par_iter_mut().for_each(|spectrum| {
             spectrum.ifft().unwrap();
         });
@@ -295,7 +299,7 @@ impl XASGroup {
         Ok(self)
     }
 
-    pub fn ifft_seq(&mut self) -> Result<&mut Self, Box<dyn Error>> {
+    pub fn ifft_seq(&mut self) -> Result<&mut Self, XAFSError> {
         self.spectra.iter_mut().for_each(|spectrum| {
             spectrum.ifft().unwrap();
         });
@@ -303,7 +307,7 @@ impl XASGroup {
         Ok(self)
     }
 
-    pub fn ifft_par(&mut self) -> Result<&mut Self, Box<dyn Error>> {
+    pub fn ifft_par(&mut self) -> Result<&mut Self, XAFSError> {
         self.spectra.par_iter_mut().for_each(|spectrum| {
             spectrum.ifft().unwrap();
         });
@@ -311,7 +315,7 @@ impl XASGroup {
         Ok(self)
     }
 
-    pub fn read_bson(&mut self, filename: &str) -> Result<&mut Self, Box<dyn Error>> {
+    pub fn read_bson(&mut self, filename: &str) -> Result<&mut Self, XAFSError> {
         let mut xas_group_file = XASGroupFile::new();
 
         xas_group_file.read_bson(filename)?;
@@ -321,7 +325,7 @@ impl XASGroup {
         Ok(self)
     }
 
-    pub fn write_bson(&self, filename: &str) -> Result<&Self, Box<dyn Error>> {
+    pub fn write_bson(&self, filename: &str) -> Result<&Self, XAFSError> {
         let mut xas_group_file = XASGroupFile::new();
 
         xas_group_file.name = filename.to_string();
@@ -331,7 +335,7 @@ impl XASGroup {
         Ok(self)
     }
 
-    pub fn add_spectrum_from_bson(&mut self, filename: &str) -> Result<&mut Self, Box<dyn Error>> {
+    pub fn add_spectrum_from_bson(&mut self, filename: &str) -> Result<&mut Self, XAFSError> {
         let mut xas_group_file = XASGroupFile::new();
         xas_group_file.read_bson(filename)?;
         self.add_group(xas_group_file.data);

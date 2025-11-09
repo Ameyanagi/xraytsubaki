@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 
 // load dependencies
 use super::background;
+use super::errors::DataError;
 use super::io;
 use super::lmutils;
 use super::mathutils;
@@ -22,6 +23,7 @@ use super::normalization;
 use super::nshare;
 use super::xafsutils;
 use super::xrayfft;
+use super::XAFSError;
 
 // Load local traits
 use mathutils::MathUtils;
@@ -102,7 +104,7 @@ impl XASSpectrum {
     pub fn interpolate_spectrum<T: Into<DVector<f64>>>(
         &mut self,
         energy: T,
-    ) -> Result<&mut Self, Box<dyn Error>> {
+    ) -> Result<&mut Self, XAFSError> {
         self.energy = Some(energy.into());
 
         let energy = self.energy.clone().unwrap();
@@ -120,7 +122,7 @@ impl XASSpectrum {
         self
     }
 
-    pub fn find_e0(&mut self) -> Result<&mut Self, Box<dyn Error>> {
+    pub fn find_e0(&mut self) -> Result<&mut Self, XAFSError> {
         let energy = self.energy.as_ref().unwrap();
         let mu = self.mu.as_ref().unwrap();
         self.e0 = Some(xafsutils::find_e0(energy, mu)?);
@@ -136,7 +138,7 @@ impl XASSpectrum {
     pub fn set_normalization_method(
         &mut self,
         method: Option<normalization::NormalizationMethod>,
-    ) -> Result<&mut Self, Box<dyn Error>> {
+    ) -> Result<&mut Self, XAFSError> {
         if let Some(method) = method {
             self.normalization = Some(method);
         } else {
@@ -152,7 +154,7 @@ impl XASSpectrum {
         Ok(self)
     }
 
-    pub fn normalize(&mut self) -> Result<&mut Self, Box<dyn Error>> {
+    pub fn normalize(&mut self) -> Result<&mut Self, XAFSError> {
         if self.normalization.is_none() {
             self.set_normalization_method(None)?;
         }
@@ -176,7 +178,7 @@ impl XASSpectrum {
     pub fn set_background_method(
         &mut self,
         method: Option<background::BackgroundMethod>,
-    ) -> Result<&mut Self, Box<dyn Error>> {
+    ) -> Result<&mut Self, XAFSError> {
         if let Some(method) = method {
             self.background = Some(method);
         } else {
@@ -187,7 +189,7 @@ impl XASSpectrum {
         Ok(self)
     }
 
-    pub fn calc_background(&mut self) -> Result<&mut Self, Box<dyn Error>> {
+    pub fn calc_background(&mut self) -> Result<&mut Self, XAFSError> {
         if self.background.is_none() {
             self.set_background_method(None)?;
         }
@@ -203,13 +205,14 @@ impl XASSpectrum {
         Ok(self)
     }
 
-    pub fn fft(&mut self) -> Result<&mut Self, Box<dyn Error>> {
+    pub fn fft(&mut self) -> Result<&mut Self, XAFSError> {
         let k = self.get_k();
         let chi = self.get_chi();
 
         if k.is_none() || chi.is_none() {
-            panic!("Need to calculate k and chi first, Error type");
-            todo!("Implement Error type");
+            return Err(DataError::MissingData {
+                field: "k and chi (need to calculate background first)".to_string(),
+            }.into());
         }
 
         let k = k.unwrap();
@@ -231,18 +234,20 @@ impl XASSpectrum {
         Ok(self)
     }
 
-    pub fn ifft(&mut self) -> Result<&mut Self, Box<dyn Error>> {
+    pub fn ifft(&mut self) -> Result<&mut Self, XAFSError> {
         if self.xftf.is_none() {
-            panic!("Please provide r and chi_r");
-            todo!("Implement Error Type")
+            return Err(DataError::MissingData {
+                field: "xftf (need to run fft() first)".to_string(),
+            }.into());
         }
 
         let r = self.xftf.as_ref().unwrap().get_r();
         let chi_r = self.xftf.as_ref().unwrap().get_chir();
 
         if r.is_none() || chi_r.is_none() {
-            panic!("Need to calculate r and chi_r first, Error type");
-            todo!("Implement Error type");
+            return Err(DataError::MissingData {
+                field: "r and chi_r (fft() may have failed)".to_string(),
+            }.into());
         }
 
         let r = r.unwrap();
@@ -308,12 +313,6 @@ impl XASSpectrum {
     pub fn get_chiq(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
         self.xftr.as_ref()?.get_chiq()
     }
-}
-
-pub enum XAFSError {
-    NotEnoughData,
-    NotEnoughDataForXFTF,
-    NotEnoughDataForXFTR,
 }
 
 // Simple unit tests for this file.

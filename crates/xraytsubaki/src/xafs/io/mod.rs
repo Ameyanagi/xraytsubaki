@@ -40,7 +40,7 @@ pub fn load_spectrum_QAS_trans(path: &String) -> Result<XASSpectrum, Box<dyn Err
 mod tests {
     use super::*;
 
-    const TOP_DIR: &'static str = env!("CARGO_MANIFEST_DIR");
+    const TOP_DIR: &str = env!("CARGO_MANIFEST_DIR");
 
     #[test]
     fn test_load_spectrum() {

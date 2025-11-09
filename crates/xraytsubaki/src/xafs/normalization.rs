@@ -307,8 +307,7 @@ impl PrePostEdge {
         self.norm_polyorder = Some(
             self.norm_polyorder
                 .unwrap()
-                .min(PrePostEdge::MAX_NORM_POLYORDER)
-                .max(0),
+                .clamp(0, PrePostEdge::MAX_NORM_POLYORDER),
         );
 
         Ok(self)
@@ -430,7 +429,7 @@ impl Normalization for PrePostEdge {
         let mut post_edge = pre_edge.clone();
 
         for (i, c) in post_coefficients.iter().enumerate() {
-            post_edge = &post_edge + &energy.map(|e| e.powi(i as i32)) * c.clone();
+            post_edge = &post_edge + &energy.map(|e| e.powi(i as i32)) * *c;
         }
         let ie0 = mathutils::index_nearest(&energy.to_vec(), &self.e0.unwrap())?;
         let edge_step = if self.edge_step.is_none() {
@@ -492,6 +491,7 @@ impl Normalization for PrePostEdge {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct MBack {
     pub e0: Option<f64>,
     pub edge_step: Option<f64>,
@@ -499,16 +499,6 @@ pub struct MBack {
     pub flat: Option<Array1<f64>>,
 }
 
-impl Default for MBack {
-    fn default() -> Self {
-        MBack {
-            e0: None,
-            edge_step: None,
-            norm: None,
-            flat: None,
-        }
-    }
-}
 
 impl MBack {
     pub fn new() -> MBack {

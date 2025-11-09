@@ -292,7 +292,7 @@ pub fn remove_dups(
         return arr.clone();
     }
 
-    let mut arr = if let Some(true) = sort {
+    let arr = if let Some(true) = sort {
         let mut arr_sort = arr.as_slice().to_vec();
         arr_sort.sort_by(|a, b| a.partial_cmp(b).unwrap());
         DVector::from_vec(arr_sort)
@@ -494,13 +494,12 @@ pub fn _find_e0_array1<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>> + Clone>(
         mu.gradient() / en.gradient()
     };
 
-    let dmin = dmu
+    let dmin = *dmu
         .slice(ndarray::s![(nmin as i32)..(1 - nmin as i32)])
         .iter()
         .map(|a| if a.is_finite() { a } else { &-1.0 })
         .min_by(|a, b| a.partial_cmp(b).unwrap())
-        .unwrap()
-        .clone();
+        .unwrap();
 
     let dm_ptp = dmu
         .slice(ndarray::s![(nmin as i32)..(1 - nmin as i32)])
@@ -552,8 +551,8 @@ pub fn _find_e0_array1<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>> + Clone>(
 
         if dmu[*i] > dmax && high_deriv_pts.contains(&(i + 1)) && high_deriv_pts.contains(&(i - 1))
         {
-            dmax = dmu[i.clone()];
-            imax = i.clone();
+            dmax = dmu[(*i)];
+            imax = *i;
         }
     }
 
@@ -653,15 +652,14 @@ pub fn _find_e0(
     };
 
     // Calculate dmin from the middle section
-    let dmin = dmu
+    let dmin = *dmu
         .as_slice()
         .iter()
         .skip(nmin)
         .take(dmu.len() - 2 * nmin)
         .filter(|a| a.is_finite())
         .min_by(|a, b| a.partial_cmp(b).unwrap())
-        .unwrap_or(&-1.0)
-        .clone();
+        .unwrap_or(&-1.0);
 
     // Calculate peak-to-peak for normalization
     let middle_slice: Vec<f64> = dmu
@@ -796,7 +794,7 @@ impl FTWindow {
         dx: Option<f64>,
         dx2: Option<f64>,
     ) -> Result<Array1<f64>, Box<dyn Error>> {
-        ftwindow(x, xmin, xmax, dx, dx2, Some(self.clone()))
+        ftwindow(x, xmin, xmax, dx, dx2, Some(*self))
     }
 }
 
@@ -808,10 +806,7 @@ pub fn ftwindow(
     dx2: Option<f64>,
     window: Option<FTWindow>,
 ) -> Result<Array1<f64>, Box<dyn Error>> {
-    let window = match window {
-        Some(x) => x,
-        None => FTWindow::default(),
-    };
+    let window = window.unwrap_or_default();
 
     let mut dx1 = dx.unwrap_or(1.0);
     let mut dx2 = dx2.unwrap_or(dx1);

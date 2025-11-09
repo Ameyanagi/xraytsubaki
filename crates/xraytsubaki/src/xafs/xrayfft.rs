@@ -323,7 +323,7 @@ impl XrayFFTR {
             .map(|(x, y)| x * y)
             .collect::<Vec<Complex<f64>>>();
 
-        let chir_win = DynRealDft::new(chir.get_offset().clone(), &chir_win[1..], nfft);
+        let chir_win = DynRealDft::new(*chir.get_offset(), &chir_win[1..], nfft);
 
         Ok((chir_win, win))
     }
@@ -383,7 +383,7 @@ impl XrayFFTR {
 }
 
 pub fn xftf_fast(chi: ArrayBase<ViewRepr<&f64>, Ix1>, nfft: usize, kstep: f64) -> DynRealDft<f64> {
-    let mut cchi = vec![0.0 as f64; nfft];
+    let mut cchi = vec![0.0_f64; nfft];
     cchi[..chi.len()].copy_from_slice(&chi.to_vec()[..]);
 
     let mut freq = cchi.real_fft();
@@ -401,7 +401,7 @@ pub fn xftr_fast(
     let cchi = if chir.len() < nfft / 2 + 1 {
         let mut freq_bin = vec![Complex::new(0.0, 0.0); nfft - 1];
         freq_bin[..chir.len() - 1].copy_from_slice(chir.get_frequency_bins());
-        DynRealDft::new(chir.get_offset().clone(), &freq_bin, nfft)
+        DynRealDft::new(*chir.get_offset(), &freq_bin, nfft)
     } else {
         chir.clone()
     };
@@ -414,7 +414,7 @@ pub fn xftr_fast(
 }
 
 pub fn xftf_fast_nalgebra(chi: &DVector<f64>, nfft: usize, kstep: f64) -> DynRealDft<f64> {
-    let mut cchi = vec![0.0 as f64; nfft];
+    let mut cchi = vec![0.0_f64; nfft];
     cchi[..chi.len()].copy_from_slice(&chi.data.as_vec()[..]);
 
     let mut freq = cchi.real_fft();
@@ -428,7 +428,7 @@ pub fn xftr_fast_nalgebra(chir: &DynRealDft<f64>, nfft: usize, kstep: f64) -> DV
     let cchi = if chir.len() < nfft / 2 + 1 {
         let mut freq_bin = vec![Complex::new(0.0, 0.0); nfft - 1];
         freq_bin[..chir.len() - 1].copy_from_slice(chir.get_frequency_bins());
-        DynRealDft::new(chir.get_offset().clone(), &freq_bin, nfft)
+        DynRealDft::new(*chir.get_offset(), &freq_bin, nfft)
     } else {
         chir.clone()
     };

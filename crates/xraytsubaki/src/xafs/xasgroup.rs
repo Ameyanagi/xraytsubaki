@@ -123,8 +123,7 @@ impl XASGroup {
         let mut from_index: Vec<usize> = from
             .as_ref()
             .iter()
-            .filter(|&index| *index < self.spectra.len())
-            .map(|&index| index)
+            .filter(|&index| *index < self.spectra.len()).copied()
             .collect::<Vec<usize>>();
 
         from_index.sort();
@@ -156,7 +155,7 @@ impl XASGroup {
             .iter_mut()
             .chain(tmp_spectra.iter_mut())
             .chain(right_spectra.iter_mut())
-            .map(|spectrum| mem::take(spectrum))
+            .map(mem::take)
             .collect::<Vec<XASSpectrum>>();
         self
     }
@@ -185,7 +184,7 @@ impl XASGroup {
         Ok(&mut self.spectra[index])
     }
 
-    pub fn merge(&mut self, master: usize, slave: &[usize]) -> Result<&mut Self, Box<dyn Error>> {
+    pub fn merge(&mut self, _master: usize, _slave: &[usize]) -> Result<&mut Self, Box<dyn Error>> {
         todo!("merge");
 
         // self.spectra.extend(other.spectra.clone());

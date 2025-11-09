@@ -348,7 +348,7 @@ impl AUTOBK {
             nspl = self.nknots.unwrap();
         }
 
-        nspl = nspl.min(128).max(5);
+        nspl = nspl.clamp(5, 128);
 
         // !todo!("Finish implementing this part of the code");
         let mut spl_y: Array1<f64> = Array1::ones(Ix1(nspl as usize));
@@ -414,7 +414,7 @@ impl AUTOBK {
         let spline_opt = AUTOBKSpline {
             coefs: DVector::from_vec(coefs),
             knots: DVector::from_vec(knots),
-            order: order,
+            order,
             irbkg: irbkg as usize,
             nfft: self.nfft.unwrap() as usize,
             kraw: kraw
@@ -719,9 +719,9 @@ impl AUTOBKSpline {
                 .xftf_fast(self.nfft, self.kstep)[..self.irbkg]
                 .realimg();
 
-            let scale = 1.0 + 100.0 * out.dot(&out) / out.len() as f64;
+            
 
-            scale
+            1.0 + 100.0 * out.dot(&out) / out.len() as f64
         } else {
             1.0
         };

@@ -50,7 +50,7 @@ pub trait MathUtils {
 
         x.iter()
             .map(|x| {
-                let z = Complex64::new(*x, gamma) / sigma / (2.0 as f64).sqrt();
+                let z = Complex64::new(*x, gamma) / sigma / 2.0_f64.sqrt();
                 z.w().re / inverse_of_coefficient
             })
             .collect()
@@ -128,17 +128,15 @@ impl MathUtils for Vec<f64> {
     }
 
     fn min(&self) -> f64 {
-        self.iter()
+        *self.iter()
             .min_by(|a, b| a.partial_cmp(b).unwrap())
             .unwrap()
-            .clone()
     }
 
     fn max(&self) -> f64 {
-        self.iter()
+        *self.iter()
             .max_by(|a, b| a.partial_cmp(b).unwrap())
             .unwrap()
-            .clone()
     }
 
     fn diff(&self) -> Self {
@@ -206,17 +204,15 @@ impl MathUtils for nalgebra::DVector<f64> {
     }
 
     fn min(&self) -> f64 {
-        self.iter()
+        *self.iter()
             .min_by(|a, b| a.partial_cmp(b).unwrap())
             .unwrap()
-            .clone()
     }
 
     fn max(&self) -> f64 {
-        self.iter()
+        *self.iter()
             .max_by(|a, b| a.partial_cmp(b).unwrap())
             .unwrap()
-            .clone()
     }
 
     fn diff(&self) -> Self {
@@ -286,17 +282,15 @@ impl MathUtils for ArrayBase<OwnedRepr<f64>, Ix1> {
     }
 
     fn min(&self) -> f64 {
-        self.iter()
+        *self.iter()
             .min_by(|a, b| a.partial_cmp(b).unwrap())
             .unwrap()
-            .clone()
     }
 
     fn max(&self) -> f64 {
-        self.iter()
+        *self.iter()
             .max_by(|a, b| a.partial_cmp(b).unwrap())
             .unwrap()
-            .clone()
     }
 
     fn diff(&self) -> Self {
@@ -325,7 +319,7 @@ impl MathUtils for ArrayBase<OwnedRepr<f64>, Ix1> {
 
         x.iter()
             .map(|x| {
-                let z = Complex64::new(*x, gamma) / sigma / (2.0 as f64).sqrt();
+                let z = Complex64::new(*x, gamma) / sigma / 2.0_f64.sqrt();
                 z.w().re / inverse_of_coefficient
             })
             .collect()
@@ -416,7 +410,7 @@ fn voigt<T: Into<Array1<f64>>>(x: T, center: f64, sigma: f64, gamma: f64) -> Arr
 
     x.iter()
         .map(|x| {
-            let z = Complex64::new(*x, gamma) / sigma / (2.0 as f64).sqrt();
+            let z = Complex64::new(*x, gamma) / sigma / 2.0_f64.sqrt();
             z.w().re / inverse_of_coefficient
         })
         .collect()

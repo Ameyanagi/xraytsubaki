@@ -34,6 +34,7 @@ use normalization::Normalization;
 /// TODO: Add examples
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
+#[derive(Default)]
 pub struct XASSpectrum {
     pub name: Option<String>,
     pub raw_energy: Option<DVector<f64>>,
@@ -55,30 +56,6 @@ pub struct XASSpectrum {
     pub xftr: Option<xrayfft::XrayFFTR>,
 }
 
-impl Default for XASSpectrum {
-    fn default() -> Self {
-        XASSpectrum {
-            name: None,
-            raw_energy: None,
-            raw_mu: None,
-            energy: None,
-            mu: None,
-            e0: None,
-            k: None,
-            chi: None,
-            chi_kweighted: None,
-            chi_r: None,
-            chi_r_mag: None,
-            chi_r_re: None,
-            chi_r_im: None,
-            q: None,
-            normalization: None,
-            background: None,
-            xftf: None,
-            xftr: None,
-        }
-    }
-}
 
 impl XASSpectrum {
     pub fn new() -> XASSpectrum {

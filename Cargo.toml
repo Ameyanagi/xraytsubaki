@@ -34,7 +34,7 @@ ndarray = { version = "0.15.6", features = ["approx", "serde"] }
 itertools = "0.12.0"
 lazy_static = "1.4.0"
 levenberg-marquardt = "0.13.1"
-nalgebra = { version = "0.34.1", features = ["serde-serialize"] }
+nalgebra = { version = "0.32", features = ["serde-serialize"] }
 num-complex = { version = "0.4.5", features = ["serde"] }
 polyfit-rs = "0.2.1"
 rusty-fitpack = "0.1.2"

@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use derivative::Derivative;
 
 // load dependencies
+use super::errors::FFTError;
 
 // Load local traits
 use super::mathutils::MathUtils;
@@ -112,7 +113,7 @@ impl XrayFFTF {
             ArrayBase<OwnedRepr<f64>, Ix1>,
             ArrayBase<OwnedRepr<f64>, Ix1>,
         ),
-        Box<dyn std::error::Error>,
+        FFTError,
     > {
         self.fill_parameter(k);
         let kweight = self.kweight.unwrap() as i32;
@@ -121,11 +122,18 @@ impl XrayFFTF {
         let k_max = k_max.max(self.kmax.unwrap() + self.dk2.unwrap());
         let k_ = Array1::range(0.0, k_max + self.kstep.unwrap(), self.kstep.unwrap());
 
-        let chi_ = k_.interpolate(&k.to_vec(), &chi.to_vec())?;
+        let chi_ = k_
+            .interpolate(&k.to_vec(), &chi.to_vec())
+            .map_err(|e| FFTError::InterpolationFailed {
+                reason: e.to_string(),
+            })?;
         let win = self
             .window
             .unwrap()
-            .window(&k_, self.kmin, self.kmax, self.dk, self.dk2)?;
+            .window(&k_, self.kmin, self.kmax, self.dk, self.dk2)
+            .map_err(|e| FFTError::WindowCalculationFailed {
+                reason: e.to_string(),
+            })?;
         let win = (win).slice_axis(Axis(0), (0..npts).into()).to_owned();
         let chi_ = &chi_.slice_axis(Axis(0), (0..npts).into())
             * &k_
@@ -139,8 +147,8 @@ impl XrayFFTF {
         &mut self,
         k: ArrayBase<ViewRepr<&f64>, Ix1>,
         chi: ArrayBase<ViewRepr<&f64>, Ix1>,
-    ) -> &mut Self {
-        let (cchi, win) = self.xftf_prep(k, chi).unwrap();
+    ) -> Result<&mut Self, FFTError> {
+        let (cchi, win) = self.xftf_prep(k, chi)?;
 
         let cchi_fft = xftf_fast(cchi.view(), self.nfft.unwrap(), self.kstep.unwrap());
 
@@ -156,7 +164,7 @@ impl XrayFFTF {
         self.chir_mag = Some(cchi_fft[0..irmax].norm());
         self.kwin = Some(win);
 
-        self
+        Ok(self)
     }
 
     pub fn get_rmax_out(&self) -> Option<&f64> {
@@ -301,7 +309,7 @@ impl XrayFFTR {
         &mut self,
         r: ArrayBase<ViewRepr<&f64>, Ix1>,
         chir: &DynRealDft<f64>,
-    ) -> Result<(DynRealDft<f64>, ArrayBase<OwnedRepr<f64>, Ix1>), Box<dyn std::error::Error>> {
+    ) -> Result<(DynRealDft<f64>, ArrayBase<OwnedRepr<f64>, Ix1>), FFTError> {
         self.fill_parameter(r);
         let rweight = self.rweight.unwrap() as i32;
         let nfft = self.nfft.unwrap();
@@ -311,9 +319,16 @@ impl XrayFFTR {
         let r_ = Array1::range(0.0, r_len as f64 * rstep, rstep);
 
         let win = if rweight == 0 {
-            ftwindow(&r_, self.rmin, self.rmax, self.dr, self.dr2, self.window)?
+            ftwindow(&r_, self.rmin, self.rmax, self.dr, self.dr2, self.window).map_err(|e| {
+                FFTError::WindowCalculationFailed {
+                    reason: e.to_string(),
+                }
+            })?
         } else {
-            ftwindow(&r_, self.rmin, self.rmax, self.dr, self.dr2, self.window)?
+            ftwindow(&r_, self.rmin, self.rmax, self.dr, self.dr2, self.window)
+                .map_err(|e| FFTError::WindowCalculationFailed {
+                    reason: e.to_string(),
+                })?
                 * &r_.map(|x| x.powi(rweight))
         };
 
@@ -328,8 +343,12 @@ impl XrayFFTR {
         Ok((chir_win, win))
     }
 
-    pub fn xftr(&mut self, r: ArrayBase<ViewRepr<&f64>, Ix1>, chir: &DynRealDft<f64>) -> &mut Self {
-        let (chir_win, win) = self.xftr_prep(r, chir).unwrap();
+    pub fn xftr(
+        &mut self,
+        r: ArrayBase<ViewRepr<&f64>, Ix1>,
+        chir: &DynRealDft<f64>,
+    ) -> Result<&mut Self, FFTError> {
+        let (chir_win, win) = self.xftr_prep(r, chir)?;
         let nfft = self.nfft.unwrap();
         let out = xftr_fast(&chir_win, nfft, self.kstep.unwrap());
 
@@ -343,7 +362,7 @@ impl XrayFFTR {
         self.rwin = Some(win);
         self.chiq = Some(out);
 
-        self
+        Ok(self)
     }
 
     pub fn get_q(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {

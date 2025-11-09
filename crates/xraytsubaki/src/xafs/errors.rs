@@ -85,6 +85,12 @@ pub enum FFTError {
 
     #[error("IFFT failed: chi(R) array has {actual} points, expected {expected}")]
     IFFTSizeMismatch { expected: usize, actual: usize },
+
+    #[error("interpolation failed: {reason}")]
+    InterpolationFailed { reason: String },
+
+    #[error("window function calculation failed: {reason}")]
+    WindowCalculationFailed { reason: String },
 }
 
 /// Errors related to file I/O and serialization operations.

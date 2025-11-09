@@ -7,6 +7,7 @@ use std::cmp;
 use std::error::Error;
 // External dependencies
 use fftconvolve::{fftconvolve, Mode};
+use nalgebra::DVector;
 use ndarray::{Array, Array1, ArrayBase, Axis, Ix1, OwnedRepr, Slice};
 use serde::{Deserialize, Serialize};
 
@@ -297,7 +298,8 @@ pub fn remove_nan2(
 /// let estep = find_energy_step(energy, None, None, None);
 /// assert_eq!(estep, 0.7333333333333333);
 /// ```
-pub fn find_energy_step<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>>>(
+#[cfg(feature = "ndarray-compat")]
+pub fn find_energy_step_array1<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>>>(
     energy: T,
     frac_ignore: Option<f64>,
     nave: Option<usize>,
@@ -350,18 +352,19 @@ pub fn find_energy_step<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>>>(
 /// // Result calculated by Larch is 0.3003003003003003
 /// ```
 
-pub fn find_e0<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>>>(
+#[cfg(feature = "ndarray-compat")]
+pub fn find_e0_array1<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>>>(
     energy: T,
     mu: T,
 ) -> Result<f64, Box<dyn Error>> {
     let energy: ArrayBase<OwnedRepr<f64>, Ix1> = energy.into();
     let mu: ArrayBase<OwnedRepr<f64>, Ix1> = mu.into();
 
-    let (e1, ie0, estep) = _find_e0(energy.clone(), mu.clone(), None, None)?;
+    let (e1, ie0, estep) = _find_e0_array1(energy.clone(), mu.clone(), None, None)?;
     let istart = (ie0 as i32 - 75).max(2) as usize;
     let istop = (ie0 + 75).min(energy.len() - 2);
 
-    let (mut e0, ix, ex) = _find_e0(
+    let (mut e0, ix, ex) = _find_e0_array1(
         energy.slice(ndarray::s![istart..istop]).to_owned(),
         mu.slice(ndarray::s![istart..istop]).to_owned(),
         Some(estep),
@@ -402,16 +405,17 @@ pub fn find_e0<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>>>(
 ///
 /// // the result obtained by xraylarch is (1.001001001001001, 10, 0.05005005005004648)
 /// ```
-pub fn _find_e0<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>> + Clone>(
+#[cfg(feature = "ndarray-compat")]
+pub fn _find_e0_array1<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>> + Clone>(
     energy: T,
     mu: T,
     estep: Option<f64>,
     use_smooth: Option<bool>,
 ) -> Result<(f64, usize, f64), Box<dyn Error>> {
-    let en: ArrayBase<OwnedRepr<f64>, Ix1> = remove_dups(energy.clone().into(), None, None, None);
+    let en: ArrayBase<OwnedRepr<f64>, Ix1> = remove_dups_ndarray(energy.clone().into(), None, None, None);
     let mu: ArrayBase<OwnedRepr<f64>, Ix1> = mu.into();
 
-    let estep = estep.unwrap_or(find_energy_step(energy.clone(), None, None, Some(false)) / 2.0);
+    let estep = estep.unwrap_or(find_energy_step_array1(energy.clone(), None, None, Some(false)) / 2.0);
 
     let nmin = 2.max(en.len() / 100);
 

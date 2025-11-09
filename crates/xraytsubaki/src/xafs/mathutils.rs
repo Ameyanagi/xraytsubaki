@@ -182,6 +182,85 @@ impl MathUtils for Vec<f64> {
     }
 }
 
+impl MathUtils for nalgebra::DVector<f64> {
+    fn interpolate(&self, x: &Vec<f64>, y: &Vec<f64>) -> Result<Self, LinearError> {
+        let x_left = x.min();
+        let x_right = x.max();
+        let lin = Linear::builder().elements(y).knots(x).build()?;
+        let result: Vec<f64> = lin
+            .sample(self.iter().map(|a| match a {
+                a if a > &x_right => x_right,
+                a if a < &x_left => x_left,
+                _ => *a,
+            }))
+            .collect();
+        Ok(Self::from_vec(result))
+    }
+
+    fn is_sorted(&self) -> bool {
+        is_sorted(self.as_slice())
+    }
+
+    fn argsort(&self) -> Vec<usize> {
+        argsort(self.as_slice())
+    }
+
+    fn min(&self) -> f64 {
+        self.iter()
+            .min_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap()
+            .clone()
+    }
+
+    fn max(&self) -> f64 {
+        self.iter()
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap()
+            .clone()
+    }
+
+    fn diff(&self) -> Self {
+        let mut result = Vec::with_capacity(self.len() - 1);
+        for i in 0..self.len() - 1 {
+            result.push(self[i + 1] - self[i]);
+        }
+        Self::from_vec(result)
+    }
+
+    /// Calculate the central difference gradient of the DVector
+    ///
+    /// # Example
+    /// ```
+    /// use xraytsubaki::xafs::mathutils::MathUtils;
+    /// use nalgebra::DVector;
+    ///
+    /// let v = DVector::from_vec(vec![1., 2., 4., 7., 11., 16.]);
+    /// assert_eq!(v.gradient(), DVector::from_vec(vec![1. , 1.5, 2.5, 3.5, 4.5, 5. ]));
+    ///
+    /// let v = DVector::from_vec(vec![0.]);
+    /// assert_eq!(v.gradient(), DVector::from_vec(vec![0.]));
+    ///
+    /// let v = DVector::from_vec(vec![1., 2.]);
+    /// assert_eq!(v.gradient(), DVector::from_vec(vec![1., 1.]));
+    ///
+    /// ```
+    fn gradient(&self) -> Self {
+        match self.len() {
+            0..=1 => Self::zeros(self.len()),
+            2 => Self::from_vec(vec![self[1] - self[0], self[1] - self[0]]),
+            _ => {
+                let mut result = Self::zeros(self.len());
+                result[0] = self[1] - self[0];
+                for i in 1..self.len() - 1 {
+                    result[i] = (self[i + 1] - self[i - 1]) / 2.0;
+                }
+                result[self.len() - 1] = self[self.len() - 1] - self[self.len() - 2];
+                result
+            }
+        }
+    }
+}
+
 impl MathUtils for ArrayBase<OwnedRepr<f64>, Ix1> {
     fn interpolate(&self, x: &Vec<f64>, y: &Vec<f64>) -> Result<Self, LinearError> {
         let x_left = x.min();

@@ -14,6 +14,7 @@ use rusty_fitpack;
 use serde::{Deserialize, Serialize};
 
 // Import internal dependencies
+use super::errors::BackgroundError;
 use super::lmutils::LMParameters;
 use super::mathutils::{self, splev_jacobian, MathUtils};
 use super::normalization::{self, Normalization};
@@ -56,16 +57,14 @@ impl BackgroundMethod {
         energy: &DVector<f64>,
         mu: &DVector<f64>,
         normalization_param: &mut Option<normalization::NormalizationMethod>,
-    ) -> Result<&mut Self, Box<dyn Error>> {
+    ) -> Result<&mut Self, BackgroundError> {
         match self {
             BackgroundMethod::AUTOBK(autobk) => {
                 autobk.calc_background(energy, mu, normalization_param)?;
                 Ok(self)
             }
-            BackgroundMethod::ILPBkg(ilpbkg) => {
-                todo!("Implement ILPBkg");
-                // ilpbkg.calc_background(energy, mu, normalization_param);
-                Ok(self)
+            BackgroundMethod::ILPBkg(_ilpbkg) => {
+                Err(BackgroundError::NotImplemented { feature: "ILPBkg background removal".to_string() })
             }
             BackgroundMethod::None => Ok(self),
         }
@@ -185,7 +184,7 @@ impl AUTOBK {
     }
 
     /// Fill in default values for parameters that are not set
-    pub fn fill_parameter(&mut self) -> Result<(), Box<dyn Error>> {
+    pub fn fill_parameter(&mut self) -> Result<(), BackgroundError> {
         if self.rbkg.is_none() {
             self.rbkg = Some(1.0);
         }
@@ -242,7 +241,7 @@ impl AUTOBK {
         energy: &DVector<f64>,
         mu: &DVector<f64>,
         normalization_param: &mut Option<normalization::NormalizationMethod>,
-    ) -> Result<&mut Self, Box<dyn Error>> {
+    ) -> Result<&mut Self, BackgroundError> {
         // Fill in default values for parameters that are not set
         self.fill_parameter()?;
 

@@ -14,6 +14,9 @@ mod tests;
 use std::error::Error;
 use std::fmt;
 
+// Error handling
+use thiserror::Error;
+
 use easyfft::dyn_size::realfft::DynRealDft;
 // External dependencies
 use ndarray::{ArrayBase, Axis, Ix1, OwnedRepr};
@@ -21,6 +24,7 @@ use ndarray::{ArrayBase, Axis, Ix1, OwnedRepr};
 // load dependencies
 pub mod background;
 pub mod bessel_i0;
+pub mod errors;
 pub mod io;
 pub mod lmutils;
 pub mod mathutils;
@@ -37,46 +41,51 @@ use mathutils::MathUtils;
 use normalization::Normalization;
 use xafsutils::XAFSUtils;
 
-#[derive(Debug, Clone)]
+// Re-export error types for public API
+pub use errors::{
+    BackgroundError, DataError, FFTError, IOError, MathError, NormalizationError,
+};
+
+/// Top-level error type that aggregates all domain-specific errors.
+#[derive(Error, Debug, Clone)]
 pub enum XAFSError {
+    #[error("data error: {0}")]
+    Data(#[from] DataError),
+
+    #[error("normalization error: {0}")]
+    Normalization(#[from] NormalizationError),
+
+    #[error("background removal error: {0}")]
+    Background(#[from] BackgroundError),
+
+    #[error("FFT error: {0}")]
+    FFT(#[from] FFTError),
+
+    #[error("I/O error: {0}")]
+    IO(#[from] IOError),
+
+    #[error("mathematical operation failed: {0}")]
+    Math(#[from] MathError),
+
+    // Legacy error variants for backwards compatibility
+    #[error("not enough data")]
     NotEnoughData,
+
+    #[error("not enough data for XFTF")]
     NotEnoughDataForXFTF,
+
+    #[error("not enough data for XFTR")]
     NotEnoughDataForXFTR,
+
+    #[error("group index out of range")]
     GroupIndexOutOfRange,
+
+    #[error("group is empty")]
     GroupIsEmpty,
 }
 
-impl Error for XAFSError {
-    fn description(&self) -> &str {
-        match *self {
-            XAFSError::NotEnoughData => "Not enough data",
-            XAFSError::NotEnoughDataForXFTF => "Not enough data for XFTF",
-            XAFSError::NotEnoughDataForXFTR => "Not enough data for XFTR",
-            XAFSError::GroupIndexOutOfRange => "Group index out of range",
-            XAFSError::GroupIsEmpty => "Group is empty",
-        }
-    }
-
-    fn cause(&self) -> Option<&dyn Error> {
-        None
-    }
-
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        None
-    }
-}
-
-impl fmt::Display for XAFSError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            XAFSError::NotEnoughData => write!(f, "Not enough data"),
-            XAFSError::NotEnoughDataForXFTF => write!(f, "Not enough data for XFTF"),
-            XAFSError::NotEnoughDataForXFTR => write!(f, "Not enough data for XFTR"),
-            XAFSError::GroupIndexOutOfRange => write!(f, "Group index out of range"),
-            XAFSError::GroupIsEmpty => write!(f, "Group is empty"),
-        }
-    }
-}
+/// Convenience type alias for Results using XAFSError.
+pub type Result<T> = std::result::Result<T, XAFSError>;
 
 #[cfg(test)]
 pub mod tests {

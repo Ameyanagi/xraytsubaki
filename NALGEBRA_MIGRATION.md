@@ -1,5 +1,15 @@
 # ndarray → nalgebra DVector Migration Status
 
+## 2026-02-08 Migration Update (Nalgebra-First Default)
+
+- Default crate features now compile nalgebra-first (`crates/xraytsubaki/Cargo.toml` has `default = []`).
+- ndarray support remains available as opt-in compatibility via `--features ndarray-compat`.
+- Required gate checks for this state:
+  - `cargo check -p xraytsubaki --no-default-features`
+  - `cargo check -p xraytsubaki`
+  - `cargo check -p xraytsubaki --features ndarray-compat`
+  - `cargo test -p xraytsubaki --features ndarray-compat`
+
 ## 🎉 MIGRATION COMPLETE - All Tests Passing! 🎉
 
 **Status**: ✅ Production-Ready | **Date**: 2025-11-09 | **Tests**: 57/57 (100%) | **Performance**: 3.5% Improvement

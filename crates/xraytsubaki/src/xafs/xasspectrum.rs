@@ -10,7 +10,7 @@ use std::error::Error;
 use easyfft::dyn_size::realfft::DynRealDft;
 use nalgebra::DVector;
 #[cfg(feature = "ndarray-compat")]
-use ndarray::{ArrayBase, Axis, Ix1, OwnedRepr, ViewRepr};
+use ndarray::{ArrayBase, Ix1, ViewRepr};
 use serde::{Deserialize, Serialize};
 
 // load dependencies
@@ -273,20 +273,12 @@ impl XASSpectrum {
         })?;
         Self::validate_energy_mu_inputs(energy, mu)?;
 
-        // Convert DVector to Array1 for normalization (temporary until trait is migrated)
-        #[cfg(feature = "ndarray-compat")]
-        {
-            use ndarray::Array1;
-            let energy = Array1::from_vec(energy.data.as_vec().clone());
-            let mu = Array1::from_vec(mu.data.as_vec().clone());
-
-            self.normalization
-                .as_mut()
-                .ok_or_else(|| DataError::MissingData {
-                    field: "normalization method".to_string(),
-                })?
-                .normalize(&energy, &mu)?;
-        }
+        self.normalization
+            .as_mut()
+            .ok_or_else(|| DataError::MissingData {
+                field: "normalization method".to_string(),
+            })?
+            .normalize(energy, mu)?;
 
         Ok(self)
     }
@@ -329,31 +321,30 @@ impl XASSpectrum {
     }
 
     pub fn fft(&mut self) -> Result<&mut Self, XAFSError> {
-        let k = self.get_k().ok_or_else(|| DataError::MissingData {
-            field: "k (need to calculate background first)".to_string(),
-        })?;
-        let chi = self.get_chi().ok_or_else(|| DataError::MissingData {
-            field: "chi (need to calculate background first)".to_string(),
-        })?;
+        let mut xftf = self.xftf.take().unwrap_or_else(xrayfft::XrayFFTF::new);
 
-        if self.xftf.is_none() {
-            self.xftf = Some(xrayfft::XrayFFTF::new());
-        }
-
-        // Borrow DVector storage as ndarray views to avoid hot-path copy churn.
         #[cfg(feature = "ndarray-compat")]
         {
-            use ndarray::ArrayView1;
-            let k_array = ArrayView1::from(k.as_slice());
-            let chi_array = ArrayView1::from(chi.as_slice());
-            self.xftf
-                .as_mut()
-                .ok_or_else(|| DataError::MissingData {
-                    field: "xftf configuration".to_string(),
-                })?
-                .xftf(k_array, chi_array)?;
+            let k = self.get_k_view().ok_or_else(|| DataError::MissingData {
+                field: "k (need to calculate background first)".to_string(),
+            })?;
+            let chi = self.get_chi_view().ok_or_else(|| DataError::MissingData {
+                field: "chi (need to calculate background first)".to_string(),
+            })?;
+            xftf.xftf(k, chi)?;
+        }
+        #[cfg(not(feature = "ndarray-compat"))]
+        {
+            let k = self.get_k().ok_or_else(|| DataError::MissingData {
+                field: "k (need to calculate background first)".to_string(),
+            })?;
+            let chi = self.get_chi().ok_or_else(|| DataError::MissingData {
+                field: "chi (need to calculate background first)".to_string(),
+            })?;
+            xftf.xftf(&k, &chi)?;
         }
 
+        self.xftf = Some(xftf);
         Ok(self)
     }
 
@@ -369,26 +360,39 @@ impl XASSpectrum {
             field: "xftf configuration".to_string(),
         })?;
 
-        let r = xftf.get_r();
-        let chi_r = xftf.get_chir();
-
-        let r = r.ok_or_else(|| DataError::MissingData {
-            field: "r (fft() may have failed)".to_string(),
-        })?;
-        let chi_r = chi_r.ok_or_else(|| DataError::MissingData {
-            field: "chi_r (fft() may have failed)".to_string(),
-        })?;
-
         if self.xftr.is_none() {
             self.xftr = Some(xrayfft::XrayFFTR::new());
         }
 
+        #[cfg(feature = "ndarray-compat")]
         self.xftr
             .as_mut()
             .ok_or_else(|| DataError::MissingData {
                 field: "xftr configuration".to_string(),
             })?
-            .xftr(r.view(), chi_r)?;
+            .xftr(
+                xftf.get_r().ok_or_else(|| DataError::MissingData {
+                    field: "r (fft() may have failed)".to_string(),
+                })?,
+                xftf.get_chir().ok_or_else(|| DataError::MissingData {
+                    field: "chi_r (fft() may have failed)".to_string(),
+                })?,
+            )?;
+
+        #[cfg(not(feature = "ndarray-compat"))]
+        self.xftr
+            .as_mut()
+            .ok_or_else(|| DataError::MissingData {
+                field: "xftr configuration".to_string(),
+            })?
+            .xftr(
+                xftf.get_r().ok_or_else(|| DataError::MissingData {
+                    field: "r (fft() may have failed)".to_string(),
+                })?,
+                xftf.get_chir().ok_or_else(|| DataError::MissingData {
+                    field: "chi_r (fft() may have failed)".to_string(),
+                })?,
+            )?;
 
         Ok(self)
     }
@@ -403,6 +407,16 @@ impl XASSpectrum {
 
     pub fn get_chi(&self) -> Option<DVector<f64>> {
         self.background.as_ref()?.get_chi()
+    }
+
+    #[cfg(feature = "ndarray-compat")]
+    pub fn get_k_view(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
+        self.background.as_ref()?.get_k_view()
+    }
+
+    #[cfg(feature = "ndarray-compat")]
+    pub fn get_chi_view(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
+        self.background.as_ref()?.get_chi_view()
     }
 
     pub fn get_kweight(&self) -> Option<&f64> {
@@ -421,28 +435,88 @@ impl XASSpectrum {
         self.xftf.as_ref()?.get_chir()
     }
 
-    pub fn get_chir_mag(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
-        self.xftf.as_ref()?.get_chir_mag()
+    pub fn get_chir_mag(&self) -> Option<DVector<f64>> {
+        #[cfg(feature = "ndarray-compat")]
+        {
+            self.xftf
+                .as_ref()?
+                .get_chir_mag()
+                .map(|x| DVector::from_vec(x.to_vec()))
+        }
+        #[cfg(not(feature = "ndarray-compat"))]
+        {
+            self.xftf.as_ref()?.get_chir_mag().cloned()
+        }
     }
 
-    pub fn get_chir_real(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
-        self.xftf.as_ref()?.get_chir_real()
+    pub fn get_chir_real(&self) -> Option<DVector<f64>> {
+        #[cfg(feature = "ndarray-compat")]
+        {
+            self.xftf
+                .as_ref()?
+                .get_chir_real()
+                .map(|x| DVector::from_vec(x.to_vec()))
+        }
+        #[cfg(not(feature = "ndarray-compat"))]
+        {
+            self.xftf.as_ref()?.get_chir_real()
+        }
     }
 
-    pub fn get_chir_imag(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
-        self.xftf.as_ref()?.get_chir_imag()
+    pub fn get_chir_imag(&self) -> Option<DVector<f64>> {
+        #[cfg(feature = "ndarray-compat")]
+        {
+            self.xftf
+                .as_ref()?
+                .get_chir_imag()
+                .map(|x| DVector::from_vec(x.to_vec()))
+        }
+        #[cfg(not(feature = "ndarray-compat"))]
+        {
+            self.xftf.as_ref()?.get_chir_imag()
+        }
     }
 
-    pub fn get_r(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
-        self.xftf.as_ref()?.get_r()
+    pub fn get_r(&self) -> Option<DVector<f64>> {
+        #[cfg(feature = "ndarray-compat")]
+        {
+            self.xftf
+                .as_ref()?
+                .get_r()
+                .map(|x| DVector::from_vec(x.to_vec()))
+        }
+        #[cfg(not(feature = "ndarray-compat"))]
+        {
+            self.xftf.as_ref()?.get_r().cloned()
+        }
     }
 
-    pub fn get_q(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
-        self.xftr.as_ref()?.get_q()
+    pub fn get_q(&self) -> Option<DVector<f64>> {
+        #[cfg(feature = "ndarray-compat")]
+        {
+            self.xftr
+                .as_ref()?
+                .get_q()
+                .map(|x| DVector::from_vec(x.to_vec()))
+        }
+        #[cfg(not(feature = "ndarray-compat"))]
+        {
+            self.xftr.as_ref()?.get_q().cloned()
+        }
     }
 
-    pub fn get_chiq(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
-        self.xftr.as_ref()?.get_chiq()
+    pub fn get_chiq(&self) -> Option<DVector<f64>> {
+        #[cfg(feature = "ndarray-compat")]
+        {
+            self.xftr
+                .as_ref()?
+                .get_chiq()
+                .map(|x| DVector::from_vec(x.to_vec()))
+        }
+        #[cfg(not(feature = "ndarray-compat"))]
+        {
+            self.xftr.as_ref()?.get_chiq()
+        }
     }
 }
 
@@ -562,5 +636,32 @@ pub mod tests {
             err,
             XAFSError::Data(DataError::LengthMismatch { .. })
         ));
+    }
+
+    #[test]
+    #[cfg(feature = "ndarray-compat")]
+    fn test_borrowed_k_chi_views_match_owned_getters() -> Result<(), Box<dyn std::error::Error>> {
+        let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
+        let mut spectrum = io::load_spectrum_QAS_trans(&path)?;
+        spectrum.calc_background()?;
+
+        let k_owned = spectrum.get_k().unwrap();
+        let chi_owned = spectrum.get_chi().unwrap();
+        let k_view = spectrum.get_k_view().unwrap();
+        let chi_view = spectrum.get_chi_view().unwrap();
+
+        assert_eq!(k_owned.len(), k_view.len());
+        assert_eq!(chi_owned.len(), chi_view.len());
+
+        for (owned, view) in k_owned.iter().zip(k_view.iter()) {
+            assert_abs_diff_eq!(owned, view, epsilon = TEST_TOL);
+        }
+        for (owned, view) in chi_owned.iter().zip(chi_view.iter()) {
+            assert_abs_diff_eq!(owned, view, epsilon = TEST_TOL_LESS_ACC);
+        }
+
+        spectrum.fft()?;
+        assert!(spectrum.get_chir_mag().is_some());
+        Ok(())
     }
 }

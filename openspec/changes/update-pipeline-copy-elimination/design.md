@@ -29,6 +29,10 @@ Non-Goals:
   - Rationale: Callers already hold contiguous buffers; borrowing avoids repeated `to_vec`/`from_vec` churn.
   - Trade-off: Some local owned buffers may remain where downstream routines require ownership.
 
+- Decision: Constrain `ndarray` usage in this slice to compatibility-only adapters.
+  - Rationale: The project is migrating toward nalgebra-centric internals; this slice should not expand unconditional `ndarray` footprint.
+  - Compatibility: `ndarray` remains allowed when explicitly gated by `ndarray-compat` for interop and transition boundaries.
+
 - Decision: Validate this slice with both runtime and allocation metrics.
   - Rationale: Copy-elimination can improve allocation pressure even when runtime gains are modest; both metrics are required.
 
@@ -42,6 +46,7 @@ After:
 1. Pipeline stage requests borrowed view (`ArrayView1`/equivalent) from source storage.
 2. Stage function consumes view directly when possible.
 3. Owned buffers are created only for algorithms that strictly require ownership.
+4. Any remaining `ndarray` conversion boundary is isolated behind `ndarray-compat`.
 
 ## Risks / Trade-offs
 - Risk: Lifetime/borrow complexity may increase implementation friction.

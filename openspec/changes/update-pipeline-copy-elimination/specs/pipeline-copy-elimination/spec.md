@@ -26,6 +26,14 @@ The system SHALL reduce avoidable full-vector conversions at normalization and b
 - **THEN** input conversion avoids repeated full-vector materialization in hot execution paths
 - **AND** ownership conversion is limited to places where downstream algorithms require owned buffers
 
+### Requirement: Ndarray Compatibility Gating
+The system SHALL minimize `ndarray` usage in copy-elimination changes and confine compatibility-only `ndarray` operations to code paths gated by `ndarray-compat`.
+
+#### Scenario: Copy-elimination changes do not expand unconditional ndarray usage
+- **WHEN** copy-elimination updates are applied to runtime pipeline modules
+- **THEN** newly introduced `ndarray`-specific operations are in `ndarray-compat`-gated sections or compatibility adapters
+- **AND** hot-path runtime logic does not add new unconditional `ndarray` dependencies
+
 ### Requirement: Copy-Elimination Performance Evidence
 The system SHALL provide before/after evidence that copy-elimination changes improve or maintain runtime and reduce allocation pressure for representative workloads.
 

@@ -19,21 +19,40 @@ use thiserror::Error;
 
 use easyfft::dyn_size::realfft::DynRealDft;
 // External dependencies
-use ndarray::{ArrayBase, Axis, Ix1, OwnedRepr};
 
 // load dependencies
+#[cfg(feature = "ndarray-compat")]
+pub mod background;
+#[cfg(not(feature = "ndarray-compat"))]
+#[path = "background_nalgebra.rs"]
 pub mod background;
 pub mod bessel_i0;
 pub mod errors;
 pub mod io;
 pub mod lmutils;
+#[cfg(feature = "ndarray-compat")]
 pub mod mathutils;
+#[cfg(not(feature = "ndarray-compat"))]
+#[path = "mathutils_nalgebra.rs"]
+pub mod mathutils;
+#[cfg(feature = "ndarray-compat")]
+pub mod normalization;
+#[cfg(not(feature = "ndarray-compat"))]
+#[path = "normalization_nalgebra.rs"]
 pub mod normalization;
 pub mod nshare;
+#[cfg(feature = "ndarray-compat")]
+pub mod xafsutils;
+#[cfg(not(feature = "ndarray-compat"))]
+#[path = "xafsutils_nalgebra.rs"]
 pub mod xafsutils;
 pub mod xasgroup;
 pub mod xasparameters;
 pub mod xasspectrum;
+#[cfg(feature = "ndarray-compat")]
+pub mod xrayfft;
+#[cfg(not(feature = "ndarray-compat"))]
+#[path = "xrayfft_nalgebra.rs"]
 pub mod xrayfft;
 
 // Load local traits

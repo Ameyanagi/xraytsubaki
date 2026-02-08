@@ -208,18 +208,14 @@ impl XrayFFTF {
 
     pub fn get_chir_real(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
         let len_r = self.r.as_ref()?.len();
-
-        let chir: Array1<f64> = self.chir.clone()?.re();
-
-        Some(chir.slice_axis(Axis(0), (0..len_r).into()).to_owned())
+        let chir = self.chir.as_ref()?;
+        Some(Array1::from_iter(chir.iter().take(len_r).map(|x| x.re)))
     }
 
     pub fn get_chir_imag(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
         let len_r = self.r.as_ref()?.len();
-
-        let chir: Array1<f64> = self.chir.clone()?.im();
-
-        Some(chir.slice_axis(Axis(0), (0..len_r).into()).to_owned())
+        let chir = self.chir.as_ref()?;
+        Some(Array1::from_iter(chir.iter().take(len_r).map(|x| x.im)))
     }
 
     pub fn get_chir_mag(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {

@@ -6,7 +6,8 @@
 use std::error::Error;
 
 // Import external dependencies
-use ndarray::{Array1, ArrayBase, Ix1, OwnedRepr};
+use nalgebra::DVector;
+use ndarray::Array1;
 use polyfit_rs::polyfit_rs;
 use serde::{Deserialize, Serialize};
 
@@ -20,8 +21,8 @@ use super::xafsutils;
 pub trait Normalization {
     fn normalize(
         &mut self,
-        energy: &ArrayBase<OwnedRepr<f64>, Ix1>,
-        mu: &ArrayBase<OwnedRepr<f64>, Ix1>,
+        energy: &DVector<f64>,
+        mu: &DVector<f64>,
     ) -> Result<&mut Self, NormalizationError>;
 
     fn get_norm(&self) -> Option<&Array1<f64>>;
@@ -78,8 +79,8 @@ impl NormalizationMethod {
 
     pub fn fill_parameter(
         &mut self,
-        energy: &Array1<f64>,
-        mu: &Array1<f64>,
+        energy: &DVector<f64>,
+        mu: &DVector<f64>,
     ) -> Result<&mut Self, NormalizationError> {
         match self {
             NormalizationMethod::PrePostEdge(pre_post_edge) => {
@@ -95,8 +96,8 @@ impl NormalizationMethod {
 
     pub fn normalize(
         &mut self,
-        energy: &ArrayBase<OwnedRepr<f64>, Ix1>,
-        mu: &ArrayBase<OwnedRepr<f64>, Ix1>,
+        energy: &DVector<f64>,
+        mu: &DVector<f64>,
     ) -> Result<&mut Self, NormalizationError> {
         match self {
             NormalizationMethod::PrePostEdge(pre_post_edge) => {
@@ -233,19 +234,29 @@ impl PrePostEdge {
 
     pub fn fill_parameter(
         &mut self,
-        energy: &Array1<f64>,
-        mu: &Array1<f64>,
+        energy: &DVector<f64>,
+        mu: &DVector<f64>,
     ) -> Result<&mut Self, NormalizationError> {
         Self::validate_inputs(energy, mu)?;
 
         let mut e0 = self.e0.unwrap_or(f64::NAN);
         if !e0.is_finite() || e0 > energy[energy.len() - 2] || e0 < energy[0] {
-            e0 = xafsutils::find_e0_array1(energy.clone(), mu.clone())?;
+            #[cfg(feature = "ndarray-compat")]
+            {
+                // Preserve current numerical behavior in compatibility mode.
+                let energy_array = Array1::from_vec(energy.as_slice().to_vec());
+                let mu_array = Array1::from_vec(mu.as_slice().to_vec());
+                e0 = xafsutils::find_e0_array1(energy_array, mu_array)?;
+            }
+            #[cfg(not(feature = "ndarray-compat"))]
+            {
+                e0 = xafsutils::find_e0(energy, mu)?;
+            }
             self.e0 = Some(e0);
         }
 
-        let energy_vec = energy.to_vec();
-        let ie0 = mathutils::index_nearest_sorted(&energy_vec, &e0)?;
+        let energy_slice = energy.as_slice();
+        let ie0 = mathutils::index_nearest_sorted(energy_slice, &e0)?;
         let e0 = energy[ie0];
 
         let n_victoreen = self.n_victoreen.unwrap_or(0);
@@ -308,7 +319,7 @@ impl PrePostEdge {
         Ok(self)
     }
 
-    fn validate_inputs(energy: &Array1<f64>, mu: &Array1<f64>) -> Result<(), NormalizationError> {
+    fn validate_inputs(energy: &DVector<f64>, mu: &DVector<f64>) -> Result<(), NormalizationError> {
         if energy.len() != mu.len() {
             return Err(DataError::LengthMismatch {
                 energy_len: energy.len(),
@@ -392,19 +403,17 @@ impl PrePostEdge {
 impl Normalization for PrePostEdge {
     fn normalize(
         &mut self,
-        energy: &ArrayBase<OwnedRepr<f64>, Ix1>,
-        mu: &ArrayBase<OwnedRepr<f64>, Ix1>,
+        energy: &DVector<f64>,
+        mu: &DVector<f64>,
     ) -> Result<&mut Self, NormalizationError> {
-        // let (energy, mu): (Vec<f64>, Vec<f64>) = energy
-        //     .iter()
-        //     .zip(mu.iter())
-        //     .filter(|(e, m)| e.is_finite() && m.is_finite())
-        //     .unzip();
-
-        // let energy = Array1::from_vec(energy);
-        // let mu = Array1::from_vec(mu);
-
-        let (energy, mu) = xafsutils::remove_nan2(energy, mu);
+        let (energy, mu): (Vec<f64>, Vec<f64>) = energy
+            .iter()
+            .zip(mu.iter())
+            .filter(|(e, m)| e.is_finite() && m.is_finite())
+            .map(|(e, m)| (*e, *m))
+            .unzip();
+        let energy = DVector::from_vec(energy);
+        let mu = DVector::from_vec(mu);
         Self::validate_inputs(&energy, &mu)?;
 
         self.fill_parameter(&energy, &mu)?;
@@ -429,9 +438,9 @@ impl Normalization for PrePostEdge {
         })?;
         let nvict = self.n_victoreen.unwrap_or(0);
 
-        let energy_vec = energy.to_vec();
-        let p1 = mathutils::index_of_sorted(&energy_vec, &(pre_edge_start + e0))?;
-        let mut p2 = mathutils::index_nearest_sorted(&energy_vec, &(pre_edge_end + e0))?;
+        let energy_slice = energy.as_slice();
+        let p1 = mathutils::index_of_sorted(energy_slice, &(pre_edge_start + e0))?;
+        let mut p2 = mathutils::index_nearest_sorted(energy_slice, &(pre_edge_end + e0))?;
         if p2 <= p1 || p2 - p1 < 2 {
             if p1 + 2 > energy.len() {
                 return Err(NormalizationError::PreEdgeFitFailed {
@@ -442,12 +451,16 @@ impl Normalization for PrePostEdge {
             p2 = (p1 + 2).min(energy.len());
         }
 
-        // TODO: make it faster.
-        let omu = &mu.slice(ndarray::s![p1..p2])
-            * &energy.slice(ndarray::s![p1..p2]).map(|e| e.powi(nvict));
-
-        let (energy_x, mu_x) =
-            xafsutils::remove_nan2(&energy.slice(ndarray::s![p1..p2]).to_owned(), &omu);
+        let mut energy_x = Vec::with_capacity(p2 - p1);
+        let mut mu_x = Vec::with_capacity(p2 - p1);
+        for i in p1..p2 {
+            let e = energy[i];
+            let y = mu[i] * e.powi(nvict);
+            if e.is_finite() && y.is_finite() {
+                energy_x.push(e);
+                mu_x.push(y);
+            }
+        }
         if energy_x.len() < 2 {
             return Err(NormalizationError::PreEdgeFitFailed {
                 start: pre_edge_start + e0,
@@ -455,14 +468,16 @@ impl Normalization for PrePostEdge {
             });
         }
 
-        let pre_coefficients: Vec<f64> =
-            polyfit_rs::polyfit(&energy_x.to_vec(), &mu_x.to_vec(), 1)?;
+        let pre_coefficients: Vec<f64> = polyfit_rs::polyfit(&energy_x, &mu_x, 1)?;
 
-        let pre_edge =
-            (&energy * pre_coefficients[1] + pre_coefficients[0]) * &energy.map(|e| e.powi(-nvict));
+        let mut pre_edge = DVector::zeros(energy.len());
+        for i in 0..energy.len() {
+            pre_edge[i] =
+                (energy[i] * pre_coefficients[1] + pre_coefficients[0]) * energy[i].powi(-nvict);
+        }
 
-        let mut p1 = mathutils::index_of_sorted(&energy_vec, &(norm_start + e0))?;
-        let mut p2 = mathutils::index_nearest_sorted(&energy_vec, &(norm_end + e0))?;
+        let mut p1 = mathutils::index_of_sorted(energy_slice, &(norm_start + e0))?;
+        let mut p2 = mathutils::index_nearest_sorted(energy_slice, &(norm_end + e0))?;
 
         if p2 <= p1 || p2 - p1 < 2 {
             if p1 + 2 > energy.len() {
@@ -475,23 +490,27 @@ impl Normalization for PrePostEdge {
             p1 = (p1 + 1).min(energy.len() - 1);
         }
 
-        let presub = (&mu - &pre_edge).slice(ndarray::s![p1..p2]).to_vec();
+        let mut presub = Vec::with_capacity(p2 - p1);
+        for i in p1..p2 {
+            presub.push(mu[i] - pre_edge[i]);
+        }
         if presub.len() <= norm_polyorder as usize {
             return Err(NormalizationError::PostEdgeFitFailed {
                 order: norm_polyorder as usize,
                 n_points: presub.len(),
             });
         }
-        let post_edge_energy = energy.slice(ndarray::s![p1..p2]);
         let post_coefficients =
-            polyfit_rs::polyfit(&post_edge_energy.to_vec(), &presub, norm_polyorder as usize)?;
+            polyfit_rs::polyfit(&energy_slice[p1..p2], &presub, norm_polyorder as usize)?;
 
         let mut post_edge = pre_edge.clone();
 
         for (i, c) in post_coefficients.iter().enumerate() {
-            post_edge = &post_edge + &energy.map(|e| e.powi(i as i32)) * *c;
+            for j in 0..post_edge.len() {
+                post_edge[j] += energy[j].powi(i as i32) * *c;
+            }
         }
-        let ie0 = mathutils::index_nearest_sorted(&energy_vec, &e0)?;
+        let ie0 = mathutils::index_nearest_sorted(energy_slice, &e0)?;
         let edge_step = self.edge_step.unwrap_or(post_edge[ie0] - pre_edge[ie0]);
         if !edge_step.is_finite() {
             return Err(NormalizationError::EdgeStepTooSmall {
@@ -503,19 +522,22 @@ impl Normalization for PrePostEdge {
 
         let norm = (&mu - &pre_edge) / edge_step;
 
-        // let flat_diff = (&post_edge - &mu) / edge_step.clone();
         let flat_residue = (&post_edge - &pre_edge) / edge_step;
 
-        let mut flat = &norm - &flat_residue + flat_residue[ie0];
-
-        flat.slice_mut(ndarray::s![..ie0])
-            .assign(&norm.slice(ndarray::s![..ie0]));
+        let mut flat = &norm - &flat_residue;
+        let residue_offset = flat_residue[ie0];
+        for i in 0..flat.len() {
+            flat[i] += residue_offset;
+        }
+        for i in 0..ie0 {
+            flat[i] = norm[i];
+        }
 
         self.edge_step = Some(edge_step);
-        self.pre_edge = Some(pre_edge);
-        self.post_edge = Some(post_edge);
-        self.norm = Some(norm);
-        self.flat = Some(flat);
+        self.pre_edge = Some(Array1::from_vec(pre_edge.as_slice().to_vec()));
+        self.post_edge = Some(Array1::from_vec(post_edge.as_slice().to_vec()));
+        self.norm = Some(Array1::from_vec(norm.as_slice().to_vec()));
+        self.flat = Some(Array1::from_vec(flat.as_slice().to_vec()));
         self.norm_coefficients = Some(post_coefficients);
         self.pre_coefficients = Some(pre_coefficients);
 
@@ -576,8 +598,8 @@ impl MBack {
 impl Normalization for MBack {
     fn normalize(
         &mut self,
-        energy: &ArrayBase<OwnedRepr<f64>, Ix1>,
-        mu: &ArrayBase<OwnedRepr<f64>, Ix1>,
+        energy: &DVector<f64>,
+        mu: &DVector<f64>,
     ) -> Result<&mut Self, NormalizationError> {
         Err(NormalizationError::NotImplemented {
             method: "MBack normalization".to_string(),
@@ -631,19 +653,8 @@ mod tests {
         let xafs_test_group = io::load_spectrum_QAS_trans(&path).unwrap();
 
         let mut pre_post_edge = PrePostEdge::new();
-
-        // Convert DVector to Array1 for test
-        use ndarray::Array1;
-        let energy = Array1::from_vec(
-            xafs_test_group
-                .energy
-                .clone()
-                .unwrap()
-                .data
-                .as_vec()
-                .clone(),
-        );
-        let mu = Array1::from_vec(xafs_test_group.mu.clone().unwrap().data.as_vec().clone());
+        let energy = xafs_test_group.energy.clone().unwrap();
+        let mu = xafs_test_group.mu.clone().unwrap();
 
         let _ = pre_post_edge.fill_parameter(&energy, &mu);
 
@@ -705,19 +716,8 @@ mod tests {
     fn test_normalization() {
         let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
         let xafs_test_group = io::load_spectrum_QAS_trans(&path).unwrap();
-
-        // Convert DVector to Array1 for test
-        use ndarray::Array1;
-        let energy = Array1::from_vec(
-            xafs_test_group
-                .energy
-                .clone()
-                .unwrap()
-                .data
-                .as_vec()
-                .clone(),
-        );
-        let mu = Array1::from_vec(xafs_test_group.mu.clone().unwrap().data.as_vec().clone());
+        let energy = xafs_test_group.energy.clone().unwrap();
+        let mu = xafs_test_group.mu.clone().unwrap();
 
         let mut pre_post_edge = PrePostEdge::new();
         let _ = pre_post_edge.fill_parameter(&energy, &mu);

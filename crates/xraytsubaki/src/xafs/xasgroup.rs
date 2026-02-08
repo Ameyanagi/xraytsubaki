@@ -601,13 +601,13 @@ mod tests {
             let par_chir_imag = par.get_chir_imag().unwrap();
             let default_chir_imag = default.get_chir_imag().unwrap();
             assert_slice_close(
-                seq_chir_imag.as_slice().unwrap(),
-                par_chir_imag.as_slice().unwrap(),
+                seq_chir_imag.as_slice(),
+                par_chir_imag.as_slice(),
                 1.0e-6,
             );
             assert_slice_close(
-                par_chir_imag.as_slice().unwrap(),
-                default_chir_imag.as_slice().unwrap(),
+                par_chir_imag.as_slice(),
+                default_chir_imag.as_slice(),
                 1.0e-6,
             );
         }

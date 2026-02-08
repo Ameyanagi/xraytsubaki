@@ -101,37 +101,41 @@ impl BackgroundMethod {
     }
 
     pub fn get_k(&self) -> Option<DVector<f64>> {
+        #[cfg(feature = "ndarray-compat")]
+        {
+            self.get_k_view().map(|arr| DVector::from_vec(arr.to_vec()))
+        }
+        #[cfg(not(feature = "ndarray-compat"))]
+        {
+            None
+        }
+    }
+
+    pub fn get_chi(&self) -> Option<DVector<f64>> {
+        #[cfg(feature = "ndarray-compat")]
+        {
+            self.get_chi_view()
+                .map(|arr| DVector::from_vec(arr.to_vec()))
+        }
+        #[cfg(not(feature = "ndarray-compat"))]
+        {
+            None
+        }
+    }
+
+    #[cfg(feature = "ndarray-compat")]
+    pub fn get_k_view(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
         match self {
-            BackgroundMethod::AUTOBK(autobk) => {
-                #[cfg(feature = "ndarray-compat")]
-                {
-                    autobk.k.as_ref().map(|arr| DVector::from_vec(arr.to_vec()))
-                }
-                #[cfg(not(feature = "ndarray-compat"))]
-                {
-                    None
-                }
-            }
+            BackgroundMethod::AUTOBK(autobk) => autobk.get_k(),
             BackgroundMethod::ILPBkg(ilpbkg) => None,
             BackgroundMethod::None => None,
         }
     }
 
-    pub fn get_chi(&self) -> Option<DVector<f64>> {
+    #[cfg(feature = "ndarray-compat")]
+    pub fn get_chi_view(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
         match self {
-            BackgroundMethod::AUTOBK(autobk) => {
-                #[cfg(feature = "ndarray-compat")]
-                {
-                    autobk
-                        .chi
-                        .as_ref()
-                        .map(|arr| DVector::from_vec(arr.to_vec()))
-                }
-                #[cfg(not(feature = "ndarray-compat"))]
-                {
-                    None
-                }
-            }
+            BackgroundMethod::AUTOBK(autobk) => autobk.get_chi(),
             BackgroundMethod::ILPBkg(ilpbkg) => None,
             BackgroundMethod::None => None,
         }
@@ -522,15 +526,18 @@ impl AUTOBK {
         let clamp_hi = self.clamp_hi.ok_or_else(|| DataError::MissingData {
             field: "clamp_hi".to_string(),
         })?;
+        let energy_dv = energy;
+        let mu_dv = mu;
 
-        // Convert DVector to Array1 for internal processing (temporary until full migration)
+        // Convert energy once to ndarray storage for downstream spline/window operations.
         #[cfg(feature = "ndarray-compat")]
         let energy = {
-            let energy_array1 = Array1::from_vec(energy.data.as_vec().clone());
+            let energy_array1 = Array1::from_vec(energy_dv.as_slice().to_vec());
             xafsutils::remove_dups_array1(energy_array1, None, None, None)
         };
+        // Borrow mu directly from DVector storage to avoid eager full-vector materialization.
         #[cfg(feature = "ndarray-compat")]
-        let mu = Array1::from_vec(mu.data.as_vec().clone());
+        let mu = ndarray::ArrayView1::from(mu_dv.as_slice());
 
         // Perform normalization if necessary
 
@@ -542,7 +549,7 @@ impl AUTOBK {
             });
 
         if let Some(ek0) = self.ek0 {
-            if ek0 < energy.min() || ek0 > energy.max() {
+            if ek0 < energy_dv.min() || ek0 > energy_dv.max() {
                 self.ek0 = None;
             }
         }
@@ -552,8 +559,7 @@ impl AUTOBK {
         let ek0 = self.ek0;
 
         if (ek0.is_none() && e0.is_none()) || edge_step.is_none() {
-            #[cfg(feature = "ndarray-compat")]
-            normalization_method.normalize(&energy, &mu)?;
+            normalization_method.normalize(energy_dv, mu_dv)?;
             edge_step = normalization_method.get_edge_step();
         }
 
@@ -743,11 +749,11 @@ impl AUTOBK {
         let bkg = bkg.into_ndarray1();
         let chi = chi.into_ndarray1();
 
-        let mut obkg = mu.clone();
+        let mut obkg = mu.to_owned();
         obkg.slice_mut(ndarray::s![iek0..iek0 + bkg.len()])
             .assign(&bkg);
 
-        self.chie = Some((mu - &obkg) / edge_step);
+        self.chie = Some((&mu - &obkg) / edge_step);
         self.bkg = Some(obkg);
         self.k = Some(kout);
         self.chi = Some(chi / edge_step);
@@ -1278,9 +1284,11 @@ impl AUTOBKSpline {
             return Ok(coefs);
         }
 
-        Err(last_error.unwrap_or_else(|| BackgroundError::DirectSolverFailed {
-            reason: "direct solve failed for all regularization attempts".to_string(),
-        }))
+        Err(
+            last_error.unwrap_or_else(|| BackgroundError::DirectSolverFailed {
+                reason: "direct solve failed for all regularization attempts".to_string(),
+            }),
+        )
     }
 
     pub fn solve_linear_direct(

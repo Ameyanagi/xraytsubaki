@@ -37,7 +37,7 @@ pest = { workspace = true }
 thiserror = { workspace = true }
 
 [features]
-default = ["ndarray-compat"]
+default = []
 ndarray-compat = ["ndarray"]
 
 [dev-dependencies]

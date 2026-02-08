@@ -9,6 +9,7 @@ A focused proposal is needed to remove copy churn without introducing broad repr
 - Add borrowed read access paths for `k`/`chi` values so internal pipeline stages can avoid clone-based getters.
 - Refactor normalization/background/FFT call paths to consume borrowed views where possible instead of repeated `Array1::from_vec(...clone())` conversions.
 - Keep current clone-returning getters as compatibility wrappers, but route internal hot paths through zero-copy/low-copy accessors.
+- Minimize `ndarray` usage in touched runtime paths, limiting `ndarray`-specific code to explicit compatibility adapters guarded by `ndarray-compat`.
 - Add explicit before/after benchmark and allocation validation for this slice.
 
 ## Scope
@@ -42,5 +43,6 @@ This change is intentionally narrower: it delivers copy-elimination in the curre
 ## Success Criteria
 - Internal pipeline flow avoids repeated clone-based `DVector`↔`Array1` conversions in hot loops.
 - Existing public getter behavior remains compatible for current callers.
+- Changed pipeline code does not introduce new non-feature-gated `ndarray` usage; compatibility-only `ndarray` usage is isolated behind `ndarray-compat`.
 - Benchmarks and allocation counters show improvement versus pre-change baseline for this slice.
 - Numerical outputs remain within existing tolerance expectations.

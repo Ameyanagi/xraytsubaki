@@ -7,7 +7,7 @@ use std::cmp;
 use std::error::Error;
 // External dependencies
 use nalgebra::DVector;
-use ndarray::{Array, Array1, ArrayBase, Axis, Ix1, OwnedRepr, Slice};
+use ndarray::{Array, Array1, ArrayBase, ArrayView1, Axis, Ix1, OwnedRepr, Slice};
 use serde::{Deserialize, Serialize};
 
 // load dependencies
@@ -366,8 +366,8 @@ pub fn remove_dups(
 }
 
 pub fn remove_nan2(
-    arr1: &ArrayBase<OwnedRepr<f64>, Ix1>,
-    arr2: &ArrayBase<OwnedRepr<f64>, Ix1>,
+    arr1: ArrayView1<'_, f64>,
+    arr2: ArrayView1<'_, f64>,
 ) -> (Array1<f64>, Array1<f64>) {
     let (arr1, arr2): (Vec<f64>, Vec<f64>) = arr1
         .iter()

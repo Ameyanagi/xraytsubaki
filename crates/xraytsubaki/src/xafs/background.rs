@@ -101,37 +101,41 @@ impl BackgroundMethod {
     }
 
     pub fn get_k(&self) -> Option<DVector<f64>> {
+        #[cfg(feature = "ndarray-compat")]
+        {
+            self.get_k_view().map(|arr| DVector::from_vec(arr.to_vec()))
+        }
+        #[cfg(not(feature = "ndarray-compat"))]
+        {
+            None
+        }
+    }
+
+    pub fn get_chi(&self) -> Option<DVector<f64>> {
+        #[cfg(feature = "ndarray-compat")]
+        {
+            self.get_chi_view()
+                .map(|arr| DVector::from_vec(arr.to_vec()))
+        }
+        #[cfg(not(feature = "ndarray-compat"))]
+        {
+            None
+        }
+    }
+
+    #[cfg(feature = "ndarray-compat")]
+    pub fn get_k_view(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
         match self {
-            BackgroundMethod::AUTOBK(autobk) => {
-                #[cfg(feature = "ndarray-compat")]
-                {
-                    autobk.k.as_ref().map(|arr| DVector::from_vec(arr.to_vec()))
-                }
-                #[cfg(not(feature = "ndarray-compat"))]
-                {
-                    None
-                }
-            }
+            BackgroundMethod::AUTOBK(autobk) => autobk.get_k(),
             BackgroundMethod::ILPBkg(ilpbkg) => None,
             BackgroundMethod::None => None,
         }
     }
 
-    pub fn get_chi(&self) -> Option<DVector<f64>> {
+    #[cfg(feature = "ndarray-compat")]
+    pub fn get_chi_view(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
         match self {
-            BackgroundMethod::AUTOBK(autobk) => {
-                #[cfg(feature = "ndarray-compat")]
-                {
-                    autobk
-                        .chi
-                        .as_ref()
-                        .map(|arr| DVector::from_vec(arr.to_vec()))
-                }
-                #[cfg(not(feature = "ndarray-compat"))]
-                {
-                    None
-                }
-            }
+            BackgroundMethod::AUTOBK(autobk) => autobk.get_chi(),
             BackgroundMethod::ILPBkg(ilpbkg) => None,
             BackgroundMethod::None => None,
         }
@@ -522,28 +526,54 @@ impl AUTOBK {
         let clamp_hi = self.clamp_hi.ok_or_else(|| DataError::MissingData {
             field: "clamp_hi".to_string(),
         })?;
+        let energy_dv = energy;
+        let mu_dv = mu;
 
-        // Convert DVector to Array1 for internal processing (temporary until full migration)
+        // Convert energy once to ndarray storage for downstream spline/window operations.
+        // Skip de-dup transform when input is already strictly increasing to avoid extra work.
         #[cfg(feature = "ndarray-compat")]
-        let energy = {
-            let energy_array1 = Array1::from_vec(energy.data.as_vec().clone());
-            xafsutils::remove_dups_array1(energy_array1, None, None, None)
+        let has_adjacent_dups = energy_dv
+            .as_slice()
+            .windows(2)
+            .any(|window| window[0] == window[1]);
+        #[cfg(feature = "ndarray-compat")]
+        let energy_owned = has_adjacent_dups.then(|| {
+            xafsutils::remove_dups_array1(
+                Array1::from_vec(energy_dv.as_slice().to_vec()),
+                None,
+                None,
+                None,
+            )
+        });
+        #[cfg(feature = "ndarray-compat")]
+        let energy = if let Some(energy_owned) = energy_owned.as_ref() {
+            energy_owned.view()
+        } else {
+            ndarray::ArrayView1::from(energy_dv.as_slice())
         };
+        // Borrow mu directly from DVector storage to avoid eager full-vector materialization.
         #[cfg(feature = "ndarray-compat")]
-        let mu = Array1::from_vec(mu.data.as_vec().clone());
+        let mu = ndarray::ArrayView1::from(mu_dv.as_slice());
 
         // Perform normalization if necessary
 
-        let mut normalization_method: normalization::NormalizationMethod =
-            normalization_param.clone().unwrap_or_else(|| {
-                let mut normalization_method = normalization::PrePostEdge::new();
-                normalization_method.set_e0(self.ek0);
-                normalization::NormalizationMethod::PrePostEdge(normalization_method)
-            });
+        if normalization_param.is_none() {
+            let mut normalization_method = normalization::PrePostEdge::new();
+            normalization_method.set_e0(self.ek0);
+            *normalization_param =
+                Some(normalization::NormalizationMethod::PrePostEdge(normalization_method));
+        }
+        let normalization_method =
+            normalization_param
+                .as_mut()
+                .ok_or_else(|| DataError::MissingData {
+                    field: "normalization method".to_string(),
+                })?;
 
         if let Some(ek0) = self.ek0 {
-            if ek0 < energy.min() || ek0 > energy.max() {
+            if ek0 < energy_dv.min() || ek0 > energy_dv.max() {
                 self.ek0 = None;
+                normalization_method.set_e0(None);
             }
         }
 
@@ -552,8 +582,7 @@ impl AUTOBK {
         let ek0 = self.ek0;
 
         if (ek0.is_none() && e0.is_none()) || edge_step.is_none() {
-            #[cfg(feature = "ndarray-compat")]
-            normalization_method.normalize(&energy, &mu)?;
+            normalization_method.normalize(energy_dv, mu_dv)?;
             edge_step = normalization_method.get_edge_step();
         }
 
@@ -578,8 +607,6 @@ impl AUTOBK {
             });
         }
         let edge_step = edge_step.max(1.0e-12);
-        *normalization_param = Some(normalization_method);
-
         // Rbkg Algorithm
         let energy_slice = energy.as_slice().ok_or_else(|| BackgroundError::Other {
             message: "energy array is not contiguous".to_string(),
@@ -698,13 +725,15 @@ impl AUTOBK {
         );
 
         // Calculate the mu interpolated to the k grid
-        let mu_out = kout.to_vec().interpolate(
-            &kraw
-                .slice_axis(Axis(0), ndarray::Slice::from(0..iemax - iek0 + 1))
-                .to_vec(),
-            &mu.slice_axis(Axis(0), ndarray::Slice::from(iek0..iemax + 1))
-                .to_vec(),
-        )?;
+        let kraw_fit = kraw.slice_axis(Axis(0), ndarray::Slice::from(0..iemax - iek0 + 1));
+        let mu_fit = mu.slice_axis(Axis(0), ndarray::Slice::from(iek0..iemax + 1));
+        let kraw_fit_slice = kraw_fit.as_slice().ok_or_else(|| BackgroundError::Other {
+            message: "kraw fit window is not contiguous".to_string(),
+        })?;
+        let mu_fit_slice = mu_fit.as_slice().ok_or_else(|| BackgroundError::Other {
+            message: "mu fit window is not contiguous".to_string(),
+        })?;
+        let mu_out = kout.interpolate(kraw_fit_slice, mu_fit_slice)?;
 
         let spline_opt = AUTOBKSpline {
             coefs: DVector::from_vec(coefs),
@@ -712,12 +741,8 @@ impl AUTOBK {
             order,
             irbkg: irbkg.max(1) as usize,
             nfft: nfft as usize,
-            kraw: kraw
-                .slice_axis(Axis(0), ndarray::Slice::from(0..iemax - iek0 + 1))
-                .clone()
-                .to_owned()
-                .into_nalgebra(),
-            mu: DVector::from_vec(mu_out),
+            kraw: kraw_fit.to_owned().into_nalgebra(),
+            mu: mu_out.into_nalgebra(),
             kout: kout.clone().into_nalgebra(),
             ftwin: ftwin.into_nalgebra(),
             kweight,
@@ -743,11 +768,11 @@ impl AUTOBK {
         let bkg = bkg.into_ndarray1();
         let chi = chi.into_ndarray1();
 
-        let mut obkg = mu.clone();
+        let mut obkg = mu.to_owned();
         obkg.slice_mut(ndarray::s![iek0..iek0 + bkg.len()])
             .assign(&bkg);
 
-        self.chie = Some((mu - &obkg) / edge_step);
+        self.chie = Some((&mu - &obkg) / edge_step);
         self.bkg = Some(obkg);
         self.k = Some(kout);
         self.chi = Some(chi / edge_step);
@@ -874,20 +899,23 @@ fn spline_eval_nalgebra(
     order: usize,
     kout: &DVector<f64>,
 ) -> (DVector<f64>, DVector<f64>) {
+    let knots_vec = knots.as_slice().to_vec();
+    let coefs_vec = coefs.as_slice().to_vec();
+
     let bkg = DVector::from_vec(rusty_fitpack::splev(
-        knots.data.as_vec().clone(),
-        coefs.data.as_vec().clone(),
+        knots_vec.clone(),
+        coefs_vec.clone(),
         order,
-        kraw.data.as_vec().clone(),
+        kraw.as_slice().to_vec(),
         3,
     ));
 
     // experimental
     let bkg_out = DVector::from_vec(rusty_fitpack::splev(
-        knots.data.as_vec().clone(),
-        coefs.data.as_vec().clone(),
+        knots_vec,
+        coefs_vec,
         order,
-        kout.data.as_vec().clone(),
+        kout.as_slice().to_vec(),
         3,
     ));
 
@@ -1278,9 +1306,11 @@ impl AUTOBKSpline {
             return Ok(coefs);
         }
 
-        Err(last_error.unwrap_or_else(|| BackgroundError::DirectSolverFailed {
-            reason: "direct solve failed for all regularization attempts".to_string(),
-        }))
+        Err(
+            last_error.unwrap_or_else(|| BackgroundError::DirectSolverFailed {
+                reason: "direct solve failed for all regularization attempts".to_string(),
+            }),
+        )
     }
 
     pub fn solve_linear_direct(

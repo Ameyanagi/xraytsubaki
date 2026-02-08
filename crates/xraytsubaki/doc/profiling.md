@@ -208,3 +208,57 @@ Conclusion:
 
 - After fixing benchmark methodology, parallel processing is consistently faster than sequential on both matched workloads.
 - Regression gate is green in informational mode with the updated Slice F baseline.
+
+## Slice G Metrics (pipeline copy-elimination)
+
+Date: 2026-02-08
+
+Environment:
+
+- `rustc 1.93.0`
+- `cargo 1.93.0`
+- `Darwin 25.2.0 arm64`
+
+Commands:
+
+```bash
+cargo bench -p xraytsubaki --bench autobk_stage_benchmark -- --noplot
+cargo bench -p xraytsubaki --bench xas_group_benchmark_single -- --noplot
+cargo bench -p xraytsubaki --bench xas_group_benchmark_parallel -- --noplot
+cargo run -p xraytsubaki --example alloc_baseline --release
+```
+
+Pre-change baseline (captured on this branch before copy-elimination edits):
+
+- `autobk_stage_legacy_lm`: `[2.4090 ms 2.4306 ms 2.4706 ms]`
+- `autobk_stage_linear_direct`: `[112.15 µs 112.77 µs 113.35 µs]`
+- `xas_group_benchmark_single`: `[1.5157 s 1.5248 s 1.5344 s]`
+- `xas_group_benchmark_parallel`: `[375.14 ms 394.82 ms 414.19 ms]`
+- `xas_group_benchmark_single_alloc`:
+  - `alloc_calls=271409`
+  - `alloc_bytes=103201476`
+- `xas_group_benchmark_parallel_alloc`:
+  - `alloc_calls=27010408`
+  - `alloc_bytes=10218315528`
+
+Post-change results:
+
+- `autobk_stage_legacy_lm`: `[2.5021 ms 2.5388 ms 2.5776 ms]`
+  - vs pre-change center estimate: `+4.45%` slower
+- `autobk_stage_linear_direct`: `[116.33 µs 118.24 µs 119.77 µs]`
+  - vs pre-change center estimate: `+4.85%` slower
+- `xas_group_benchmark_single`: `[1.5470 s 1.5594 s 1.5703 s]`
+  - vs pre-change center estimate: `+2.27%` slower
+- `xas_group_benchmark_parallel`: `[360.35 ms 380.96 ms 404.91 ms]`
+  - vs pre-change center estimate: `-3.51%` faster
+- `xas_group_benchmark_single_alloc`:
+  - `alloc_calls=270909` (`-0.18%`)
+  - `alloc_bytes=101643876` (`-1.51%`)
+- `xas_group_benchmark_parallel_alloc`:
+  - `alloc_calls=26960408` (`-0.19%`)
+  - `alloc_bytes=10062555528` (`-1.52%`)
+
+Notes:
+
+- This slice reduced allocation pressure in both single and parallel allocator-instrumented runs.
+- Runtime impact is mixed: parallel center estimate improved while sequential and AUTOBK-stage medians regressed modestly on this machine/run.

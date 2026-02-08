@@ -68,7 +68,6 @@ impl XASBson for XASGroupFile {
 
 #[cfg(test)]
 mod tests {
-    use ndarray::Array1;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;

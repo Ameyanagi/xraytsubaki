@@ -178,7 +178,7 @@ pub struct AUTOBK {
     pub solver: Option<AUTOBKSolver>,
     /// Clamp scaling policy used by direct solver.
     pub clamp_scale_policy: Option<AUTOBKClampScalePolicy>,
-    /// Ridge regularization magnitude for direct solver normal equations.
+    /// Ridge (Tikhonov) regularization magnitude for the direct solver's augmented least-squares system.
     pub linear_regularization: Option<f64>,
     /// Condition proxy threshold used to reject unstable direct solves.
     pub linear_condition_limit: Option<f64>,
@@ -1102,25 +1102,29 @@ impl AUTOBKSpline {
         hasher.finish()
     }
 
-    fn linear_design_matrix(&self, clamp_scale: f64, use_workspace_cache: bool) -> DMatrix<f64> {
+    fn linear_design_matrix(
+        &self,
+        clamp_scale: f64,
+        use_workspace_cache: bool,
+    ) -> Arc<DMatrix<f64>> {
         let signature = self.workspace_signature(clamp_scale);
 
         if use_workspace_cache {
             if let Ok(cache) = autobk_workspace_cache().lock() {
                 if let Some(entry) = cache.as_ref() {
                     if entry.signature == signature {
-                        return (*entry.design_matrix).clone();
+                        return entry.design_matrix.clone();
                     }
                 }
             }
         }
 
-        let matrix = self.residual_jacobian_with_scale(&self.coefs, Some(clamp_scale));
+        let matrix = Arc::new(self.residual_jacobian_with_scale(&self.coefs, Some(clamp_scale)));
         if use_workspace_cache {
             if let Ok(mut cache) = autobk_workspace_cache().lock() {
                 *cache = Some(AutobkLinearWorkspace {
                     signature,
-                    design_matrix: Arc::new(matrix.clone()),
+                    design_matrix: matrix.clone(),
                 });
             }
         }
@@ -1248,7 +1252,7 @@ impl AUTOBKSpline {
                 continue;
             }
 
-            let solved_residual = &base_residual + &design * &coefs;
+            let solved_residual = &base_residual + design.as_ref() * &coefs;
             let base_norm = base_residual.norm();
             let solved_norm = solved_residual.norm();
             if !base_norm.is_finite() || !solved_norm.is_finite() {

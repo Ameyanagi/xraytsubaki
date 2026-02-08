@@ -71,6 +71,14 @@ pub enum BackgroundError {
     #[error("AUTOBK optimization failed: {reason}")]
     OptimizationFailed { reason: String },
 
+    #[error("AUTOBK direct linear solver failed: {reason}")]
+    DirectSolverFailed { reason: String },
+
+    #[error(
+        "AUTOBK direct solver rejected ill-conditioned system: condition proxy {condition_proxy} exceeds limit {limit}"
+    )]
+    DirectSolverIllConditioned { condition_proxy: f64, limit: f64 },
+
     #[error("invalid rbkg parameter: {rbkg} (must be > 0)")]
     InvalidRbkg { rbkg: f64 },
 

@@ -3,8 +3,11 @@
 #![allow(unused_variables)]
 
 // Import standard library dependencies
+use std::collections::hash_map::DefaultHasher;
 use std::error::Error;
+use std::hash::Hasher;
 use std::ops::Deref;
+use std::sync::{Arc, Mutex, OnceLock};
 
 // Import external dependencies
 use levenberg_marquardt::{LeastSquaresProblem, LevenbergMarquardt};
@@ -22,6 +25,33 @@ use super::nshare::{ToNalgebra, ToNdarray1};
 use super::xafsutils::FTWindow;
 use super::xrayfft::{FFTUtils, XFFTReverse, XFFT};
 use super::{xafsutils, xrayfft};
+
+const DEFAULT_LINEAR_REGULARIZATION: f64 = 1.0e-4;
+const DEFAULT_LINEAR_CONDITION_LIMIT: f64 = 1.0e8;
+const DEFAULT_LINEAR_RESIDUAL_RATIO_LIMIT: f64 = 1.05;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AUTOBKSolver {
+    LegacyLm,
+    LinearDirect,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AUTOBKClampScalePolicy {
+    Fixed,
+    TwoPass,
+}
+
+#[derive(Debug, Clone)]
+struct AutobkLinearWorkspace {
+    signature: u64,
+    design_matrix: Arc<DMatrix<f64>>,
+}
+
+fn autobk_workspace_cache() -> &'static Mutex<Option<AutobkLinearWorkspace>> {
+    static CACHE: OnceLock<Mutex<Option<AutobkLinearWorkspace>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(None))
+}
 
 /// Enum for background subtraction methods
 /// AUTOBK: M. Newville, P. Livins, Y. Yacoby, J. J. Rehr, and E. A. Stern. Near-edge x-ray-absorption fine structure of Pb: A comparison of theory and experiment. Phys. Rev. B, 47:14126–14131, Jun 1993. doi:10.1103/PhysRevB.47.14126.
@@ -144,6 +174,20 @@ pub struct AUTOBK {
     pub window: FTWindow,
     /// FFT window window parameter. Default = 0.1.
     pub dk: Option<f64>,
+    /// Solver backend for AUTOBK spline optimization.
+    pub solver: Option<AUTOBKSolver>,
+    /// Clamp scaling policy used by direct solver.
+    pub clamp_scale_policy: Option<AUTOBKClampScalePolicy>,
+    /// Ridge regularization magnitude for direct solver normal equations.
+    pub linear_regularization: Option<f64>,
+    /// Condition proxy threshold used to reject unstable direct solves.
+    pub linear_condition_limit: Option<f64>,
+    /// Maximum accepted solved/base residual norm ratio for direct solver.
+    pub linear_residual_ratio_limit: Option<f64>,
+    /// If true, direct-solver failures fall back to legacy LM automatically.
+    pub linear_fallback_to_lm: Option<bool>,
+    /// If true, cache direct-solver design matrices for compatible workloads.
+    pub linear_workspace_cache: Option<bool>,
     /// Background of mu(E)
     pub bkg: Option<Array1<f64>>,
     /// Edge normalized mu(E) - bkg
@@ -172,6 +216,13 @@ impl Default for AUTOBK {
             kweight: Some(1),
             window: FTWindow::Hanning,
             dk: Some(0.1),
+            solver: Some(AUTOBKSolver::LinearDirect),
+            clamp_scale_policy: Some(AUTOBKClampScalePolicy::Fixed),
+            linear_regularization: Some(DEFAULT_LINEAR_REGULARIZATION),
+            linear_condition_limit: Some(DEFAULT_LINEAR_CONDITION_LIMIT),
+            linear_residual_ratio_limit: Some(DEFAULT_LINEAR_RESIDUAL_RATIO_LIMIT),
+            linear_fallback_to_lm: Some(true),
+            linear_workspace_cache: Some(true),
             bkg: None,
             chie: None,
             k: None,
@@ -222,6 +273,34 @@ impl AUTOBK {
 
         if self.dk.is_none() {
             self.dk = Some(0.1);
+        }
+
+        if self.solver.is_none() {
+            self.solver = Some(AUTOBKSolver::LinearDirect);
+        }
+
+        if self.clamp_scale_policy.is_none() {
+            self.clamp_scale_policy = Some(AUTOBKClampScalePolicy::Fixed);
+        }
+
+        if self.linear_regularization.is_none() {
+            self.linear_regularization = Some(DEFAULT_LINEAR_REGULARIZATION);
+        }
+
+        if self.linear_condition_limit.is_none() {
+            self.linear_condition_limit = Some(DEFAULT_LINEAR_CONDITION_LIMIT);
+        }
+
+        if self.linear_residual_ratio_limit.is_none() {
+            self.linear_residual_ratio_limit = Some(DEFAULT_LINEAR_RESIDUAL_RATIO_LIMIT);
+        }
+
+        if self.linear_fallback_to_lm.is_none() {
+            self.linear_fallback_to_lm = Some(true);
+        }
+
+        if self.linear_workspace_cache.is_none() {
+            self.linear_workspace_cache = Some(true);
         }
 
         Ok(())
@@ -321,6 +400,66 @@ impl AUTOBK {
         }
 
         Ok(knots)
+    }
+
+    fn solve_lm_problem(problem: AUTOBKSpline) -> Result<AUTOBKSpline, BackgroundError> {
+        let (fit_result, _report) = LevenbergMarquardt::new()
+            .with_gtol(1.0e-5)
+            .with_ftol(1.0e-5)
+            .with_xtol(1.0e-5)
+            .with_stepbound(1.0e-5)
+            .minimize(problem);
+
+        Ok(fit_result)
+    }
+
+    fn solve_spline_problem(
+        &self,
+        spline_opt: AUTOBKSpline,
+    ) -> Result<AUTOBKSpline, BackgroundError> {
+        match self.solver.unwrap_or(AUTOBKSolver::LinearDirect) {
+            AUTOBKSolver::LegacyLm => Self::solve_lm_problem(spline_opt),
+            AUTOBKSolver::LinearDirect => {
+                let clamp_policy = self
+                    .clamp_scale_policy
+                    .unwrap_or(AUTOBKClampScalePolicy::Fixed);
+                let regularization = self
+                    .linear_regularization
+                    .unwrap_or(DEFAULT_LINEAR_REGULARIZATION)
+                    .max(0.0);
+                let condition_limit = self
+                    .linear_condition_limit
+                    .unwrap_or(DEFAULT_LINEAR_CONDITION_LIMIT)
+                    .max(1.0);
+                let residual_ratio_limit = self
+                    .linear_residual_ratio_limit
+                    .unwrap_or(DEFAULT_LINEAR_RESIDUAL_RATIO_LIMIT)
+                    .max(1.0);
+                let use_workspace_cache = self.linear_workspace_cache.unwrap_or(true);
+                let fallback_to_lm = self.linear_fallback_to_lm.unwrap_or(true);
+
+                match spline_opt.solve_linear_direct(
+                    clamp_policy,
+                    regularization,
+                    condition_limit,
+                    residual_ratio_limit,
+                    use_workspace_cache,
+                ) {
+                    Ok(coefs) => {
+                        let mut fit_result = spline_opt;
+                        fit_result.coefs = coefs;
+                        Ok(fit_result)
+                    }
+                    Err(linear_err) => {
+                        if fallback_to_lm {
+                            Self::solve_lm_problem(spline_opt)
+                        } else {
+                            Err(linear_err)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Calculate background
@@ -590,12 +729,7 @@ impl AUTOBK {
             ..Default::default()
         };
 
-        let (fit_result, report) = LevenbergMarquardt::new()
-            .with_gtol(1.0e-5)
-            .with_ftol(1.0e-5)
-            .with_xtol(1.0e-5)
-            .with_stepbound(1.0e-5)
-            .minimize(spline_opt);
+        let fit_result = self.solve_spline_problem(spline_opt)?;
 
         let (bkg, chi) = spline_eval_nalgebra(
             &fit_result.kraw,
@@ -807,9 +941,8 @@ impl Default for AUTOBKSpline {
 }
 
 impl AUTOBKSpline {
-    /// The Loss function in 1-d array for the Levenberg-Marquardt optimization
-    pub fn residual_vec(&self, coefs: &DVector<f64>) -> DVector<f64> {
-        let (bkg, chi) = spline_eval_nalgebra(
+    fn chi_for_coefs(&self, coefs: &DVector<f64>) -> DVector<f64> {
+        let (_, chi) = spline_eval_nalgebra(
             &self.kraw,
             &self.mu,
             &self.knots,
@@ -818,64 +951,80 @@ impl AUTOBKSpline {
             &self.kout,
         );
 
-        let chi: DVector<f64> = if let Some(chi_std) = self.chi_std.as_ref() {
+        if let Some(chi_std) = self.chi_std.as_ref() {
             chi - chi_std
         } else {
             chi
-        };
+        }
+    }
 
-        let mut out: DVector<f64> = chi
+    fn fft_residual_head(&self, chi: &DVector<f64>) -> DVector<f64> {
+        let fft = chi
             .component_mul(&self.ftwin)
-            .xftf_fast(self.nfft, self.kstep)[..self.irbkg]
-            .realimg();
+            .xftf_fast(self.nfft, self.kstep);
+        let upper = self.irbkg.min(fft.len());
+        fft[..upper].realimg()
+    }
+
+    fn clamp_len(&self, vec_len: usize) -> usize {
+        if self.nclamp <= 0 {
+            return 0;
+        }
+        (self.nclamp as usize).min(vec_len.saturating_sub(1))
+    }
+
+    fn clamp_scale(&self, coefs: &DVector<f64>) -> f64 {
+        if self.nclamp == 0 {
+            return 1.0;
+        }
+        let chi = self.chi_for_coefs(coefs);
+        let out = self.fft_residual_head(&chi);
+        if out.is_empty() {
+            return 1.0;
+        }
+
+        1.0 + 100.0 * out.dot(&out) / out.len() as f64
+    }
+
+    /// The Loss function in 1-d array for the Levenberg-Marquardt optimization
+    pub fn residual_vec_with_scale(
+        &self,
+        coefs: &DVector<f64>,
+        clamp_scale_override: Option<f64>,
+    ) -> DVector<f64> {
+        let chi = self.chi_for_coefs(coefs);
+        let mut out = self.fft_residual_head(&chi);
 
         if self.nclamp == 0 {
             return out;
         }
 
-        let scale = 1.0 + 100.0 * out.dot(&out) / out.len() as f64;
+        let nclamp = self.clamp_len(chi.len());
+        if nclamp == 0 {
+            return out;
+        }
 
-        let low_clamp = self.clamp_lo as f64 * scale * chi.view((0, 0), (self.nclamp as usize, 1));
-
-        let high_clamp = self.clamp_hi as f64
-            * scale
-            * chi.view(
-                (chi.len() - self.nclamp as usize - 1, 0),
-                (self.nclamp as usize, 1),
-            );
+        let scale = clamp_scale_override.unwrap_or_else(|| self.clamp_scale(coefs));
+        let low_clamp = self.clamp_lo as f64 * scale * chi.view((0, 0), (nclamp, 1));
+        let high_start = chi.len() - nclamp - 1;
+        let high_clamp = self.clamp_hi as f64 * scale * chi.view((high_start, 0), (nclamp, 1));
 
         out.extend(low_clamp.data.as_vec().to_owned());
-
         out.extend(high_clamp.data.as_vec().to_owned());
-
         out
     }
 
-    pub fn residual_jacobian(&self, coefs: &DVector<f64>) -> DMatrix<f64> {
-        // just for calculating the scale
+    pub fn residual_vec(&self, coefs: &DVector<f64>) -> DVector<f64> {
+        self.residual_vec_with_scale(coefs, None)
+    }
 
+    pub fn residual_jacobian_with_scale(
+        &self,
+        coefs: &DVector<f64>,
+        clamp_scale_override: Option<f64>,
+    ) -> DMatrix<f64> {
         let scale = if self.nclamp != 0 {
-            let (_, chi) = spline_eval_nalgebra(
-                &self.kraw,
-                &self.mu,
-                &self.knots,
-                coefs,
-                self.order,
-                &self.kout,
-            );
-
-            let chi: DVector<f64> = if let Some(chi_std) = self.chi_std.as_ref() {
-                chi - chi_std
-            } else {
-                chi
-            };
-
-            let out: DVector<f64> = chi
-                .component_mul(&self.ftwin)
-                .xftf_fast(self.nfft, self.kstep)[..self.irbkg]
-                .realimg();
-
-            1.0 + 100.0 * out.dot(&out) / out.len() as f64
+            clamp_scale_override.unwrap_or_else(|| self.clamp_scale(coefs))
         } else {
             1.0
         };
@@ -887,30 +1036,29 @@ impl AUTOBKSpline {
             self.kout.data.as_vec().clone(),
             3,
         );
-        let num_cols = self.coefs.len();
 
         let jacobian_columns = spline_jacobian
             .column_iter()
             .map(|chi_der| {
-                let mut out: DVector<f64> = chi_der
+                let fft = chi_der
                     .component_mul(&self.ftwin)
-                    .xftf_fast(self.nfft, self.kstep)[..self.irbkg]
-                    .realimg();
+                    .xftf_fast(self.nfft, self.kstep);
+                let upper = self.irbkg.min(fft.len());
+                let mut out: DVector<f64> = fft[..upper].realimg();
 
                 if self.nclamp == 0 {
                     return out;
                 }
 
-                // let scale = 1.0 + 100.0 * out.dot(&out) / out.len() as f64;
+                let nclamp = self.clamp_len(chi_der.len());
+                if nclamp == 0 {
+                    return out;
+                }
 
-                let low_clamp =
-                    self.clamp_lo as f64 * scale * chi_der.view((0, 0), (self.nclamp as usize, 1));
-                let high_clamp = self.clamp_hi as f64
-                    * scale
-                    * chi_der.view(
-                        (chi_der.len() - self.nclamp as usize - 1, 0),
-                        (self.nclamp as usize, 1),
-                    );
+                let low_clamp = self.clamp_lo as f64 * scale * chi_der.view((0, 0), (nclamp, 1));
+                let high_start = chi_der.len() - nclamp - 1;
+                let high_clamp =
+                    self.clamp_hi as f64 * scale * chi_der.view((high_start, 0), (nclamp, 1));
 
                 out.extend(low_clamp.data.as_vec().to_owned());
                 out.extend(high_clamp.data.as_vec().to_owned());
@@ -919,6 +1067,254 @@ impl AUTOBKSpline {
             .collect::<Vec<DVector<f64>>>();
 
         DMatrix::from_columns(&jacobian_columns)
+    }
+
+    pub fn residual_jacobian(&self, coefs: &DVector<f64>) -> DMatrix<f64> {
+        self.residual_jacobian_with_scale(coefs, None)
+    }
+
+    fn workspace_signature(&self, clamp_scale: f64) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        hasher.write_u64(self.order as u64);
+        hasher.write_u64(self.irbkg as u64);
+        hasher.write_u64(self.nfft as u64);
+        hasher.write_u64(self.nclamp.max(0) as u64);
+        hasher.write_u64(self.clamp_lo.max(0) as u64);
+        hasher.write_u64(self.clamp_hi.max(0) as u64);
+        hasher.write_u64(self.kweight.max(0) as u64);
+        hasher.write_u64(clamp_scale.to_bits());
+        hasher.write_u64(self.kstep.to_bits());
+        hasher.write_u64(self.knots.len() as u64);
+        hasher.write_u64(self.coefs.len() as u64);
+        hasher.write_u64(self.kout.len() as u64);
+        hasher.write_u64(self.ftwin.len() as u64);
+
+        for value in self.knots.iter() {
+            hasher.write_u64(value.to_bits());
+        }
+        for value in self.kout.iter() {
+            hasher.write_u64(value.to_bits());
+        }
+        for value in self.ftwin.iter() {
+            hasher.write_u64(value.to_bits());
+        }
+
+        hasher.finish()
+    }
+
+    fn linear_design_matrix(&self, clamp_scale: f64, use_workspace_cache: bool) -> DMatrix<f64> {
+        let signature = self.workspace_signature(clamp_scale);
+
+        if use_workspace_cache {
+            if let Ok(cache) = autobk_workspace_cache().lock() {
+                if let Some(entry) = cache.as_ref() {
+                    if entry.signature == signature {
+                        return (*entry.design_matrix).clone();
+                    }
+                }
+            }
+        }
+
+        let matrix = self.residual_jacobian_with_scale(&self.coefs, Some(clamp_scale));
+        if use_workspace_cache {
+            if let Ok(mut cache) = autobk_workspace_cache().lock() {
+                *cache = Some(AutobkLinearWorkspace {
+                    signature,
+                    design_matrix: Arc::new(matrix.clone()),
+                });
+            }
+        }
+
+        matrix
+    }
+
+    fn solve_linear_direct_for_scale(
+        &self,
+        clamp_scale: f64,
+        regularization: f64,
+        condition_limit: f64,
+        residual_ratio_limit: f64,
+        use_workspace_cache: bool,
+    ) -> Result<DVector<f64>, BackgroundError> {
+        if self.coefs.is_empty() {
+            return Err(BackgroundError::DirectSolverFailed {
+                reason: "empty coefficient vector".to_string(),
+            });
+        }
+
+        let base_residual =
+            self.residual_vec_with_scale(&DVector::zeros(self.coefs.len()), Some(clamp_scale));
+        if base_residual.iter().any(|v| !v.is_finite()) {
+            return Err(BackgroundError::DirectSolverFailed {
+                reason: "non-finite base residual".to_string(),
+            });
+        }
+
+        let design = self.linear_design_matrix(clamp_scale, use_workspace_cache);
+        if design.iter().any(|v| !v.is_finite()) {
+            return Err(BackgroundError::DirectSolverFailed {
+                reason: "non-finite design matrix".to_string(),
+            });
+        }
+
+        let mut regularization_candidates = vec![regularization.max(0.0)];
+        for candidate in [1.0e-8, 1.0e-6, 1.0e-4, 1.0e-2, 1.0] {
+            if candidate > regularization.max(0.0) {
+                regularization_candidates.push(candidate);
+            }
+        }
+
+        let mut last_error = None;
+
+        for reg in regularization_candidates {
+            let n_rows = design.nrows();
+            let n_cols = design.ncols();
+            let reg_sqrt = reg.sqrt();
+
+            let mut augmented_design = DMatrix::zeros(n_rows + n_cols, n_cols);
+            for i in 0..n_rows {
+                for j in 0..n_cols {
+                    augmented_design[(i, j)] = design[(i, j)];
+                }
+            }
+            for i in 0..n_cols {
+                augmented_design[(n_rows + i, i)] = reg_sqrt;
+            }
+
+            let mut augmented_rhs = DVector::zeros(n_rows + n_cols);
+            for i in 0..n_rows {
+                augmented_rhs[i] = -base_residual[i];
+            }
+
+            let mut column_scales = DVector::from_element(n_cols, 1.0);
+            let mut scaled_design = augmented_design;
+            for j in 0..n_cols {
+                let norm = scaled_design.column(j).norm();
+                let scale = if norm.is_finite() && norm > f64::EPSILON {
+                    norm
+                } else {
+                    1.0
+                };
+                column_scales[j] = scale;
+                for i in 0..scaled_design.nrows() {
+                    scaled_design[(i, j)] /= scale;
+                }
+            }
+
+            let svd = scaled_design.svd(true, true);
+            let mut sigma_max = 0.0_f64;
+            let mut sigma_min = f64::INFINITY;
+            for sigma in svd.singular_values.iter() {
+                let value = sigma.abs();
+                sigma_max = sigma_max.max(value);
+                if value > f64::EPSILON {
+                    sigma_min = sigma_min.min(value);
+                }
+            }
+
+            let condition_proxy = if sigma_min.is_finite() && sigma_min > f64::EPSILON {
+                sigma_max / sigma_min
+            } else {
+                f64::INFINITY
+            };
+
+            if !condition_proxy.is_finite() || condition_proxy > condition_limit {
+                last_error = Some(BackgroundError::DirectSolverIllConditioned {
+                    condition_proxy,
+                    limit: condition_limit,
+                });
+                continue;
+            }
+
+            let solved_scaled = match svd.solve(&augmented_rhs, f64::EPSILON.sqrt()) {
+                Ok(solution) => solution,
+                Err(reason) => {
+                    last_error = Some(BackgroundError::DirectSolverFailed {
+                        reason: format!("svd solve failed at regularization {}: {}", reg, reason),
+                    });
+                    continue;
+                }
+            };
+
+            let mut coefs = solved_scaled;
+            for j in 0..coefs.len() {
+                coefs[j] /= column_scales[j];
+            }
+
+            if coefs.iter().any(|v| !v.is_finite()) {
+                last_error = Some(BackgroundError::DirectSolverFailed {
+                    reason: "non-finite coefficient solution".to_string(),
+                });
+                continue;
+            }
+
+            let solved_residual = &base_residual + &design * &coefs;
+            let base_norm = base_residual.norm();
+            let solved_norm = solved_residual.norm();
+            if !base_norm.is_finite() || !solved_norm.is_finite() {
+                last_error = Some(BackgroundError::DirectSolverFailed {
+                    reason: "non-finite residual norms".to_string(),
+                });
+                continue;
+            }
+
+            if base_norm > f64::EPSILON {
+                let ratio = solved_norm / base_norm;
+                if !ratio.is_finite() || ratio > residual_ratio_limit {
+                    last_error = Some(BackgroundError::DirectSolverFailed {
+                        reason: format!(
+                            "residual quality ratio {} exceeded limit {} at regularization {}",
+                            ratio, residual_ratio_limit, reg
+                        ),
+                    });
+                    continue;
+                }
+            }
+
+            return Ok(coefs);
+        }
+
+        Err(last_error.unwrap_or_else(|| BackgroundError::DirectSolverFailed {
+            reason: "direct solve failed for all regularization attempts".to_string(),
+        }))
+    }
+
+    pub fn solve_linear_direct(
+        &self,
+        clamp_policy: AUTOBKClampScalePolicy,
+        regularization: f64,
+        condition_limit: f64,
+        residual_ratio_limit: f64,
+        use_workspace_cache: bool,
+    ) -> Result<DVector<f64>, BackgroundError> {
+        let first_scale = if self.nclamp == 0 {
+            1.0
+        } else {
+            self.clamp_scale(&self.coefs)
+        };
+
+        let mut coefs = self.solve_linear_direct_for_scale(
+            first_scale,
+            regularization,
+            condition_limit,
+            residual_ratio_limit,
+            use_workspace_cache,
+        )?;
+
+        if self.nclamp != 0 && clamp_policy == AUTOBKClampScalePolicy::TwoPass {
+            let second_scale = self.clamp_scale(&coefs);
+            if second_scale.is_finite() && (second_scale - first_scale).abs() > 1.0e-12 {
+                coefs = self.solve_linear_direct_for_scale(
+                    second_scale,
+                    regularization,
+                    condition_limit,
+                    residual_ratio_limit,
+                    use_workspace_cache,
+                )?;
+            }
+        }
+
+        Ok(coefs)
     }
 }
 
@@ -1094,5 +1490,160 @@ mod tests {
         let spl_k = Array1::from_vec(vec![2.0, 2.0, 2.0, 2.0, 2.0]);
         let err = AUTOBK::build_knot_domain(&spl_k, 3).unwrap_err();
         assert!(matches!(err, BackgroundError::SplineKnotsFailed { .. }));
+    }
+
+    #[test]
+    fn test_autobk_direct_solver_parity_with_legacy_lm() -> Result<(), Box<dyn Error>> {
+        let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
+        let mut spectrum = io::load_spectrum_QAS_trans(&path)?;
+
+        spectrum
+            .set_normalization_method(Some(normalization::NormalizationMethod::PrePostEdge(
+                PrePostEdge::new(),
+            )))?
+            .normalize()?;
+
+        let energy = spectrum.energy.clone().unwrap();
+        let mu = spectrum.mu.clone().unwrap();
+
+        let mut legacy_norm = spectrum.normalization.clone();
+        let mut direct_norm = spectrum.normalization.clone();
+
+        let mut legacy = AUTOBK::new();
+        legacy.solver = Some(AUTOBKSolver::LegacyLm);
+        legacy.calc_background(&energy, &mu, &mut legacy_norm)?;
+
+        let mut direct = AUTOBK::new();
+        direct.solver = Some(AUTOBKSolver::LinearDirect);
+        direct.clamp_scale_policy = Some(AUTOBKClampScalePolicy::TwoPass);
+        direct.calc_background(&energy, &mu, &mut direct_norm)?;
+
+        let legacy_chi = legacy.get_chi().unwrap();
+        let direct_chi = direct.get_chi().unwrap();
+        assert_eq!(legacy_chi.len(), direct_chi.len());
+
+        let mse = legacy_chi
+            .iter()
+            .zip(direct_chi.iter())
+            .map(|(x, y)| (x - y).powi(2))
+            .sum::<f64>()
+            / legacy_chi.len() as f64;
+
+        assert!(mse < CHI_MSE_TOL);
+        Ok(())
+    }
+
+    #[test]
+    fn test_autobk_direct_solver_fallback_to_lm() -> Result<(), Box<dyn Error>> {
+        let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
+        let mut spectrum = io::load_spectrum_QAS_trans(&path)?;
+        spectrum
+            .set_normalization_method(Some(normalization::NormalizationMethod::PrePostEdge(
+                PrePostEdge::new(),
+            )))?
+            .normalize()?;
+
+        let energy = spectrum.energy.clone().unwrap();
+        let mu = spectrum.mu.clone().unwrap();
+
+        let mut normalization = spectrum.normalization.clone();
+
+        let mut autobk = AUTOBK::new();
+        autobk.solver = Some(AUTOBKSolver::LinearDirect);
+        autobk.linear_condition_limit = Some(1.0);
+        autobk.linear_fallback_to_lm = Some(true);
+
+        let result = autobk.calc_background(&energy, &mu, &mut normalization)?;
+        assert!(result.get_chi().is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn test_autobk_direct_solver_default_succeeds_without_fallback() -> Result<(), Box<dyn Error>> {
+        let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
+        let mut spectrum = io::load_spectrum_QAS_trans(&path)?;
+        spectrum
+            .set_normalization_method(Some(normalization::NormalizationMethod::PrePostEdge(
+                PrePostEdge::new(),
+            )))?
+            .normalize()?;
+
+        let energy = spectrum.energy.clone().unwrap();
+        let mu = spectrum.mu.clone().unwrap();
+        let mut normalization = spectrum.normalization.clone();
+
+        let mut autobk = AUTOBK::new();
+        autobk.solver = Some(AUTOBKSolver::LinearDirect);
+        autobk.linear_fallback_to_lm = Some(false);
+
+        let result = autobk.calc_background(&energy, &mu, &mut normalization)?;
+        assert!(result.get_chi().is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn test_autobk_direct_solver_failure_without_fallback() -> Result<(), Box<dyn Error>> {
+        let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
+        let mut spectrum = io::load_spectrum_QAS_trans(&path)?;
+        spectrum
+            .set_normalization_method(Some(normalization::NormalizationMethod::PrePostEdge(
+                PrePostEdge::new(),
+            )))?
+            .normalize()?;
+
+        let energy = spectrum.energy.clone().unwrap();
+        let mu = spectrum.mu.clone().unwrap();
+        let mut normalization = spectrum.normalization.clone();
+
+        let mut autobk = AUTOBK::new();
+        autobk.solver = Some(AUTOBKSolver::LinearDirect);
+        autobk.linear_condition_limit = Some(1.0);
+        autobk.linear_fallback_to_lm = Some(false);
+
+        let err = autobk
+            .calc_background(&energy, &mu, &mut normalization)
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            BackgroundError::DirectSolverIllConditioned { .. }
+                | BackgroundError::DirectSolverFailed { .. }
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn test_autobk_direct_solver_deterministic_two_pass() -> Result<(), Box<dyn Error>> {
+        let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
+        let mut spectrum = io::load_spectrum_QAS_trans(&path)?;
+        spectrum
+            .set_normalization_method(Some(normalization::NormalizationMethod::PrePostEdge(
+                PrePostEdge::new(),
+            )))?
+            .normalize()?;
+
+        let energy = spectrum.energy.clone().unwrap();
+        let mu = spectrum.mu.clone().unwrap();
+
+        let mut norm_a = spectrum.normalization.clone();
+        let mut norm_b = spectrum.normalization.clone();
+
+        let mut autobk_a = AUTOBK::new();
+        autobk_a.solver = Some(AUTOBKSolver::LinearDirect);
+        autobk_a.clamp_scale_policy = Some(AUTOBKClampScalePolicy::TwoPass);
+        autobk_a.calc_background(&energy, &mu, &mut norm_a)?;
+
+        let mut autobk_b = AUTOBK::new();
+        autobk_b.solver = Some(AUTOBKSolver::LinearDirect);
+        autobk_b.clamp_scale_policy = Some(AUTOBKClampScalePolicy::TwoPass);
+        autobk_b.calc_background(&energy, &mu, &mut norm_b)?;
+
+        let chi_a = autobk_a.get_chi().unwrap();
+        let chi_b = autobk_b.get_chi().unwrap();
+        assert_eq!(chi_a.len(), chi_b.len());
+
+        chi_a.iter().zip(chi_b.iter()).for_each(|(a, b)| {
+            assert_abs_diff_eq!(a, b, epsilon = 1.0e-12);
+        });
+        Ok(())
     }
 }

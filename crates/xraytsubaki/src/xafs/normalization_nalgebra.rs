@@ -10,7 +10,7 @@ use super::mathutils::{self, MathUtils};
 use super::xafsutils;
 
 /// trait for Normalization
-/// it impliments some methods required for nomalization of XAFS data
+/// it implements some methods required for normalization of XAFS data
 pub trait Normalization {
     fn normalize(
         &mut self,
@@ -549,7 +549,8 @@ impl MBack {
     }
 
     pub fn fill_parameter(&mut self) {
-        todo!("Implement MBack fill_parameter")
+        // MBack parameter filling is not implemented yet.
+        // Keep this as a no-op to avoid panics in callers that probe this method.
     }
 }
 

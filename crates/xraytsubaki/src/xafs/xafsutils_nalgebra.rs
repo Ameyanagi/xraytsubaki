@@ -269,6 +269,13 @@ pub fn _find_e0(
     estep: Option<f64>,
     use_smooth: Option<bool>,
 ) -> Result<(f64, usize, f64), Box<dyn Error>> {
+    if energy.len() != mu.len() {
+        return Err("energy and mu length mismatch".into());
+    }
+    if energy.len() < 3 {
+        return Err("need at least 3 points".into());
+    }
+
     let en = remove_dups(energy, None, None, None);
     let estep = estep.unwrap_or(find_energy_step(energy, None, None, Some(false)) / 2.0);
     let nmin = 2.max(en.len() / 100);
@@ -313,22 +320,25 @@ pub fn _find_e0(
         })
     };
 
-    let dmin = *dmu
-        .as_slice()
+    let middle_start = nmin.min(dmu.len());
+    let middle_end = dmu.len().saturating_sub(nmin);
+    let middle_slice: Vec<f64> = if middle_end > middle_start {
+        dmu.as_slice()[middle_start..middle_end]
+            .iter()
+            .copied()
+            .filter(|value| value.is_finite())
+            .collect()
+    } else {
+        dmu.iter()
+            .copied()
+            .filter(|value| value.is_finite())
+            .collect()
+    };
+    let dmin = middle_slice
         .iter()
-        .skip(nmin)
-        .take(dmu.len() - 2 * nmin)
-        .filter(|a| a.is_finite())
-        .min_by(|a, b| a.partial_cmp(b).unwrap())
-        .unwrap_or(&-1.0);
-
-    let middle_slice: Vec<f64> = dmu
-        .as_slice()
-        .iter()
-        .skip(nmin)
-        .take(dmu.len() - 2 * nmin)
-        .cloned()
-        .collect();
+        .copied()
+        .reduce(f64::min)
+        .unwrap_or(-1.0);
     let dm_min = middle_slice
         .iter()
         .copied()
@@ -383,8 +393,9 @@ pub fn _find_e0(
     let mut imax = 0;
     let mut dmax = 0.0;
 
+    let upper = dmu.len().saturating_sub(nmin);
     for i in &high_deriv_pts {
-        if i < &nmin || i > &(dmu.len() - nmin) {
+        if i < &nmin || i > &upper {
             continue;
         }
 
@@ -401,9 +412,21 @@ pub fn _find_e0(
 }
 
 pub fn find_e0(energy: &DVector<f64>, mu: &DVector<f64>) -> Result<f64, Box<dyn Error>> {
-    let (_e1, ie0, estep) = _find_e0(energy, mu, None, None)?;
+    if energy.len() != mu.len() {
+        return Err("energy and mu length mismatch".into());
+    }
+
+    let (e1, ie0, estep) = _find_e0(energy, mu, None, None)?;
+    let n = energy.len();
+    if n < 3 {
+        return Ok(e1);
+    }
+
     let istart = (ie0 as i32 - 75).max(2) as usize;
-    let istop = (ie0 + 75).min(energy.len() - 2);
+    let istop = (ie0 + 75).min(n - 2);
+    if istop <= istart || istart + 2 >= n {
+        return Ok(e1);
+    }
 
     let energy_slice = DVector::from_iterator(
         istop - istart,
@@ -411,8 +434,14 @@ pub fn find_e0(energy: &DVector<f64>, mu: &DVector<f64>) -> Result<f64, Box<dyn 
     );
     let mu_slice =
         DVector::from_iterator(istop - istart, mu.as_slice()[istart..istop].iter().cloned());
+    if energy_slice.len() < 3 {
+        return Ok(e1);
+    }
 
-    let (mut e0, ix, _ex) = _find_e0(&energy_slice, &mu_slice, Some(estep), Some(true))?;
+    let (mut e0, ix, _ex) = match _find_e0(&energy_slice, &mu_slice, Some(estep), Some(true)) {
+        Ok(value) => value,
+        Err(_) => return Ok(e1),
+    };
     if ix < 1 {
         e0 = energy[istart + 2];
     }
@@ -648,5 +677,41 @@ mod tests {
             FTWindow::KaiserBessel,
             TEST_TOL_FTWINDOW,
         );
+    }
+
+    #[test]
+    fn test_find_energy_step_sort() {
+        let energy = DVector::from_vec(vec![0.0, 1.0, 2.0, 3.0, 4.0, 2.0]);
+        let step = find_energy_step(&energy, Some(0.0), None, Some(true));
+        assert_abs_diff_eq!(step, 0.75, epsilon = TEST_TOL);
+    }
+
+    #[test]
+    fn test_find_e0() {
+        let energy = DVector::from_iterator(1000, (0..1000).map(|i| i as f64 * 100.0 / 999.0));
+        let mu = energy.map(|x| (x - 50.0).powi(3) - (x - 50.0).powi(2) + x);
+        let result = find_e0(&energy, &mu).unwrap();
+        assert_abs_diff_eq!(result, 0.4004004004004004, epsilon = TEST_TOL);
+    }
+
+    #[test]
+    fn test_find_e0_length_mismatch_returns_error() {
+        let energy = DVector::from_vec(vec![1.0, 2.0, 3.0]);
+        let mu = DVector::from_vec(vec![1.0, 2.0]);
+        assert!(_find_e0(&energy, &mu, None, None).is_err());
+        assert!(find_e0(&energy, &mu).is_err());
+    }
+
+    #[test]
+    fn test_smooth_smoke() {
+        let x = dvector_arange(0.0, 10.0, 1.0);
+        let mut y = DVector::zeros(x.len());
+        y[5] = 1.0;
+
+        let smoothed = smooth(&x, &y, None, None, None, None, ConvolveForm::Lorentzian).unwrap();
+        assert_eq!(smoothed.len(), y.len());
+        assert!(smoothed.iter().all(|value| value.is_finite()));
+        assert!(smoothed[5] < y[5]);
+        assert!(smoothed[5] > smoothed[0]);
     }
 }

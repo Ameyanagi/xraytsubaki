@@ -1286,9 +1286,6 @@ impl AUTOBKSpline {
     }
 }
 
-use approx::assert_abs_diff_eq;
-use std::time::{Duration, Instant};
-
 /// Implementation of LeastSquaresProblem trait for AUTOBK algorithm
 impl LeastSquaresProblem<f64, Dyn, Dyn> for AUTOBKSpline {
     type ParameterStorage = Owned<f64, Dyn>;

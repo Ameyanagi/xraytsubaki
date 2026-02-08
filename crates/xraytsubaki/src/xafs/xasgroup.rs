@@ -256,21 +256,23 @@ impl XASGroup {
     where
         F: FnMut(&mut XASSpectrum) -> Result<&mut XASSpectrum, XAFSError>,
     {
-        let errors = self
-            .spectra
-            .iter_mut()
-            .enumerate()
-            .filter_map(|(index, spectrum)| {
-                op(spectrum)
-                    .err()
-                    .map(|source| BatchSpectrumError { index, source })
-            })
-            .collect::<Vec<_>>();
+        if self.spectra.is_empty() {
+            return Ok(self);
+        }
 
-        if errors.is_empty() {
-            Ok(self)
-        } else {
+        let mut errors: Option<Vec<BatchSpectrumError>> = None;
+        for (index, spectrum) in self.spectra.iter_mut().enumerate() {
+            if let Err(source) = op(spectrum) {
+                errors
+                    .get_or_insert_with(|| Vec::with_capacity(4))
+                    .push(BatchSpectrumError { index, source });
+            }
+        }
+
+        if let Some(errors) = errors {
             Err(BatchProcessError { errors })
+        } else {
+            Ok(self)
         }
     }
 
@@ -278,6 +280,10 @@ impl XASGroup {
     where
         F: Fn(&mut XASSpectrum) -> Result<&mut XASSpectrum, XAFSError> + Sync + Send,
     {
+        if self.spectra.is_empty() {
+            return Ok(self);
+        }
+
         let mut errors = self
             .spectra
             .par_iter_mut()
@@ -288,11 +294,12 @@ impl XASGroup {
                     .map(|source| BatchSpectrumError { index, source })
             })
             .collect::<Vec<_>>();
-        errors.sort_by_key(|err| err.index);
-
         if errors.is_empty() {
             Ok(self)
         } else {
+            if errors.len() > 1 {
+                errors.sort_by_key(|err| err.index);
+            }
             Err(BatchProcessError { errors })
         }
     }
@@ -489,6 +496,23 @@ mod tests {
         let par_err = par_group.find_e0_par().unwrap_err();
         assert_eq!(par_err.errors.len(), 1);
         assert_eq!(par_err.errors[0].index, 1);
+    }
+
+    #[test]
+    fn test_batch_find_e0_par_multiple_errors_are_sorted_by_index() {
+        let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
+        let valid = io::load_spectrum_QAS_trans(&path).unwrap();
+        let invalid = XASSpectrum::new();
+
+        let mut par_group = XASGroup::new();
+        par_group
+            .add_spectrum(invalid.clone())
+            .add_spectrum(valid)
+            .add_spectrum(invalid);
+
+        let par_err = par_group.find_e0_par().unwrap_err();
+        let indices = par_err.errors.iter().map(|err| err.index).collect::<Vec<_>>();
+        assert_eq!(indices, vec![0, 2]);
     }
 
     #[test]

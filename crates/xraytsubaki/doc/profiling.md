@@ -262,3 +262,64 @@ Notes:
 
 - This slice reduced allocation pressure in both single and parallel allocator-instrumented runs.
 - Runtime impact is mixed: parallel center estimate improved while sequential and AUTOBK-stage medians regressed modestly on this machine/run.
+
+## Slice H Metrics (allocation-pressure proposal implementation)
+
+Date: 2026-02-08
+
+Environment:
+
+- `rustc 1.93.0`
+- `cargo 1.93.0`
+- `Darwin 25.2.0 arm64`
+
+Commands:
+
+```bash
+cargo test -p xraytsubaki
+cargo bench -p xraytsubaki --bench autobk_stage_benchmark -- --noplot
+cargo bench -p xraytsubaki --bench xas_group_benchmark_single -- --noplot
+cargo bench -p xraytsubaki --bench xas_group_benchmark_parallel -- --noplot
+cargo run -p xraytsubaki --example alloc_baseline --release
+bash crates/xraytsubaki/scripts/bench_regression_gate.sh informational
+cargo bench -p xraytsubaki --bench autobk_stage_benchmark -- --profile-time 5
+```
+
+Pre-change baseline for this slice (captured before edits):
+
+- `autobk_stage_legacy_lm`: `[2.4009 ms 2.4325 ms 2.4624 ms]`
+- `autobk_stage_linear_direct`: `[120.13 µs 121.48 µs 122.76 µs]`
+- `xas_group_benchmark_single`: `[1.5536 s 1.5717 s 1.5861 s]`
+- `xas_group_benchmark_parallel`: `[337.67 ms 344.21 ms 351.27 ms]`
+- `xas_group_benchmark_single_alloc`:
+  - `alloc_calls=258799`
+  - `alloc_bytes=85411908`
+- `xas_group_benchmark_parallel_alloc`:
+  - `alloc_calls=25800408`
+  - `alloc_bytes=8439161224`
+
+Post-change results:
+
+- `autobk_stage_legacy_lm` median point estimate: `2.581180 ms`
+- `autobk_stage_linear_direct` median point estimate: `123.671 µs`
+- `xas_group_benchmark_single` median point estimate: `1.585049 s`
+- `xas_group_benchmark_parallel` median point estimate: `392.217 ms`
+- `xas_group_benchmark_single_alloc`:
+  - `alloc_calls=258799` (`0.00%`)
+  - `alloc_bytes=85411908` (`0.00%`)
+- `xas_group_benchmark_parallel_alloc`:
+  - `alloc_calls=25800407` (`-0.000004%`)
+  - `alloc_bytes=8439161176` (`-0.000001%`)
+
+Profiler output status:
+
+- `autobk_stage_benchmark` now uses conditional profiler wiring.
+- `--profile-time` run emits flamegraphs at:
+  - `target/criterion/autobk_stage_legacy_lm/profile/flamegraph.svg`
+  - `target/criterion/autobk_stage_linear_direct/profile/flamegraph.svg`
+- Normal `--noplot` runs do not force profiling overhead.
+
+Notes:
+
+- Allocation-reduction targets for this slice were not met on this machine/run.
+- Regression gate is green in informational mode for the stored baseline (`10%` threshold).

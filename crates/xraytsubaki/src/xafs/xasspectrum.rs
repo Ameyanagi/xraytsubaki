@@ -145,35 +145,23 @@ impl XASSpectrum {
         energy: T,
     ) -> Result<&mut Self, XAFSError> {
         self.energy = Some(energy.into());
-
-        let energy = self.energy.clone().ok_or_else(|| DataError::MissingData {
+        let energy = self.energy.as_ref().ok_or_else(|| DataError::MissingData {
             field: "energy".to_string(),
         })?;
-        let mu = self
-            .raw_mu
-            .clone()
-            .ok_or_else(|| DataError::MissingData {
-                field: "raw_mu".to_string(),
-            })?
-            .data
-            .as_vec()
-            .to_vec();
-        let knot = self
-            .raw_energy
-            .clone()
-            .ok_or_else(|| DataError::MissingData {
-                field: "raw_energy".to_string(),
-            })?
-            .data
-            .as_vec()
-            .to_vec();
+        let mu = self.raw_mu.as_ref().ok_or_else(|| DataError::MissingData {
+            field: "raw_mu".to_string(),
+        })?;
+        let knot = self.raw_energy.as_ref().ok_or_else(|| DataError::MissingData {
+            field: "raw_energy".to_string(),
+        })?;
 
-        self.mu = Some(energy.interpolate(&knot, &mu).map_err(|e| {
+        let interpolated = energy.interpolate(knot.as_slice(), mu.as_slice()).map_err(|e| {
             super::errors::MathError::SplineEvalFailed {
                 x: 0.0,
                 reason: e.to_string(),
             }
-        })?);
+        })?;
+        self.mu = Some(interpolated);
 
         Ok(self)
     }
@@ -647,6 +635,46 @@ pub mod tests {
             err,
             XAFSError::Data(DataError::LengthMismatch { .. })
         ));
+    }
+
+    #[test]
+    fn test_interpolate_spectrum_updates_energy_and_mu() {
+        let mut spectrum = XASSpectrum::new();
+        spectrum.set_spectrum(vec![0.0, 1.0, 2.0, 3.0], vec![0.0, 2.0, 4.0, 6.0]);
+
+        spectrum
+            .interpolate_spectrum(vec![0.5, 1.5, 2.5])
+            .unwrap();
+
+        assert_eq!(
+            spectrum.energy.as_ref().unwrap(),
+            &DVector::from_vec(vec![0.5, 1.5, 2.5])
+        );
+
+        let mu = spectrum.mu.as_ref().unwrap();
+        assert_abs_diff_eq!(mu[0], 1.0, epsilon = TEST_TOL);
+        assert_abs_diff_eq!(mu[1], 3.0, epsilon = TEST_TOL);
+        assert_abs_diff_eq!(mu[2], 5.0, epsilon = TEST_TOL);
+    }
+
+    #[test]
+    fn test_interpolate_spectrum_missing_raw_mu_keeps_existing_mu() {
+        let mut spectrum = XASSpectrum::new();
+        spectrum.raw_energy = Some(DVector::from_vec(vec![0.0, 1.0]));
+        spectrum.raw_mu = None;
+        spectrum.mu = Some(DVector::from_vec(vec![42.0]));
+
+        let err = spectrum.interpolate_spectrum(vec![0.25, 0.75]).unwrap_err();
+        assert!(matches!(
+            err,
+            XAFSError::Data(DataError::MissingData { ref field }) if field == "raw_mu"
+        ));
+
+        assert_eq!(
+            spectrum.energy.as_ref().unwrap(),
+            &DVector::from_vec(vec![0.25, 0.75])
+        );
+        assert_eq!(spectrum.mu.as_ref().unwrap(), &DVector::from_vec(vec![42.0]));
     }
 
     #[test]

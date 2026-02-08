@@ -44,6 +44,25 @@ AUTOBK knot-domain construction now has explicit tests for:
 
 This prevents silent knot-domain drift during refactors.
 
+## AUTOBK Solver Modes
+
+AUTOBK now supports two solver backends:
+
+- `AUTOBKSolver::LinearDirect` (default)
+- `AUTOBKSolver::LegacyLm`
+
+New optional AUTOBK configuration fields:
+
+- `solver`
+- `clamp_scale_policy` (`Fixed` or `TwoPass`)
+- `linear_regularization`
+- `linear_condition_limit`
+- `linear_residual_ratio_limit`
+- `linear_fallback_to_lm`
+- `linear_workspace_cache`
+
+Default behavior uses direct solve and falls back to LM when direct-solver quality/conditioning checks fail.
+
 ## Python Binding Surface
 
 Minimal stable batch API is available in `py-xraytsubaki`:

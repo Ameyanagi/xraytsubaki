@@ -499,6 +499,23 @@ mod tests {
     }
 
     #[test]
+    fn test_batch_find_e0_par_multiple_errors_are_sorted_by_index() {
+        let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
+        let valid = io::load_spectrum_QAS_trans(&path).unwrap();
+        let invalid = XASSpectrum::new();
+
+        let mut par_group = XASGroup::new();
+        par_group
+            .add_spectrum(invalid.clone())
+            .add_spectrum(valid)
+            .add_spectrum(invalid);
+
+        let par_err = par_group.find_e0_par().unwrap_err();
+        let indices = par_err.errors.iter().map(|err| err.index).collect::<Vec<_>>();
+        assert_eq!(indices, vec![0, 2]);
+    }
+
+    #[test]
     fn test_default_and_par_error_semantics_match() {
         let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
         let valid = io::load_spectrum_QAS_trans(&path).unwrap();

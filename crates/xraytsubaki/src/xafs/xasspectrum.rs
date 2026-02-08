@@ -638,6 +638,46 @@ pub mod tests {
     }
 
     #[test]
+    fn test_interpolate_spectrum_updates_energy_and_mu() {
+        let mut spectrum = XASSpectrum::new();
+        spectrum.set_spectrum(vec![0.0, 1.0, 2.0, 3.0], vec![0.0, 2.0, 4.0, 6.0]);
+
+        spectrum
+            .interpolate_spectrum(vec![0.5, 1.5, 2.5])
+            .unwrap();
+
+        assert_eq!(
+            spectrum.energy.as_ref().unwrap(),
+            &DVector::from_vec(vec![0.5, 1.5, 2.5])
+        );
+
+        let mu = spectrum.mu.as_ref().unwrap();
+        assert_abs_diff_eq!(mu[0], 1.0, epsilon = TEST_TOL);
+        assert_abs_diff_eq!(mu[1], 3.0, epsilon = TEST_TOL);
+        assert_abs_diff_eq!(mu[2], 5.0, epsilon = TEST_TOL);
+    }
+
+    #[test]
+    fn test_interpolate_spectrum_missing_raw_mu_keeps_existing_mu() {
+        let mut spectrum = XASSpectrum::new();
+        spectrum.raw_energy = Some(DVector::from_vec(vec![0.0, 1.0]));
+        spectrum.raw_mu = None;
+        spectrum.mu = Some(DVector::from_vec(vec![42.0]));
+
+        let err = spectrum.interpolate_spectrum(vec![0.25, 0.75]).unwrap_err();
+        assert!(matches!(
+            err,
+            XAFSError::Data(DataError::MissingData { ref field }) if field == "raw_mu"
+        ));
+
+        assert_eq!(
+            spectrum.energy.as_ref().unwrap(),
+            &DVector::from_vec(vec![0.25, 0.75])
+        );
+        assert_eq!(spectrum.mu.as_ref().unwrap(), &DVector::from_vec(vec![42.0]));
+    }
+
+    #[test]
     #[cfg(feature = "ndarray-compat")]
     fn test_borrowed_k_chi_views_match_owned_getters() -> Result<(), Box<dyn std::error::Error>> {
         let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";

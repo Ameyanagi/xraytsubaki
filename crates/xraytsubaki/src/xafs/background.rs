@@ -530,10 +530,26 @@ impl AUTOBK {
         let mu_dv = mu;
 
         // Convert energy once to ndarray storage for downstream spline/window operations.
+        // Skip de-dup transform when input is already strictly increasing to avoid extra work.
         #[cfg(feature = "ndarray-compat")]
-        let energy = {
-            let energy_array1 = Array1::from_vec(energy_dv.as_slice().to_vec());
-            xafsutils::remove_dups_array1(energy_array1, None, None, None)
+        let has_adjacent_dups = energy_dv
+            .as_slice()
+            .windows(2)
+            .any(|window| window[0] == window[1]);
+        #[cfg(feature = "ndarray-compat")]
+        let energy_owned = has_adjacent_dups.then(|| {
+            xafsutils::remove_dups_array1(
+                Array1::from_vec(energy_dv.as_slice().to_vec()),
+                None,
+                None,
+                None,
+            )
+        });
+        #[cfg(feature = "ndarray-compat")]
+        let energy = if let Some(energy_owned) = energy_owned.as_ref() {
+            energy_owned.view()
+        } else {
+            ndarray::ArrayView1::from(energy_dv.as_slice())
         };
         // Borrow mu directly from DVector storage to avoid eager full-vector materialization.
         #[cfg(feature = "ndarray-compat")]
@@ -541,16 +557,23 @@ impl AUTOBK {
 
         // Perform normalization if necessary
 
-        let mut normalization_method: normalization::NormalizationMethod =
-            normalization_param.clone().unwrap_or_else(|| {
-                let mut normalization_method = normalization::PrePostEdge::new();
-                normalization_method.set_e0(self.ek0);
-                normalization::NormalizationMethod::PrePostEdge(normalization_method)
-            });
+        if normalization_param.is_none() {
+            let mut normalization_method = normalization::PrePostEdge::new();
+            normalization_method.set_e0(self.ek0);
+            *normalization_param =
+                Some(normalization::NormalizationMethod::PrePostEdge(normalization_method));
+        }
+        let normalization_method =
+            normalization_param
+                .as_mut()
+                .ok_or_else(|| DataError::MissingData {
+                    field: "normalization method".to_string(),
+                })?;
 
         if let Some(ek0) = self.ek0 {
             if ek0 < energy_dv.min() || ek0 > energy_dv.max() {
                 self.ek0 = None;
+                normalization_method.set_e0(None);
             }
         }
 
@@ -584,8 +607,6 @@ impl AUTOBK {
             });
         }
         let edge_step = edge_step.max(1.0e-12);
-        *normalization_param = Some(normalization_method);
-
         // Rbkg Algorithm
         let energy_slice = energy.as_slice().ok_or_else(|| BackgroundError::Other {
             message: "energy array is not contiguous".to_string(),
@@ -704,13 +725,15 @@ impl AUTOBK {
         );
 
         // Calculate the mu interpolated to the k grid
-        let mu_out = kout.to_vec().interpolate(
-            &kraw
-                .slice_axis(Axis(0), ndarray::Slice::from(0..iemax - iek0 + 1))
-                .to_vec(),
-            &mu.slice_axis(Axis(0), ndarray::Slice::from(iek0..iemax + 1))
-                .to_vec(),
-        )?;
+        let kraw_fit = kraw.slice_axis(Axis(0), ndarray::Slice::from(0..iemax - iek0 + 1));
+        let mu_fit = mu.slice_axis(Axis(0), ndarray::Slice::from(iek0..iemax + 1));
+        let kraw_fit_slice = kraw_fit.as_slice().ok_or_else(|| BackgroundError::Other {
+            message: "kraw fit window is not contiguous".to_string(),
+        })?;
+        let mu_fit_slice = mu_fit.as_slice().ok_or_else(|| BackgroundError::Other {
+            message: "mu fit window is not contiguous".to_string(),
+        })?;
+        let mu_out = kout.interpolate(kraw_fit_slice, mu_fit_slice)?;
 
         let spline_opt = AUTOBKSpline {
             coefs: DVector::from_vec(coefs),
@@ -718,12 +741,8 @@ impl AUTOBK {
             order,
             irbkg: irbkg.max(1) as usize,
             nfft: nfft as usize,
-            kraw: kraw
-                .slice_axis(Axis(0), ndarray::Slice::from(0..iemax - iek0 + 1))
-                .clone()
-                .to_owned()
-                .into_nalgebra(),
-            mu: DVector::from_vec(mu_out),
+            kraw: kraw_fit.to_owned().into_nalgebra(),
+            mu: mu_out.into_nalgebra(),
             kout: kout.clone().into_nalgebra(),
             ftwin: ftwin.into_nalgebra(),
             kweight,
@@ -880,20 +899,23 @@ fn spline_eval_nalgebra(
     order: usize,
     kout: &DVector<f64>,
 ) -> (DVector<f64>, DVector<f64>) {
+    let knots_vec = knots.as_slice().to_vec();
+    let coefs_vec = coefs.as_slice().to_vec();
+
     let bkg = DVector::from_vec(rusty_fitpack::splev(
-        knots.data.as_vec().clone(),
-        coefs.data.as_vec().clone(),
+        knots_vec.clone(),
+        coefs_vec.clone(),
         order,
-        kraw.data.as_vec().clone(),
+        kraw.as_slice().to_vec(),
         3,
     ));
 
     // experimental
     let bkg_out = DVector::from_vec(rusty_fitpack::splev(
-        knots.data.as_vec().clone(),
-        coefs.data.as_vec().clone(),
+        knots_vec,
+        coefs_vec,
         order,
-        kout.data.as_vec().clone(),
+        kout.as_slice().to_vec(),
         3,
     ));
 

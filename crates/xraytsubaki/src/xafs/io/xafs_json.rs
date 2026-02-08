@@ -101,7 +101,6 @@ impl XASJson for XASGroupFile {
 #[cfg(test)]
 mod tests {
     use approx;
-    use ndarray::Array1;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;

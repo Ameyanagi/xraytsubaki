@@ -391,7 +391,6 @@ mod tests {
 
     use super::*;
     use crate::xafs::io;
-    use crate::xafs::nshare::ToNalgebra;
     use approx::{assert_abs_diff_eq, assert_relative_eq};
 
     use data_reader::reader::{load_txt_f64, Delimiter, ReaderParams};
@@ -574,14 +573,17 @@ mod tests {
                 .as_ref()
                 .and_then(|method| method.get_norm())
                 .unwrap();
+            let seq_norm_vec = seq_norm.iter().copied().collect::<Vec<_>>();
+            let par_norm_vec = par_norm.iter().copied().collect::<Vec<_>>();
+            let default_norm_vec = default_norm.iter().copied().collect::<Vec<_>>();
             assert_slice_close(
-                seq_norm.as_slice().unwrap(),
-                par_norm.as_slice().unwrap(),
+                &seq_norm_vec,
+                &par_norm_vec,
                 1.0e-6,
             );
             assert_slice_close(
-                par_norm.as_slice().unwrap(),
-                default_norm.as_slice().unwrap(),
+                &par_norm_vec,
+                &default_norm_vec,
                 1.0e-6,
             );
 

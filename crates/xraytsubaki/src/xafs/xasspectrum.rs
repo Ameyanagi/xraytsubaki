@@ -532,7 +532,6 @@ pub mod tests {
     use crate::xafs::tests::TEST_TOL_LESS_ACC;
     use crate::xafs::tests::TOP_DIR;
     use data_reader::reader::{load_txt_f64, Delimiter, ReaderParams};
-    use ndarray::{Array1, ArrayBase, Ix1, OwnedRepr};
 
     use approx::assert_abs_diff_eq;
 
@@ -575,6 +574,7 @@ pub mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ndarray-compat")]
     fn test_xafs_group_normalization() {
         let test_file = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
         let mut xafs_group = io::load_spectrum_QAS_trans(&test_file).unwrap();
@@ -587,16 +587,27 @@ pub mod tests {
 
         let expected_norm = reference.get_col(4);
 
-        xafs_group
-            .normalization
-            .unwrap()
-            .get_norm()
-            .to_owned()
-            .unwrap()
-            .to_vec()
-            .iter()
+        let normalization = xafs_group.normalization.unwrap();
+        let norm = normalization.get_norm().unwrap();
+        norm.iter()
             .zip(expected_norm.iter())
             .for_each(|(x, y)| assert_abs_diff_eq!(x, y, epsilon = TEST_TOL_LESS_ACC));
+    }
+
+    #[test]
+    #[cfg(not(feature = "ndarray-compat"))]
+    fn test_xafs_group_normalization_nalgebra_smoke() {
+        let test_file = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
+        let mut xafs_group = io::load_spectrum_QAS_trans(&test_file).unwrap();
+
+        xafs_group.normalize().unwrap();
+        let norm = xafs_group
+            .normalization
+            .as_ref()
+            .and_then(|method| method.get_norm())
+            .unwrap();
+        assert_eq!(norm.len(), xafs_group.energy.as_ref().unwrap().len());
+        assert!(norm.iter().all(|value| value.is_finite()));
     }
 
     #[test]

@@ -135,7 +135,7 @@ impl XrayFFTF {
         let irmax =
             (nfft / 2 + 1).min((1.01 + self.rmax_out.unwrap() / rstep) as usize).max(1);
 
-        self.r = Some(linspace(0.0, irmax as f64 * rstep, irmax));
+        self.r = Some(linspace(0.0, (irmax - 1) as f64 * rstep, irmax));
         self.chir_mag = Some(DVector::from_iterator(
             irmax,
             cchi_fft.iter().take(irmax).map(|x| x.norm()),
@@ -397,7 +397,7 @@ pub trait FFTUtils<T> {
 
 impl FFTUtils<DVector<f64>> for DynRealDft<f64> {
     fn realimg(&self) -> DVector<f64> {
-        DVector::from_iterator(self.len() * 2, self.iter().flat_map(|x| vec![x.re, x.im]))
+        DVector::from_iterator(self.len() * 2, self.iter().flat_map(|x| [x.re, x.im]))
     }
 
     fn re(&self) -> DVector<f64> {
@@ -419,7 +419,7 @@ impl FFTUtils<DVector<f64>> for DynRealDft<f64> {
 
 impl FFTUtils<DVector<f64>> for [Complex<f64>] {
     fn realimg(&self) -> DVector<f64> {
-        DVector::from_iterator(self.len() * 2, self.iter().flat_map(|x| vec![x.re, x.im]))
+        DVector::from_iterator(self.len() * 2, self.iter().flat_map(|x| [x.re, x.im]))
     }
 
     fn re(&self) -> DVector<f64> {

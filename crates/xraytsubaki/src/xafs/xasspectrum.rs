@@ -144,7 +144,10 @@ impl XASSpectrum {
         &mut self,
         energy: T,
     ) -> Result<&mut Self, XAFSError> {
-        let energy = energy.into();
+        self.energy = Some(energy.into());
+        let energy = self.energy.as_ref().ok_or_else(|| DataError::MissingData {
+            field: "energy".to_string(),
+        })?;
         let mu = self.raw_mu.as_ref().ok_or_else(|| DataError::MissingData {
             field: "raw_mu".to_string(),
         })?;
@@ -158,7 +161,6 @@ impl XASSpectrum {
                 reason: e.to_string(),
             }
         })?;
-        self.energy = Some(energy);
         self.mu = Some(interpolated);
 
         Ok(self)

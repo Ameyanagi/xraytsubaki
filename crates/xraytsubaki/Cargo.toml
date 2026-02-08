@@ -53,5 +53,9 @@ harness = false
 name = "xas_group_benchmark_parallel"
 harness = false
 
+[[bench]]
+name = "autobk_stage_benchmark"
+harness = false
+
 [profile.bench]
 debug = true

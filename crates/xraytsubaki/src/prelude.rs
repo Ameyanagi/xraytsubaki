@@ -1,7 +1,7 @@
 pub use crate::xafs::xasgroup::XASGroup;
 pub use crate::xafs::xasspectrum::XASSpectrum;
 
-pub use crate::xafs::background::{BackgroundMethod, AUTOBK};
+pub use crate::xafs::background::{AUTOBKClampScalePolicy, AUTOBKSolver, BackgroundMethod, AUTOBK};
 pub use crate::xafs::io;
 pub use crate::xafs::lmutils::LMParameters;
 // pub use crate::xafs::mathutils;

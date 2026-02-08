@@ -1,11 +1,17 @@
 {
-  "source": "Slice A baseline captured on 2026-02-07",
+  "source": "Slice F baseline captured on 2026-02-08 (matched-workload xas-group benchmarks)",
   "benchmarks": {
     "xas_group_benchmark_single": {
-      "median_ns": 763605000
+      "median_ns": 1510254979.0
     },
     "xas_group_benchmark_parallel": {
-      "median_ns": 8569100000
+      "median_ns": 365749969.0
+    },
+    "autobk_stage_legacy_lm": {
+      "median_ns": 2772355.052266082
+    },
+    "autobk_stage_linear_direct": {
+      "median_ns": 2676095.529741863
     }
   },
   "thresholds": {

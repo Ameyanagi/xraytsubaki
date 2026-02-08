@@ -3,3 +3,18 @@ pythontest.ipynb
 test.txt
 .DS_Store
 .claude
+
+# AI assistant local artifacts
+.codex/
+.claude/
+.aider*
+.cursor/
+.copilot/
+.openai/
+.llm/
+.prompt-cache/
+
+# Repository-local AI instructions/spec workspace
+/AGENTS.md
+/CLAUDE.md
+/openspec/

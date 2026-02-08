@@ -1,43 +1,59 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 
-use data_reader::reader::{load_txt_f64, Delimiter, ReaderParams};
+use xraytsubaki::xafs::{self, xasgroup::XASGroup};
 
-pub const TOP_DIR: &'static str = env!("CARGO_MANIFEST_DIR");
-pub const PARAM_LOADTXT: ReaderParams = ReaderParams {
-    comments: Some(b'#'),
-    delimiter: Delimiter::WhiteSpace,
-    skip_footer: None,
-    skip_header: None,
-    usecols: None,
-    max_rows: None,
-    row_format: true,
-};
-pub const TEST_TOL: f64 = 1e-16;
+pub const TOP_DIR: &str = env!("CARGO_MANIFEST_DIR");
 
-use xraytsubaki::xafs::xasgroup::XASGroup;
+fn build_group(sample: &xafs::xasspectrum::XASSpectrum, n_spectra: usize) -> XASGroup {
+    let mut group = XASGroup::new();
+    for _ in 0..n_spectra {
+        group.add_spectrum(sample.clone());
+    }
+    group
+}
 
 fn criterion_benchmark(c: &mut Criterion) {
-    let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
-    let mut xafs_test_spectrum = xraytsubaki::xafs::io::load_spectrum_QAS_trans(&path).unwrap();
+    let path = format!("{TOP_DIR}/tests/testfiles/Ru_QAS.dat");
+    let sample = xafs::io::load_spectrum_QAS_trans(&path).unwrap();
 
-    let mut group = XASGroup::new();
-
-    for _ in 0..10_000 {
-        group.add_spectrum(xafs_test_spectrum.clone());
-    }
-
+    // Keep legacy benchmark ID for regression scripts and baselines.
+    let mut legacy_group_10k = build_group(&sample, 10_000);
     c.bench_function("xas_group_benchmark_parallel", |b| {
         b.iter(|| {
-            black_box(
-                group
-                    .normalize_par()
-                    .unwrap()
-                    .calc_background_par()
-                    .unwrap()
-                    .fft_par(),
-            );
+            let _ = legacy_group_10k
+                .normalize_par()
+                .unwrap()
+                .calc_background_par()
+                .unwrap()
+                .fft_par()
+                .unwrap();
+            black_box(())
         })
     });
+
+    let mut bench_group = c.benchmark_group("xas_group_par_matched");
+    for n_spectra in [100usize, 10_000usize] {
+        let mut group = build_group(&sample, n_spectra);
+        bench_group.throughput(Throughput::Elements(n_spectra as u64));
+        bench_group.bench_with_input(
+            BenchmarkId::from_parameter(n_spectra),
+            &n_spectra,
+            |b, _| {
+                b.iter(|| {
+                    let _ = group
+                        .normalize_par()
+                        .unwrap()
+                        .calc_background_par()
+                        .unwrap()
+                        .fft_par()
+                        .unwrap();
+                    black_box(())
+                })
+            },
+        );
+    }
+
+    bench_group.finish();
 }
 
 criterion_group! {

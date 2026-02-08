@@ -2,12 +2,15 @@
 #![allow(unused_imports)]
 
 use nalgebra::DVector;
+use polyfit_rs::polyfit_rs::polyfit;
 use serde::{Deserialize, Serialize};
 
 use super::errors::{DataError, NormalizationError};
-use super::mathutils;
+use super::mathutils::{self, MathUtils};
 use super::xafsutils;
 
+/// trait for Normalization
+/// it implements some methods required for normalization of XAFS data
 pub trait Normalization {
     fn normalize(
         &mut self,
@@ -23,6 +26,7 @@ pub trait Normalization {
     fn set_edge_step(&mut self, edge_step: Option<f64>) -> &mut Self;
 }
 
+/// Enum for normalization method
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum NormalizationMethod {
     PrePostEdge(PrePostEdge),
@@ -137,6 +141,7 @@ impl NormalizationMethod {
     }
 }
 
+/// PrePostEdge normalization method
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PrePostEdge {
@@ -178,6 +183,8 @@ impl Default for PrePostEdge {
 }
 
 impl PrePostEdge {
+    const MAX_NORM_POLYORDER: i32 = 5;
+
     pub fn new() -> PrePostEdge {
         PrePostEdge {
             pre_edge_start: None,
@@ -202,6 +209,79 @@ impl PrePostEdge {
         energy: &DVector<f64>,
         mu: &DVector<f64>,
     ) -> Result<&mut Self, NormalizationError> {
+        Self::validate_inputs(energy, mu)?;
+
+        let mut e0 = self.e0.unwrap_or(f64::NAN);
+        if !e0.is_finite() || e0 > energy[energy.len() - 2] || e0 < energy[0] {
+            e0 = xafsutils::find_e0(energy, mu)?;
+            self.e0 = Some(e0);
+        }
+
+        let energy_slice = energy.as_slice();
+        let ie0 = mathutils::index_nearest_sorted(energy_slice, &e0)?;
+        let e0 = energy[ie0];
+
+        let n_victoreen = self.n_victoreen.unwrap_or(0);
+        self.n_victoreen = Some(n_victoreen);
+
+        let mut pre_edge_start = self.pre_edge_start.unwrap_or_else(|| {
+            let estimate = if ie0 > 20 {
+                5.0 * ((energy[1] - e0) / 5.0).round()
+            } else {
+                2.0 * ((energy[1] - e0) / 2.0).round()
+            };
+            estimate.max(energy.min() - e0)
+        });
+
+        let mut pre_edge_end = self
+            .pre_edge_end
+            .unwrap_or_else(|| 5.0 * (pre_edge_start / 15.0).round());
+
+        if pre_edge_start > pre_edge_end {
+            std::mem::swap(&mut pre_edge_start, &mut pre_edge_end);
+        }
+
+        let mut norm_end = self.norm_end.unwrap_or_else(|| {
+            let estimate = 5.0 * ((energy.max() - e0) / 5.0).round();
+            let estimate = if estimate < 0.0 {
+                energy.max() - e0 - estimate
+            } else {
+                estimate
+            };
+            estimate.min(energy.max() - e0)
+        });
+
+        let mut norm_start = self
+            .norm_start
+            .unwrap_or_else(|| (5.0 * (norm_end / 15.0).round()).min(25.0));
+
+        if norm_start > norm_end + 5.0 {
+            std::mem::swap(&mut norm_start, &mut norm_end);
+        }
+        norm_start = norm_start.min(norm_end - 10.0);
+
+        let mut norm_polyorder = self.norm_polyorder.unwrap_or_else(|| {
+            let diff = norm_end - norm_start;
+            if diff < 50.0 {
+                0
+            } else if diff < 350.0 {
+                1
+            } else {
+                2
+            }
+        });
+        norm_polyorder = norm_polyorder.clamp(0, PrePostEdge::MAX_NORM_POLYORDER);
+
+        self.pre_edge_start = Some(pre_edge_start);
+        self.pre_edge_end = Some(pre_edge_end);
+        self.norm_start = Some(norm_start);
+        self.norm_end = Some(norm_end);
+        self.norm_polyorder = Some(norm_polyorder);
+
+        Ok(self)
+    }
+
+    fn validate_inputs(energy: &DVector<f64>, mu: &DVector<f64>) -> Result<(), NormalizationError> {
         if energy.len() != mu.len() {
             return Err(DataError::LengthMismatch {
                 energy_len: energy.len(),
@@ -209,21 +289,60 @@ impl PrePostEdge {
             }
             .into());
         }
-
-        let mut e0 = self.e0.unwrap_or(f64::NAN);
-        if !e0.is_finite() || e0 > energy[energy.len() - 1] || e0 < energy[0] {
-            e0 = xafsutils::find_e0(energy, mu)?;
+        if energy.len() < 2 {
+            return Err(DataError::InsufficientData {
+                min: 2,
+                actual: energy.len(),
+            }
+            .into());
         }
 
-        let ie0 = mathutils::index_nearest_sorted(energy.as_slice(), &e0)?;
-        self.e0 = Some(energy[ie0]);
-
-        if self.edge_step.is_none() {
-            let step = (mu[mu.len() - 1] - mu[0]).abs().max(1e-12);
-            self.edge_step = Some(step);
+        let non_finite = energy
+            .iter()
+            .zip(mu.iter())
+            .enumerate()
+            .filter_map(|(index, (e, m))| (!e.is_finite() || !m.is_finite()).then_some(index))
+            .collect::<Vec<_>>();
+        if !non_finite.is_empty() {
+            return Err(DataError::NonFiniteValues {
+                indices: non_finite,
+            }
+            .into());
         }
 
-        Ok(self)
+        for index in 1..energy.len() {
+            let prev = energy[index - 1];
+            let curr = energy[index];
+            if curr < prev {
+                return Err(DataError::NonMonotonicEnergy { index, prev, curr }.into());
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn get_pre_edge_start(&self) -> Option<f64> {
+        self.pre_edge_start
+    }
+
+    pub fn get_pre_edge_end(&self) -> Option<f64> {
+        self.pre_edge_end
+    }
+
+    pub fn get_norm_start(&self) -> Option<f64> {
+        self.norm_start
+    }
+
+    pub fn get_norm_end(&self) -> Option<f64> {
+        self.norm_end
+    }
+
+    pub fn get_norm_polyorder(&self) -> Option<i32> {
+        self.norm_polyorder
+    }
+
+    pub fn get_n_victoreen(&self) -> Option<i32> {
+        self.n_victoreen
     }
 
     pub fn get_pre_edge(&self) -> Option<&DVector<f64>> {
@@ -233,6 +352,14 @@ impl PrePostEdge {
     pub fn get_post_edge(&self) -> Option<&DVector<f64>> {
         self.post_edge.as_ref()
     }
+
+    pub fn get_norm_coefficients(&self) -> Option<&Vec<f64>> {
+        self.norm_coefficients.as_ref()
+    }
+
+    pub fn get_pre_coefficients(&self) -> Option<&Vec<f64>> {
+        self.pre_coefficients.as_ref()
+    }
 }
 
 impl Normalization for PrePostEdge {
@@ -241,24 +368,148 @@ impl Normalization for PrePostEdge {
         energy: &DVector<f64>,
         mu: &DVector<f64>,
     ) -> Result<&mut Self, NormalizationError> {
-        self.fill_parameter(energy, mu)?;
+        let (energy, mu): (Vec<f64>, Vec<f64>) = energy
+            .iter()
+            .zip(mu.iter())
+            .filter(|(e, m)| e.is_finite() && m.is_finite())
+            .map(|(e, m)| (*e, *m))
+            .unzip();
+        let energy = DVector::from_vec(energy);
+        let mu = DVector::from_vec(mu);
+        Self::validate_inputs(&energy, &mu)?;
 
-        let edge_step = self.edge_step.unwrap_or(1.0).max(1e-12);
-        let pre_level = mu[0];
-        let post_level = mu[mu.len() - 1];
+        self.fill_parameter(&energy, &mu)?;
 
-        let pre_edge = DVector::from_element(mu.len(), pre_level);
-        let post_edge = DVector::from_element(mu.len(), post_level);
-        let norm = (mu - &pre_edge) / edge_step;
+        let e0 = self.e0.ok_or_else(|| DataError::MissingData {
+            field: "e0".to_string(),
+        })?;
+        let pre_edge_start = self.pre_edge_start.ok_or_else(|| DataError::MissingData {
+            field: "pre_edge_start".to_string(),
+        })?;
+        let pre_edge_end = self.pre_edge_end.ok_or_else(|| DataError::MissingData {
+            field: "pre_edge_end".to_string(),
+        })?;
+        let norm_start = self.norm_start.ok_or_else(|| DataError::MissingData {
+            field: "norm_start".to_string(),
+        })?;
+        let norm_end = self.norm_end.ok_or_else(|| DataError::MissingData {
+            field: "norm_end".to_string(),
+        })?;
+        let norm_polyorder = self.norm_polyorder.ok_or_else(|| DataError::MissingData {
+            field: "norm_polyorder".to_string(),
+        })?;
+        let nvict = self.n_victoreen.unwrap_or(0);
 
+        let energy_slice = energy.as_slice();
+        let p1 = mathutils::index_of_sorted(energy_slice, &(pre_edge_start + e0))?;
+        let mut p2 = mathutils::index_nearest_sorted(energy_slice, &(pre_edge_end + e0))?;
+        if p2 <= p1 || p2 - p1 < 2 {
+            if p1 + 2 > energy.len() {
+                return Err(NormalizationError::PreEdgeFitFailed {
+                    start: pre_edge_start + e0,
+                    end: pre_edge_end + e0,
+                });
+            }
+            p2 = (p1 + 2).min(energy.len());
+        }
+
+        let mut energy_x = Vec::with_capacity(p2 - p1);
+        let mut mu_x = Vec::with_capacity(p2 - p1);
+        for i in p1..p2 {
+            let e = energy[i];
+            let y = mu[i] * e.powi(nvict);
+            if e.is_finite() && y.is_finite() {
+                energy_x.push(e);
+                mu_x.push(y);
+            }
+        }
+        if energy_x.len() < 2 {
+            return Err(NormalizationError::PreEdgeFitFailed {
+                start: pre_edge_start + e0,
+                end: pre_edge_end + e0,
+            });
+        }
+
+        let pre_coefficients: Vec<f64> = polyfit(&energy_x, &mu_x, 1)?;
+
+        let mut pre_edge = DVector::zeros(energy.len());
+        for i in 0..energy.len() {
+            pre_edge[i] =
+                (energy[i] * pre_coefficients[1] + pre_coefficients[0]) * energy[i].powi(-nvict);
+        }
+
+        let mut p1 = mathutils::index_of_sorted(energy_slice, &(norm_start + e0))?;
+        let mut p2 = mathutils::index_nearest_sorted(energy_slice, &(norm_end + e0))?;
+
+        if p2 <= p1 || p2 - p1 < 2 {
+            if p1 + 2 > energy.len() {
+                return Err(NormalizationError::PostEdgeFitFailed {
+                    order: norm_polyorder as usize,
+                    n_points: 0,
+                });
+            }
+            p2 = (p1 + 2).min(energy.len());
+            p1 = (p1 + 1).min(energy.len() - 1);
+        }
+
+        let mut presub = Vec::with_capacity(p2 - p1);
+        for i in p1..p2 {
+            presub.push(mu[i] - pre_edge[i]);
+        }
+        if presub.len() <= norm_polyorder as usize {
+            return Err(NormalizationError::PostEdgeFitFailed {
+                order: norm_polyorder as usize,
+                n_points: presub.len(),
+            });
+        }
+        let post_coefficients = polyfit(&energy_slice[p1..p2], &presub, norm_polyorder as usize)?;
+
+        let mut post_edge = pre_edge.clone();
+        for (i, c) in post_coefficients.iter().enumerate() {
+            for j in 0..post_edge.len() {
+                post_edge[j] += energy[j].powi(i as i32) * *c;
+            }
+        }
+
+        let ie0 = mathutils::index_nearest_sorted(energy_slice, &e0)?;
+        let edge_step = self.edge_step.unwrap_or(post_edge[ie0] - pre_edge[ie0]);
+        if !edge_step.is_finite() {
+            return Err(NormalizationError::EdgeStepTooSmall {
+                edge_step,
+                min: 1.0e-12,
+            });
+        }
+        let edge_step = edge_step.max(1.0e-12);
+
+        let norm = (&mu - &pre_edge) / edge_step;
+        let flat_residue = (&post_edge - &pre_edge) / edge_step;
+
+        let mut flat = &norm - &flat_residue;
+        let residue_offset = flat_residue[ie0];
+        for i in 0..flat.len() {
+            flat[i] += residue_offset;
+        }
+        for i in 0..ie0 {
+            flat[i] = norm[i];
+        }
+
+        self.edge_step = Some(edge_step);
         self.pre_edge = Some(pre_edge);
         self.post_edge = Some(post_edge);
-        self.flat = Some(norm.clone());
         self.norm = Some(norm);
-        self.pre_coefficients = Some(vec![pre_level]);
-        self.norm_coefficients = Some(vec![post_level]);
+        self.flat = Some(flat);
+        self.norm_coefficients = Some(post_coefficients);
+        self.pre_coefficients = Some(pre_coefficients);
 
         Ok(self)
+    }
+
+    fn get_e0(&self) -> Option<f64> {
+        self.e0
+    }
+
+    fn get_edge_step(&self) -> Option<f64> {
+        self.edge_step
     }
 
     fn get_flat(&self) -> Option<&DVector<f64>> {
@@ -267,14 +518,6 @@ impl Normalization for PrePostEdge {
 
     fn get_norm(&self) -> Option<&DVector<f64>> {
         self.norm.as_ref()
-    }
-
-    fn get_edge_step(&self) -> Option<f64> {
-        self.edge_step
-    }
-
-    fn get_e0(&self) -> Option<f64> {
-        self.e0
     }
 
     fn set_e0(&mut self, e0: Option<f64>) -> &mut Self {
@@ -290,6 +533,7 @@ impl Normalization for PrePostEdge {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct MBack {
     pub e0: Option<f64>,
     pub edge_step: Option<f64>,
@@ -297,23 +541,17 @@ pub struct MBack {
     pub flat: Option<DVector<f64>>,
 }
 
-impl Default for MBack {
-    fn default() -> Self {
-        MBack {
-            e0: None,
-            edge_step: None,
-            norm: None,
-            flat: None,
-        }
-    }
-}
-
 impl MBack {
     pub fn new() -> MBack {
-        MBack::default()
+        MBack {
+            ..Default::default()
+        }
     }
 
-    pub fn fill_parameter(&mut self) {}
+    pub fn fill_parameter(&mut self) {
+        // MBack parameter filling is not implemented yet.
+        // Keep this as a no-op to avoid panics in callers that probe this method.
+    }
 }
 
 impl Normalization for MBack {
@@ -327,20 +565,20 @@ impl Normalization for MBack {
         })
     }
 
-    fn get_flat(&self) -> Option<&DVector<f64>> {
-        self.flat.as_ref()
-    }
-
-    fn get_norm(&self) -> Option<&DVector<f64>> {
-        self.norm.as_ref()
+    fn get_e0(&self) -> Option<f64> {
+        self.e0
     }
 
     fn get_edge_step(&self) -> Option<f64> {
         self.edge_step
     }
 
-    fn get_e0(&self) -> Option<f64> {
-        self.e0
+    fn get_flat(&self) -> Option<&DVector<f64>> {
+        self.flat.as_ref()
+    }
+
+    fn get_norm(&self) -> Option<&DVector<f64>> {
+        self.norm.as_ref()
     }
 
     fn set_e0(&mut self, e0: Option<f64>) -> &mut Self {
@@ -351,5 +589,185 @@ impl Normalization for MBack {
     fn set_edge_step(&mut self, edge_step: Option<f64>) -> &mut Self {
         self.edge_step = edge_step;
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::xafs::io;
+    use data_reader::reader::load_txt_f64;
+
+    use super::*;
+    use crate::xafs::tests::PARAM_LOADTXT;
+    use crate::xafs::tests::TOP_DIR;
+    use crate::xafs::tests::{TEST_TOL, TEST_TOL_LESS_ACC};
+    use approx::assert_abs_diff_eq;
+    const ACCEPTABLE_MU_DIFF: f64 = 1e-6;
+
+    #[test]
+    fn test_pre_post_edge_fill_parameter() {
+        let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
+        let xafs_test_group = io::load_spectrum_QAS_trans(&path).unwrap();
+
+        let mut pre_post_edge = PrePostEdge::new();
+        let energy = xafs_test_group.energy.clone().unwrap();
+        let mu = xafs_test_group.mu.clone().unwrap();
+
+        let _ = pre_post_edge.fill_parameter(&energy, &mu);
+
+        let expected = PrePostEdge {
+            pre_edge_start: Some(-200.0),
+            pre_edge_end: Some(-65.0),
+            norm_start: Some(25.0),
+            norm_end: Some(944.5331719999995),
+            norm_polyorder: Some(2),
+            n_victoreen: None,
+            e0: Some(22118.8),
+            edge_step: None,
+            pre_edge: None,
+            post_edge: None,
+            norm: None,
+            flat: None,
+            norm_coefficients: None,
+            pre_coefficients: None,
+        };
+
+        assert_abs_diff_eq!(
+            pre_post_edge.e0.unwrap(),
+            expected.e0.unwrap(),
+            epsilon = TEST_TOL
+        );
+
+        assert_abs_diff_eq!(
+            pre_post_edge.pre_edge_start.unwrap(),
+            expected.pre_edge_start.unwrap(),
+            epsilon = TEST_TOL
+        );
+
+        assert_abs_diff_eq!(
+            pre_post_edge.pre_edge_end.unwrap(),
+            expected.pre_edge_end.unwrap(),
+            epsilon = TEST_TOL
+        );
+
+        assert_abs_diff_eq!(
+            pre_post_edge.norm_start.unwrap(),
+            expected.norm_start.unwrap(),
+            epsilon = TEST_TOL
+        );
+
+        assert_abs_diff_eq!(
+            pre_post_edge.norm_end.unwrap(),
+            expected.norm_end.unwrap(),
+            epsilon = TEST_TOL
+        );
+
+        assert_abs_diff_eq!(
+            pre_post_edge.norm_polyorder.unwrap() as f64,
+            expected.norm_polyorder.unwrap() as f64,
+            epsilon = TEST_TOL
+        );
+    }
+
+    #[test]
+    fn test_normalization() {
+        let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
+        let xafs_test_group = io::load_spectrum_QAS_trans(&path).unwrap();
+        let energy = xafs_test_group.energy.clone().unwrap();
+        let mu = xafs_test_group.mu.clone().unwrap();
+
+        let mut pre_post_edge = PrePostEdge::new();
+        let _ = pre_post_edge.fill_parameter(&energy, &mu);
+        let _ = pre_post_edge.normalize(&energy, &mu);
+
+        assert_abs_diff_eq!(
+            pre_post_edge.edge_step.unwrap(),
+            0.862815921384477,
+            epsilon = TEST_TOL_LESS_ACC
+        );
+
+        pre_post_edge
+            .pre_coefficients
+            .as_ref()
+            .unwrap()
+            .iter()
+            .zip(vec![-0.05298882571982536, -1.9039451808611713e-7].iter())
+            .for_each(|(a, b)| assert_abs_diff_eq!(a, b, epsilon = TEST_TOL_LESS_ACC));
+
+        pre_post_edge
+            .norm_coefficients
+            .as_ref()
+            .unwrap()
+            .iter()
+            .zip(vec![
+                8.985714230146124,
+                -0.0005540674890038064,
+                8.446567273641622e-9,
+            ])
+            .for_each(|(a, b)| assert_abs_diff_eq!(a, &b, epsilon = TEST_TOL_LESS_ACC.sqrt()));
+
+        let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS_pre_post_edge_expected.dat";
+        let reference_dat = load_txt_f64(&path, &PARAM_LOADTXT).unwrap();
+
+        let reference_norm = reference_dat.get_col(4);
+        let reference_flat = reference_dat.get_col(5);
+
+        pre_post_edge
+            .norm
+            .as_ref()
+            .unwrap()
+            .iter()
+            .zip(reference_norm.iter())
+            .for_each(|(a, b)| assert_abs_diff_eq!(a, b, epsilon = TEST_TOL_LESS_ACC));
+
+        pre_post_edge
+            .flat
+            .as_ref()
+            .unwrap()
+            .iter()
+            .zip(reference_flat.iter())
+            .for_each(|(a, b)| assert_abs_diff_eq!(a, b, epsilon = TEST_TOL_LESS_ACC));
+
+        let larch_norm_path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS_preedge_larch.txt";
+        let larch_norm = load_txt_f64(&larch_norm_path, &PARAM_LOADTXT).unwrap();
+
+        let norm_expected = larch_norm.get_col(1);
+
+        let expected = PrePostEdge {
+            pre_edge_start: Some(-200.0),
+            pre_edge_end: Some(-65.0),
+            norm_start: Some(25.0),
+            norm_end: Some(945.0),
+            norm_polyorder: Some(2),
+            n_victoreen: None,
+            e0: Some(22118.8),
+            edge_step: Some(0.8614006777730155),
+            pre_edge: None,
+            post_edge: None,
+            norm: None,
+            flat: None,
+            norm_coefficients: Some(vec![
+                8.985714130708697,
+                -0.0005540674801681585,
+                8.446567483044725e-09,
+            ]),
+            pre_coefficients: Some(vec![-5.29888257e-02, -1.90394518e-07]),
+        };
+
+        assert_abs_diff_eq!(
+            pre_post_edge.e0.unwrap(),
+            expected.e0.unwrap(),
+            epsilon = TEST_TOL
+        );
+
+        pre_post_edge
+            .norm
+            .as_ref()
+            .unwrap()
+            .iter()
+            .zip(norm_expected.iter())
+            .for_each(|(a, b)| {
+                assert_abs_diff_eq!(a, b, epsilon = ACCEPTABLE_MU_DIFF);
+            });
     }
 }

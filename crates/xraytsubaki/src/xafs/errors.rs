@@ -3,6 +3,7 @@
 //! This module defines domain-specific error types using the `thiserror` crate
 //! for better error handling throughout the library.
 
+use enterpolation::linear::LinearError;
 use thiserror::Error;
 
 /// Errors related to data validation and input processing.
@@ -12,19 +13,30 @@ pub enum DataError {
     InsufficientData { min: usize, actual: usize },
 
     #[error("data array length mismatch: energy has {energy_len} points, mu has {mu_len} points")]
-    LengthMismatch {
-        energy_len: usize,
-        mu_len: usize,
-    },
+    LengthMismatch { energy_len: usize, mu_len: usize },
 
     #[error("invalid energy range: min={min}, max={max}")]
     InvalidEnergyRange { min: f64, max: f64 },
+
+    #[error(
+        "energy must be monotonic non-decreasing, but energy[{index}]={curr} is smaller than previous value {prev}"
+    )]
+    NonMonotonicEnergy { index: usize, prev: f64, curr: f64 },
 
     #[error("data contains non-finite values at indices: {indices:?}")]
     NonFiniteValues { indices: Vec<usize> },
 
     #[error("missing required data: {field}")]
     MissingData { field: String },
+
+    #[error("index out of range: index={index}, length={length}")]
+    IndexOutOfRange { index: usize, length: usize },
+
+    #[error("group is empty")]
+    EmptyGroup,
+
+    #[error("feature not implemented: {feature}")]
+    NotImplemented { feature: String },
 }
 
 /// Errors related to pre/post-edge normalization operations.
@@ -48,6 +60,9 @@ pub enum NormalizationError {
 
     #[error("normalization method not implemented: {method}")]
     NotImplemented { method: String },
+
+    #[error("normalization failed: {message}")]
+    Other { message: String },
 }
 
 /// Errors related to AUTOBK background removal algorithm.
@@ -67,6 +82,9 @@ pub enum BackgroundError {
 
     #[error("background removal feature not implemented: {feature}")]
     NotImplemented { feature: String },
+
+    #[error("background calculation failed: {message}")]
+    Other { message: String },
 }
 
 /// Errors related to Fourier transform operations.
@@ -99,11 +117,10 @@ pub enum IOError {
     #[error("file not found: {path}")]
     FileNotFound { path: String },
 
-    #[error("failed to read file {path}: {source}")]
+    #[error("failed to read file {path}: {kind}")]
     ReadFailed {
         path: String,
-        #[source]
-        source: std::io::ErrorKind,
+        kind: std::io::ErrorKind,
     },
 
     #[error("JSON deserialization failed: {message}")]
@@ -130,6 +147,86 @@ pub enum MathError {
 
     #[error("index {index} out of bounds for array of length {len}")]
     IndexOutOfBounds { index: usize, len: usize },
+}
+
+impl From<MathError> for NormalizationError {
+    fn from(value: MathError) -> Self {
+        Self::Other {
+            message: value.to_string(),
+        }
+    }
+}
+
+impl From<DataError> for NormalizationError {
+    fn from(value: DataError) -> Self {
+        Self::Other {
+            message: value.to_string(),
+        }
+    }
+}
+
+impl From<&'static str> for NormalizationError {
+    fn from(value: &'static str) -> Self {
+        Self::Other {
+            message: value.to_string(),
+        }
+    }
+}
+
+impl From<Box<dyn std::error::Error>> for NormalizationError {
+    fn from(value: Box<dyn std::error::Error>) -> Self {
+        Self::Other {
+            message: value.to_string(),
+        }
+    }
+}
+
+impl From<LinearError> for NormalizationError {
+    fn from(value: LinearError) -> Self {
+        Self::Other {
+            message: value.to_string(),
+        }
+    }
+}
+
+impl From<MathError> for BackgroundError {
+    fn from(value: MathError) -> Self {
+        Self::Other {
+            message: value.to_string(),
+        }
+    }
+}
+
+impl From<DataError> for BackgroundError {
+    fn from(value: DataError) -> Self {
+        Self::Other {
+            message: value.to_string(),
+        }
+    }
+}
+
+impl From<NormalizationError> for BackgroundError {
+    fn from(value: NormalizationError) -> Self {
+        Self::Other {
+            message: value.to_string(),
+        }
+    }
+}
+
+impl From<LinearError> for BackgroundError {
+    fn from(value: LinearError) -> Self {
+        Self::Other {
+            message: value.to_string(),
+        }
+    }
+}
+
+impl From<Box<dyn std::error::Error>> for BackgroundError {
+    fn from(value: Box<dyn std::error::Error>) -> Self {
+        Self::Other {
+            message: value.to_string(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -218,10 +315,7 @@ mod tests {
 
     #[test]
     fn test_error_is_clone() {
-        let error = DataError::InsufficientData {
-            min: 10,
-            actual: 5,
-        };
+        let error = DataError::InsufficientData { min: 10, actual: 5 };
         let cloned = error.clone();
         assert_eq!(error.to_string(), cloned.to_string());
     }

@@ -42,9 +42,7 @@ use normalization::Normalization;
 use xafsutils::XAFSUtils;
 
 // Re-export error types for public API
-pub use errors::{
-    BackgroundError, DataError, FFTError, IOError, MathError, NormalizationError,
-};
+pub use errors::{BackgroundError, DataError, FFTError, IOError, MathError, NormalizationError};
 
 /// Top-level error type that aggregates all domain-specific errors.
 #[derive(Error, Debug, Clone)]
@@ -82,6 +80,14 @@ pub enum XAFSError {
 
     #[error("group is empty")]
     GroupIsEmpty,
+}
+
+impl From<Box<dyn std::error::Error>> for XAFSError {
+    fn from(value: Box<dyn std::error::Error>) -> Self {
+        XAFSError::Data(DataError::MissingData {
+            field: value.to_string(),
+        })
+    }
 }
 
 /// Convenience type alias for Results using XAFSError.

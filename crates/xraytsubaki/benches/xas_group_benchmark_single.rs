@@ -26,7 +26,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         group.add_spectrum(xafs_test_spectrum.clone());
     }
 
-    c.bench_function("normalize", |b| {
+    c.bench_function("xas_group_benchmark_single", |b| {
         b.iter(|| {
             black_box(
                 group

@@ -13,7 +13,7 @@ use super::errors::MathError;
 #[deny(clippy::reversed_empty_ranges)]
 
 pub trait MathUtils {
-    fn interpolate(&self, x: &Vec<f64>, y: &Vec<f64>) -> Result<Self, LinearError>
+    fn interpolate(&self, x: &[f64], y: &[f64]) -> Result<Self, LinearError>
     where
         Self: Sized;
 
@@ -107,9 +107,9 @@ pub trait MathUtils {
 }
 
 impl MathUtils for Vec<f64> {
-    fn interpolate(&self, x: &Vec<f64>, y: &Vec<f64>) -> Result<Self, LinearError> {
-        let x_left = x.min();
-        let x_right = x.max();
+    fn interpolate(&self, x: &[f64], y: &[f64]) -> Result<Self, LinearError> {
+        let x_left = *x.iter().min_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
+        let x_right = *x.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
         let lin = Linear::builder().elements(y).knots(x).build()?;
         let result: Vec<f64> = lin
             .sample(self.iter().map(|a| match a {
@@ -130,13 +130,15 @@ impl MathUtils for Vec<f64> {
     }
 
     fn min(&self) -> f64 {
-        *self.iter()
+        *self
+            .iter()
             .min_by(|a, b| a.partial_cmp(b).unwrap())
             .unwrap()
     }
 
     fn max(&self) -> f64 {
-        *self.iter()
+        *self
+            .iter()
             .max_by(|a, b| a.partial_cmp(b).unwrap())
             .unwrap()
     }
@@ -183,9 +185,9 @@ impl MathUtils for Vec<f64> {
 }
 
 impl MathUtils for nalgebra::DVector<f64> {
-    fn interpolate(&self, x: &Vec<f64>, y: &Vec<f64>) -> Result<Self, LinearError> {
-        let x_left = x.min();
-        let x_right = x.max();
+    fn interpolate(&self, x: &[f64], y: &[f64]) -> Result<Self, LinearError> {
+        let x_left = *x.iter().min_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
+        let x_right = *x.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
         let lin = Linear::builder().elements(y).knots(x).build()?;
         let result: Vec<f64> = lin
             .sample(self.iter().map(|a| match a {
@@ -206,13 +208,15 @@ impl MathUtils for nalgebra::DVector<f64> {
     }
 
     fn min(&self) -> f64 {
-        *self.iter()
+        *self
+            .iter()
             .min_by(|a, b| a.partial_cmp(b).unwrap())
             .unwrap()
     }
 
     fn max(&self) -> f64 {
-        *self.iter()
+        *self
+            .iter()
             .max_by(|a, b| a.partial_cmp(b).unwrap())
             .unwrap()
     }
@@ -260,9 +264,9 @@ impl MathUtils for nalgebra::DVector<f64> {
 }
 
 impl MathUtils for ArrayBase<OwnedRepr<f64>, Ix1> {
-    fn interpolate(&self, x: &Vec<f64>, y: &Vec<f64>) -> Result<Self, LinearError> {
-        let x_left = x.min();
-        let x_right = x.max();
+    fn interpolate(&self, x: &[f64], y: &[f64]) -> Result<Self, LinearError> {
+        let x_left = *x.iter().min_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
+        let x_right = *x.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
         let lin = Linear::builder().elements(y).knots(x).build()?;
         let result: Vec<f64> = lin
             .sample(self.map(|a| match a {
@@ -284,13 +288,15 @@ impl MathUtils for ArrayBase<OwnedRepr<f64>, Ix1> {
     }
 
     fn min(&self) -> f64 {
-        *self.iter()
+        *self
+            .iter()
             .min_by(|a, b| a.partial_cmp(b).unwrap())
             .unwrap()
     }
 
     fn max(&self) -> f64 {
-        *self.iter()
+        *self
+            .iter()
             .max_by(|a, b| a.partial_cmp(b).unwrap())
             .unwrap()
     }
@@ -435,8 +441,17 @@ fn voigt<T: Into<Array1<f64>>>(x: T, center: f64, sigma: f64, gamma: f64) -> Arr
 /// assert_eq!(index_of(&array, &value).unwrap(), 2);
 /// ```
 
-pub fn index_of(array: &Vec<f64>, value: &f64) -> Result<usize, MathError> {
-    if &array.min() > value {
+pub fn index_of(array: &[f64], value: &f64) -> Result<usize, MathError> {
+    if array.is_empty() {
+        return Err(MathError::IndexOutOfBounds { index: 0, len: 0 });
+    }
+
+    let min_value = array
+        .iter()
+        .min_by(|a, b| a.partial_cmp(b).unwrap())
+        .copied()
+        .ok_or(MathError::IndexOutOfBounds { index: 0, len: 0 })?;
+    if &min_value > value {
         return Ok(0);
     }
 
@@ -445,6 +460,15 @@ pub fn index_of(array: &Vec<f64>, value: &f64) -> Result<usize, MathError> {
         .enumerate()
         .find_map(|(i, x)| if x > value { Some(i - 1) } else { None })
         .unwrap_or(array.len() - 1))
+}
+
+/// Find the index of sorted array *at or below* the value using binary search.
+pub fn index_of_sorted(array: &[f64], value: &f64) -> Result<usize, MathError> {
+    if array.is_empty() {
+        return Err(MathError::IndexOutOfBounds { index: 0, len: 0 });
+    }
+    let idx = array.partition_point(|x| x <= value);
+    Ok(idx.saturating_sub(1))
 }
 
 /// Find the index of the nearest value in the array
@@ -470,6 +494,29 @@ pub fn index_nearest(array: &[f64], value: &f64) -> Result<usize, MathError> {
         .min_by(|(_, a), (_, b)| (*a - value).abs().partial_cmp(&(*b - value).abs()).unwrap())
         .unwrap()
         .0)
+}
+
+/// Find the nearest index in a sorted array using binary search.
+pub fn index_nearest_sorted(array: &[f64], value: &f64) -> Result<usize, MathError> {
+    if array.is_empty() {
+        return Err(MathError::IndexOutOfBounds { index: 0, len: 0 });
+    }
+
+    let idx = array.partition_point(|x| x < value);
+    if idx == 0 {
+        return Ok(0);
+    }
+    if idx >= array.len() {
+        return Ok(array.len() - 1);
+    }
+
+    let prev = array[idx - 1];
+    let next = array[idx];
+    if (prev - value).abs() <= (next - value).abs() {
+        Ok(idx - 1)
+    } else {
+        Ok(idx)
+    }
 }
 
 #[allow(non_snake_case)]

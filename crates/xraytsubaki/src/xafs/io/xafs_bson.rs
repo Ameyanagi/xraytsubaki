@@ -25,7 +25,7 @@ impl XASBson for XASGroupFile {
     fn read_bson(&mut self, filename: &str) -> Result<&mut Self, IOError> {
         let mut f_buffer = File::open(filename).map_err(|e| IOError::ReadFailed {
             path: filename.to_string(),
-            source: e.kind(),
+            kind: e.kind(),
         })?;
 
         let doc = Document::from_reader(&mut f_buffer).map_err(|e| IOError::BsonError {
@@ -51,7 +51,7 @@ impl XASBson for XASGroupFile {
 
         let mut data_file = File::create(filename).map_err(|e| IOError::ReadFailed {
             path: filename.to_string(),
-            source: e.kind(),
+            kind: e.kind(),
         })?;
 
         data_bson
@@ -69,6 +69,7 @@ impl XASBson for XASGroupFile {
 #[cfg(test)]
 mod tests {
     use ndarray::Array1;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
     use crate::prelude::*;
@@ -84,11 +85,19 @@ mod tests {
     const CHI_MSE_TOL: f64 = 1e-2;
     const CHI_Q_TOL: f64 = 1e-1;
 
+    fn unique_testfile_path(ext: &str) -> String {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        format!("{}/tests/testfiles/test_{}.{}", TOP_DIR, nanos, ext)
+    }
+
     #[test]
     #[allow(non_snake_case)]
     fn test_xas_bson_write() -> Result<(), Box<dyn std::error::Error>> {
         let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
-        let save_path = String::from(TOP_DIR) + "/tests/testfiles/test.bson";
+        let save_path = unique_testfile_path("bson");
         let mut xafs_test_group = io::load_spectrum_QAS_trans(&path).unwrap();
 
         xafs_test_group.set_background_method(Some(BackgroundMethod::AUTOBK(AUTOBK {
@@ -126,6 +135,7 @@ mod tests {
         xas_group_file.data = xas_group;
 
         xas_group_file.write_bson(&save_path)?;
+        std::fs::remove_file(&save_path).ok();
 
         Ok(())
     }
@@ -134,7 +144,7 @@ mod tests {
     #[allow(non_snake_case)]
     fn test_xas_bson_read() -> Result<(), Box<dyn std::error::Error>> {
         let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
-        let save_path = String::from(TOP_DIR) + "/tests/testfiles/test.bson";
+        let save_path = unique_testfile_path("bson");
         let mut xafs_test_group = io::load_spectrum_QAS_trans(&path).unwrap();
 
         xafs_test_group.set_background_method(Some(BackgroundMethod::AUTOBK(AUTOBK {
@@ -170,6 +180,7 @@ mod tests {
 
         xas_group_file.name = "test.bson".into();
         xas_group_file.data = xas_group;
+        xas_group_file.write_bson(&save_path)?;
 
         let mut xas_group_read = XASGroupFile::new();
         xas_group_read.read_bson(&save_path)?;
@@ -177,6 +188,7 @@ mod tests {
         // TODO:: Assertion of the struct is not working at this momment. Float has to be handled
         // properly.
         // assert_eq!(xas_group_read.data, xas_group_file.data);
+        std::fs::remove_file(&save_path).ok();
 
         Ok(())
     }

@@ -1,0 +1,14 @@
+{
+  "source": "Slice A baseline captured on 2026-02-07",
+  "benchmarks": {
+    "xas_group_benchmark_single": {
+      "median_ns": 763605000
+    },
+    "xas_group_benchmark_parallel": {
+      "median_ns": 8569100000
+    }
+  },
+  "thresholds": {
+    "regression_percent": 10.0
+  }
+}

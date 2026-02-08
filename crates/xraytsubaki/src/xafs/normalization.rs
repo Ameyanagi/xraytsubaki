@@ -11,7 +11,7 @@ use polyfit_rs::polyfit_rs;
 use serde::{Deserialize, Serialize};
 
 // Import internal dependencies
-use super::errors::NormalizationError;
+use super::errors::{DataError, NormalizationError};
 use super::mathutils::{self, MathUtils};
 use super::xafsutils;
 
@@ -236,82 +236,116 @@ impl PrePostEdge {
         energy: &Array1<f64>,
         mu: &Array1<f64>,
     ) -> Result<&mut Self, NormalizationError> {
-        if self.e0.is_none()
-            || self.e0.unwrap().is_nan()
-            || self.e0.unwrap() > energy[&energy.len() - 2]
-        {
-            let e0 = xafsutils::find_e0_array1(energy.clone(), mu.clone())?;
+        Self::validate_inputs(energy, mu)?;
+
+        let mut e0 = self.e0.unwrap_or(f64::NAN);
+        if !e0.is_finite() || e0 > energy[energy.len() - 2] || e0 < energy[0] {
+            e0 = xafsutils::find_e0_array1(energy.clone(), mu.clone())?;
             self.e0 = Some(e0);
         }
 
-        let ie0 = mathutils::index_nearest(&energy.to_vec(), &self.e0.unwrap())?;
+        let energy_vec = energy.to_vec();
+        let ie0 = mathutils::index_nearest_sorted(&energy_vec, &e0)?;
         let e0 = energy[ie0];
 
-        if self.n_victoreen.is_none() {
-            self.n_victoreen = Some(0);
-        }
+        let n_victoreen = self.n_victoreen.unwrap_or(0);
+        self.n_victoreen = Some(n_victoreen);
 
-        if self.pre_edge_start.is_none() {
-            let pre_edge_start = if ie0 > 20 {
+        let mut pre_edge_start = self.pre_edge_start.unwrap_or_else(|| {
+            let estimate = if ie0 > 20 {
                 5.0 * ((energy[1] - e0) / 5.0).round()
             } else {
                 2.0 * ((energy[1] - e0) / 2.0).round()
-            }
-            .max(energy.min() - e0);
+            };
+            estimate.max(energy.min() - e0)
+        });
 
-            self.pre_edge_start = Some(pre_edge_start);
+        let mut pre_edge_end = self
+            .pre_edge_end
+            .unwrap_or_else(|| 5.0 * (pre_edge_start / 15.0).round());
+
+        if pre_edge_start > pre_edge_end {
+            std::mem::swap(&mut pre_edge_start, &mut pre_edge_end);
         }
 
-        if self.pre_edge_end.is_none() {
-            let pre_edge_end = 5.0 * (&self.pre_edge_start.unwrap() / 15.0).round();
-            self.pre_edge_end = Some(pre_edge_end);
-        }
-
-        if self.pre_edge_start.unwrap() > self.pre_edge_end.unwrap() {
-            (self.pre_edge_start, self.pre_edge_end) = (self.pre_edge_end, self.pre_edge_start);
-        }
-
-        if self.norm_end.is_none() {
-            let norm_end = 5.0 * ((energy.max() - e0) / 5.0).round();
-            let norm_end = if norm_end < 0.0 {
-                energy.max() - e0 - norm_end
+        let mut norm_end = self.norm_end.unwrap_or_else(|| {
+            let estimate = 5.0 * ((energy.max() - e0) / 5.0).round();
+            let estimate = if estimate < 0.0 {
+                energy.max() - e0 - estimate
             } else {
-                norm_end
-            }
-            .min(energy.max() - e0);
+                estimate
+            };
+            estimate.min(energy.max() - e0)
+        });
 
-            self.norm_end = Some(norm_end);
+        let mut norm_start = self
+            .norm_start
+            .unwrap_or_else(|| (5.0 * (norm_end / 15.0).round()).min(25.0));
+
+        if norm_start > norm_end + 5.0 {
+            std::mem::swap(&mut norm_start, &mut norm_end);
         }
+        norm_start = norm_start.min(norm_end - 10.0);
 
-        if self.norm_start.is_none() {
-            let norm_start = 5.0 * (self.norm_end.unwrap() / 15.0).round();
-            self.norm_start = Some(norm_start.min(25.0));
-        }
-
-        if self.norm_start.unwrap() > self.norm_end.unwrap() + 5.0 {
-            (self.norm_start, self.norm_end) = (self.norm_end, self.norm_start);
-        }
-
-        self.norm_start = Some(self.norm_start.unwrap().min(self.norm_end.unwrap() - 10.0));
-
-        if self.norm_polyorder.is_none() {
-            let diff = self.norm_end.unwrap() - self.norm_start.unwrap();
+        let mut norm_polyorder = self.norm_polyorder.unwrap_or_else(|| {
+            let diff = norm_end - norm_start;
             if diff < 50.0 {
-                self.norm_polyorder = Some(0);
+                0
             } else if diff < 350.0 {
-                self.norm_polyorder = Some(1);
+                1
             } else {
-                self.norm_polyorder = Some(2);
+                2
             }
-        }
+        });
+        norm_polyorder = norm_polyorder.clamp(0, PrePostEdge::MAX_NORM_POLYORDER);
 
-        self.norm_polyorder = Some(
-            self.norm_polyorder
-                .unwrap()
-                .clamp(0, PrePostEdge::MAX_NORM_POLYORDER),
-        );
+        self.pre_edge_start = Some(pre_edge_start);
+        self.pre_edge_end = Some(pre_edge_end);
+        self.norm_start = Some(norm_start);
+        self.norm_end = Some(norm_end);
+        self.norm_polyorder = Some(norm_polyorder);
 
         Ok(self)
+    }
+
+    fn validate_inputs(energy: &Array1<f64>, mu: &Array1<f64>) -> Result<(), NormalizationError> {
+        if energy.len() != mu.len() {
+            return Err(DataError::LengthMismatch {
+                energy_len: energy.len(),
+                mu_len: mu.len(),
+            }
+            .into());
+        }
+        if energy.len() < 2 {
+            return Err(DataError::InsufficientData {
+                min: 2,
+                actual: energy.len(),
+            }
+            .into());
+        }
+
+        let non_finite = energy
+            .iter()
+            .zip(mu.iter())
+            .enumerate()
+            .filter_map(|(index, (e, m))| (!e.is_finite() || !m.is_finite()).then_some(index))
+            .collect::<Vec<_>>();
+        if !non_finite.is_empty() {
+            return Err(DataError::NonFiniteValues {
+                indices: non_finite,
+            }
+            .into());
+        }
+
+        for index in 1..energy.len() {
+            let prev = energy[index - 1];
+            let curr = energy[index];
+            if curr < prev {
+                return Err(DataError::NonMonotonicEnergy { index, prev, curr }.into());
+            }
+        }
+
+        Ok(())
     }
 
     pub fn get_pre_edge_start(&self) -> Option<f64> {
@@ -371,23 +405,42 @@ impl Normalization for PrePostEdge {
         // let mu = Array1::from_vec(mu);
 
         let (energy, mu) = xafsutils::remove_nan2(energy, mu);
+        Self::validate_inputs(&energy, &mu)?;
 
-        let _ = self.fill_parameter(&energy, &mu)?;
+        self.fill_parameter(&energy, &mu)?;
 
-        let p1 = mathutils::index_of(
-            &energy.to_vec(),
-            &(self.pre_edge_start.unwrap() + self.e0.unwrap()),
-        )?;
-        let mut p2 = mathutils::index_nearest(
-            &energy.to_vec(),
-            &(self.pre_edge_end.unwrap() + self.e0.unwrap()),
-        )?;
-
-        if p2 - p1 < 2 {
-            p2 = energy.len().min(&p1 + 2);
-        }
-
+        let e0 = self.e0.ok_or_else(|| DataError::MissingData {
+            field: "e0".to_string(),
+        })?;
+        let pre_edge_start = self.pre_edge_start.ok_or_else(|| DataError::MissingData {
+            field: "pre_edge_start".to_string(),
+        })?;
+        let pre_edge_end = self.pre_edge_end.ok_or_else(|| DataError::MissingData {
+            field: "pre_edge_end".to_string(),
+        })?;
+        let norm_start = self.norm_start.ok_or_else(|| DataError::MissingData {
+            field: "norm_start".to_string(),
+        })?;
+        let norm_end = self.norm_end.ok_or_else(|| DataError::MissingData {
+            field: "norm_end".to_string(),
+        })?;
+        let norm_polyorder = self.norm_polyorder.ok_or_else(|| DataError::MissingData {
+            field: "norm_polyorder".to_string(),
+        })?;
         let nvict = self.n_victoreen.unwrap_or(0);
+
+        let energy_vec = energy.to_vec();
+        let p1 = mathutils::index_of_sorted(&energy_vec, &(pre_edge_start + e0))?;
+        let mut p2 = mathutils::index_nearest_sorted(&energy_vec, &(pre_edge_end + e0))?;
+        if p2 <= p1 || p2 - p1 < 2 {
+            if p1 + 2 > energy.len() {
+                return Err(NormalizationError::PreEdgeFitFailed {
+                    start: pre_edge_start + e0,
+                    end: pre_edge_end + e0,
+                });
+            }
+            p2 = (p1 + 2).min(energy.len());
+        }
 
         // TODO: make it faster.
         let omu = &mu.slice(ndarray::s![p1..p2])
@@ -395,6 +448,12 @@ impl Normalization for PrePostEdge {
 
         let (energy_x, mu_x) =
             xafsutils::remove_nan2(&energy.slice(ndarray::s![p1..p2]).to_owned(), &omu);
+        if energy_x.len() < 2 {
+            return Err(NormalizationError::PreEdgeFitFailed {
+                start: pre_edge_start + e0,
+                end: pre_edge_end + e0,
+            });
+        }
 
         let pre_coefficients: Vec<f64> =
             polyfit_rs::polyfit(&energy_x.to_vec(), &mu_x.to_vec(), 1)?;
@@ -402,43 +461,45 @@ impl Normalization for PrePostEdge {
         let pre_edge =
             (&energy * pre_coefficients[1] + pre_coefficients[0]) * &energy.map(|e| e.powi(-nvict));
 
-        let mut p1 = mathutils::index_of(
-            &energy.to_vec(),
-            &(self.norm_start.unwrap() + self.e0.unwrap()),
-        )?;
-        let mut p2 = mathutils::index_nearest(
-            &energy.to_vec(),
-            &(self.norm_end.unwrap() + self.e0.unwrap()),
-        )?;
+        let mut p1 = mathutils::index_of_sorted(&energy_vec, &(norm_start + e0))?;
+        let mut p2 = mathutils::index_nearest_sorted(&energy_vec, &(norm_end + e0))?;
 
-        if p2 - p1 < 2 {
-            p2 = energy.len().min(&p1 + 2);
-            p1 = energy.len().min(&p1 + 1);
+        if p2 <= p1 || p2 - p1 < 2 {
+            if p1 + 2 > energy.len() {
+                return Err(NormalizationError::PostEdgeFitFailed {
+                    order: norm_polyorder as usize,
+                    n_points: 0,
+                });
+            }
+            p2 = (p1 + 2).min(energy.len());
+            p1 = (p1 + 1).min(energy.len() - 1);
         }
 
-        let presub = (&mu - &pre_edge)
-            .slice(ndarray::s![p1..p2])
-            .to_vec()
-            .clone();
+        let presub = (&mu - &pre_edge).slice(ndarray::s![p1..p2]).to_vec();
+        if presub.len() <= norm_polyorder as usize {
+            return Err(NormalizationError::PostEdgeFitFailed {
+                order: norm_polyorder as usize,
+                n_points: presub.len(),
+            });
+        }
         let post_edge_energy = energy.slice(ndarray::s![p1..p2]);
-        let post_coefficients = polyfit_rs::polyfit(
-            &post_edge_energy.to_vec(),
-            &presub,
-            self.norm_polyorder.unwrap() as usize,
-        )?;
+        let post_coefficients =
+            polyfit_rs::polyfit(&post_edge_energy.to_vec(), &presub, norm_polyorder as usize)?;
 
         let mut post_edge = pre_edge.clone();
 
         for (i, c) in post_coefficients.iter().enumerate() {
             post_edge = &post_edge + &energy.map(|e| e.powi(i as i32)) * *c;
         }
-        let ie0 = mathutils::index_nearest(&energy.to_vec(), &self.e0.unwrap())?;
-        let edge_step = if self.edge_step.is_none() {
-            post_edge[ie0] - pre_edge[ie0]
-        } else {
-            self.edge_step.unwrap()
+        let ie0 = mathutils::index_nearest_sorted(&energy_vec, &e0)?;
+        let edge_step = self.edge_step.unwrap_or(post_edge[ie0] - pre_edge[ie0]);
+        if !edge_step.is_finite() {
+            return Err(NormalizationError::EdgeStepTooSmall {
+                edge_step,
+                min: 1.0e-12,
+            });
         }
-        .max(1.0e-12);
+        let edge_step = edge_step.max(1.0e-12);
 
         let norm = (&mu - &pre_edge) / edge_step;
 
@@ -500,7 +561,6 @@ pub struct MBack {
     pub flat: Option<Array1<f64>>,
 }
 
-
 impl MBack {
     pub fn new() -> MBack {
         MBack {
@@ -519,7 +579,9 @@ impl Normalization for MBack {
         energy: &ArrayBase<OwnedRepr<f64>, Ix1>,
         mu: &ArrayBase<OwnedRepr<f64>, Ix1>,
     ) -> Result<&mut Self, NormalizationError> {
-        Err(NormalizationError::NotImplemented { method: "MBack normalization".to_string() })
+        Err(NormalizationError::NotImplemented {
+            method: "MBack normalization".to_string(),
+        })
     }
 
     fn get_e0(&self) -> Option<f64> {
@@ -572,7 +634,15 @@ mod tests {
 
         // Convert DVector to Array1 for test
         use ndarray::Array1;
-        let energy = Array1::from_vec(xafs_test_group.energy.clone().unwrap().data.as_vec().clone());
+        let energy = Array1::from_vec(
+            xafs_test_group
+                .energy
+                .clone()
+                .unwrap()
+                .data
+                .as_vec()
+                .clone(),
+        );
         let mu = Array1::from_vec(xafs_test_group.mu.clone().unwrap().data.as_vec().clone());
 
         let _ = pre_post_edge.fill_parameter(&energy, &mu);
@@ -638,7 +708,15 @@ mod tests {
 
         // Convert DVector to Array1 for test
         use ndarray::Array1;
-        let energy = Array1::from_vec(xafs_test_group.energy.clone().unwrap().data.as_vec().clone());
+        let energy = Array1::from_vec(
+            xafs_test_group
+                .energy
+                .clone()
+                .unwrap()
+                .data
+                .as_vec()
+                .clone(),
+        );
         let mu = Array1::from_vec(xafs_test_group.mu.clone().unwrap().data.as_vec().clone());
 
         let mut pre_post_edge = PrePostEdge::new();

@@ -6,7 +6,6 @@
 use std::cmp;
 use std::error::Error;
 // External dependencies
-use fftconvolve::{fftconvolve, Mode};
 use nalgebra::DVector;
 use ndarray::{Array, Array1, ArrayBase, Axis, Ix1, OwnedRepr, Slice};
 use serde::{Deserialize, Serialize};
@@ -76,7 +75,13 @@ impl XAFSUtils for Vec<f64> {
 
 impl XAFSUtils for nalgebra::DVector<f64> {
     fn etok(&self) -> Self {
-        self.map(|x| if x < 0.0 { 0.0 } else { x.sqrt() * constants::KTOE })
+        self.map(|x| {
+            if x < 0.0 {
+                0.0
+            } else {
+                x.sqrt() * constants::KTOE
+            }
+        })
     }
 
     fn ktoe(&self) -> Self {
@@ -162,7 +167,11 @@ pub fn smooth<T: Into<Array1<f64>>>(
     let npts = npts1.min(50 * x.len() as i32);
 
     let x0: Array1<f64> = Array1::linspace(xmin, xmax, npts as usize);
-    let y0: Array1<f64> = x0.interpolate(&x.to_vec(), &y.to_vec())?;
+    let y0: Array1<f64> = if let (Some(x_slice), Some(y_slice)) = (x.as_slice(), y.as_slice()) {
+        x0.interpolate(x_slice, y_slice)?
+    } else {
+        x0.interpolate(&x.to_vec(), &y.to_vec())?
+    };
 
     let sigma = sigma / xstep;
     let gamma = gamma / xstep;
@@ -183,7 +192,7 @@ pub fn smooth<T: Into<Array1<f64>>>(
         ],
     )?;
 
-    let y2 = fftconvolve(&y1, &(&win / win.sum()), Mode::Valid)?;
+    let y2 = convolve_valid(&y1, &(&win / win.sum()))?;
 
     let y2 = if y2.len() > x0.len() {
         let nex = ((y2.len() - x0.len()) / 2) as usize;
@@ -193,7 +202,40 @@ pub fn smooth<T: Into<Array1<f64>>>(
         y2.view()
     };
 
-    Ok(x.interpolate(&x0.to_vec(), &y2.to_vec())?)
+    Ok(
+        if let (Some(x0_slice), Some(y2_slice)) = (x0.as_slice(), y2.as_slice()) {
+            x.interpolate(x0_slice, y2_slice)?
+        } else {
+            x.interpolate(&x0.to_vec(), &y2.to_vec())?
+        },
+    )
+}
+
+fn convolve_valid(
+    signal: &Array1<f64>,
+    kernel: &Array1<f64>,
+) -> Result<Array1<f64>, Box<dyn Error>> {
+    if signal.is_empty() || kernel.is_empty() || signal.len() < kernel.len() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "invalid convolution input lengths",
+        )
+        .into());
+    }
+
+    let out_len = signal.len() - kernel.len() + 1;
+    let mut out = Array1::zeros(out_len);
+
+    for i in 0..out_len {
+        let mut acc = 0.0;
+        for j in 0..kernel.len() {
+            // Match convolution semantics used by fft-based implementation.
+            acc += signal[i + j] * kernel[kernel.len() - 1 - j];
+        }
+        out[i] = acc;
+    }
+
+    Ok(out)
 }
 
 /// Function to remove duplicated successive values of an array that is expected to be monotonically increasing.
@@ -212,11 +254,11 @@ pub fn smooth<T: Into<Array1<f64>>>(
 ///
 /// # Example
 /// ```
-/// use xraytsubaki::xafs::xafsutils::remove_dups;
+/// use xraytsubaki::xafs::xafsutils::remove_dups_array1;
 /// use ndarray::Array1;
 ///
 /// let arr = Array1::from_vec(vec![0.0, 1.1, 2.2, 2.2, 3.3]);
-/// let arr = remove_dups(arr, None, None, None);
+/// let arr = remove_dups_array1(arr, None, None, None);
 /// assert_eq!(arr, Array1::from_vec(vec![0., 1.1, 2.2, 2.2000001, 3.3]));
 /// ```
 #[cfg(feature = "ndarray-compat")]
@@ -350,11 +392,11 @@ pub fn remove_nan2(
 ///
 /// # Example
 /// ```
-/// use xraytsubaki::xafs::xafsutils::find_energy_step;
+/// use xraytsubaki::xafs::xafsutils::find_energy_step_array1;
 /// use ndarray::array;
 ///
 /// let energy = array![0.0, 1.1, 2.2, 2.2, 3.3];
-/// let estep = find_energy_step(energy, None, None, None);
+/// let estep = find_energy_step_array1(energy, None, None, None);
 /// assert_eq!(estep, 0.7333333333333333);
 /// ```
 #[cfg(feature = "ndarray-compat")]
@@ -400,12 +442,12 @@ pub fn find_energy_step_array1<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>>>(
 ///
 /// # Example
 /// ```
-/// use xraytsubaki::xafs::xafsutils::find_e0;
+/// use xraytsubaki::xafs::xafsutils::find_e0_array1;
 /// use ndarray::Array1;
 ///
 /// let energy:Array1<f64> = Array1::linspace(0.0, 100.0, 1000);
 /// let mu = &energy.map(|x| (x-50.0).powi(3) - (x-50.0).powi(2) + x);
-/// let result = find_e0(energy.clone(), mu.clone());
+/// let result = find_e0_array1(energy.clone(), mu.clone());
 /// assert_eq!(result.unwrap(), 0.4004004004004004);
 ///
 /// // Result calculated by Larch is 0.3003003003003003
@@ -453,13 +495,13 @@ pub fn find_e0_array1<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>>>(
 ///
 /// # Example
 /// ```
-/// use xraytsubaki::xafs::xafsutils::_find_e0;
+/// use xraytsubaki::xafs::xafsutils::_find_e0_array1;
 /// use ndarray::Array1;
 ///
 /// let energy:Array1<f64> = Array1::linspace(0.0, 100.0, 1000);
 /// let mu = &energy.map(|x| (x-50.0).powi(3) - (x-50.0).powi(2) + x);
 ///
-/// let result = _find_e0(energy.clone(), mu.clone(), None, None);
+/// let result = _find_e0_array1(energy.clone(), mu.clone(), None, None);
 /// assert_eq!(result.unwrap(), (1.001001001001001, 10, 0.05005005005004648));
 ///
 /// // the result obtained by xraylarch is (1.001001001001001, 10, 0.05005005005004648)
@@ -471,10 +513,12 @@ pub fn _find_e0_array1<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>> + Clone>(
     estep: Option<f64>,
     use_smooth: Option<bool>,
 ) -> Result<(f64, usize, f64), Box<dyn Error>> {
-    let en: ArrayBase<OwnedRepr<f64>, Ix1> = remove_dups_array1(energy.clone().into(), None, None, None);
+    let en: ArrayBase<OwnedRepr<f64>, Ix1> =
+        remove_dups_array1(energy.clone().into(), None, None, None);
     let mu: ArrayBase<OwnedRepr<f64>, Ix1> = mu.into();
 
-    let estep = estep.unwrap_or(find_energy_step_array1(energy.clone(), None, None, Some(false)) / 2.0);
+    let estep =
+        estep.unwrap_or(find_energy_step_array1(energy.clone(), None, None, Some(false)) / 2.0);
 
     let nmin = 2.max(en.len() / 100);
 
@@ -541,6 +585,13 @@ pub fn _find_e0_array1<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>> + Clone>(
             .collect();
     }
 
+    let mut high_deriv_mask = vec![false; dmu.len()];
+    for &idx in &high_deriv_pts {
+        if idx < high_deriv_mask.len() {
+            high_deriv_mask[idx] = true;
+        }
+    }
+
     let mut imax = 0;
     let mut dmax = 0.0;
 
@@ -549,9 +600,11 @@ pub fn _find_e0_array1<T: Into<ArrayBase<OwnedRepr<f64>, Ix1>> + Clone>(
             continue;
         }
 
-        if dmu[*i] > dmax && high_deriv_pts.contains(&(i + 1)) && high_deriv_pts.contains(&(i - 1))
-        {
-            dmax = dmu[(*i)];
+        let idx = *i;
+        let has_prev = idx > 0 && high_deriv_mask[idx - 1];
+        let has_next = idx + 1 < high_deriv_mask.len() && high_deriv_mask[idx + 1];
+        if dmu[idx] > dmax && has_prev && has_next {
+            dmax = dmu[idx];
             imax = *i;
         }
     }
@@ -672,9 +725,7 @@ pub fn _find_e0(
     let dm_ptp = middle_slice.ptp();
 
     // Normalize dmu
-    let dmu = DVector::from_fn(dmu.len(), |i, _| {
-        (dmu[i] - dmin) / dm_ptp
-    });
+    let dmu = DVector::from_fn(dmu.len(), |i, _| (dmu[i] - dmin) / dm_ptp);
 
     let mut dhigh = if en.len() > 20 { 0.60 } else { 0.30 };
 
@@ -712,6 +763,13 @@ pub fn _find_e0(
             .collect();
     }
 
+    let mut high_deriv_mask = vec![false; dmu.len()];
+    for &idx in &high_deriv_pts {
+        if idx < high_deriv_mask.len() {
+            high_deriv_mask[idx] = true;
+        }
+    }
+
     let mut imax = 0;
     let mut dmax = 0.0;
 
@@ -720,9 +778,11 @@ pub fn _find_e0(
             continue;
         }
 
-        if dmu[*i] > dmax && high_deriv_pts.contains(&(i + 1)) && high_deriv_pts.contains(&(i - 1))
-        {
-            dmax = dmu[*i];
+        let idx = *i;
+        let has_prev = idx > 0 && high_deriv_mask[idx - 1];
+        let has_next = idx + 1 < high_deriv_mask.len() && high_deriv_mask[idx + 1];
+        if dmu[idx] > dmax && has_prev && has_next {
+            dmax = dmu[idx];
             imax = *i;
         }
     }
@@ -741,10 +801,7 @@ pub fn _find_e0(
 /// # Returns
 /// Result<e0: f64, Box<dyn Error>>
 /// * `e0` - Energy threshold of absorption, or the edge energy
-pub fn find_e0(
-    energy: &DVector<f64>,
-    mu: &DVector<f64>,
-) -> Result<f64, Box<dyn Error>> {
+pub fn find_e0(energy: &DVector<f64>, mu: &DVector<f64>) -> Result<f64, Box<dyn Error>> {
     let (e1, ie0, estep) = _find_e0(energy, mu, None, None)?;
     let istart = (ie0 as i32 - 75).max(2) as usize;
     let istop = (ie0 + 75).min(energy.len() - 2);
@@ -752,19 +809,12 @@ pub fn find_e0(
     // Extract slice as new DVector
     let energy_slice = DVector::from_iterator(
         istop - istart,
-        energy.as_slice()[istart..istop].iter().cloned()
+        energy.as_slice()[istart..istop].iter().cloned(),
     );
-    let mu_slice = DVector::from_iterator(
-        istop - istart,
-        mu.as_slice()[istart..istop].iter().cloned()
-    );
+    let mu_slice =
+        DVector::from_iterator(istop - istart, mu.as_slice()[istart..istop].iter().cloned());
 
-    let (mut e0, ix, ex) = _find_e0(
-        &energy_slice,
-        &mu_slice,
-        Some(estep),
-        Some(true),
-    )?;
+    let (mut e0, ix, ex) = _find_e0(&energy_slice, &mu_slice, Some(estep), Some(true))?;
 
     if ix < 1 {
         e0 = energy[istart + 2];

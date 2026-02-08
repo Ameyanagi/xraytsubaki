@@ -15,7 +15,6 @@ approx = { workspace = true }
 data_reader = { workspace = true }
 # easyfft = { workspace = true }
 errorfunctions = { workspace = true }
-fftconvolve = { workspace = true }
 ndarray = { version = "0.15.6", features = ["approx", "serde"], optional = true }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
@@ -35,9 +34,10 @@ easyfft = { workspace = true }
 serde_json = { workspace = true }
 flate2 = { workspace = true }
 pest = { workspace = true }
+thiserror = { workspace = true }
 
 [features]
-default = []
+default = ["ndarray-compat"]
 ndarray-compat = ["ndarray"]
 
 [dev-dependencies]
@@ -45,9 +45,9 @@ pprof = { version = "0.13", features = ["flamegraph"] }
 
 criterion = { version = "0.5.1", features = ["html_reports"] }
 
-# [[bench]]
-# name = "xas_group_benchmark_single"
-# harness = false
+[[bench]]
+name = "xas_group_benchmark_single"
+harness = false
 
 [[bench]]
 name = "xas_group_benchmark_parallel"

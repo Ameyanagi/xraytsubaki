@@ -58,8 +58,50 @@ pub struct XASSpectrum {
     pub xftr: Option<xrayfft::XrayFFTR>,
 }
 
-
 impl XASSpectrum {
+    fn validate_energy_mu_inputs(
+        energy: &DVector<f64>,
+        mu: &DVector<f64>,
+    ) -> Result<(), XAFSError> {
+        if energy.len() != mu.len() {
+            return Err(DataError::LengthMismatch {
+                energy_len: energy.len(),
+                mu_len: mu.len(),
+            }
+            .into());
+        }
+        if energy.len() < 2 {
+            return Err(DataError::InsufficientData {
+                min: 2,
+                actual: energy.len(),
+            }
+            .into());
+        }
+
+        let non_finite = energy
+            .iter()
+            .zip(mu.iter())
+            .enumerate()
+            .filter_map(|(index, (e, m))| (!e.is_finite() || !m.is_finite()).then_some(index))
+            .collect::<Vec<_>>();
+        if !non_finite.is_empty() {
+            return Err(DataError::NonFiniteValues {
+                indices: non_finite,
+            }
+            .into());
+        }
+
+        for index in 1..energy.len() {
+            let prev = energy[index - 1];
+            let curr = energy[index];
+            if curr < prev {
+                return Err(DataError::NonMonotonicEnergy { index, prev, curr }.into());
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn new() -> XASSpectrum {
         XASSpectrum::default()
     }
@@ -69,10 +111,7 @@ impl XASSpectrum {
         self
     }
 
-    pub fn set_spectrum<
-        T: Into<DVector<f64>>,
-        M: Into<DVector<f64>>,
-    >(
+    pub fn set_spectrum<T: Into<DVector<f64>>, M: Into<DVector<f64>>>(
         &mut self,
         energy: T,
         mu: M,
@@ -85,11 +124,11 @@ impl XASSpectrum {
             // For DVector, we need to manually sort by indices
             self.raw_energy = Some(DVector::from_iterator(
                 sort_idx.len(),
-                sort_idx.iter().map(|&i| raw_energy[i])
+                sort_idx.iter().map(|&i| raw_energy[i]),
             ));
             self.raw_mu = Some(DVector::from_iterator(
                 sort_idx.len(),
-                sort_idx.iter().map(|&i| raw_mu[i])
+                sort_idx.iter().map(|&i| raw_mu[i]),
             ));
         } else {
             self.raw_energy = Some(raw_energy);
@@ -107,11 +146,34 @@ impl XASSpectrum {
     ) -> Result<&mut Self, XAFSError> {
         self.energy = Some(energy.into());
 
-        let energy = self.energy.clone().unwrap();
-        let mu = self.raw_mu.clone().unwrap().data.as_vec().to_vec();
-        let knot = self.raw_energy.clone().unwrap().data.as_vec().to_vec();
+        let energy = self.energy.clone().ok_or_else(|| DataError::MissingData {
+            field: "energy".to_string(),
+        })?;
+        let mu = self
+            .raw_mu
+            .clone()
+            .ok_or_else(|| DataError::MissingData {
+                field: "raw_mu".to_string(),
+            })?
+            .data
+            .as_vec()
+            .to_vec();
+        let knot = self
+            .raw_energy
+            .clone()
+            .ok_or_else(|| DataError::MissingData {
+                field: "raw_energy".to_string(),
+            })?
+            .data
+            .as_vec()
+            .to_vec();
 
-        self.mu = Some(energy.interpolate(&knot, &mu).unwrap());
+        self.mu = Some(energy.interpolate(&knot, &mu).map_err(|e| {
+            super::errors::MathError::SplineEvalFailed {
+                x: 0.0,
+                reason: e.to_string(),
+            }
+        })?);
 
         Ok(self)
     }
@@ -123,16 +185,53 @@ impl XASSpectrum {
     }
 
     pub fn find_e0(&mut self) -> Result<&mut Self, XAFSError> {
-        let energy = self.energy.as_ref().unwrap();
-        let mu = self.mu.as_ref().unwrap();
+        let energy = self.energy.as_ref().ok_or_else(|| DataError::MissingData {
+            field: "energy".to_string(),
+        })?;
+        let mu = self.mu.as_ref().ok_or_else(|| DataError::MissingData {
+            field: "mu".to_string(),
+        })?;
+        Self::validate_energy_mu_inputs(energy, mu)?;
         self.e0 = Some(xafsutils::find_e0(energy, mu)?);
 
         Ok(self)
     }
 
-    fn find_energy_step(&mut self, frac_ignore: Option<f64>, nave: Option<usize>) -> f64 {
-        let energy = self.energy.as_ref().unwrap();
-        xafsutils::find_energy_step(energy, frac_ignore, nave, None)
+    fn find_energy_step(
+        &mut self,
+        frac_ignore: Option<f64>,
+        nave: Option<usize>,
+    ) -> Result<f64, XAFSError> {
+        let energy = self.energy.as_ref().ok_or_else(|| DataError::MissingData {
+            field: "energy".to_string(),
+        })?;
+        if energy.len() < 2 {
+            return Err(DataError::InsufficientData {
+                min: 2,
+                actual: energy.len(),
+            }
+            .into());
+        }
+        let non_finite = energy
+            .iter()
+            .enumerate()
+            .filter_map(|(index, value)| (!value.is_finite()).then_some(index))
+            .collect::<Vec<_>>();
+        if !non_finite.is_empty() {
+            return Err(DataError::NonFiniteValues {
+                indices: non_finite,
+            }
+            .into());
+        }
+        for index in 1..energy.len() {
+            let prev = energy[index - 1];
+            let curr = energy[index];
+            if curr < prev {
+                return Err(DataError::NonMonotonicEnergy { index, prev, curr }.into());
+            }
+        }
+
+        Ok(xafsutils::find_energy_step(energy, frac_ignore, nave, None))
     }
 
     pub fn set_normalization_method(
@@ -149,7 +248,14 @@ impl XASSpectrum {
         }
 
         let e0 = self.e0;
-        self.normalization.as_mut().unwrap().set_e0(e0);
+        if let Some(normalization_method) = self.normalization.as_mut() {
+            normalization_method.set_e0(e0);
+        } else {
+            return Err(DataError::MissingData {
+                field: "normalization method".to_string(),
+            }
+            .into());
+        }
 
         Ok(self)
     }
@@ -159,16 +265,26 @@ impl XASSpectrum {
             self.set_normalization_method(None)?;
         }
 
+        let energy = self.energy.as_ref().ok_or_else(|| DataError::MissingData {
+            field: "energy".to_string(),
+        })?;
+        let mu = self.mu.as_ref().ok_or_else(|| DataError::MissingData {
+            field: "mu".to_string(),
+        })?;
+        Self::validate_energy_mu_inputs(energy, mu)?;
+
         // Convert DVector to Array1 for normalization (temporary until trait is migrated)
         #[cfg(feature = "ndarray-compat")]
         {
             use ndarray::Array1;
-            let energy = Array1::from_vec(self.energy.as_ref().unwrap().data.as_vec().clone());
-            let mu = Array1::from_vec(self.mu.as_ref().unwrap().data.as_vec().clone());
+            let energy = Array1::from_vec(energy.data.as_vec().clone());
+            let mu = Array1::from_vec(mu.data.as_vec().clone());
 
             self.normalization
                 .as_mut()
-                .unwrap()
+                .ok_or_else(|| DataError::MissingData {
+                    field: "normalization method".to_string(),
+                })?
                 .normalize(&energy, &mu)?;
         }
 
@@ -194,41 +310,48 @@ impl XASSpectrum {
             self.set_background_method(None)?;
         }
 
-        let energy = self.energy.as_ref().unwrap();
-        let mu = self.mu.as_ref().unwrap();
+        let energy = self.energy.as_ref().ok_or_else(|| DataError::MissingData {
+            field: "energy".to_string(),
+        })?;
+        let mu = self.mu.as_ref().ok_or_else(|| DataError::MissingData {
+            field: "mu".to_string(),
+        })?;
+        Self::validate_energy_mu_inputs(energy, mu)?;
 
         self.background
             .as_mut()
-            .unwrap()
+            .ok_or_else(|| DataError::MissingData {
+                field: "background method".to_string(),
+            })?
             .calc_background(energy, mu, &mut self.normalization)?;
 
         Ok(self)
     }
 
     pub fn fft(&mut self) -> Result<&mut Self, XAFSError> {
-        let k = self.get_k();
-        let chi = self.get_chi();
-
-        if k.is_none() || chi.is_none() {
-            return Err(DataError::MissingData {
-                field: "k and chi (need to calculate background first)".to_string(),
-            }.into());
-        }
-
-        let k = k.unwrap();
-        let chi = chi.unwrap();
+        let k = self.get_k().ok_or_else(|| DataError::MissingData {
+            field: "k (need to calculate background first)".to_string(),
+        })?;
+        let chi = self.get_chi().ok_or_else(|| DataError::MissingData {
+            field: "chi (need to calculate background first)".to_string(),
+        })?;
 
         if self.xftf.is_none() {
             self.xftf = Some(xrayfft::XrayFFTF::new());
         }
 
-        // Convert DVector to Array1 for FFT (temporary until xrayfft is migrated)
+        // Borrow DVector storage as ndarray views to avoid hot-path copy churn.
         #[cfg(feature = "ndarray-compat")]
         {
-            use ndarray::Array1;
-            let k_array = Array1::from_vec(k.data.as_vec().clone());
-            let chi_array = Array1::from_vec(chi.data.as_vec().clone());
-            self.xftf.as_mut().unwrap().xftf(k_array.view(), chi_array.view());
+            use ndarray::ArrayView1;
+            let k_array = ArrayView1::from(k.as_slice());
+            let chi_array = ArrayView1::from(chi.as_slice());
+            self.xftf
+                .as_mut()
+                .ok_or_else(|| DataError::MissingData {
+                    field: "xftf configuration".to_string(),
+                })?
+                .xftf(k_array, chi_array)?;
         }
 
         Ok(self)
@@ -238,26 +361,34 @@ impl XASSpectrum {
         if self.xftf.is_none() {
             return Err(DataError::MissingData {
                 field: "xftf (need to run fft() first)".to_string(),
-            }.into());
+            }
+            .into());
         }
 
-        let r = self.xftf.as_ref().unwrap().get_r();
-        let chi_r = self.xftf.as_ref().unwrap().get_chir();
+        let xftf = self.xftf.as_ref().ok_or_else(|| DataError::MissingData {
+            field: "xftf configuration".to_string(),
+        })?;
 
-        if r.is_none() || chi_r.is_none() {
-            return Err(DataError::MissingData {
-                field: "r and chi_r (fft() may have failed)".to_string(),
-            }.into());
-        }
+        let r = xftf.get_r();
+        let chi_r = xftf.get_chir();
 
-        let r = r.unwrap();
-        let chi_r = chi_r.unwrap();
+        let r = r.ok_or_else(|| DataError::MissingData {
+            field: "r (fft() may have failed)".to_string(),
+        })?;
+        let chi_r = chi_r.ok_or_else(|| DataError::MissingData {
+            field: "chi_r (fft() may have failed)".to_string(),
+        })?;
 
         if self.xftr.is_none() {
             self.xftr = Some(xrayfft::XrayFFTR::new());
         }
 
-        self.xftr.as_mut().unwrap().xftr(r.view(), chi_r);
+        self.xftr
+            .as_mut()
+            .ok_or_else(|| DataError::MissingData {
+                field: "xftr configuration".to_string(),
+            })?
+            .xftr(r.view(), chi_r)?;
 
         Ok(self)
     }
@@ -392,5 +523,44 @@ pub mod tests {
             .iter()
             .zip(expected_norm.iter())
             .for_each(|(x, y)| assert_abs_diff_eq!(x, y, epsilon = TEST_TOL_LESS_ACC));
+    }
+
+    #[test]
+    fn test_find_e0_rejects_non_monotonic_energy() {
+        let mut spectrum = XASSpectrum::new();
+        spectrum.energy = Some(DVector::from_vec(vec![1.0, 3.0, 2.0]));
+        spectrum.mu = Some(DVector::from_vec(vec![1.0, 2.0, 3.0]));
+
+        let err = spectrum.find_e0().unwrap_err();
+        assert!(matches!(
+            err,
+            XAFSError::Data(DataError::NonMonotonicEnergy { .. })
+        ));
+    }
+
+    #[test]
+    fn test_normalize_rejects_non_finite_input() {
+        let mut spectrum = XASSpectrum::new();
+        spectrum.energy = Some(DVector::from_vec(vec![1.0, 2.0, 3.0]));
+        spectrum.mu = Some(DVector::from_vec(vec![1.0, f64::NAN, 3.0]));
+
+        let err = spectrum.normalize().unwrap_err();
+        assert!(matches!(
+            err,
+            XAFSError::Data(DataError::NonFiniteValues { .. })
+        ));
+    }
+
+    #[test]
+    fn test_calc_background_rejects_length_mismatch() {
+        let mut spectrum = XASSpectrum::new();
+        spectrum.energy = Some(DVector::from_vec(vec![1.0, 2.0, 3.0]));
+        spectrum.mu = Some(DVector::from_vec(vec![1.0, 2.0]));
+
+        let err = spectrum.calc_background().unwrap_err();
+        assert!(matches!(
+            err,
+            XAFSError::Data(DataError::LengthMismatch { .. })
+        ));
     }
 }

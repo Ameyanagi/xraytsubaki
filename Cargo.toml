@@ -9,9 +9,10 @@ members = [
   # "examples/*",
 ]
 default-members = ["crates/*"]
-# exclude = [
-#   "examples/datasets",
-# ]
+exclude = [
+  "xraytsubaki-gui",
+  # "examples/datasets",
+]
 
 [workspace.package]
 name = "xraytsubaki"
@@ -24,12 +25,11 @@ license = "MIT OR Apache-2.0"
 
 
 [workspace.dependencies]
-easyfft = { version = "0.4.1", features = ["serde"] }
+easyfft = { version = "0.4.2", features = ["serde"] }
 semver = { version = "1.0.22" }
 approx = "0.5.1"
 data_reader = "0.5.0"
 errorfunctions = "0.2.0"
-fftconvolve = "0.1.1"
 ndarray = { version = "0.15.6", features = ["approx", "serde"] }
 itertools = "0.12.0"
 lazy_static = "1.4.0"
@@ -47,6 +47,7 @@ version = "3.0.0"
 derivative = "2.2.0"
 flate2 = "1.0.28"
 pest = "2.7.7"
+thiserror = "1.0.69"
 
 xraytsubaki = { version = "0.1.0", path = "crates/xraytsubaki" }
 

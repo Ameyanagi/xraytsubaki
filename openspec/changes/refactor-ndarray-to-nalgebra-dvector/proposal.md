@@ -1,5 +1,9 @@
 # Change: Refactor from ndarray to nalgebra DVector for All Internal Vector Operations
 
+## Coordination Status
+This change is synchronized with `update-whole-repo-performance-logic-hardening`.
+This proposal owns broad representation migration and compatibility policy, while the umbrella change only requires targeted hot-path conversion/allocation reductions that may be delivered incrementally before full migration completion.
+
 ## Why
 
 **Current State Analysis**:

@@ -29,7 +29,7 @@ impl XASJson for XASGroupFile {
     fn read_json(&mut self, filename: &str) -> Result<&mut Self, IOError> {
         let f_buffer = File::open(filename).map_err(|e| IOError::ReadFailed {
             path: filename.to_string(),
-            source: e.kind(),
+            kind: e.kind(),
         })?;
 
         let doc = serde_json::from_reader(f_buffer).map_err(|e| IOError::JsonError {
@@ -46,7 +46,7 @@ impl XASJson for XASGroupFile {
 
         let mut data_file = File::create(filename).map_err(|e| IOError::ReadFailed {
             path: filename.to_string(),
-            source: e.kind(),
+            kind: e.kind(),
         })?;
 
         serde_json::to_writer(&mut data_file, &self).map_err(|e| IOError::JsonError {
@@ -63,7 +63,7 @@ impl XASJson for XASGroupFile {
 
         let f_buffer = File::open(filename).map_err(|e| IOError::ReadFailed {
             path: filename.to_string(),
-            source: e.kind(),
+            kind: e.kind(),
         })?;
         let f_buffer = GzDecoder::new(f_buffer);
         let doc = serde_json::from_reader(f_buffer).map_err(|e| IOError::CompressionError {
@@ -85,7 +85,7 @@ impl XASJson for XASGroupFile {
 
         let mut data_file = File::create(filename).map_err(|e| IOError::ReadFailed {
             path: filename.to_string(),
-            source: e.kind(),
+            kind: e.kind(),
         })?;
 
         let mut encoder = GzEncoder::new(&mut data_file, Compression::default());
@@ -102,6 +102,7 @@ impl XASJson for XASGroupFile {
 mod tests {
     use approx;
     use ndarray::Array1;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
     use crate::prelude::*;
@@ -117,11 +118,19 @@ mod tests {
     const CHI_MSE_TOL: f64 = 1e-2;
     const CHI_Q_TOL: f64 = 1e-1;
 
+    fn unique_testfile_path(ext: &str) -> String {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        format!("{}/tests/testfiles/test_{}.{}", TOP_DIR, nanos, ext)
+    }
+
     #[test]
     #[allow(non_snake_case)]
     fn test_xas_json_write() -> Result<(), Box<dyn std::error::Error>> {
         let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
-        let save_path = String::from(TOP_DIR) + "/tests/testfiles/test.json";
+        let save_path = unique_testfile_path("json");
         let mut xafs_test_group = io::load_spectrum_QAS_trans(&path).unwrap();
 
         xafs_test_group.set_background_method(Some(BackgroundMethod::AUTOBK(AUTOBK {
@@ -159,6 +168,7 @@ mod tests {
         xas_group_file.data = xas_group;
 
         xas_group_file.write_json(&save_path)?;
+        std::fs::remove_file(&save_path).ok();
 
         Ok(())
     }
@@ -167,7 +177,7 @@ mod tests {
     #[allow(non_snake_case)]
     fn test_xas_json_read() -> Result<(), Box<dyn std::error::Error>> {
         let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
-        let save_path = String::from(TOP_DIR) + "/tests/testfiles/test.json";
+        let save_path = unique_testfile_path("json");
         let mut xafs_test_group = io::load_spectrum_QAS_trans(&path).unwrap();
 
         xafs_test_group.set_background_method(Some(BackgroundMethod::AUTOBK(AUTOBK {
@@ -214,6 +224,7 @@ mod tests {
         // TODO:: Assertion of the struct is not working at this momment. Float has to be handled
         // properly.
         // assert_eq!(xas_group_read.data, xas_group_file.data);
+        std::fs::remove_file(&save_path).ok();
 
         Ok(())
     }
@@ -222,7 +233,7 @@ mod tests {
     #[allow(non_snake_case)]
     fn test_xas_jsongz_write() -> Result<(), Box<dyn std::error::Error>> {
         let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
-        let save_path = String::from(TOP_DIR) + "/tests/testfiles/test.json.gz";
+        let save_path = unique_testfile_path("json.gz");
         let mut xafs_test_group = io::load_spectrum_QAS_trans(&path).unwrap();
 
         xafs_test_group.set_background_method(Some(BackgroundMethod::AUTOBK(AUTOBK {
@@ -260,6 +271,7 @@ mod tests {
         xas_group_file.data = xas_group;
 
         xas_group_file.write_jsongz(&save_path)?;
+        std::fs::remove_file(&save_path).ok();
 
         Ok(())
     }
@@ -268,7 +280,7 @@ mod tests {
     #[allow(non_snake_case)]
     fn test_xas_jsongz_read() -> Result<(), Box<dyn std::error::Error>> {
         let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
-        let save_path = String::from(TOP_DIR) + "/tests/testfiles/test.json.gz";
+        let save_path = unique_testfile_path("json.gz");
         let mut xafs_test_group = io::load_spectrum_QAS_trans(&path).unwrap();
 
         xafs_test_group.set_background_method(Some(BackgroundMethod::AUTOBK(AUTOBK {
@@ -315,6 +327,7 @@ mod tests {
         // TODO:: Assertion of the struct is not working at this momment. Float has to be handled
         // properly.
         // assert_eq!(xas_group_read.data, xas_group_file.data);
+        std::fs::remove_file(&save_path).ok();
 
         Ok(())
     }

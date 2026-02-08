@@ -1,5 +1,9 @@
 # Modernize Error Handling with thiserror
 
+## Coordination Status
+This change is synchronized with `update-whole-repo-performance-logic-hardening`.
+`modernize-error-handling` owns the concrete error taxonomy and conversion mechanics; the umbrella change consumes those outcomes for batch panic elimination and consistent runtime failure behavior.
+
 ## Summary
 Replace manual `Error` trait implementations with `thiserror`-based error types following Rust 2024 best practices, eliminating deprecated methods, reducing boilerplate, and improving error ergonomics for library consumers.
 

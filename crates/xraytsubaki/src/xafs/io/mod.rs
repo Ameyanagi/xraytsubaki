@@ -10,18 +10,21 @@ use crate::xafs::errors::IOError;
 use crate::xafs::xasspectrum::XASSpectrum;
 use data_reader::reader::{load_txt_f64, Delimiter, ReaderParams};
 use std::error::Error;
+use std::path::Path;
 
 #[allow(non_snake_case)]
-pub fn load_spectrum_QAS_trans(path: &String) -> Result<XASSpectrum, IOError> {
+pub fn load_spectrum_QAS_trans<P: AsRef<Path>>(path: P) -> Result<XASSpectrum, IOError> {
+    let path_ref = path.as_ref();
+    let path_string = path_ref.to_string_lossy().to_string();
     let params = ReaderParams {
         comments: Some(b'#'),
         delimiter: Delimiter::WhiteSpace,
         ..Default::default()
     };
 
-    let data = load_txt_f64(path, &params).map_err(|e| IOError::ReadFailed {
-        path: path.clone(),
-        source: e.kind(),
+    let data = load_txt_f64(&path_string, &params).map_err(|_e| IOError::ReadFailed {
+        path: path_ref.display().to_string(),
+        kind: std::io::ErrorKind::Other,
     })?;
     let energy = data.get_col(0);
     let i0 = data.get_col(1);
@@ -49,7 +52,7 @@ mod tests {
     #[test]
     fn test_load_spectrum() {
         let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
-        let result = load_spectrum_QAS_trans(&path).unwrap();
+        let result = load_spectrum_QAS_trans(path).unwrap();
         println!("{:?}", result);
     }
 }

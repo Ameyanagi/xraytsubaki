@@ -53,7 +53,6 @@ impl ToNdarray1 for DVector<f64> {
     }
 }
 
-
 #[cfg(all(test, feature = "ndarray-compat"))]
 mod tests {
     use super::*;
@@ -77,5 +76,4 @@ mod tests {
 
         assert_eq!(a, a_rev);
     }
-
 }

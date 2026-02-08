@@ -10,13 +10,65 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-
+  core:
+    name: Core (${{ matrix.toolchain }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [stable, beta]
 
     steps:
-    - uses: actions/checkout@v3
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+    - uses: actions/checkout@v4
+    - name: Setup Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: ${{ matrix.toolchain }}
+    - name: Build core crate
+      run: cargo build -p xraytsubaki --verbose
+    - name: Run core crate tests
+      run: cargo test -p xraytsubaki --verbose
+
+  benchmark:
+    name: Benchmark Regression
+    runs-on: ubuntu-latest
+    needs: core
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+    - name: Run single benchmark
+      run: cargo bench -p xraytsubaki --bench xas_group_benchmark_single -- --noplot
+    - name: Run parallel benchmark
+      run: cargo bench -p xraytsubaki --bench xas_group_benchmark_parallel -- --noplot
+    - name: Evaluate benchmark regression (informational on PR, blocking on push)
+      run: |
+        MODE="informational"
+        if [ "${{ github.event_name }}" = "push" ]; then
+          MODE="blocking"
+        fi
+        ./crates/xraytsubaki/scripts/bench_regression_gate.sh "$MODE"
+    - name: Upload benchmark artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: benchmark-artifacts
+        path: |
+          target/criterion
+          target/bench-regression-summary.md
+
+  gui:
+    name: GUI (stable)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+    - name: Build GUI crate
+      run: cargo check --manifest-path xraytsubaki-gui/Cargo.toml --verbose

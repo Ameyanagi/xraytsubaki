@@ -122,11 +122,14 @@ impl XrayFFTF {
         let k_max = k_max.max(self.kmax.unwrap() + self.dk2.unwrap());
         let k_ = Array1::range(0.0, k_max + self.kstep.unwrap(), self.kstep.unwrap());
 
-        let chi_ = k_
-            .interpolate(&k.to_vec(), &chi.to_vec())
-            .map_err(|e| FFTError::InterpolationFailed {
-                reason: e.to_string(),
-            })?;
+        let chi_ = if let (Some(k_slice), Some(chi_slice)) = (k.as_slice(), chi.as_slice()) {
+            k_.interpolate(k_slice, chi_slice)
+        } else {
+            k_.interpolate(&k.to_vec(), &chi.to_vec())
+        }
+        .map_err(|e| FFTError::InterpolationFailed {
+            reason: e.to_string(),
+        })?;
         let win = self
             .window
             .unwrap()
@@ -214,7 +217,7 @@ impl XrayFFTF {
     pub fn get_chir_imag(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
         let len_r = self.r.as_ref()?.len();
 
-        let chir: Array1<f64> = self.chir.clone()?.re();
+        let chir: Array1<f64> = self.chir.clone()?.im();
 
         Some(chir.slice_axis(Axis(0), (0..len_r).into()).to_owned())
     }
@@ -325,11 +328,11 @@ impl XrayFFTR {
                 }
             })?
         } else {
-            ftwindow(&r_, self.rmin, self.rmax, self.dr, self.dr2, self.window)
-                .map_err(|e| FFTError::WindowCalculationFailed {
+            ftwindow(&r_, self.rmin, self.rmax, self.dr, self.dr2, self.window).map_err(|e| {
+                FFTError::WindowCalculationFailed {
                     reason: e.to_string(),
-                })?
-                * &r_.map(|x| x.powi(rweight))
+                }
+            })? * &r_.map(|x| x.powi(rweight))
         };
 
         let chir_win = chir
@@ -403,7 +406,11 @@ impl XrayFFTR {
 
 pub fn xftf_fast(chi: ArrayBase<ViewRepr<&f64>, Ix1>, nfft: usize, kstep: f64) -> DynRealDft<f64> {
     let mut cchi = vec![0.0_f64; nfft];
-    cchi[..chi.len()].copy_from_slice(&chi.to_vec()[..]);
+    if let Some(chi_slice) = chi.as_slice() {
+        cchi[..chi.len()].copy_from_slice(chi_slice);
+    } else {
+        cchi[..chi.len()].copy_from_slice(&chi.to_vec()[..]);
+    }
 
     let mut freq = cchi.real_fft();
 
@@ -780,6 +787,41 @@ mod tests {
         // println!("mse: {}", mse);
 
         // assert!(mse < CHI_MSE_TOL);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_chir_real_imag_are_distinct() -> Result<(), Box<dyn std::error::Error>> {
+        let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
+        let mut xafs_test_group = io::load_spectrum_QAS_trans(&path).unwrap();
+
+        xafs_test_group.set_background_method(Some(BackgroundMethod::AUTOBK(AUTOBK {
+            rbkg: Some(1.4),
+            kweight: Some(2),
+            ..Default::default()
+        })))?;
+        xafs_test_group.calc_background()?;
+
+        xafs_test_group.xftf = Some(XrayFFTF {
+            window: Some(FTWindow::Hanning),
+            dk: Some(1.0),
+            kmin: Some(2.0),
+            kmax: Some(15.0),
+            kweight: Some(2.0),
+            ..Default::default()
+        });
+        xafs_test_group.fft()?;
+
+        let chir_real = xafs_test_group.get_chir_real().unwrap();
+        let chir_imag = xafs_test_group.get_chir_imag().unwrap();
+        assert_eq!(chir_real.len(), chir_imag.len());
+
+        let has_distinct_value = chir_real
+            .iter()
+            .zip(chir_imag.iter())
+            .any(|(re, im)| (re - im).abs() > TEST_TOL);
+        assert!(has_distinct_value);
 
         Ok(())
     }

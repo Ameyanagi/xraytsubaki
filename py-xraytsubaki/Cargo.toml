@@ -10,6 +10,6 @@ crate-type = ["cdylib"]
 
 [dependencies]
 numpy = "0.20.0"
-pyo3 = "0.20.2"
+pyo3 = { version = "0.20.2", features = ["extension-module"] }
 ndarray = { workspace = true }
 xraytsubaki = { workspace = true }

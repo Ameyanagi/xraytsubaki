@@ -14,7 +14,7 @@ use rusty_fitpack;
 use serde::{Deserialize, Serialize};
 
 // Import internal dependencies
-use super::errors::BackgroundError;
+use super::errors::{BackgroundError, DataError};
 use super::lmutils::LMParameters;
 use super::mathutils::{self, splev_jacobian, MathUtils};
 use super::normalization::{self, Normalization};
@@ -63,9 +63,9 @@ impl BackgroundMethod {
                 autobk.calc_background(energy, mu, normalization_param)?;
                 Ok(self)
             }
-            BackgroundMethod::ILPBkg(_ilpbkg) => {
-                Err(BackgroundError::NotImplemented { feature: "ILPBkg background removal".to_string() })
-            }
+            BackgroundMethod::ILPBkg(_ilpbkg) => Err(BackgroundError::NotImplemented {
+                feature: "ILPBkg background removal".to_string(),
+            }),
             BackgroundMethod::None => Ok(self),
         }
     }
@@ -81,7 +81,7 @@ impl BackgroundMethod {
                 {
                     None
                 }
-            },
+            }
             BackgroundMethod::ILPBkg(ilpbkg) => None,
             BackgroundMethod::None => None,
         }
@@ -92,13 +92,16 @@ impl BackgroundMethod {
             BackgroundMethod::AUTOBK(autobk) => {
                 #[cfg(feature = "ndarray-compat")]
                 {
-                    autobk.chi.as_ref().map(|arr| DVector::from_vec(arr.to_vec()))
+                    autobk
+                        .chi
+                        .as_ref()
+                        .map(|arr| DVector::from_vec(arr.to_vec()))
                 }
                 #[cfg(not(feature = "ndarray-compat"))]
                 {
                     None
                 }
-            },
+            }
             BackgroundMethod::ILPBkg(ilpbkg) => None,
             BackgroundMethod::None => None,
         }
@@ -224,6 +227,102 @@ impl AUTOBK {
         Ok(())
     }
 
+    fn validate_input_vectors(
+        energy: &DVector<f64>,
+        mu: &DVector<f64>,
+    ) -> Result<(), BackgroundError> {
+        if energy.len() != mu.len() {
+            return Err(DataError::LengthMismatch {
+                energy_len: energy.len(),
+                mu_len: mu.len(),
+            }
+            .into());
+        }
+        if energy.len() < 2 {
+            return Err(DataError::InsufficientData {
+                min: 2,
+                actual: energy.len(),
+            }
+            .into());
+        }
+
+        let non_finite = energy
+            .iter()
+            .zip(mu.iter())
+            .enumerate()
+            .filter_map(|(index, (e, m))| (!e.is_finite() || !m.is_finite()).then_some(index))
+            .collect::<Vec<_>>();
+        if !non_finite.is_empty() {
+            return Err(DataError::NonFiniteValues {
+                indices: non_finite,
+            }
+            .into());
+        }
+
+        for index in 1..energy.len() {
+            let prev = energy[index - 1];
+            let curr = energy[index];
+            if curr < prev {
+                return Err(DataError::NonMonotonicEnergy { index, prev, curr }.into());
+            }
+        }
+
+        Ok(())
+    }
+
+    fn build_knot_domain(spl_k: &Array1<f64>, order: usize) -> Result<Vec<f64>, BackgroundError> {
+        if spl_k.is_empty() {
+            return Err(BackgroundError::SplineKnotsFailed {
+                kmin: 0.0,
+                kmax: 0.0,
+            });
+        }
+
+        let nspl = spl_k.len();
+        if nspl <= order + 1 {
+            return Err(BackgroundError::Other {
+                message: format!(
+                    "insufficient spline control points for order {}: {}",
+                    order, nspl
+                ),
+            });
+        }
+
+        let qmin = spl_k[0];
+        let qmax = spl_k[nspl - 1];
+        if !qmin.is_finite() || !qmax.is_finite() || qmax <= qmin {
+            return Err(BackgroundError::SplineKnotsFailed {
+                kmin: qmin,
+                kmax: qmax,
+            });
+        }
+
+        let mut knots = Vec::with_capacity(nspl + order);
+        for i in 0..order {
+            knots.push(qmin - 1e-4 * (order - i) as f64);
+        }
+        let interior_count = nspl - order;
+        if interior_count < 2 {
+            return Err(BackgroundError::Other {
+                message: format!(
+                    "insufficient interior knots for order {} and control points {}",
+                    order, nspl
+                ),
+            });
+        }
+        for j in 0..interior_count {
+            knots.push(qmin + j as f64 * (qmax - qmin) / (interior_count - 1) as f64);
+        }
+        let qlast = *knots.last().ok_or_else(|| BackgroundError::Other {
+            message: "failed to build interior knot domain".to_string(),
+        })?;
+        for i in 0..order {
+            knots.push(qlast + 1e-4 * (i + 1) as f64);
+        }
+
+        Ok(knots)
+    }
+
     /// Calculate background
     ///
     /// # Arguments
@@ -244,6 +343,46 @@ impl AUTOBK {
     ) -> Result<&mut Self, BackgroundError> {
         // Fill in default values for parameters that are not set
         self.fill_parameter()?;
+        Self::validate_input_vectors(energy, mu)?;
+
+        let rbkg = self.rbkg.ok_or_else(|| DataError::MissingData {
+            field: "rbkg".to_string(),
+        })?;
+        if !rbkg.is_finite() || rbkg <= 0.0 {
+            return Err(BackgroundError::InvalidRbkg { rbkg });
+        }
+
+        let kmin = self.kmin.ok_or_else(|| DataError::MissingData {
+            field: "kmin".to_string(),
+        })?;
+        let kstep = self.kstep.ok_or_else(|| DataError::MissingData {
+            field: "kstep".to_string(),
+        })?;
+        if !kstep.is_finite() || kstep <= 0.0 {
+            return Err(BackgroundError::Other {
+                message: format!("invalid kstep: {}", kstep),
+            });
+        }
+        let nfft = self.nfft.ok_or_else(|| DataError::MissingData {
+            field: "nfft".to_string(),
+        })?;
+        if nfft <= 0 {
+            return Err(BackgroundError::Other {
+                message: format!("invalid nfft: {}", nfft),
+            });
+        }
+        let kweight = self.kweight.ok_or_else(|| DataError::MissingData {
+            field: "kweight".to_string(),
+        })?;
+        let nclamp = self.nclamp.ok_or_else(|| DataError::MissingData {
+            field: "nclamp".to_string(),
+        })?;
+        let clamp_lo = self.clamp_lo.ok_or_else(|| DataError::MissingData {
+            field: "clamp_lo".to_string(),
+        })?;
+        let clamp_hi = self.clamp_hi.ok_or_else(|| DataError::MissingData {
+            field: "clamp_hi".to_string(),
+        })?;
 
         // Convert DVector to Array1 for internal processing (temporary until full migration)
         #[cfg(feature = "ndarray-compat")]
@@ -257,15 +396,11 @@ impl AUTOBK {
         // Perform normalization if necessary
 
         let mut normalization_method: normalization::NormalizationMethod =
-            if normalization_param.is_none() {
+            normalization_param.clone().unwrap_or_else(|| {
                 let mut normalization_method = normalization::PrePostEdge::new();
-                let ek0 = self.ek0;
-
-                normalization_method.set_e0(ek0);
+                normalization_method.set_e0(self.ek0);
                 normalization::NormalizationMethod::PrePostEdge(normalization_method)
-            } else {
-                normalization_param.clone().unwrap()
-            };
+            });
 
         if let Some(ek0) = self.ek0 {
             if ek0 < energy.min() || ek0 > energy.max() {
@@ -283,68 +418,109 @@ impl AUTOBK {
             edge_step = normalization_method.get_edge_step();
         }
 
-        self.ek0 = if self.ek0.is_none() {
+        let ek0 = if self.ek0.is_none() {
             normalization_method.get_e0()
         } else {
             self.ek0
-        };
+        }
+        .ok_or_else(|| DataError::MissingData {
+            field: "ek0/e0".to_string(),
+        })?;
+        self.ek0 = Some(ek0);
+
+        let edge_step = edge_step
+            .or_else(|| normalization_method.get_edge_step())
+            .ok_or_else(|| DataError::MissingData {
+                field: "edge_step".to_string(),
+            })?;
+        if !edge_step.is_finite() {
+            return Err(BackgroundError::Other {
+                message: format!("edge_step is not finite: {}", edge_step),
+            });
+        }
+        let edge_step = edge_step.max(1.0e-12);
+        *normalization_param = Some(normalization_method);
 
         // Rbkg Algorithm
-        let iek0 = mathutils::index_of(&energy.to_vec(), &self.ek0.unwrap())?;
-        let mut rgrid = std::f64::consts::PI / (self.kstep.unwrap() * self.nfft.unwrap() as f64);
+        let energy_slice = energy.as_slice().ok_or_else(|| BackgroundError::Other {
+            message: "energy array is not contiguous".to_string(),
+        })?;
+        let iek0 = mathutils::index_of_sorted(energy_slice, &ek0)?;
+        let mut rgrid = std::f64::consts::PI / (kstep * nfft as f64);
 
-        if self.rbkg.unwrap() < (2.0 * rgrid) {
+        if rbkg < (2.0 * rgrid) {
             rgrid *= 2.0;
         }
 
-        let enpe = &energy.slice(ndarray::s![iek0..]).clone() - self.ek0.unwrap();
+        let enpe = energy.slice(ndarray::s![iek0..]).mapv(|x| x - ek0);
         let kraw = &enpe.mapv(|x| x.signum() * (xafsutils::constants::ETOK * x.abs()).sqrt());
 
-        let kmax = if self.kmax.is_none() {
-            kraw.max()
-        } else {
-            self.kmax.unwrap().min(kraw.max()).max(0.0)
-        };
+        let kmax = self
+            .kmax
+            .map(|max_value| max_value.min(kraw.max()).max(0.0))
+            .unwrap_or_else(|| kraw.max());
+        if kmax <= kmin {
+            return Err(BackgroundError::SplineKnotsFailed { kmin, kmax });
+        }
 
-        let kout = self.kstep.unwrap()
-            * &Array1::range(0.0, (1.01 + kmax / self.kstep.unwrap()).floor(), 1.0);
+        let kout = kstep * &Array1::range(0.0, (1.01 + kmax / kstep).floor(), 1.0);
+        if kout.len() < 2 {
+            return Err(DataError::InsufficientData {
+                min: 2,
+                actual: kout.len(),
+            }
+            .into());
+        }
 
-        let iemax = &energy.len().min(
-            2 + mathutils::index_of(
-                &energy.to_vec(),
-                &(self.ek0.unwrap() + kmax.powi(2) / xafsutils::constants::ETOK),
+        let iemax = energy.len().min(
+            2 + mathutils::index_of_sorted(
+                energy_slice,
+                &(ek0 + kmax.powi(2) / xafsutils::constants::ETOK),
             )?,
         ) - 1;
+        if iemax <= iek0 {
+            return Err(DataError::InsufficientData {
+                min: 3,
+                actual: iemax.saturating_sub(iek0) + 1,
+            }
+            .into());
+        }
 
-        let chi_std = if self.chi_std.is_some() || self.k_std.is_some() {
-            Some(kout.interpolate(
-                &self.k_std.as_ref().unwrap().to_vec(),
-                &self.chi_std.as_ref().unwrap().to_vec(),
-            )?)
-        } else {
-            None
+        let chi_std = match (&self.k_std, &self.chi_std) {
+            (Some(k_std), Some(chi_std)) => Some(
+                if let (Some(k_std_slice), Some(chi_std_slice)) =
+                    (k_std.as_slice(), chi_std.as_slice())
+                {
+                    kout.interpolate(k_std_slice, chi_std_slice)?
+                } else {
+                    kout.interpolate(&k_std.to_vec(), &chi_std.to_vec())?
+                },
+            ),
+            (None, None) => None,
+            _ => {
+                return Err(DataError::MissingData {
+                    field: "k_std and chi_std must both be set".to_string(),
+                }
+                .into())
+            }
         };
 
-        let ftwin = &kout.mapv(|x| x.powi(self.kweight.unwrap()))
+        let ftwin = &kout.mapv(|x| x.powi(kweight))
             * xafsutils::ftwindow(
                 &kout,
-                self.kmin,
+                Some(kmin),
                 Some(kmax),
                 self.dk,
                 self.dk,
                 Some(self.window),
             )?;
 
-        let mut nspl = 1
-            + (2.0 * self.rbkg.unwrap() * (kmax - self.kmin.unwrap()) / std::f64::consts::PI)
-                .round() as i32;
-        let irbkg = (1.0
-            + (nspl - 1) as f64 * std::f64::consts::PI
-                / (2.0 * rgrid * (kmax - self.kmin.unwrap())))
-        .round() as i32;
+        let mut nspl = 1 + (2.0 * rbkg * (kmax - kmin) / std::f64::consts::PI).round() as i32;
+        let irbkg = (1.0 + (nspl - 1) as f64 * std::f64::consts::PI / (2.0 * rgrid * (kmax - kmin)))
+            .round() as i32;
 
-        if self.nknots.is_some() {
-            nspl = self.nknots.unwrap();
+        if let Some(nknots) = self.nknots {
+            nspl = nknots;
         }
 
         nspl = nspl.clamp(5, 128);
@@ -352,41 +528,22 @@ impl AUTOBK {
         // !todo!("Finish implementing this part of the code");
         let mut spl_y: Array1<f64> = Array1::ones(Ix1(nspl as usize));
         let mut spl_k: Array1<f64> = Array1::zeros(nspl as usize);
-
-        spl_y
-            .iter_mut()
-            .zip(spl_k.iter_mut())
-            .enumerate()
-            .for_each(|(i, (y, k))| {
-                let q =
-                    self.kmin.unwrap() + i as f64 * (kmax - self.kmin.unwrap()) / (nspl - 1) as f64;
-                let ik = mathutils::index_nearest(&kraw.to_vec(), &q).unwrap();
-                let i1 = (ik + 5).min(kraw.len() - 1);
-                let i2 = (ik as i32 - 5).max(0) as usize;
-                *k = kraw[ik];
-                *y = (2.0 * mu[ik + iek0] + mu[i1 + iek0] + mu[i2 + iek0]) / 4.0;
-            });
+        let kraw_slice = kraw.as_slice().ok_or_else(|| BackgroundError::Other {
+            message: "kraw array is not contiguous".to_string(),
+        })?;
+        for i in 0..nspl as usize {
+            let q = kmin + i as f64 * (kmax - kmin) / (nspl - 1) as f64;
+            let ik = mathutils::index_nearest_sorted(kraw_slice, &q)?;
+            let i1 = (ik + 5).min(kraw.len() - 1);
+            let i2 = (ik as i32 - 5).max(0) as usize;
+            spl_k[i] = kraw[ik];
+            spl_y[i] = (2.0 * mu[ik + iek0] + mu[i1 + iek0] + mu[i2 + iek0]) / 4.0;
+        }
 
         let order = 3;
-        let (qmin, qmax) = (spl_k[0], spl_k[nspl as usize - 1]);
-
-        let mut knots = Vec::with_capacity(order);
-        for i in 0..order {
-            knots.push(spl_k[0] - 1e-4 * (order - i) as f64);
-        }
-
-        for i in order..nspl as usize {
-            knots.push((i - order) as f64 * (qmax - qmin) / (nspl - order as i32 + 1) as f64);
-        }
-
-        let qlast = knots[order - 1];
-
-        for i in 0..order {
-            knots.push(qlast + 1e-4 * (i + 1) as f64);
-        }
-        let coefs;
-
-        (knots, coefs, _) = rusty_fitpack::splrep(
+        // Validate knot-domain construction used for AUTOBK bounds reasoning.
+        let _knot_domain = Self::build_knot_domain(&spl_k, order)?;
+        let (knots, coefs, _) = rusty_fitpack::splrep(
             spl_k.to_vec(),
             spl_y.to_vec(),
             None,
@@ -414,8 +571,8 @@ impl AUTOBK {
             coefs: DVector::from_vec(coefs),
             knots: DVector::from_vec(knots),
             order,
-            irbkg: irbkg as usize,
-            nfft: self.nfft.unwrap() as usize,
+            irbkg: irbkg.max(1) as usize,
+            nfft: nfft as usize,
             kraw: kraw
                 .slice_axis(Axis(0), ndarray::Slice::from(0..iemax - iek0 + 1))
                 .clone()
@@ -424,20 +581,20 @@ impl AUTOBK {
             mu: DVector::from_vec(mu_out),
             kout: kout.clone().into_nalgebra(),
             ftwin: ftwin.into_nalgebra(),
-            kweight: self.kweight.unwrap(),
+            kweight,
             chi_std: chi_std.map(|x| x.into_nalgebra()),
-            nclamp: self.nclamp.unwrap(),
-            clamp_lo: self.clamp_lo.unwrap(),
-            clamp_hi: self.clamp_hi.unwrap(),
-            kstep: self.kstep.unwrap(),
+            nclamp,
+            clamp_lo,
+            clamp_hi,
+            kstep,
             ..Default::default()
         };
 
         let (fit_result, report) = LevenbergMarquardt::new()
-            .with_gtol(1.0e-6)
-            .with_ftol(1.0e-6)
-            .with_xtol(1.0e-6)
-            .with_stepbound(1.0e-6)
+            .with_gtol(1.0e-5)
+            .with_ftol(1.0e-5)
+            .with_xtol(1.0e-5)
+            .with_stepbound(1.0e-5)
             .minimize(spline_opt);
 
         let (bkg, chi) = spline_eval_nalgebra(
@@ -456,10 +613,10 @@ impl AUTOBK {
         obkg.slice_mut(ndarray::s![iek0..iek0 + bkg.len()])
             .assign(&bkg);
 
-        self.bkg = Some(obkg.clone());
-        self.chie = Some((mu - &obkg) / edge_step.unwrap());
+        self.chie = Some((mu - &obkg) / edge_step);
+        self.bkg = Some(obkg);
         self.k = Some(kout);
-        self.chi = Some(chi / edge_step.unwrap());
+        self.chi = Some(chi / edge_step);
 
         Ok(self)
     }
@@ -557,7 +714,7 @@ impl AUTOBK {
 
         let ftwin =
             xafsutils::ftwindow(k, self.kmin, self.kmax, self.dk, self.dk, Some(self.window))
-                .unwrap();
+                .ok()?;
 
         Some(ftwin)
     }
@@ -661,8 +818,8 @@ impl AUTOBKSpline {
             &self.kout,
         );
 
-        let chi: DVector<f64> = if self.chi_std.is_some() {
-            chi - self.chi_std.as_ref().unwrap()
+        let chi: DVector<f64> = if let Some(chi_std) = self.chi_std.as_ref() {
+            chi - chi_std
         } else {
             chi
         };
@@ -707,8 +864,8 @@ impl AUTOBKSpline {
                 &self.kout,
             );
 
-            let chi: DVector<f64> = if self.chi_std.is_some() {
-                chi - self.chi_std.as_ref().unwrap()
+            let chi: DVector<f64> = if let Some(chi_std) = self.chi_std.as_ref() {
+                chi - chi_std
             } else {
                 chi
             };
@@ -717,8 +874,6 @@ impl AUTOBKSpline {
                 .component_mul(&self.ftwin)
                 .xftf_fast(self.nfft, self.kstep)[..self.irbkg]
                 .realimg();
-
-            
 
             1.0 + 100.0 * out.dot(&out) / out.len() as f64
         } else {
@@ -906,5 +1061,38 @@ mod tests {
 
         assert!(mse < CHI_MSE_TOL);
         Ok(())
+    }
+
+    #[test]
+    fn test_autobk_knot_domain_bounds_and_ordering() {
+        let spl_k = Array1::linspace(1.5, 12.5, 9);
+        let order = 3usize;
+        let knots = AUTOBK::build_knot_domain(&spl_k, order).unwrap();
+
+        // Domain extension points are lower than qmin and upper than qmax.
+        let qmin = spl_k[0];
+        let qmax = spl_k[spl_k.len() - 1];
+        assert!(knots[0] < qmin);
+        assert!(knots[order - 1] < qmin);
+        assert!(knots[order] >= qmin);
+        assert!(*knots.last().unwrap() > qmax);
+
+        // Knot vector must remain non-decreasing for spline construction.
+        for i in 1..knots.len() {
+            assert!(knots[i] >= knots[i - 1]);
+        }
+
+        // Interior knots stay inside [qmin, qmax].
+        for knot in knots.iter().skip(order).take(spl_k.len() - order) {
+            assert!(*knot >= qmin);
+            assert!(*knot <= qmax);
+        }
+    }
+
+    #[test]
+    fn test_autobk_knot_domain_rejects_invalid_range() {
+        let spl_k = Array1::from_vec(vec![2.0, 2.0, 2.0, 2.0, 2.0]);
+        let err = AUTOBK::build_knot_domain(&spl_k, 3).unwrap_err();
+        assert!(matches!(err, BackgroundError::SplineKnotsFailed { .. }));
     }
 }

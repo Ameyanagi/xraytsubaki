@@ -35,7 +35,7 @@ pub fn Footer(cx: &Scope) -> Element {
                     a {
                         href: "https://xraytsubaki.com/",
                         class: "hover:underline",
-                        "Ryuichi Shimogawa"
+                        "Ameyanagi"
                     }
                     ". All Rights Reserved."
                 }

@@ -144,36 +144,22 @@ impl XASSpectrum {
         &mut self,
         energy: T,
     ) -> Result<&mut Self, XAFSError> {
-        self.energy = Some(energy.into());
-
-        let energy = self.energy.clone().ok_or_else(|| DataError::MissingData {
-            field: "energy".to_string(),
+        let energy = energy.into();
+        let mu = self.raw_mu.as_ref().ok_or_else(|| DataError::MissingData {
+            field: "raw_mu".to_string(),
         })?;
-        let mu = self
-            .raw_mu
-            .clone()
-            .ok_or_else(|| DataError::MissingData {
-                field: "raw_mu".to_string(),
-            })?
-            .data
-            .as_vec()
-            .to_vec();
-        let knot = self
-            .raw_energy
-            .clone()
-            .ok_or_else(|| DataError::MissingData {
-                field: "raw_energy".to_string(),
-            })?
-            .data
-            .as_vec()
-            .to_vec();
+        let knot = self.raw_energy.as_ref().ok_or_else(|| DataError::MissingData {
+            field: "raw_energy".to_string(),
+        })?;
 
-        self.mu = Some(energy.interpolate(&knot, &mu).map_err(|e| {
+        let interpolated = energy.interpolate(knot.as_slice(), mu.as_slice()).map_err(|e| {
             super::errors::MathError::SplineEvalFailed {
                 x: 0.0,
                 reason: e.to_string(),
             }
-        })?);
+        })?;
+        self.energy = Some(energy);
+        self.mu = Some(interpolated);
 
         Ok(self)
     }

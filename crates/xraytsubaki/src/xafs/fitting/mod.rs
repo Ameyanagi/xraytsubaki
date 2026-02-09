@@ -1,0 +1,63 @@
+pub mod errors;
+pub mod feffdat;
+pub mod path_model;
+pub mod runner;
+pub mod solver;
+pub mod transform;
+pub mod types;
+pub mod variables;
+
+use nalgebra::DVector;
+
+pub use errors::FittingError;
+pub use path_model::FF2ChiOutput;
+pub use types::{
+    FeffDat, FeffExecutionMode, FeffFitDataset, FeffFitResult, FeffFitTransform, FeffFlavor,
+    FeffModuleCommand, FeffPathModel, FeffResolvedCommands, FeffRunRequest, FeffRunResult,
+    FitSpace, FitVariable, FitVariables, PathContribution, PathParamSpec,
+};
+
+use crate::xafs::{Result, XAFSError};
+
+pub fn parse_feff_path_file(path: &str, flavor: FeffFlavor) -> Result<FeffDat> {
+    feffdat::parse_feff_path_file(path, flavor).map_err(XAFSError::from)
+}
+
+pub fn feffpath(path: &str, flavor: FeffFlavor) -> Result<FeffPathModel> {
+    path_model::feffpath(path, flavor).map_err(XAFSError::from)
+}
+
+pub fn path2chi(
+    path: &FeffPathModel,
+    vars: &FitVariables,
+    k: &DVector<f64>,
+) -> Result<DVector<f64>> {
+    path_model::path2chi(path, vars, k).map_err(XAFSError::from)
+}
+
+pub fn ff2chi(
+    paths: &[FeffPathModel],
+    vars: &FitVariables,
+    k: &DVector<f64>,
+) -> Result<FF2ChiOutput> {
+    path_model::ff2chi(paths, vars, k).map_err(XAFSError::from)
+}
+
+pub fn feffit(dataset: &FeffFitDataset, vars: &FitVariables) -> Result<FeffFitResult> {
+    solver::feffit(dataset, vars).map_err(XAFSError::from)
+}
+
+pub fn resolve_feff_commands(request: &FeffRunRequest) -> Result<FeffResolvedCommands> {
+    runner::resolve_feff_commands(request).map_err(XAFSError::from)
+}
+
+pub fn run_feff(request: &FeffRunRequest) -> Result<FeffRunResult> {
+    runner::run_feff(request).map_err(XAFSError::from)
+}
+
+pub fn run_feff_and_load_paths(
+    request: &FeffRunRequest,
+    flavor: FeffFlavor,
+) -> Result<Vec<FeffPathModel>> {
+    runner::run_feff_and_load_paths(request, flavor).map_err(XAFSError::from)
+}

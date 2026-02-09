@@ -13,6 +13,18 @@ Additionally, this project seeks to leverage Rust's ecosystem to create a genera
 - [x] Standard EXAFS analysis (find_e0, preedge postedge normalization, AUTOBK, FFT, IFFT)
 - [x] Parallel processing using Rayon. (For example, M1 Macbook Pro with 10 cores can process 10000 spectra in 20 seconds, which is ~x10 enhancement without parallelization. Numpy + xraylarch takes 145 seconds.)
 - [x] Optimization on AUTOBK. The AUTOBK process were optimized with providing an analytical Jacobian to speed up the minimization process by Leverberg-Marquardt algorithm.
+- [x] FEFF85L path-based EXAFS fitting in Rust core (`xfeffdat` parsing, `path2chi`, `ff2chi`, single-dataset R-space fit with shared expression variables).
+- [x] FEFF85L pure-Rust module execution workflow (`resolve_feff_commands`, `run_feff`, `run_feff_and_load_paths`) starting from a provided FEFF executable path.
+
+## FEFF Fitting MVP Boundaries
+
+- Rust core only in this release (`crates/xraytsubaki`).
+- FEFF85L execution path supports deterministic module resolution (`feff8l_rdinp`, `feff8l_pot`, `feff8l_xsph`, `feff8l_pathfinder`, `feff8l_genfmt`, `feff8l_ff2x`) and output discovery.
+- Existing parse-only workflows with pre-generated `feffNNNN.dat` files remain supported.
+- Single-dataset R-space fitting only.
+- FEFF10 parsing/execution are reserved and return typed unsupported errors in this MVP.
+
+See `crates/xraytsubaki/doc/feff-fitting-mvp.md` for details and FEFF10 follow-up compatibility notes.
 
 ## Future Developments
 

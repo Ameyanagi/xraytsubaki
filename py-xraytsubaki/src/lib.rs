@@ -16,6 +16,7 @@ fn error_category(error: &XAFSError) -> &'static str {
         XAFSError::FFT(_) => "fft",
         XAFSError::IO(_) => "io",
         XAFSError::Math(_) => "math",
+        XAFSError::Fitting(_) => "fitting",
         XAFSError::NotEnoughData => "data",
         XAFSError::NotEnoughDataForXFTF => "fft",
         XAFSError::NotEnoughDataForXFTR => "fft",

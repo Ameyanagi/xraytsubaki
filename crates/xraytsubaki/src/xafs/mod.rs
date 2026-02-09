@@ -24,6 +24,7 @@ pub mod background;
 pub mod background;
 pub mod bessel_i0;
 pub mod errors;
+pub mod fitting;
 pub mod io;
 pub mod lmutils;
 #[cfg(feature = "ndarray-compat")]
@@ -58,6 +59,7 @@ use xafsutils::XAFSUtils;
 
 // Re-export error types for public API
 pub use errors::{BackgroundError, DataError, FFTError, IOError, MathError, NormalizationError};
+pub use fitting::errors::FittingError;
 
 /// Top-level error type that aggregates all domain-specific errors.
 #[derive(Error, Debug, Clone)]
@@ -79,6 +81,9 @@ pub enum XAFSError {
 
     #[error("mathematical operation failed: {0}")]
     Math(#[from] MathError),
+
+    #[error("fitting operation failed: {0}")]
+    Fitting(#[from] FittingError),
 
     // Legacy error variants for backwards compatibility
     #[error("not enough data")]

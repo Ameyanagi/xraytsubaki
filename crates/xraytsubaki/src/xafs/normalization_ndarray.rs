@@ -1,16 +1,23 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
+#![allow(unused_variables)]
 
+// Import standard library dependencies
+use std::error::Error;
+
+// Import external dependencies
 use nalgebra::DVector;
-use polyfit_rs::polyfit_rs::polyfit;
+use ndarray::Array1;
+use polyfit_rs::polyfit_rs;
 use serde::{Deserialize, Serialize};
 
+// Import internal dependencies
 use super::errors::{DataError, NormalizationError};
 use super::mathutils::{self, MathUtils};
 use super::xafsutils;
 
 /// trait for Normalization
-/// it implements some methods required for normalization of XAFS data
+/// it impliments some methods required for nomalization of XAFS data
 pub trait Normalization {
     fn normalize(
         &mut self,
@@ -18,8 +25,8 @@ pub trait Normalization {
         mu: &DVector<f64>,
     ) -> Result<&mut Self, NormalizationError>;
 
-    fn get_norm(&self) -> Option<&DVector<f64>>;
-    fn get_flat(&self) -> Option<&DVector<f64>>;
+    fn get_norm(&self) -> Option<&Array1<f64>>;
+    fn get_flat(&self) -> Option<&Array1<f64>>;
     fn get_edge_step(&self) -> Option<f64>;
     fn get_e0(&self) -> Option<f64>;
     fn set_e0(&mut self, e0: Option<f64>) -> &mut Self;
@@ -27,6 +34,19 @@ pub trait Normalization {
 }
 
 /// Enum for normalization method
+///
+/// It has two variants, PrePostEdge and MBack.
+/// PrePostEdge is the standard normalization method used in athena and larch.
+/// MBack is the normalization method described in the paper by Weng et al.
+/// Tsu-Chien Weng, Geoffrey S. Waldo, and James E. Penner-Hahn. A method for normalization of X-ray absorption spectra. Journal of Synchrotron Radiation, 12(4):506–510, Jul 2005. doi:10.1107/S0909049504034193.
+///
+/// # Examples
+///
+/// ```
+/// use xraytsubaki::xafs::normalization::{NormalizationMethod, PrePostEdge};
+///
+/// let mut normalization_method = NormalizationMethod::new();
+/// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum NormalizationMethod {
     PrePostEdge(PrePostEdge),
@@ -39,6 +59,11 @@ impl Default for NormalizationMethod {
     }
 }
 
+/// Implementation of NormalizationMethod
+///
+/// It provides some common interface for the normalization methods.
+/// Normalization of the methods can be called by the normalize method.
+/// E0, edge_step, norm, and flat can be directly accessed by the methods, which are useful for calculation and plotting purposes.
 impl NormalizationMethod {
     pub fn new() -> NormalizationMethod {
         NormalizationMethod::PrePostEdge(PrePostEdge::new())
@@ -100,14 +125,14 @@ impl NormalizationMethod {
         }
     }
 
-    pub fn get_flat(&self) -> Option<&DVector<f64>> {
+    pub fn get_flat(&self) -> Option<&Array1<f64>> {
         match self {
             NormalizationMethod::PrePostEdge(pre_post_edge) => pre_post_edge.get_flat(),
             NormalizationMethod::MBack(mback) => mback.get_flat(),
         }
     }
 
-    pub fn get_norm(&self) -> Option<&DVector<f64>> {
+    pub fn get_norm(&self) -> Option<&Array1<f64>> {
         match self {
             NormalizationMethod::PrePostEdge(pre_post_edge) => pre_post_edge.get_norm(),
             NormalizationMethod::MBack(mback) => mback.get_norm(),
@@ -142,6 +167,9 @@ impl NormalizationMethod {
 }
 
 /// PrePostEdge normalization method
+///
+/// This is the standard normalization method used in athena and larch.
+///
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PrePostEdge {
@@ -153,10 +181,10 @@ pub struct PrePostEdge {
     pub n_victoreen: Option<i32>,
     pub e0: Option<f64>,
     pub edge_step: Option<f64>,
-    pub pre_edge: Option<DVector<f64>>,
-    pub post_edge: Option<DVector<f64>>,
-    pub norm: Option<DVector<f64>>,
-    pub flat: Option<DVector<f64>>,
+    pub pre_edge: Option<Array1<f64>>,
+    pub post_edge: Option<Array1<f64>>,
+    pub norm: Option<Array1<f64>>,
+    pub flat: Option<Array1<f64>>,
     pub pre_coefficients: Option<Vec<f64>>,
     pub norm_coefficients: Option<Vec<f64>>,
 }
@@ -213,7 +241,17 @@ impl PrePostEdge {
 
         let mut e0 = self.e0.unwrap_or(f64::NAN);
         if !e0.is_finite() || e0 > energy[energy.len() - 2] || e0 < energy[0] {
-            e0 = xafsutils::find_e0(energy, mu)?;
+            #[cfg(feature = "ndarray-compat")]
+            {
+                // Preserve current numerical behavior in compatibility mode.
+                let energy_array = Array1::from_vec(energy.as_slice().to_vec());
+                let mu_array = Array1::from_vec(mu.as_slice().to_vec());
+                e0 = xafsutils::find_e0_array1(energy_array, mu_array)?;
+            }
+            #[cfg(not(feature = "ndarray-compat"))]
+            {
+                e0 = xafsutils::find_e0(energy, mu)?;
+            }
             self.e0 = Some(e0);
         }
 
@@ -345,11 +383,11 @@ impl PrePostEdge {
         self.n_victoreen
     }
 
-    pub fn get_pre_edge(&self) -> Option<&DVector<f64>> {
+    pub fn get_pre_edge(&self) -> Option<&Array1<f64>> {
         self.pre_edge.as_ref()
     }
 
-    pub fn get_post_edge(&self) -> Option<&DVector<f64>> {
+    pub fn get_post_edge(&self) -> Option<&Array1<f64>> {
         self.post_edge.as_ref()
     }
 
@@ -430,7 +468,7 @@ impl Normalization for PrePostEdge {
             });
         }
 
-        let pre_coefficients: Vec<f64> = polyfit(&energy_x, &mu_x, 1)?;
+        let pre_coefficients: Vec<f64> = polyfit_rs::polyfit(&energy_x, &mu_x, 1)?;
 
         let mut pre_edge = DVector::zeros(energy.len());
         for i in 0..energy.len() {
@@ -462,15 +500,16 @@ impl Normalization for PrePostEdge {
                 n_points: presub.len(),
             });
         }
-        let post_coefficients = polyfit(&energy_slice[p1..p2], &presub, norm_polyorder as usize)?;
+        let post_coefficients =
+            polyfit_rs::polyfit(&energy_slice[p1..p2], &presub, norm_polyorder as usize)?;
 
         let mut post_edge = pre_edge.clone();
+
         for (i, c) in post_coefficients.iter().enumerate() {
             for j in 0..post_edge.len() {
                 post_edge[j] += energy[j].powi(i as i32) * *c;
             }
         }
-
         let ie0 = mathutils::index_nearest_sorted(energy_slice, &e0)?;
         let edge_step = self.edge_step.unwrap_or(post_edge[ie0] - pre_edge[ie0]);
         if !edge_step.is_finite() {
@@ -482,6 +521,7 @@ impl Normalization for PrePostEdge {
         let edge_step = edge_step.max(1.0e-12);
 
         let norm = (&mu - &pre_edge) / edge_step;
+
         let flat_residue = (&post_edge - &pre_edge) / edge_step;
 
         let mut flat = &norm - &flat_residue;
@@ -494,10 +534,10 @@ impl Normalization for PrePostEdge {
         }
 
         self.edge_step = Some(edge_step);
-        self.pre_edge = Some(pre_edge);
-        self.post_edge = Some(post_edge);
-        self.norm = Some(norm);
-        self.flat = Some(flat);
+        self.pre_edge = Some(Array1::from_vec(pre_edge.as_slice().to_vec()));
+        self.post_edge = Some(Array1::from_vec(post_edge.as_slice().to_vec()));
+        self.norm = Some(Array1::from_vec(norm.as_slice().to_vec()));
+        self.flat = Some(Array1::from_vec(flat.as_slice().to_vec()));
         self.norm_coefficients = Some(post_coefficients);
         self.pre_coefficients = Some(pre_coefficients);
 
@@ -512,21 +552,23 @@ impl Normalization for PrePostEdge {
         self.edge_step
     }
 
-    fn get_flat(&self) -> Option<&DVector<f64>> {
+    fn get_flat(&self) -> Option<&Array1<f64>> {
         self.flat.as_ref()
     }
 
-    fn get_norm(&self) -> Option<&DVector<f64>> {
+    fn get_norm(&self) -> Option<&Array1<f64>> {
         self.norm.as_ref()
     }
 
     fn set_e0(&mut self, e0: Option<f64>) -> &mut Self {
         self.e0 = e0;
+
         self
     }
 
     fn set_edge_step(&mut self, edge_step: Option<f64>) -> &mut Self {
         self.edge_step = edge_step;
+
         self
     }
 }
@@ -537,8 +579,8 @@ impl Normalization for PrePostEdge {
 pub struct MBack {
     pub e0: Option<f64>,
     pub edge_step: Option<f64>,
-    pub norm: Option<DVector<f64>>,
-    pub flat: Option<DVector<f64>>,
+    pub norm: Option<Array1<f64>>,
+    pub flat: Option<Array1<f64>>,
 }
 
 impl MBack {
@@ -549,16 +591,15 @@ impl MBack {
     }
 
     pub fn fill_parameter(&mut self) {
-        // MBack parameter filling is not implemented yet.
-        // Keep this as a no-op to avoid panics in callers that probe this method.
+        todo!("Implement MBack fill_parameter")
     }
 }
 
 impl Normalization for MBack {
     fn normalize(
         &mut self,
-        _energy: &DVector<f64>,
-        _mu: &DVector<f64>,
+        energy: &DVector<f64>,
+        mu: &DVector<f64>,
     ) -> Result<&mut Self, NormalizationError> {
         Err(NormalizationError::NotImplemented {
             method: "MBack normalization".to_string(),
@@ -573,21 +614,23 @@ impl Normalization for MBack {
         self.edge_step
     }
 
-    fn get_flat(&self) -> Option<&DVector<f64>> {
+    fn get_flat(&self) -> Option<&Array1<f64>> {
         self.flat.as_ref()
     }
 
-    fn get_norm(&self) -> Option<&DVector<f64>> {
+    fn get_norm(&self) -> Option<&Array1<f64>> {
         self.norm.as_ref()
     }
 
     fn set_e0(&mut self, e0: Option<f64>) -> &mut Self {
         self.e0 = e0;
+
         self
     }
 
     fn set_edge_step(&mut self, edge_step: Option<f64>) -> &mut Self {
         self.edge_step = edge_step;
+
         self
     }
 }
@@ -595,7 +638,7 @@ impl Normalization for MBack {
 #[cfg(test)]
 mod tests {
     use crate::xafs::io;
-    use data_reader::reader::load_txt_f64;
+    use data_reader::reader::{load_txt_f64, Delimiter, ReaderParams};
 
     use super::*;
     use crate::xafs::tests::PARAM_LOADTXT;
@@ -678,6 +721,7 @@ mod tests {
 
         let mut pre_post_edge = PrePostEdge::new();
         let _ = pre_post_edge.fill_parameter(&energy, &mu);
+
         let _ = pre_post_edge.normalize(&energy, &mu);
 
         assert_abs_diff_eq!(
@@ -688,15 +732,15 @@ mod tests {
 
         pre_post_edge
             .pre_coefficients
-            .as_ref()
             .unwrap()
             .iter()
             .zip(vec![-0.05298882571982536, -1.9039451808611713e-7].iter())
             .for_each(|(a, b)| assert_abs_diff_eq!(a, b, epsilon = TEST_TOL_LESS_ACC));
 
+        // The norm_coefficients are very hard to be the same due to the machine precision.
+        // The tolerance is set to be very low.
         pre_post_edge
             .norm_coefficients
-            .as_ref()
             .unwrap()
             .iter()
             .zip(vec![
@@ -706,6 +750,33 @@ mod tests {
             ])
             .for_each(|(a, b)| assert_abs_diff_eq!(a, &b, epsilon = TEST_TOL_LESS_ACC.sqrt()));
 
+        // // Write results to a file
+
+        // use itertools::izip;
+        // use std::fs::File;
+        // use std::io::prelude::*;
+
+        // let save_path =
+        //     String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS_pre_post_edge_expected.dat";
+
+        // // Save data for further comparison
+        // let mut file = File::create(save_path).unwrap();
+
+        // let _ = writeln!(file, "# energy mu pre_edge post_edge norm flat");
+
+        // for (e, mu, pre, post, norm, flat) in izip!(
+        //     xafs_test_group.energy.clone().unwrap(),
+        //     xafs_test_group.mu.clone().unwrap(),
+        //     pre_post_edge.pre_edge.clone().unwrap(),
+        //     pre_post_edge.post_edge.clone().unwrap(),
+        //     pre_post_edge.norm.clone().unwrap(),
+        //     pre_post_edge.flat.clone().unwrap()
+        // ) {
+        //     let _ = writeln!(file, "{} {} {} {} {} {}", e, mu, pre, post, norm, flat);
+        // }
+
+        // Compare output strictly with the reference
+
         let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS_pre_post_edge_expected.dat";
         let reference_dat = load_txt_f64(&path, &PARAM_LOADTXT).unwrap();
 
@@ -714,7 +785,7 @@ mod tests {
 
         pre_post_edge
             .norm
-            .as_ref()
+            .clone()
             .unwrap()
             .iter()
             .zip(reference_norm.iter())
@@ -722,11 +793,15 @@ mod tests {
 
         pre_post_edge
             .flat
-            .as_ref()
+            .clone()
             .unwrap()
             .iter()
             .zip(reference_flat.iter())
             .for_each(|(a, b)| assert_abs_diff_eq!(a, b, epsilon = TEST_TOL_LESS_ACC));
+
+        //
+        // Comparison with the data obtained from xraylarch
+        //  data obtained by larch: {'e0': 22118.8, 'edge_step': 0.8628161198296296, 'norm_coefs': [8.985714130708697, -0.0005540674801681585, 8.446567483044725e-09], 'nvict': 0, 'nnorm': 2, 'norm1': 25, 'norm2': 944.5331719999995, 'pre1': -200.0, 'pre2': -65.0, 'precoefs': array([-5.29888257e-02, -1.90394518e-07])}
 
         let larch_norm_path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS_preedge_larch.txt";
         let larch_norm = load_txt_f64(&larch_norm_path, &PARAM_LOADTXT).unwrap();
@@ -760,9 +835,39 @@ mod tests {
             epsilon = TEST_TOL
         );
 
+        // Test for post_edge polynominal fitting will fail.
+
+        // pre_post_edge
+        //     .norm_coefficients
+        //     .unwrap()
+        //     .iter()
+        //     .zip(expected.norm_coefficients.unwrap().iter())
+        //     .for_each(|(a, b)| {
+        //         assert!(
+        //             (a - b).abs() < acceptable_mu_diff,
+        //             "norm_coefficients: {} != {}",
+        //             a,
+        //             b
+        //         );
+        //     });
+
+        // pre_post_edge
+        //     .pre_coefficients
+        //     .unwrap()
+        //     .iter()
+        //     .zip(expected.pre_coefficients.unwrap().iter())
+        //     .for_each(|(a, b)| {
+        //         assert!(
+        //             (a - b).abs() < acceptable_mu_diff,
+        //             "pre_coefficients: {} != {}",
+        //             a,
+        //             b
+        //         );
+        //     });
+
         pre_post_edge
             .norm
-            .as_ref()
+            .clone()
             .unwrap()
             .iter()
             .zip(norm_expected.iter())

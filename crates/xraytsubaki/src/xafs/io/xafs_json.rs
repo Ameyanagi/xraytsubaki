@@ -140,7 +140,7 @@ mod tests {
 
         xafs_test_group.xftf = Some(XrayFFTF {
             window: Some(FTWindow::Hanning),
-            dk: Some(std::f64::EPSILON),
+            dk: Some(f64::EPSILON),
             kmin: Some(0.0),
             kmax: Some(15.0),
             kweight: Some(2.0),
@@ -151,7 +151,7 @@ mod tests {
         xafs_test_group.xftr = Some(XrayFFTR {
             window: Some(FTWindow::Hanning),
             rweight: Some(0.0),
-            dr: Some(std::f64::EPSILON),
+            dr: Some(f64::EPSILON),
             rmin: Some(0.0),
             rmax: Some(10.0),
             ..Default::default()
@@ -187,7 +187,7 @@ mod tests {
 
         xafs_test_group.xftf = Some(XrayFFTF {
             window: Some(FTWindow::Hanning),
-            dk: Some(std::f64::EPSILON),
+            dk: Some(f64::EPSILON),
             kmin: Some(0.0),
             kmax: Some(15.0),
             kweight: Some(2.0),
@@ -198,7 +198,7 @@ mod tests {
         xafs_test_group.xftr = Some(XrayFFTR {
             window: Some(FTWindow::Hanning),
             rweight: Some(0.0),
-            dr: Some(std::f64::EPSILON),
+            dr: Some(f64::EPSILON),
             rmin: Some(0.0),
             rmax: Some(10.0),
             ..Default::default()
@@ -243,7 +243,7 @@ mod tests {
 
         xafs_test_group.xftf = Some(XrayFFTF {
             window: Some(FTWindow::Hanning),
-            dk: Some(std::f64::EPSILON),
+            dk: Some(f64::EPSILON),
             kmin: Some(0.0),
             kmax: Some(15.0),
             kweight: Some(2.0),
@@ -254,7 +254,7 @@ mod tests {
         xafs_test_group.xftr = Some(XrayFFTR {
             window: Some(FTWindow::Hanning),
             rweight: Some(0.0),
-            dr: Some(std::f64::EPSILON),
+            dr: Some(f64::EPSILON),
             rmin: Some(0.0),
             rmax: Some(10.0),
             ..Default::default()
@@ -290,7 +290,7 @@ mod tests {
 
         xafs_test_group.xftf = Some(XrayFFTF {
             window: Some(FTWindow::Hanning),
-            dk: Some(std::f64::EPSILON),
+            dk: Some(f64::EPSILON),
             kmin: Some(0.0),
             kmax: Some(15.0),
             kweight: Some(2.0),
@@ -301,7 +301,7 @@ mod tests {
         xafs_test_group.xftr = Some(XrayFFTR {
             window: Some(FTWindow::Hanning),
             rweight: Some(0.0),
-            dr: Some(std::f64::EPSILON),
+            dr: Some(f64::EPSILON),
             rmin: Some(0.0),
             rmax: Some(10.0),
             ..Default::default()

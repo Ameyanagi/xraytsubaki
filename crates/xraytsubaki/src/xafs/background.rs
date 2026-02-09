@@ -12,7 +12,6 @@ use std::sync::{Arc, Mutex, OnceLock};
 // Import external dependencies
 use levenberg_marquardt::{LeastSquaresProblem, LevenbergMarquardt};
 use nalgebra::{DMatrix, DVector, Dyn, Owned};
-use ndarray::{Array1, ArrayBase, Axis, Ix1, OwnedRepr, ViewRepr};
 use rusty_fitpack;
 use serde::{Deserialize, Serialize};
 
@@ -21,7 +20,6 @@ use super::errors::{BackgroundError, DataError};
 use super::lmutils::LMParameters;
 use super::mathutils::{self, splev_jacobian, MathUtils};
 use super::normalization::{self, Normalization};
-use super::nshare::{ToNalgebra, ToNdarray1};
 use super::xafsutils::FTWindow;
 use super::xrayfft::{FFTUtils, XFFTReverse, XFFT};
 use super::{xafsutils, xrayfft};
@@ -57,6 +55,7 @@ fn autobk_workspace_cache() -> &'static Mutex<Option<AutobkLinearWorkspace>> {
 /// AUTOBK: M. Newville, P. Livins, Y. Yacoby, J. J. Rehr, and E. A. Stern. Near-edge x-ray-absorption fine structure of Pb: A comparison of theory and experiment. Phys. Rev. B, 47:14126–14131, Jun 1993. doi:10.1103/PhysRevB.47.14126.
 /// ILPBkg: To be implemented
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[allow(clippy::large_enum_variant)]
 pub enum BackgroundMethod {
     AUTOBK(AUTOBK),
     ILPBkg(ILPBkg),
@@ -101,43 +100,16 @@ impl BackgroundMethod {
     }
 
     pub fn get_k(&self) -> Option<DVector<f64>> {
-        #[cfg(feature = "ndarray-compat")]
-        {
-            self.get_k_view().map(|arr| DVector::from_vec(arr.to_vec()))
-        }
-        #[cfg(not(feature = "ndarray-compat"))]
-        {
-            None
+        match self {
+            BackgroundMethod::AUTOBK(autobk) => autobk.get_k().cloned(),
+            _ => None,
         }
     }
 
     pub fn get_chi(&self) -> Option<DVector<f64>> {
-        #[cfg(feature = "ndarray-compat")]
-        {
-            self.get_chi_view()
-                .map(|arr| DVector::from_vec(arr.to_vec()))
-        }
-        #[cfg(not(feature = "ndarray-compat"))]
-        {
-            None
-        }
-    }
-
-    #[cfg(feature = "ndarray-compat")]
-    pub fn get_k_view(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
         match self {
-            BackgroundMethod::AUTOBK(autobk) => autobk.get_k(),
-            BackgroundMethod::ILPBkg(ilpbkg) => None,
-            BackgroundMethod::None => None,
-        }
-    }
-
-    #[cfg(feature = "ndarray-compat")]
-    pub fn get_chi_view(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
-        match self {
-            BackgroundMethod::AUTOBK(autobk) => autobk.get_chi(),
-            BackgroundMethod::ILPBkg(ilpbkg) => None,
-            BackgroundMethod::None => None,
+            BackgroundMethod::AUTOBK(autobk) => autobk.get_chi().cloned(),
+            _ => None,
         }
     }
 }
@@ -169,9 +141,9 @@ pub struct AUTOBK {
     /// Array size to use for FFT. Default = 2048.
     pub nfft: Option<i32>,
     /// Optional chi array for standard chi(k).
-    pub chi_std: Option<Array1<f64>>,
+    pub chi_std: Option<DVector<f64>>,
     /// Optional k array for standard chi(k).
-    pub k_std: Option<Array1<f64>>,
+    pub k_std: Option<DVector<f64>>,
     /// k weight for FFT. Default = 1.
     pub kweight: Option<i32>,
     /// FFT window function name. Default = Hanning.
@@ -193,13 +165,13 @@ pub struct AUTOBK {
     /// If true, cache direct-solver design matrices for compatible workloads.
     pub linear_workspace_cache: Option<bool>,
     /// Background of mu(E)
-    pub bkg: Option<Array1<f64>>,
+    pub bkg: Option<DVector<f64>>,
     /// Edge normalized mu(E) - bkg
-    pub chie: Option<Array1<f64>>,
+    pub chie: Option<DVector<f64>>,
     /// k grid
-    pub k: Option<Array1<f64>>,
+    pub k: Option<DVector<f64>>,
     /// chi(k)
-    pub chi: Option<Array1<f64>>,
+    pub chi: Option<DVector<f64>>,
 }
 
 impl Default for AUTOBK {
@@ -353,7 +325,7 @@ impl AUTOBK {
         Ok(())
     }
 
-    fn build_knot_domain(spl_k: &Array1<f64>, order: usize) -> Result<Vec<f64>, BackgroundError> {
+    fn build_knot_domain(spl_k: &DVector<f64>, order: usize) -> Result<Vec<f64>, BackgroundError> {
         if spl_k.is_empty() {
             return Err(BackgroundError::SplineKnotsFailed {
                 kmin: 0.0,
@@ -529,39 +501,17 @@ impl AUTOBK {
         let energy_dv = energy;
         let mu_dv = mu;
 
-        // Convert energy once to ndarray storage for downstream spline/window operations.
-        // Skip de-dup transform when input is already strictly increasing to avoid extra work.
-        #[cfg(feature = "ndarray-compat")]
-        let has_adjacent_dups = energy_dv
-            .as_slice()
-            .windows(2)
-            .any(|window| window[0] == window[1]);
-        #[cfg(feature = "ndarray-compat")]
-        let energy_owned = has_adjacent_dups.then(|| {
-            xafsutils::remove_dups_array1(
-                Array1::from_vec(energy_dv.as_slice().to_vec()),
-                None,
-                None,
-                None,
-            )
-        });
-        #[cfg(feature = "ndarray-compat")]
-        let energy = if let Some(energy_owned) = energy_owned.as_ref() {
-            energy_owned.view()
-        } else {
-            ndarray::ArrayView1::from(energy_dv.as_slice())
-        };
-        // Borrow mu directly from DVector storage to avoid eager full-vector materialization.
-        #[cfg(feature = "ndarray-compat")]
-        let mu = ndarray::ArrayView1::from(mu_dv.as_slice());
+        let energy = energy_dv;
+        let mu = mu_dv;
 
         // Perform normalization if necessary
 
         if normalization_param.is_none() {
             let mut normalization_method = normalization::PrePostEdge::new();
             normalization_method.set_e0(self.ek0);
-            *normalization_param =
-                Some(normalization::NormalizationMethod::PrePostEdge(normalization_method));
+            *normalization_param = Some(normalization::NormalizationMethod::PrePostEdge(
+                normalization_method,
+            ));
         }
         let normalization_method =
             normalization_param
@@ -608,9 +558,7 @@ impl AUTOBK {
         }
         let edge_step = edge_step.max(1.0e-12);
         // Rbkg Algorithm
-        let energy_slice = energy.as_slice().ok_or_else(|| BackgroundError::Other {
-            message: "energy array is not contiguous".to_string(),
-        })?;
+        let energy_slice = energy.as_slice();
         let iek0 = mathutils::index_of_sorted(energy_slice, &ek0)?;
         let mut rgrid = std::f64::consts::PI / (kstep * nfft as f64);
 
@@ -618,8 +566,11 @@ impl AUTOBK {
             rgrid *= 2.0;
         }
 
-        let enpe = energy.slice(ndarray::s![iek0..]).mapv(|x| x - ek0);
-        let kraw = &enpe.mapv(|x| x.signum() * (xafsutils::constants::ETOK * x.abs()).sqrt());
+        let enpe = DVector::from_iterator(
+            energy.len() - iek0,
+            energy.iter().skip(iek0).map(|x| x - ek0),
+        );
+        let kraw = enpe.map(|x| x.signum() * (xafsutils::constants::ETOK * x.abs()).sqrt());
 
         let kmax = self
             .kmax
@@ -629,7 +580,7 @@ impl AUTOBK {
             return Err(BackgroundError::SplineKnotsFailed { kmin, kmax });
         }
 
-        let kout = kstep * &Array1::range(0.0, (1.01 + kmax / kstep).floor(), 1.0);
+        let kout = dvector_arange(0.0, (1.01 + kmax / kstep).floor(), 1.0) * kstep;
         if kout.len() < 2 {
             return Err(DataError::InsufficientData {
                 min: 2,
@@ -653,15 +604,9 @@ impl AUTOBK {
         }
 
         let chi_std = match (&self.k_std, &self.chi_std) {
-            (Some(k_std), Some(chi_std)) => Some(
-                if let (Some(k_std_slice), Some(chi_std_slice)) =
-                    (k_std.as_slice(), chi_std.as_slice())
-                {
-                    kout.interpolate(k_std_slice, chi_std_slice)?
-                } else {
-                    kout.interpolate(&k_std.to_vec(), &chi_std.to_vec())?
-                },
-            ),
+            (Some(k_std), Some(chi_std)) => {
+                Some(kout.interpolate(k_std.as_slice(), chi_std.as_slice())?)
+            }
             (None, None) => None,
             _ => {
                 return Err(DataError::MissingData {
@@ -671,15 +616,16 @@ impl AUTOBK {
             }
         };
 
-        let ftwin = &kout.mapv(|x| x.powi(kweight))
-            * xafsutils::ftwindow(
+        let ftwin = kout
+            .map(|x| x.powi(kweight))
+            .component_mul(&xafsutils::ftwindow(
                 &kout,
                 Some(kmin),
                 Some(kmax),
                 self.dk,
                 self.dk,
                 Some(self.window),
-            )?;
+            )?);
 
         let mut nspl = 1 + (2.0 * rbkg * (kmax - kmin) / std::f64::consts::PI).round() as i32;
         let irbkg = (1.0 + (nspl - 1) as f64 * std::f64::consts::PI / (2.0 * rgrid * (kmax - kmin)))
@@ -692,11 +638,9 @@ impl AUTOBK {
         nspl = nspl.clamp(5, 128);
 
         // !todo!("Finish implementing this part of the code");
-        let mut spl_y: Array1<f64> = Array1::ones(Ix1(nspl as usize));
-        let mut spl_k: Array1<f64> = Array1::zeros(nspl as usize);
-        let kraw_slice = kraw.as_slice().ok_or_else(|| BackgroundError::Other {
-            message: "kraw array is not contiguous".to_string(),
-        })?;
+        let mut spl_y = DVector::from_element(nspl as usize, 1.0);
+        let mut spl_k = DVector::zeros(nspl as usize);
+        let kraw_slice = kraw.as_slice();
         for i in 0..nspl as usize {
             let q = kmin + i as f64 * (kmax - kmin) / (nspl - 1) as f64;
             let ik = mathutils::index_nearest_sorted(kraw_slice, &q)?;
@@ -710,8 +654,8 @@ impl AUTOBK {
         // Validate knot-domain construction used for AUTOBK bounds reasoning.
         let _knot_domain = Self::build_knot_domain(&spl_k, order)?;
         let (knots, coefs, _) = rusty_fitpack::splrep(
-            spl_k.to_vec(),
-            spl_y.to_vec(),
+            spl_k.as_slice().to_vec(),
+            spl_y.as_slice().to_vec(),
             None,
             None,
             None,
@@ -725,15 +669,9 @@ impl AUTOBK {
         );
 
         // Calculate the mu interpolated to the k grid
-        let kraw_fit = kraw.slice_axis(Axis(0), ndarray::Slice::from(0..iemax - iek0 + 1));
-        let mu_fit = mu.slice_axis(Axis(0), ndarray::Slice::from(iek0..iemax + 1));
-        let kraw_fit_slice = kraw_fit.as_slice().ok_or_else(|| BackgroundError::Other {
-            message: "kraw fit window is not contiguous".to_string(),
-        })?;
-        let mu_fit_slice = mu_fit.as_slice().ok_or_else(|| BackgroundError::Other {
-            message: "mu fit window is not contiguous".to_string(),
-        })?;
-        let mu_out = kout.interpolate(kraw_fit_slice, mu_fit_slice)?;
+        let kraw_fit = kraw.rows(0, iemax - iek0 + 1).into_owned();
+        let mu_fit = mu.rows(iek0, iemax - iek0 + 1).into_owned();
+        let mu_out = kout.interpolate(kraw_fit.as_slice(), mu_fit.as_slice())?;
 
         let spline_opt = AUTOBKSpline {
             coefs: DVector::from_vec(coefs),
@@ -741,12 +679,12 @@ impl AUTOBK {
             order,
             irbkg: irbkg.max(1) as usize,
             nfft: nfft as usize,
-            kraw: kraw_fit.to_owned().into_nalgebra(),
-            mu: mu_out.into_nalgebra(),
-            kout: kout.clone().into_nalgebra(),
-            ftwin: ftwin.into_nalgebra(),
+            kraw: kraw_fit,
+            mu: mu_out,
+            kout: kout.clone(),
+            ftwin,
             kweight,
-            chi_std: chi_std.map(|x| x.into_nalgebra()),
+            chi_std,
             nclamp,
             clamp_lo,
             clamp_hi,
@@ -765,14 +703,12 @@ impl AUTOBK {
             &fit_result.kout,
         );
 
-        let bkg = bkg.into_ndarray1();
-        let chi = chi.into_ndarray1();
+        let mut obkg = mu.clone();
+        for i in 0..bkg.len() {
+            obkg[iek0 + i] = bkg[i];
+        }
 
-        let mut obkg = mu.to_owned();
-        obkg.slice_mut(ndarray::s![iek0..iek0 + bkg.len()])
-            .assign(&bkg);
-
-        self.chie = Some((&mu - &obkg) / edge_step);
+        self.chie = Some((mu - &obkg) / edge_step);
         self.bkg = Some(obkg);
         self.k = Some(kout);
         self.chi = Some(chi / edge_step);
@@ -820,12 +756,12 @@ impl AUTOBK {
         self.nfft.as_ref()
     }
 
-    pub fn get_chi_std(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
-        self.chi_std.as_ref().map(|x| x.view())
+    pub fn get_chi_std(&self) -> Option<&DVector<f64>> {
+        self.chi_std.as_ref()
     }
 
-    pub fn get_k_std(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
-        self.k_std.as_ref().map(|x| x.view())
+    pub fn get_k_std(&self) -> Option<&DVector<f64>> {
+        self.k_std.as_ref()
     }
 
     pub fn get_kweight(&self) -> Option<&i32> {
@@ -840,23 +776,23 @@ impl AUTOBK {
         self.dk.as_ref()
     }
 
-    pub fn get_bkg(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
-        self.bkg.as_ref().map(|x| x.view())
+    pub fn get_bkg(&self) -> Option<&DVector<f64>> {
+        self.bkg.as_ref()
     }
 
-    pub fn get_chie(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
-        self.chie.as_ref().map(|x| x.view())
+    pub fn get_chie(&self) -> Option<&DVector<f64>> {
+        self.chie.as_ref()
     }
 
-    pub fn get_k(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
-        self.k.as_ref().map(|x| x.view())
+    pub fn get_k(&self) -> Option<&DVector<f64>> {
+        self.k.as_ref()
     }
 
-    pub fn get_chi(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
-        self.chi.as_ref().map(|x| x.view())
+    pub fn get_chi(&self) -> Option<&DVector<f64>> {
+        self.chi.as_ref()
     }
 
-    pub fn get_chi_kweighted(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+    pub fn get_chi_kweighted(&self) -> Option<DVector<f64>> {
         let kweight = self.kweight?;
         let k = self.k.clone()?;
         let chi = self.chi.clone()?;
@@ -864,11 +800,11 @@ impl AUTOBK {
         if kweight == 0 {
             Some(chi)
         } else {
-            Some(chi * &k.mapv(|x| x.powi(kweight)))
+            Some(chi.component_mul(&k.map(|x| x.powi(kweight))))
         }
     }
 
-    pub fn get_ftwin(&self) -> Option<ArrayBase<OwnedRepr<f64>, Ix1>> {
+    pub fn get_ftwin(&self) -> Option<DVector<f64>> {
         let k = self.k.as_ref()?;
 
         let ftwin =
@@ -1352,9 +1288,6 @@ impl AUTOBKSpline {
     }
 }
 
-use approx::assert_abs_diff_eq;
-use std::time::{Duration, Instant};
-
 /// Implementation of LeastSquaresProblem trait for AUTOBK algorithm
 impl LeastSquaresProblem<f64, Dyn, Dyn> for AUTOBKSpline {
     type ParameterStorage = Owned<f64, Dyn>;
@@ -1403,6 +1336,20 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for AUTOBKSpline {
         // Some(jac2)
         Some(self.residual_jacobian(&self.coefs))
     }
+}
+
+fn dvector_arange(start: f64, stop: f64, step: f64) -> DVector<f64> {
+    if !step.is_finite() || step <= 0.0 {
+        return DVector::zeros(0);
+    }
+
+    let mut values = Vec::new();
+    let mut value = start;
+    while value < stop {
+        values.push(value);
+        value += step;
+    }
+    DVector::from_vec(values)
 }
 
 /// TODO: Implement ILPBkg
@@ -1473,13 +1420,13 @@ mod tests {
         let ftwin = autobk.get_ftwin().unwrap();
         let kweight = autobk.get_kweight().unwrap();
 
-        let chi_weighted = chi * &ftwin;
+        let chi_weighted = chi.component_mul(&ftwin);
 
         let chi_k2_weighted_expected = chi_expected
             .iter()
             .zip(k_expected.iter())
             .zip(ftwin.clone().iter())
-            .map(|((x, y), z)| x * y.powi(kweight.clone()) * z)
+            .map(|((x, y), z)| x * y.powi(*kweight) * z)
             .collect::<Vec<f64>>();
 
         let mse = chi_weighted
@@ -1495,7 +1442,7 @@ mod tests {
 
     #[test]
     fn test_autobk_knot_domain_bounds_and_ordering() {
-        let spl_k = Array1::linspace(1.5, 12.5, 9);
+        let spl_k = DVector::from_iterator(9, (0..9).map(|i| 1.5 + i as f64 * (11.0 / 8.0)));
         let order = 3usize;
         let knots = AUTOBK::build_knot_domain(&spl_k, order).unwrap();
 
@@ -1521,7 +1468,7 @@ mod tests {
 
     #[test]
     fn test_autobk_knot_domain_rejects_invalid_range() {
-        let spl_k = Array1::from_vec(vec![2.0, 2.0, 2.0, 2.0, 2.0]);
+        let spl_k = DVector::from_vec(vec![2.0, 2.0, 2.0, 2.0, 2.0]);
         let err = AUTOBK::build_knot_domain(&spl_k, 3).unwrap_err();
         assert!(matches!(err, BackgroundError::SplineKnotsFailed { .. }));
     }

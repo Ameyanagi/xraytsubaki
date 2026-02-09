@@ -15,13 +15,15 @@ exclude = [
 ]
 
 [workspace.package]
-name = "xraytsubaki"
 version = "0.1.0"
 edition = "2021"
 authors = ["Ameyanagi <contact@ameyanagi.com>"]
 homepage = "https://github.com/Ameyanagi/xraytsubaki"
 repository = "https://github.com/Ameyanagi/xraytsubaki"
 license = "MIT OR Apache-2.0"
+
+[profile.bench]
+debug = true
 
 
 [workspace.dependencies]

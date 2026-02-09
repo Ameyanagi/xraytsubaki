@@ -1,5 +1,24 @@
 # Migration Notes: Performance + Logic Hardening
 
+## Post-Nalgebra Stability Gates
+
+The default runtime path is nalgebra-first (`ndarray-compat` remains optional compatibility mode).
+
+Canonical repository gates for this stabilized baseline:
+
+- `cargo test -p xraytsubaki`
+- `cargo clippy -p xraytsubaki --all-targets -- -D warnings`
+- `cargo fmt --all -- --check`
+- `cargo check --manifest-path py-xraytsubaki/Cargo.toml`
+
+These commands are mirrored in CI as blocking checks.
+
+Pre-hardening baseline failures that motivated this gate set:
+
+- strict clippy failure in core (`cargo clippy -p xraytsubaki --all-targets -- -D warnings`)
+- workspace formatting drift (`cargo fmt --all -- --check`)
+- Python binding compile error in `py-xraytsubaki/src/lib.rs` (`chir_mag.as_slice()` treated as `Option`)
+
 ## Batch Processing API
 
 `XASGroup` batch methods are now fallible and no longer panic on per-spectrum failures.

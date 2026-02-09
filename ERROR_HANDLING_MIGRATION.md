@@ -244,10 +244,10 @@ if data.is_none() {
 
 1. **Remaining Modules**: Migrate other modules still using `Box<dyn Error>`:
    - `xafsutils.rs`
-   - `background_nalgebra.rs`
-   - `normalization_nalgebra.rs`
-   - `xasspectrum_nalgebra.rs`
-   - `xasgroup_nalgebra.rs`
+   - `background.rs`
+   - `normalization.rs`
+   - `xasspectrum.rs`
+   - `xasgroup.rs`
    - `xasparameters.rs`
 
 2. **Test Migration**: Update existing tests to validate specific error types

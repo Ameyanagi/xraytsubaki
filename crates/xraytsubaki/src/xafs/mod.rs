@@ -5,10 +5,6 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
 
-// Tests are stored in separate tests module
-#[cfg(tests)]
-mod tests;
-
 #[cfg_attr(debug_assertions, allow(dead_code, unused_imports))]
 // Standard library dependencies
 use std::error::Error;
@@ -22,37 +18,37 @@ use easyfft::dyn_size::realfft::DynRealDft;
 
 // load dependencies
 #[cfg(feature = "ndarray-compat")]
+#[path = "background_ndarray.rs"]
 pub mod background;
 #[cfg(not(feature = "ndarray-compat"))]
-#[path = "background_nalgebra.rs"]
 pub mod background;
 pub mod bessel_i0;
 pub mod errors;
 pub mod io;
 pub mod lmutils;
 #[cfg(feature = "ndarray-compat")]
+#[path = "mathutils_ndarray.rs"]
 pub mod mathutils;
 #[cfg(not(feature = "ndarray-compat"))]
-#[path = "mathutils_nalgebra.rs"]
 pub mod mathutils;
 #[cfg(feature = "ndarray-compat")]
+#[path = "normalization_ndarray.rs"]
 pub mod normalization;
 #[cfg(not(feature = "ndarray-compat"))]
-#[path = "normalization_nalgebra.rs"]
 pub mod normalization;
 pub mod nshare;
 #[cfg(feature = "ndarray-compat")]
+#[path = "xafsutils_ndarray.rs"]
 pub mod xafsutils;
 #[cfg(not(feature = "ndarray-compat"))]
-#[path = "xafsutils_nalgebra.rs"]
 pub mod xafsutils;
 pub mod xasgroup;
 pub mod xasparameters;
 pub mod xasspectrum;
 #[cfg(feature = "ndarray-compat")]
+#[path = "xrayfft_ndarray.rs"]
 pub mod xrayfft;
 #[cfg(not(feature = "ndarray-compat"))]
-#[path = "xrayfft_nalgebra.rs"]
 pub mod xrayfft;
 
 // Load local traits

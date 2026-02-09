@@ -58,8 +58,8 @@ fn criterion_benchmark(c: &mut Criterion) {
 
 fn custom() -> Criterion {
     let base = Criterion::default().sample_size(20);
-    let enable_profiler = std::env::args()
-        .any(|arg| arg == "--profile-time" || arg.starts_with("--profile-time="));
+    let enable_profiler =
+        std::env::args().any(|arg| arg == "--profile-time" || arg.starts_with("--profile-time="));
     if enable_profiler {
         base.with_profiler(FlamegraphProfiler::new(1000))
     } else {

@@ -68,7 +68,7 @@ fn read_alloc_stats() -> AllocStats {
 
 fn run_single(path: &str) -> Result<(f64, AllocStats), Box<dyn Error>> {
     reset_alloc_stats();
-    let spectrum = load_spectrum_QAS_trans(&path.to_string())?;
+    let spectrum = load_spectrum_QAS_trans(path)?;
     let mut group = XASGroup::new();
     for _ in 0..100 {
         group.add_spectrum(spectrum.clone());
@@ -83,7 +83,7 @@ fn run_single(path: &str) -> Result<(f64, AllocStats), Box<dyn Error>> {
 
 fn run_parallel(path: &str) -> Result<(f64, AllocStats), Box<dyn Error>> {
     reset_alloc_stats();
-    let spectrum = load_spectrum_QAS_trans(&path.to_string())?;
+    let spectrum = load_spectrum_QAS_trans(path)?;
     let mut group = XASGroup::new();
     for _ in 0..10_000 {
         group.add_spectrum(spectrum.clone());

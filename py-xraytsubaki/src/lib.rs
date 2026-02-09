@@ -99,9 +99,10 @@ fn run_pipeline_arrays<'py>(
         out.set_item("chi", numpy::PyArray1::from_slice(py, chi.as_slice()))?;
     }
     if let Some(chir_mag) = spectrum.get_chir_mag() {
-        if let Some(slice) = chir_mag.as_slice() {
-            out.set_item("chir_mag", numpy::PyArray1::from_slice(py, slice))?;
-        }
+        out.set_item(
+            "chir_mag",
+            numpy::PyArray1::from_slice(py, chir_mag.as_slice()),
+        )?;
     }
 
     Ok(out)

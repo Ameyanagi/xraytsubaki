@@ -151,16 +151,19 @@ impl XASSpectrum {
         let mu = self.raw_mu.as_ref().ok_or_else(|| DataError::MissingData {
             field: "raw_mu".to_string(),
         })?;
-        let knot = self.raw_energy.as_ref().ok_or_else(|| DataError::MissingData {
-            field: "raw_energy".to_string(),
-        })?;
+        let knot = self
+            .raw_energy
+            .as_ref()
+            .ok_or_else(|| DataError::MissingData {
+                field: "raw_energy".to_string(),
+            })?;
 
-        let interpolated = energy.interpolate(knot.as_slice(), mu.as_slice()).map_err(|e| {
-            super::errors::MathError::SplineEvalFailed {
+        let interpolated = energy
+            .interpolate(knot.as_slice(), mu.as_slice())
+            .map_err(|e| super::errors::MathError::SplineEvalFailed {
                 x: 0.0,
                 reason: e.to_string(),
-            }
-        })?;
+            })?;
         self.mu = Some(interpolated);
 
         Ok(self)
@@ -309,7 +312,7 @@ impl XASSpectrum {
     }
 
     pub fn fft(&mut self) -> Result<&mut Self, XAFSError> {
-        let mut xftf = self.xftf.take().unwrap_or_else(xrayfft::XrayFFTF::new);
+        let mut xftf = self.xftf.take().unwrap_or_default();
 
         #[cfg(feature = "ndarray-compat")]
         {
@@ -642,9 +645,7 @@ pub mod tests {
         let mut spectrum = XASSpectrum::new();
         spectrum.set_spectrum(vec![0.0, 1.0, 2.0, 3.0], vec![0.0, 2.0, 4.0, 6.0]);
 
-        spectrum
-            .interpolate_spectrum(vec![0.5, 1.5, 2.5])
-            .unwrap();
+        spectrum.interpolate_spectrum(vec![0.5, 1.5, 2.5]).unwrap();
 
         assert_eq!(
             spectrum.energy.as_ref().unwrap(),
@@ -674,7 +675,10 @@ pub mod tests {
             spectrum.energy.as_ref().unwrap(),
             &DVector::from_vec(vec![0.25, 0.75])
         );
-        assert_eq!(spectrum.mu.as_ref().unwrap(), &DVector::from_vec(vec![42.0]));
+        assert_eq!(
+            spectrum.mu.as_ref().unwrap(),
+            &DVector::from_vec(vec![42.0])
+        );
     }
 
     #[test]

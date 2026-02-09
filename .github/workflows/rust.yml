@@ -29,10 +29,28 @@ jobs:
     - name: Run core crate tests
       run: cargo test -p xraytsubaki --verbose
 
+  strict-gates:
+    name: Strict Gates (stable)
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+        components: clippy, rustfmt
+    - name: Run strict clippy
+      run: cargo clippy -p xraytsubaki --all-targets -- -D warnings
+    - name: Check formatting
+      run: cargo fmt --all -- --check
+    - name: Check Python bindings crate
+      run: cargo check --manifest-path py-xraytsubaki/Cargo.toml --verbose
+
   benchmark:
     name: Benchmark Regression
     runs-on: ubuntu-latest
-    needs: core
+    needs: [core, strict-gates]
 
     steps:
     - uses: actions/checkout@v4

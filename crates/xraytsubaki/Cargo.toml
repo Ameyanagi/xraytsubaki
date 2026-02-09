@@ -56,6 +56,3 @@ harness = false
 [[bench]]
 name = "autobk_stage_benchmark"
 harness = false
-
-[profile.bench]
-debug = true

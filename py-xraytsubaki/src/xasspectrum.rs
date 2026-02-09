@@ -1,8 +1,5 @@
-use std::mem;
-
-use numpy::{IntoPyArray, PyArray1, PyReadonlyArray, PyReadonlyArray1};
 use pyo3::prelude::*;
-use xraytsubaki::{prelude::*, xafs::xasspectrum};
+use xraytsubaki::prelude::*;
 
 #[pyclass]
 #[repr(transparent)]

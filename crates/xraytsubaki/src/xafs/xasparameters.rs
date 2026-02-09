@@ -124,6 +124,6 @@ mod tests {
 
     #[test]
     fn test_initialize_xas_parameters() {
-        let xas_params = XASParameters::new();
+        let _xas_params = XASParameters::new();
     }
 }

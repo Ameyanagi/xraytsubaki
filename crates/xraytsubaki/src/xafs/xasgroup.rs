@@ -415,8 +415,7 @@ mod tests {
 
     #[test]
     fn test_xasgroup() {
-        let mut group = XASGroup::new();
-        let spectrum = XASSpectrum::new();
+        let group = XASGroup::new();
 
         assert_eq!(group.len(), 0);
     }
@@ -434,7 +433,7 @@ mod tests {
         let mut group = XASGroup::new();
         let spectrum = XASSpectrum::new();
         group.add_spectrum(spectrum.clone());
-        group.remove_spectrum(0);
+        group.remove_spectrum(0).unwrap();
         assert_eq!(group.len(), 0);
     }
 
@@ -467,12 +466,8 @@ mod tests {
         let mut group = XASGroup::new();
         let spectrum = XASSpectrum::new();
         group.add_spectrum(spectrum.clone().set_name("spectrum1").to_owned());
-        group
-            .add_spectrum(spectrum.clone().set_name("spectrum2").to_owned())
-            .to_owned();
-        group
-            .add_spectrum(spectrum.clone().set_name("spectrum3").to_owned())
-            .to_owned();
+        group.add_spectrum(spectrum.clone().set_name("spectrum2").to_owned());
+        group.add_spectrum(spectrum.clone().set_name("spectrum3").to_owned());
         group.move_spectra(&[0, 1], 3);
         assert_eq!(group.spectra[2].name.as_ref().unwrap(), "spectrum2");
     }
@@ -511,7 +506,11 @@ mod tests {
             .add_spectrum(invalid);
 
         let par_err = par_group.find_e0_par().unwrap_err();
-        let indices = par_err.errors.iter().map(|err| err.index).collect::<Vec<_>>();
+        let indices = par_err
+            .errors
+            .iter()
+            .map(|err| err.index)
+            .collect::<Vec<_>>();
         assert_eq!(indices, vec![0, 2]);
     }
 
@@ -600,16 +599,8 @@ mod tests {
             let seq_norm_vec = seq_norm.iter().copied().collect::<Vec<_>>();
             let par_norm_vec = par_norm.iter().copied().collect::<Vec<_>>();
             let default_norm_vec = default_norm.iter().copied().collect::<Vec<_>>();
-            assert_slice_close(
-                &seq_norm_vec,
-                &par_norm_vec,
-                1.0e-6,
-            );
-            assert_slice_close(
-                &par_norm_vec,
-                &default_norm_vec,
-                1.0e-6,
-            );
+            assert_slice_close(&seq_norm_vec, &par_norm_vec, 1.0e-6);
+            assert_slice_close(&par_norm_vec, &default_norm_vec, 1.0e-6);
 
             let seq_k = seq.get_k().unwrap();
             let par_k = par.get_k().unwrap();
@@ -626,11 +617,7 @@ mod tests {
             let seq_chir_imag = seq.get_chir_imag().unwrap();
             let par_chir_imag = par.get_chir_imag().unwrap();
             let default_chir_imag = default.get_chir_imag().unwrap();
-            assert_slice_close(
-                seq_chir_imag.as_slice(),
-                par_chir_imag.as_slice(),
-                1.0e-6,
-            );
+            assert_slice_close(seq_chir_imag.as_slice(), par_chir_imag.as_slice(), 1.0e-6);
             assert_slice_close(
                 par_chir_imag.as_slice(),
                 default_chir_imag.as_slice(),

@@ -1,7 +1,7 @@
 use levenberg_marquardt::{LeastSquaresProblem, LevenbergMarquardt};
 use nalgebra::{DMatrix, DVector, Dyn, Owned};
 
-const EPS_F64: f64 = std::f64::EPSILON;
+const EPS_F64: f64 = f64::EPSILON;
 
 /// Update the function value at x[idx] and return the value.
 pub fn mod_and_calc_nalgebra_f64<T>(
@@ -126,7 +126,7 @@ mod tests {
         let jac_ref = DMatrix::from_vec(
             3,
             3,
-            vec![2.0, 0.0, 0.0, 3.0, 3.0, (2.0 as f64).exp(), 4.0, 4.0, 4.0],
+            vec![2.0, 0.0, 0.0, 3.0, 3.0, 2.0_f64.exp(), 4.0, 4.0, 4.0],
         );
 
         assert_abs_diff_eq!(jac, jac_ref, epsilon = NUM_DIFF_TOL);
@@ -146,7 +146,7 @@ mod tests {
         let jac_ref = DMatrix::from_vec(
             3,
             3,
-            vec![2.0, 0.0, 0.0, 3.0, 3.0, (2.0 as f64).exp(), 4.0, 4.0, 4.0],
+            vec![2.0, 0.0, 0.0, 3.0, 3.0, 2.0_f64.exp(), 4.0, 4.0, 4.0],
         );
 
         assert_abs_diff_eq!(jac, jac_ref, epsilon = NUM_DIFF_TOL);

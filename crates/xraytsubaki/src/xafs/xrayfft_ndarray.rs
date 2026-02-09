@@ -115,6 +115,25 @@ impl XrayFFTF {
         ),
         FFTError,
     > {
+        if k.len() != chi.len() {
+            return Err(FFTError::InterpolationFailed {
+                reason: "k/chi length mismatch".to_string(),
+            });
+        }
+        if k.len() < 2 {
+            let (kmin, kmax) = if k.is_empty() {
+                (0.0, 0.0)
+            } else {
+                (k[0], k[k.len() - 1])
+            };
+            return Err(FFTError::InsufficientPoints {
+                min: 2,
+                actual: k.len(),
+                kmin,
+                kmax,
+            });
+        }
+
         self.fill_parameter(k);
         let kweight = self.kweight.unwrap() as i32;
         let k_max = k.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();

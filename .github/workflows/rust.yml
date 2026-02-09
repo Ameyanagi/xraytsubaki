@@ -32,7 +32,6 @@ jobs:
   strict-gates:
     name: Strict Gates (stable)
     runs-on: ubuntu-latest
-    needs: core
 
     steps:
     - uses: actions/checkout@v4
@@ -41,8 +40,6 @@ jobs:
       with:
         toolchain: stable
         components: clippy, rustfmt
-    - name: Run core crate tests
-      run: cargo test -p xraytsubaki --verbose
     - name: Run strict clippy
       run: cargo clippy -p xraytsubaki --all-targets -- -D warnings
     - name: Check formatting

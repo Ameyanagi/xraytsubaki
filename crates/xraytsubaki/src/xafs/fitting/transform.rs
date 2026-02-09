@@ -192,6 +192,13 @@ pub fn residual_in_r_space(
     Ok(DVector::from_vec(residual))
 }
 
+pub fn compute_n_idp(transform: &FeffFitTransform) -> f64 {
+    1.0 + 2.0
+        * (transform.rmax - transform.rmin).max(0.0)
+        * (transform.kmax - transform.kmin).max(0.0)
+        / std::f64::consts::PI
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -225,5 +232,18 @@ mod tests {
         let out = apply_r_transform(&k, &chi, &transform).unwrap();
         assert!(!out.mask_indices.is_empty());
         assert_eq!(out.chir.len(), out.r.len());
+    }
+
+    #[test]
+    fn test_compute_n_idp_positive() {
+        let transform = FeffFitTransform {
+            kmin: 2.0,
+            kmax: 14.0,
+            rmin: 1.0,
+            rmax: 3.0,
+            ..FeffFitTransform::default()
+        };
+        let n_idp = compute_n_idp(&transform);
+        assert!(n_idp > 1.0);
     }
 }

@@ -1,4 +1,6 @@
+pub mod builder;
 pub mod errors;
+pub mod expression;
 pub mod feffdat;
 pub mod path_model;
 pub mod runner;
@@ -9,12 +11,14 @@ pub mod variables;
 
 use nalgebra::DVector;
 
+pub use builder::FeffFit;
 pub use errors::FittingError;
 pub use path_model::FF2ChiOutput;
 pub use types::{
-    FeffDat, FeffExecutionMode, FeffFitDataset, FeffFitResult, FeffFitTransform, FeffFlavor,
-    FeffModuleCommand, FeffPathModel, FeffResolvedCommands, FeffRunRequest, FeffRunResult,
-    FitSpace, FitVariable, FitVariables, PathContribution, PathParamSpec,
+    DatasetResult, FeffDat, FeffExecutionMode, FeffFitDataset, FeffFitResult, FeffFitTransform,
+    FeffFlavor, FeffModuleCommand, FeffPathModel, FeffResolvedCommands, FeffRunRequest,
+    FeffRunResult, FitSpace, FitVariable, FitVariables, FitWarning, Param, PathContribution,
+    PathParamSpec,
 };
 
 use crate::xafs::{Result, XAFSError};
@@ -45,6 +49,10 @@ pub fn ff2chi(
 
 pub fn feffit(dataset: &FeffFitDataset, vars: &FitVariables) -> Result<FeffFitResult> {
     solver::feffit(dataset, vars).map_err(XAFSError::from)
+}
+
+pub fn feffit_multi(datasets: &[FeffFitDataset], vars: &FitVariables) -> Result<FeffFitResult> {
+    solver::feffit_multi(datasets, vars).map_err(XAFSError::from)
 }
 
 pub fn resolve_feff_commands(request: &FeffRunRequest) -> Result<FeffResolvedCommands> {

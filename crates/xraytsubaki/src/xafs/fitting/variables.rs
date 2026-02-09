@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use nalgebra::DVector;
 
 use super::errors::FittingError;
+use super::expression;
 use super::types::{FitVariable, FitVariables, PathParamSpec};
 
 impl FitVariables {
@@ -121,229 +122,15 @@ pub fn eval_expression_with<F>(expr: &str, resolver: F) -> Result<f64, FittingEr
 where
     F: FnMut(&str) -> Result<f64, FittingError>,
 {
-    let mut parser = ExprParser::new(expr, resolver);
-    let value = parser.parse_expression()?;
-    parser.skip_whitespace();
-    if parser.pos < parser.input.len() {
-        return Err(FittingError::ExpressionFailed {
-            expr: expr.to_string(),
-            reason: format!("unexpected token at byte {}", parser.pos),
-        });
-    }
-    if !value.is_finite() {
-        return Err(FittingError::ExpressionFailed {
-            expr: expr.to_string(),
-            reason: "expression produced non-finite value".to_string(),
-        });
-    }
-    Ok(value)
+    expression::eval_expression_with(expr, resolver)
 }
 
-struct ExprParser<'a, F>
-where
-    F: FnMut(&str) -> Result<f64, FittingError>,
-{
-    input: &'a str,
-    pos: usize,
-    resolver: F,
+pub fn extract_symbols(expr: &str) -> Vec<String> {
+    expression::extract_symbols(expr)
 }
 
-impl<'a, F> ExprParser<'a, F>
-where
-    F: FnMut(&str) -> Result<f64, FittingError>,
-{
-    fn new(input: &'a str, resolver: F) -> Self {
-        Self {
-            input,
-            pos: 0,
-            resolver,
-        }
-    }
-
-    fn parse_expression(&mut self) -> Result<f64, FittingError> {
-        self.parse_add_sub()
-    }
-
-    fn parse_add_sub(&mut self) -> Result<f64, FittingError> {
-        let mut value = self.parse_mul_div()?;
-        loop {
-            self.skip_whitespace();
-            if self.consume_char('+') {
-                value += self.parse_mul_div()?;
-            } else if self.consume_char('-') {
-                value -= self.parse_mul_div()?;
-            } else {
-                break;
-            }
-        }
-        Ok(value)
-    }
-
-    fn parse_mul_div(&mut self) -> Result<f64, FittingError> {
-        let mut value = self.parse_pow()?;
-        loop {
-            self.skip_whitespace();
-            if self.consume_char('*') {
-                value *= self.parse_pow()?;
-            } else if self.consume_char('/') {
-                let rhs = self.parse_pow()?;
-                if rhs.abs() < f64::EPSILON {
-                    return Err(FittingError::ExpressionFailed {
-                        expr: self.input.to_string(),
-                        reason: "division by zero".to_string(),
-                    });
-                }
-                value /= rhs;
-            } else {
-                break;
-            }
-        }
-        Ok(value)
-    }
-
-    fn parse_pow(&mut self) -> Result<f64, FittingError> {
-        let lhs = self.parse_unary()?;
-        self.skip_whitespace();
-        if self.consume_char('^') {
-            let rhs = self.parse_pow()?;
-            Ok(lhs.powf(rhs))
-        } else {
-            Ok(lhs)
-        }
-    }
-
-    fn parse_unary(&mut self) -> Result<f64, FittingError> {
-        self.skip_whitespace();
-        if self.consume_char('+') {
-            return self.parse_unary();
-        }
-        if self.consume_char('-') {
-            return self.parse_unary().map(|value| -value);
-        }
-        self.parse_primary()
-    }
-
-    fn parse_primary(&mut self) -> Result<f64, FittingError> {
-        self.skip_whitespace();
-
-        if self.consume_char('(') {
-            let value = self.parse_expression()?;
-            self.skip_whitespace();
-            if !self.consume_char(')') {
-                return Err(FittingError::ExpressionFailed {
-                    expr: self.input.to_string(),
-                    reason: "missing closing ')'".to_string(),
-                });
-            }
-            return Ok(value);
-        }
-
-        if let Some(number) = self.try_parse_number()? {
-            return Ok(number);
-        }
-
-        let ident = self.try_parse_identifier();
-        if let Some(name) = ident {
-            return (&mut self.resolver)(&name).map_err(|err| match err {
-                FittingError::UndefinedSymbol { .. } | FittingError::CyclicExpression { .. } => err,
-                other => FittingError::ExpressionFailed {
-                    expr: self.input.to_string(),
-                    reason: other.to_string(),
-                },
-            });
-        }
-
-        Err(FittingError::ExpressionFailed {
-            expr: self.input.to_string(),
-            reason: format!("unexpected token at byte {}", self.pos),
-        })
-    }
-
-    fn try_parse_number(&mut self) -> Result<Option<f64>, FittingError> {
-        self.skip_whitespace();
-        let bytes = self.input.as_bytes();
-        if self.pos >= bytes.len() {
-            return Ok(None);
-        }
-
-        let starts_number = matches!(bytes[self.pos] as char, '0'..='9' | '.');
-        if !starts_number {
-            return Ok(None);
-        }
-
-        let start = self.pos;
-        let mut seen_exp = false;
-
-        while self.pos < bytes.len() {
-            let c = bytes[self.pos] as char;
-            match c {
-                '0'..='9' | '.' => self.pos += 1,
-                'e' | 'E' if !seen_exp => {
-                    seen_exp = true;
-                    self.pos += 1;
-                    if self.pos < bytes.len() {
-                        let sign = bytes[self.pos] as char;
-                        if sign == '+' || sign == '-' {
-                            self.pos += 1;
-                        }
-                    }
-                }
-                _ => break,
-            }
-        }
-
-        let raw = &self.input[start..self.pos];
-        raw.parse::<f64>()
-            .map(Some)
-            .map_err(|_| FittingError::ExpressionFailed {
-                expr: self.input.to_string(),
-                reason: format!("invalid numeric literal '{raw}'"),
-            })
-    }
-
-    fn try_parse_identifier(&mut self) -> Option<String> {
-        self.skip_whitespace();
-        let bytes = self.input.as_bytes();
-        if self.pos >= bytes.len() {
-            return None;
-        }
-
-        let first = bytes[self.pos] as char;
-        if !(first.is_ascii_alphabetic() || first == '_') {
-            return None;
-        }
-
-        let start = self.pos;
-        self.pos += 1;
-        while self.pos < bytes.len() {
-            let c = bytes[self.pos] as char;
-            if c.is_ascii_alphanumeric() || c == '_' {
-                self.pos += 1;
-            } else {
-                break;
-            }
-        }
-
-        Some(self.input[start..self.pos].to_string())
-    }
-
-    fn skip_whitespace(&mut self) {
-        let bytes = self.input.as_bytes();
-        while self.pos < bytes.len() && (bytes[self.pos] as char).is_ascii_whitespace() {
-            self.pos += 1;
-        }
-    }
-
-    fn consume_char(&mut self, expected: char) -> bool {
-        self.skip_whitespace();
-        let bytes = self.input.as_bytes();
-        if self.pos < bytes.len() && bytes[self.pos] as char == expected {
-            self.pos += 1;
-            true
-        } else {
-            false
-        }
-    }
+pub fn try_extract_symbols(expr: &str) -> Result<Vec<String>, FittingError> {
+    expression::try_extract_symbols(expr)
 }
 
 #[cfg(test)]
@@ -407,5 +194,11 @@ mod tests {
 
         let err = vars.resolve_values().unwrap_err();
         assert!(matches!(err, FittingError::CyclicExpression { .. }));
+    }
+
+    #[test]
+    fn test_extract_symbols_excludes_reff() {
+        let symbols = extract_symbols("amp * sqrt(reff) + sig2");
+        assert_eq!(symbols, vec!["amp".to_string(), "sig2".to_string()]);
     }
 }

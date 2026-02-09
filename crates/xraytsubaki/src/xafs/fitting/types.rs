@@ -137,6 +137,15 @@ impl From<String> for PathParamSpec {
     }
 }
 
+impl PathParamSpec {
+    pub fn as_expression(&self) -> Option<&str> {
+        match self {
+            Self::Expression(expr) => Some(expr.as_str()),
+            Self::Value(_) => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct FitVariable {
@@ -194,6 +203,85 @@ impl FitVariable {
             out = out.min(max);
         }
         out
+    }
+}
+
+/// Lightweight parameter specification for the builder API.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Param {
+    pub name: String,
+    pub value: f64,
+    pub vary: bool,
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+    pub expr: Option<String>,
+}
+
+impl Default for Param {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            value: 0.0,
+            vary: true,
+            min: None,
+            max: None,
+            expr: None,
+        }
+    }
+}
+
+impl Param {
+    /// Varying parameter with initial value.
+    pub fn new(name: impl Into<String>, value: f64) -> Self {
+        Self {
+            name: name.into(),
+            value,
+            vary: true,
+            min: None,
+            max: None,
+            expr: None,
+        }
+    }
+
+    /// Fixed parameter (vary=false).
+    pub fn fixed(name: impl Into<String>, value: f64) -> Self {
+        Self {
+            name: name.into(),
+            value,
+            vary: false,
+            min: None,
+            max: None,
+            expr: None,
+        }
+    }
+
+    /// Expression-derived parameter (vary=false).
+    pub fn expr(name: impl Into<String>, expr: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            value: 0.0,
+            vary: false,
+            min: None,
+            max: None,
+            expr: Some(expr.into()),
+        }
+    }
+
+    /// Set bounds (consuming Self).
+    pub fn bounds(mut self, min: f64, max: f64) -> Self {
+        self.min = Some(min);
+        self.max = Some(max);
+        self
+    }
+
+    /// Convert to FitVariable.
+    pub fn to_fit_variable(&self) -> FitVariable {
+        let mut var = FitVariable::new(self.value, self.vary).with_bounds(self.min, self.max);
+        if let Some(expr) = self.expr.as_ref() {
+            var = var.with_expr(expr.clone());
+        }
+        var
     }
 }
 
@@ -314,6 +402,56 @@ impl FeffPathModel {
             ..Self::default()
         }
     }
+
+    pub fn set_s02(mut self, spec: impl Into<PathParamSpec>) -> Self {
+        self.s02 = spec.into();
+        self
+    }
+
+    pub fn set_e0(mut self, spec: impl Into<PathParamSpec>) -> Self {
+        self.e0 = spec.into();
+        self
+    }
+
+    pub fn set_ei(mut self, spec: impl Into<PathParamSpec>) -> Self {
+        self.ei = spec.into();
+        self
+    }
+
+    pub fn set_deltar(mut self, spec: impl Into<PathParamSpec>) -> Self {
+        self.deltar = spec.into();
+        self
+    }
+
+    pub fn set_sigma2(mut self, spec: impl Into<PathParamSpec>) -> Self {
+        self.sigma2 = spec.into();
+        self
+    }
+
+    pub fn set_third(mut self, spec: impl Into<PathParamSpec>) -> Self {
+        self.third = spec.into();
+        self
+    }
+
+    pub fn set_fourth(mut self, spec: impl Into<PathParamSpec>) -> Self {
+        self.fourth = spec.into();
+        self
+    }
+
+    pub fn set_degen(mut self, spec: impl Into<PathParamSpec>) -> Self {
+        self.degen = spec.into();
+        self
+    }
+
+    pub fn set_label(mut self, label: impl Into<String>) -> Self {
+        self.label = label.into();
+        self
+    }
+
+    pub fn set_use_path(mut self, use_path: bool) -> Self {
+        self.use_path = use_path;
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -378,6 +516,65 @@ impl Default for FeffFitDataset {
     }
 }
 
+impl FeffFitDataset {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn data(mut self, k: &DVector<f64>, chi: &DVector<f64>) -> Self {
+        self.k = k.clone();
+        self.chi = chi.clone();
+        self
+    }
+
+    pub fn epsilon_k(mut self, value: f64) -> Self {
+        self.epsilon_k = Some(value);
+        self
+    }
+
+    pub fn add_path(mut self, path: FeffPathModel) -> Self {
+        self.paths.push(path);
+        self
+    }
+
+    pub fn krange(mut self, kmin: f64, kmax: f64) -> Self {
+        self.transform.kmin = kmin;
+        self.transform.kmax = kmax;
+        self
+    }
+
+    pub fn rrange(mut self, rmin: f64, rmax: f64) -> Self {
+        self.transform.rmin = rmin;
+        self.transform.rmax = rmax;
+        self
+    }
+
+    pub fn kweight(mut self, value: f64) -> Self {
+        self.transform.kweight = value;
+        self
+    }
+
+    pub fn dk(mut self, value: f64) -> Self {
+        self.transform.dk = value;
+        self
+    }
+
+    pub fn window(mut self, value: FTWindow) -> Self {
+        self.transform.window = value;
+        self
+    }
+
+    pub fn rwindow(mut self, value: FTWindow) -> Self {
+        self.transform.rwindow = value;
+        self
+    }
+
+    pub fn dr(mut self, value: f64) -> Self {
+        self.transform.dr = value;
+        self
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PathContribution {
@@ -402,6 +599,68 @@ impl Default for PathContribution {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct DatasetResult {
+    pub n_data: usize,
+    pub chi_square: f64,
+    pub reduced_chi_square: f64,
+    pub r_factor: f64,
+    pub n_idp: f64,
+    pub k: DVector<f64>,
+    pub data_chi: DVector<f64>,
+    pub model_chi: DVector<f64>,
+    pub r: DVector<f64>,
+    pub data_chir_re: DVector<f64>,
+    pub data_chir_im: DVector<f64>,
+    pub model_chir_re: DVector<f64>,
+    pub model_chir_im: DVector<f64>,
+    pub model_chir_mag: DVector<f64>,
+    pub path_contributions: Vec<PathContribution>,
+}
+
+impl Default for DatasetResult {
+    fn default() -> Self {
+        Self {
+            n_data: 0,
+            chi_square: 0.0,
+            reduced_chi_square: 0.0,
+            r_factor: 0.0,
+            n_idp: 0.0,
+            k: DVector::zeros(0),
+            data_chi: DVector::zeros(0),
+            model_chi: DVector::zeros(0),
+            r: DVector::zeros(0),
+            data_chir_re: DVector::zeros(0),
+            data_chir_im: DVector::zeros(0),
+            model_chir_re: DVector::zeros(0),
+            model_chir_im: DVector::zeros(0),
+            model_chir_mag: DVector::zeros(0),
+            path_contributions: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FitWarning {
+    pub symbol: String,
+    pub inferred_from: String,
+    pub default_value: f64,
+    pub message: String,
+}
+
+impl Default for FitWarning {
+    fn default() -> Self {
+        Self {
+            symbol: String::new(),
+            inferred_from: String::new(),
+            default_value: 0.0,
+            message: String::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct FeffFitResult {
     pub variables: FitVariables,
     pub n_vary: usize,
@@ -419,6 +678,9 @@ pub struct FeffFitResult {
     pub model_chir_im: DVector<f64>,
     pub model_chir_mag: DVector<f64>,
     pub path_contributions: Vec<PathContribution>,
+    pub datasets: Vec<DatasetResult>,
+    pub n_idp: f64,
+    pub warnings: Vec<FitWarning>,
 }
 
 impl Default for FeffFitResult {
@@ -440,6 +702,30 @@ impl Default for FeffFitResult {
             model_chir_im: DVector::zeros(0),
             model_chir_mag: DVector::zeros(0),
             path_contributions: Vec::new(),
+            datasets: Vec::new(),
+            n_idp: 0.0,
+            warnings: Vec::new(),
+        }
+    }
+}
+
+impl FeffFitResult {
+    pub fn dataset(&self, index: usize) -> Option<&DatasetResult> {
+        self.datasets.get(index)
+    }
+
+    pub fn sync_primary_dataset_fields(&mut self) {
+        if let Some(dataset) = self.datasets.first() {
+            self.k = dataset.k.clone();
+            self.data_chi = dataset.data_chi.clone();
+            self.model_chi = dataset.model_chi.clone();
+            self.r = dataset.r.clone();
+            self.data_chir_re = dataset.data_chir_re.clone();
+            self.data_chir_im = dataset.data_chir_im.clone();
+            self.model_chir_re = dataset.model_chir_re.clone();
+            self.model_chir_im = dataset.model_chir_im.clone();
+            self.model_chir_mag = dataset.model_chir_mag.clone();
+            self.path_contributions = dataset.path_contributions.clone();
         }
     }
 }

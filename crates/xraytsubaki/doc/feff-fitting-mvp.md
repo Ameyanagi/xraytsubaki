@@ -19,6 +19,37 @@ Out of scope in MVP:
 - Non-R fitspaces (`k`, `q`, wavelet).
 - FEFF10 execution support.
 
+## Builder API and Canonical Examples
+
+The redesigned fitting surface adds additive builder APIs (`FeffFit`, `Param`) and
+multi-dataset fitting while keeping the existing free-function flow available.
+
+Canonical usage examples are maintained in:
+- `plans/fitting-api-redesign.md`
+
+Those examples define the intended ergonomic workflows:
+- path-model chaining and clone-and-reuse,
+- tuple shorthand via `set_inits`,
+- `Param`-based parameter declarations,
+- single-dataset fitting with builder chaining,
+- multi-dataset global fitting with shared parameters.
+
+## Migration Guidance (Legacy -> Builder)
+
+Legacy flow remains valid:
+- Build `FeffFitDataset` and `FitVariables` manually.
+- Call `feffit(&dataset, &vars)`.
+
+Builder flow is additive:
+- Build with `FeffFit::new().data(...).add_path(...).set_inits(...).fit()`.
+- Use `add_dataset(...)` for global multi-dataset fitting.
+- Use `params([Param::new(...), Param::fixed(...), Param::expr(...)])` for concise variable setup.
+
+Compatibility policy:
+- Existing entrypoints and single-dataset access patterns remain supported.
+- Builder/multi-dataset APIs are additive.
+- Deprecation is documentation-first; no mandatory migration is introduced in this change.
+
 ## FEFF Flavor Compatibility
 
 - `FeffFlavor::Feff85L`: supported in this MVP.

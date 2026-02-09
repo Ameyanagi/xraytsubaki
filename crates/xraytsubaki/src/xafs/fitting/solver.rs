@@ -4,37 +4,38 @@ use nalgebra::{DMatrix, DVector, Dyn, Owned};
 use super::errors::FittingError;
 use super::path_model::ff2chi;
 use super::transform::{
-    apply_r_transform, residual_in_r_space, validate_transform, TransformOutput,
+    apply_r_transform, compute_n_idp, residual_in_r_space, validate_transform, TransformOutput,
 };
-use super::types::{FeffFitDataset, FeffFitResult, FitVariables, PathContribution};
+use super::types::{DatasetResult, FeffFitDataset, FeffFitResult, FitVariables, PathContribution};
 
 pub fn feffit(
     dataset: &FeffFitDataset,
     variables: &FitVariables,
 ) -> Result<FeffFitResult, FittingError> {
-    validate_dataset(dataset)?;
+    feffit_multi(std::slice::from_ref(dataset), variables)
+}
+
+pub fn feffit_multi(
+    datasets: &[FeffFitDataset],
+    variables: &FitVariables,
+) -> Result<FeffFitResult, FittingError> {
+    if datasets.is_empty() {
+        return Err(FittingError::InvalidDataset {
+            reason: "fit requires at least one dataset".to_string(),
+        });
+    }
+    for dataset in datasets {
+        validate_dataset(dataset)?;
+    }
+
     let varying_names = variables.varying_names();
     if varying_names.is_empty() {
         return Err(FittingError::NoVaryingVariables);
     }
 
-    let data_transform = apply_r_transform(&dataset.k, &dataset.chi, &dataset.transform)?;
-
-    let problem = FeffFitProblem::new(
-        dataset.clone(),
-        variables.clone(),
-        varying_names,
-        data_transform,
-    )?;
-
+    let problem = FeffFitMultiProblem::new(datasets.to_vec(), variables.clone(), varying_names)?;
     let (solved, _report) = LevenbergMarquardt::new().minimize(problem);
-
-    let model_eval = solved.evaluate_model(&solved.variables)?;
-    let residual = residual_in_r_space(
-        &solved.data_transform,
-        &model_eval.model_transform,
-        solved.dataset.epsilon_k,
-    )?;
+    let residual = solved.current_residual()?;
 
     let mut solved_variables = solved.variables.clone();
     let chi_square = residual.dot(&residual);
@@ -52,59 +53,100 @@ pub fn feffit(
         }
     }
 
-    let path_contributions = model_eval
-        .path_chi
-        .iter()
-        .filter_map(|(label, chi)| {
-            let transformed =
-                apply_r_transform(&solved.dataset.k, chi, &solved.dataset.transform).ok()?;
-            Some(PathContribution {
-                label: label.clone(),
-                chi: chi.clone(),
-                chir_re: transformed.chir_re,
-                chir_im: transformed.chir_im,
-                chir_mag: transformed.chir_mag,
-            })
-        })
-        .collect::<Vec<_>>();
+    let model_evaluations = solved.evaluate_models(&solved.variables)?;
+    let mut datasets_out = Vec::with_capacity(solved.datasets.len());
 
-    let data_norm = solved
-        .dataset
-        .chi
+    let mut global_data_norm = 0.0;
+    let mut global_model_diff_norm = 0.0;
+    let mut global_n_idp = 0.0;
+
+    for ((dataset, data_transform), model_eval) in solved
+        .datasets
         .iter()
-        .map(|value| value.abs())
-        .sum::<f64>();
-    let model_diff_norm = solved
-        .dataset
-        .chi
-        .iter()
-        .zip(model_eval.model_chi.iter())
-        .map(|(d, m)| (d - m).abs())
-        .sum::<f64>();
-    let r_factor = if data_norm.abs() < f64::EPSILON {
+        .zip(solved.data_transforms.iter())
+        .zip(model_evaluations.into_iter())
+    {
+        let ds_residual = residual_in_r_space(
+            data_transform,
+            &model_eval.model_transform,
+            dataset.epsilon_k,
+        )?;
+        let ds_chi_square = ds_residual.dot(&ds_residual);
+        let ds_n_data = ds_residual.len();
+        let ds_dof = ds_n_data.saturating_sub(n_vary).max(1);
+        let ds_reduced_chi_square = ds_chi_square / ds_dof as f64;
+
+        let data_norm = dataset.chi.iter().map(|value| value.abs()).sum::<f64>();
+        let model_diff_norm = dataset
+            .chi
+            .iter()
+            .zip(model_eval.model_chi.iter())
+            .map(|(d, m)| (d - m).abs())
+            .sum::<f64>();
+        global_data_norm += data_norm;
+        global_model_diff_norm += model_diff_norm;
+        let ds_r_factor = if data_norm.abs() < f64::EPSILON {
+            0.0
+        } else {
+            model_diff_norm / data_norm
+        };
+
+        let ds_n_idp = compute_n_idp(&dataset.transform);
+        global_n_idp += ds_n_idp;
+
+        let path_contributions = model_eval
+            .path_chi
+            .iter()
+            .filter_map(|(label, chi)| {
+                let transformed = apply_r_transform(&dataset.k, chi, &dataset.transform).ok()?;
+                Some(PathContribution {
+                    label: label.clone(),
+                    chi: chi.clone(),
+                    chir_re: transformed.chir_re,
+                    chir_im: transformed.chir_im,
+                    chir_mag: transformed.chir_mag,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        datasets_out.push(DatasetResult {
+            n_data: ds_n_data,
+            chi_square: ds_chi_square,
+            reduced_chi_square: ds_reduced_chi_square,
+            r_factor: ds_r_factor,
+            n_idp: ds_n_idp,
+            k: dataset.k.clone(),
+            data_chi: dataset.chi.clone(),
+            model_chi: model_eval.model_chi,
+            r: model_eval.model_transform.r.clone(),
+            data_chir_re: data_transform.chir_re.clone(),
+            data_chir_im: data_transform.chir_im.clone(),
+            model_chir_re: model_eval.model_transform.chir_re,
+            model_chir_im: model_eval.model_transform.chir_im,
+            model_chir_mag: model_eval.model_transform.chir_mag,
+            path_contributions,
+        });
+    }
+
+    let r_factor = if global_data_norm.abs() < f64::EPSILON {
         0.0
     } else {
-        model_diff_norm / data_norm
+        global_model_diff_norm / global_data_norm
     };
 
-    Ok(FeffFitResult {
+    let mut out = FeffFitResult {
         variables: solved_variables,
         n_vary,
         n_data,
         chi_square,
         reduced_chi_square,
         r_factor,
-        k: solved.dataset.k.clone(),
-        data_chi: solved.dataset.chi.clone(),
-        model_chi: model_eval.model_chi,
-        r: model_eval.model_transform.r.clone(),
-        data_chir_re: solved.data_transform.chir_re.clone(),
-        data_chir_im: solved.data_transform.chir_im.clone(),
-        model_chir_re: model_eval.model_transform.chir_re,
-        model_chir_im: model_eval.model_transform.chir_im,
-        model_chir_mag: model_eval.model_transform.chir_mag,
-        path_contributions,
-    })
+        datasets: datasets_out,
+        n_idp: global_n_idp,
+        ..FeffFitResult::default()
+    };
+    out.sync_primary_dataset_fields();
+    Ok(out)
 }
 
 fn validate_dataset(dataset: &FeffFitDataset) -> Result<(), FittingError> {
@@ -148,39 +190,47 @@ struct ModelEvaluation {
 }
 
 #[derive(Clone)]
-struct FeffFitProblem {
-    dataset: FeffFitDataset,
+struct FeffFitMultiProblem {
+    datasets: Vec<FeffFitDataset>,
+    data_transforms: Vec<TransformOutput>,
     variables: FitVariables,
     variable_names: Vec<String>,
-    data_transform: TransformOutput,
     residual_len: usize,
 }
 
-impl FeffFitProblem {
+impl FeffFitMultiProblem {
     fn new(
-        dataset: FeffFitDataset,
+        datasets: Vec<FeffFitDataset>,
         variables: FitVariables,
         variable_names: Vec<String>,
-        data_transform: TransformOutput,
     ) -> Result<Self, FittingError> {
+        let mut data_transforms = Vec::with_capacity(datasets.len());
+        for dataset in &datasets {
+            data_transforms.push(apply_r_transform(
+                &dataset.k,
+                &dataset.chi,
+                &dataset.transform,
+            )?);
+        }
+
         let mut problem = Self {
-            dataset,
+            datasets,
+            data_transforms,
             variables,
             variable_names,
-            data_transform,
             residual_len: 0,
         };
-
         let initial_residual = problem.current_residual()?;
         problem.residual_len = initial_residual.len();
         Ok(problem)
     }
 
-    fn evaluate_model(&self, vars: &FitVariables) -> Result<ModelEvaluation, FittingError> {
-        let model = ff2chi(&self.dataset.paths, vars, &self.dataset.k)?;
-        let model_transform =
-            apply_r_transform(&self.dataset.k, &model.chi, &self.dataset.transform)?;
-
+    fn evaluate_dataset_model(
+        dataset: &FeffFitDataset,
+        vars: &FitVariables,
+    ) -> Result<ModelEvaluation, FittingError> {
+        let model = ff2chi(&dataset.paths, vars, &dataset.k)?;
+        let model_transform = apply_r_transform(&dataset.k, &model.chi, &dataset.transform)?;
         Ok(ModelEvaluation {
             model_chi: model.chi,
             path_chi: model.path_chi,
@@ -188,13 +238,32 @@ impl FeffFitProblem {
         })
     }
 
+    fn evaluate_models(&self, vars: &FitVariables) -> Result<Vec<ModelEvaluation>, FittingError> {
+        self.datasets
+            .iter()
+            .map(|dataset| Self::evaluate_dataset_model(dataset, vars))
+            .collect()
+    }
+
     fn current_residual(&self) -> Result<DVector<f64>, FittingError> {
-        let model = self.evaluate_model(&self.variables)?;
-        residual_in_r_space(
-            &self.data_transform,
-            &model.model_transform,
-            self.dataset.epsilon_k,
-        )
+        let models = self.evaluate_models(&self.variables)?;
+        let mut residual = Vec::new();
+        for ((dataset, data_transform), model) in self
+            .datasets
+            .iter()
+            .zip(self.data_transforms.iter())
+            .zip(models.into_iter())
+        {
+            let ds_residual =
+                residual_in_r_space(data_transform, &model.model_transform, dataset.epsilon_k)?;
+            residual.extend(ds_residual.iter().copied());
+        }
+        if residual.is_empty() {
+            return Err(FittingError::InvalidDataset {
+                reason: "multi-dataset residual is empty".to_string(),
+            });
+        }
+        Ok(DVector::from_vec(residual))
     }
 
     fn residual_for_parameter_vector(&self, params: &DVector<f64>) -> DVector<f64> {
@@ -206,12 +275,19 @@ impl FeffFitProblem {
             return DVector::from_element(self.residual_len.max(2), 1.0e12);
         }
 
-        match self.evaluate_model(&vars).and_then(|model| {
-            residual_in_r_space(
-                &self.data_transform,
-                &model.model_transform,
-                self.dataset.epsilon_k,
-            )
+        match self.evaluate_models(&vars).and_then(|models| {
+            let mut residual = Vec::new();
+            for ((dataset, data_transform), model) in self
+                .datasets
+                .iter()
+                .zip(self.data_transforms.iter())
+                .zip(models.into_iter())
+            {
+                let ds_residual =
+                    residual_in_r_space(data_transform, &model.model_transform, dataset.epsilon_k)?;
+                residual.extend(ds_residual.iter().copied());
+            }
+            Ok::<_, FittingError>(DVector::from_vec(residual))
         }) {
             Ok(residual) => residual,
             Err(_) => DVector::from_element(self.residual_len.max(2), 1.0e12),
@@ -229,7 +305,7 @@ impl FeffFitProblem {
     }
 }
 
-impl LeastSquaresProblem<f64, Dyn, Dyn> for FeffFitProblem {
+impl LeastSquaresProblem<f64, Dyn, Dyn> for FeffFitMultiProblem {
     type ParameterStorage = Owned<f64, Dyn>;
     type ResidualStorage = Owned<f64, Dyn>;
     type JacobianStorage = Owned<f64, Dyn, Dyn>;
@@ -327,6 +403,57 @@ mod tests {
         assert!((sig2 - 0.0032).abs() < 0.003);
         assert!((dr - 0.012).abs() < 0.02);
         assert!(result.chi_square.is_finite());
+        assert_eq!(result.datasets.len(), 1);
         assert!(!result.path_contributions.is_empty());
+    }
+
+    #[test]
+    fn test_multi_dataset_fit_runs() {
+        let pathfile = format!("{TOP_DIR}/tests/testfiles/feffcu01.dat");
+        let mut path1 = feffpath(pathfile.clone(), FeffFlavor::Feff85L).unwrap();
+        path1.s02 = PathParamSpec::Expression("amp".to_string());
+        path1.e0 = PathParamSpec::Expression("de0".to_string());
+        path1.sigma2 = PathParamSpec::Expression("sig2".to_string());
+        path1.deltar = PathParamSpec::Expression("dr".to_string());
+        let path2 = path1.clone().set_sigma2("sig2_2");
+
+        let k1 = DVector::from_iterator(220, (0..220).map(|i| 0.05 * (i as f64 + 1.0)));
+        let k2 = DVector::from_iterator(250, (0..250).map(|i| 0.05 * (i as f64 + 1.0)));
+
+        let mut truth = FitVariables::new();
+        truth.insert("amp", FitVariable::new(0.9, false));
+        truth.insert("de0", FitVariable::new(1.2, false));
+        truth.insert("sig2", FitVariable::new(0.003, false));
+        truth.insert("sig2_2", FitVariable::new(0.004, false));
+        truth.insert("dr", FitVariable::new(0.01, false));
+
+        let chi1 = ff2chi(&[path1.clone()], &truth, &k1).unwrap().chi;
+        let chi2 = ff2chi(&[path2.clone()], &truth, &k2).unwrap().chi;
+
+        let ds1 = FeffFitDataset {
+            k: k1,
+            chi: chi1,
+            epsilon_k: Some(1.0),
+            transform: Default::default(),
+            paths: vec![path1],
+        };
+        let ds2 = FeffFitDataset {
+            k: k2,
+            chi: chi2,
+            epsilon_k: Some(1.0),
+            transform: Default::default(),
+            paths: vec![path2],
+        };
+
+        let mut initial = FitVariables::new();
+        initial.insert("amp", FitVariable::new(0.95, true));
+        initial.insert("de0", FitVariable::new(0.0, true));
+        initial.insert("sig2", FitVariable::new(0.0020, true));
+        initial.insert("sig2_2", FitVariable::new(0.0020, true));
+        initial.insert("dr", FitVariable::new(0.0, true));
+
+        let result = feffit_multi(&[ds1, ds2], &initial).unwrap();
+        assert!(result.chi_square.is_finite());
+        assert_eq!(result.datasets.len(), 2);
     }
 }

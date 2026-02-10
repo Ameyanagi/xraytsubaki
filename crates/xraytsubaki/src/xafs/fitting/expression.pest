@@ -1,0 +1,22 @@
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+
+expression = { sum }
+sum = { product ~ (add_op ~ product)* }
+add_op = { "+" | "-" }
+
+product = { power ~ (mul_op ~ power)* }
+mul_op = { "*" | "/" }
+
+power = { unary ~ (pow_op ~ power)? }
+pow_op = { "^" }
+
+unary = { sign* ~ primary }
+sign = { "+" | "-" }
+
+primary = { function_call | constant | identifier | number | "(" ~ expression ~ ")" }
+function_call = { identifier ~ "(" ~ expr_list? ~ ")" }
+expr_list = { expression ~ ("," ~ expression)* }
+
+constant = { "pi" | "e" }
+identifier = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
+number = @{ (ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT*)? | "." ~ ASCII_DIGIT+) ~ (("e" | "E") ~ ("+" | "-")? ~ ASCII_DIGIT+)? }

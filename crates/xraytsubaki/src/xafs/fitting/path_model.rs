@@ -100,6 +100,11 @@ pub(crate) fn calc_path_chi(
             reason: "k grid must contain at least 3 points".to_string(),
         });
     }
+    if let Some(index) = k.iter().position(|kv| !kv.is_finite()) {
+        return Err(FittingError::InvalidDataset {
+            reason: format!("k grid contains non-finite value at index {index}"),
+        });
+    }
 
     let reff = path.feff.reff;
     let q = k.map(|kv| {
@@ -255,6 +260,19 @@ mod tests {
 
         assert_eq!(chi.len(), k.len());
         assert!(chi.iter().all(|value| value.is_finite()));
+    }
+
+    #[test]
+    fn test_path2chi_rejects_non_finite_k_grid() {
+        let pathfile = format!("{TOP_DIR}/tests/testfiles/feffcu01.dat");
+        let path = feffpath(pathfile, FeffFlavor::Feff85L).unwrap();
+        let vars = FitVariables::new();
+
+        let mut k = DVector::from_iterator(240, (0..240).map(|i| 0.05 * (i as f64 + 1.0)));
+        k[10] = f64::NAN;
+
+        let err = path2chi(&path, &vars, &k).unwrap_err();
+        assert!(matches!(err, FittingError::InvalidDataset { .. }));
     }
 
     #[test]

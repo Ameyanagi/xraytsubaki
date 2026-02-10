@@ -28,6 +28,36 @@ impl Default for FeffExecutionMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FeffBatchParallelMode {
+    Serial,
+    Rayon,
+}
+
+impl Default for FeffBatchParallelMode {
+    fn default() -> Self {
+        Self::Serial
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FeffBatchOptions {
+    pub parallel_mode: FeffBatchParallelMode,
+    pub chunk_size: usize,
+    pub max_threads: Option<usize>,
+}
+
+impl Default for FeffBatchOptions {
+    fn default() -> Self {
+        Self {
+            parallel_mode: FeffBatchParallelMode::Serial,
+            chunk_size: 256,
+            max_threads: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct FeffRunRequest {

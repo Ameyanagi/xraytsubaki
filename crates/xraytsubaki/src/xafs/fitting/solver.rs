@@ -1,12 +1,16 @@
 use levenberg_marquardt::{LeastSquaresProblem, LevenbergMarquardt};
 use nalgebra::{DMatrix, DVector, Dyn, Owned};
+use rayon::prelude::*;
 
 use super::errors::FittingError;
 use super::path_model::ff2chi;
 use super::transform::{
     apply_r_transform, compute_n_idp, residual_in_r_space, validate_transform, TransformOutput,
 };
-use super::types::{DatasetResult, FeffFitDataset, FeffFitResult, FitVariables, PathContribution};
+use super::types::{
+    DatasetResult, FeffBatchOptions, FeffBatchParallelMode, FeffFitDataset, FeffFitResult,
+    FitVariables, PathContribution,
+};
 
 pub fn feffit(
     dataset: &FeffFitDataset,
@@ -146,6 +150,58 @@ pub fn feffit_multi(
         ..FeffFitResult::default()
     };
     out.sync_primary_dataset_fields();
+    Ok(out)
+}
+
+pub fn feffit_batch(
+    datasets: &[FeffFitDataset],
+    variables: &FitVariables,
+) -> Result<Vec<FeffFitResult>, FittingError> {
+    feffit_batch_with_options(datasets, variables, &FeffBatchOptions::default())
+}
+
+pub fn feffit_batch_with_options(
+    datasets: &[FeffFitDataset],
+    variables: &FitVariables,
+    options: &FeffBatchOptions,
+) -> Result<Vec<FeffFitResult>, FittingError> {
+    if datasets.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let chunk_size = options.chunk_size.max(1);
+    let run_parallel = || {
+        (0..datasets.len())
+            .into_par_iter()
+            .with_max_len(chunk_size)
+            .map(|idx| feffit(&datasets[idx], variables))
+            .collect::<Vec<_>>()
+    };
+
+    let raw_results = match options.parallel_mode {
+        FeffBatchParallelMode::Serial => datasets
+            .iter()
+            .map(|dataset| feffit(dataset, variables))
+            .collect::<Vec<_>>(),
+        FeffBatchParallelMode::Rayon => {
+            if let Some(max_threads) = options.max_threads {
+                let pool = rayon::ThreadPoolBuilder::new()
+                    .num_threads(max_threads.max(1))
+                    .build()
+                    .map_err(|err| FittingError::SolverFailed {
+                        reason: format!("failed to build rayon thread pool: {err}"),
+                    })?;
+                pool.install(run_parallel)
+            } else {
+                run_parallel()
+            }
+        }
+    };
+
+    let mut out = Vec::with_capacity(raw_results.len());
+    for item in raw_results {
+        out.push(item?);
+    }
     Ok(out)
 }
 
@@ -352,7 +408,9 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for FeffFitMultiProblem {
 mod tests {
     use super::*;
     use crate::xafs::fitting::path_model::feffpath;
-    use crate::xafs::fitting::types::{FeffFlavor, FitVariable, PathParamSpec};
+    use crate::xafs::fitting::types::{
+        FeffBatchOptions, FeffBatchParallelMode, FeffFlavor, FitVariable, PathParamSpec,
+    };
     use crate::xafs::tests::TOP_DIR;
 
     #[test]
@@ -455,5 +513,62 @@ mod tests {
         let result = feffit_multi(&[ds1, ds2], &initial).unwrap();
         assert!(result.chi_square.is_finite());
         assert_eq!(result.datasets.len(), 2);
+    }
+
+    #[test]
+    fn test_batch_parallel_preserves_order() {
+        let pathfile = format!("{TOP_DIR}/tests/testfiles/feffcu01.dat");
+        let mut path = feffpath(pathfile, FeffFlavor::Feff85L).unwrap();
+        path.s02 = PathParamSpec::Expression("amp".to_string());
+
+        let k = DVector::from_iterator(180, (0..180).map(|i| 0.05 * (i as f64 + 1.0)));
+
+        let mut initial = FitVariables::new();
+        initial.insert("amp", FitVariable::new(0.95, true));
+
+        let datasets = [0.70, 0.80, 0.90, 1.00]
+            .iter()
+            .map(|amp| {
+                let mut truth = FitVariables::new();
+                truth.insert("amp", FitVariable::new(*amp, false));
+                let synthetic = ff2chi(&[path.clone()], &truth, &k).unwrap();
+
+                FeffFitDataset::new()
+                    .data(&k, &synthetic.chi)
+                    .epsilon_k(1.0)
+                    .add_path(path.clone())
+            })
+            .collect::<Vec<_>>();
+
+        let serial = feffit_batch_with_options(
+            &datasets,
+            &initial,
+            &FeffBatchOptions {
+                parallel_mode: FeffBatchParallelMode::Serial,
+                chunk_size: 2,
+                max_threads: None,
+            },
+        )
+        .unwrap();
+        let parallel = feffit_batch_with_options(
+            &datasets,
+            &initial,
+            &FeffBatchOptions {
+                parallel_mode: FeffBatchParallelMode::Rayon,
+                chunk_size: 2,
+                max_threads: Some(2),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(serial.len(), datasets.len());
+        assert_eq!(parallel.len(), datasets.len());
+
+        for idx in 0..datasets.len() {
+            assert!((parallel[idx].data_chi[5] - datasets[idx].chi[5]).abs() < 1.0e-12);
+            let amp_serial = serial[idx].variables.get("amp").unwrap().value;
+            let amp_parallel = parallel[idx].variables.get("amp").unwrap().value;
+            assert!((amp_serial - amp_parallel).abs() < 1.0e-8);
+        }
     }
 }

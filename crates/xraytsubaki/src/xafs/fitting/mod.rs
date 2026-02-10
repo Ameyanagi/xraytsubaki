@@ -15,7 +15,7 @@ pub use builder::FeffFit;
 pub use errors::FittingError;
 pub use path_model::FF2ChiOutput;
 pub use types::{
-    DatasetResult, FeffBatchOptions, FeffBatchParallelMode, FeffDat, FeffExecutionMode,
+    DatasetResult, FeffBatchExecutionStrategy, FeffBatchOptions, FeffDat, FeffExecutionMode,
     FeffFitDataset, FeffFitResult, FeffFitTransform, FeffFlavor, FeffModuleCommand, FeffPathModel,
     FeffResolvedCommands, FeffRunRequest, FeffRunResult, FitSpace, FitVariable, FitVariables,
     FitWarning, Param, PathContribution, PathParamSpec,
@@ -47,27 +47,16 @@ pub fn ff2chi(
     path_model::ff2chi(paths, vars, k).map_err(XAFSError::from)
 }
 
-pub fn feffit(dataset: &FeffFitDataset, vars: &FitVariables) -> Result<FeffFitResult> {
-    solver::feffit(dataset, vars).map_err(XAFSError::from)
+pub fn feffit_joint(datasets: &[FeffFitDataset], vars: &FitVariables) -> Result<FeffFitResult> {
+    solver::feffit_joint(datasets, vars).map_err(XAFSError::from)
 }
 
-pub fn feffit_multi(datasets: &[FeffFitDataset], vars: &FitVariables) -> Result<FeffFitResult> {
-    solver::feffit_multi(datasets, vars).map_err(XAFSError::from)
-}
-
-pub fn feffit_batch(
-    datasets: &[FeffFitDataset],
-    vars: &FitVariables,
-) -> Result<Vec<FeffFitResult>> {
-    solver::feffit_batch(datasets, vars).map_err(XAFSError::from)
-}
-
-pub fn feffit_batch_with_options(
+pub fn feffit_independent(
     datasets: &[FeffFitDataset],
     vars: &FitVariables,
     options: &FeffBatchOptions,
-) -> Result<Vec<FeffFitResult>> {
-    solver::feffit_batch_with_options(datasets, vars, options).map_err(XAFSError::from)
+) -> Vec<std::result::Result<FeffFitResult, FittingError>> {
+    solver::feffit_independent(datasets, vars, options)
 }
 
 pub fn resolve_feff_commands(request: &FeffRunRequest) -> Result<FeffResolvedCommands> {

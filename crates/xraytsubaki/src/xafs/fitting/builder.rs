@@ -349,7 +349,7 @@ impl FeffFit {
         let mut warnings = Vec::new();
         self.auto_discover_variables(&datasets, &mut vars, &mut warnings)?;
 
-        let mut result = solver::feffit_multi(&datasets, &vars)?;
+        let mut result = solver::feffit_joint(&datasets, &vars)?;
         result.warnings.extend(warnings);
         Ok(result)
     }

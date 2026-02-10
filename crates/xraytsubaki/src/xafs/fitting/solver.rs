@@ -8,18 +8,18 @@ use super::transform::{
     apply_r_transform, compute_n_idp, residual_in_r_space, validate_transform, TransformOutput,
 };
 use super::types::{
-    DatasetResult, FeffBatchOptions, FeffBatchParallelMode, FeffFitDataset, FeffFitResult,
+    DatasetResult, FeffBatchExecutionStrategy, FeffBatchOptions, FeffFitDataset, FeffFitResult,
     FitVariables, PathContribution,
 };
 
-pub fn feffit(
+fn feffit(
     dataset: &FeffFitDataset,
     variables: &FitVariables,
 ) -> Result<FeffFitResult, FittingError> {
-    feffit_multi(std::slice::from_ref(dataset), variables)
+    feffit_joint(std::slice::from_ref(dataset), variables)
 }
 
-pub fn feffit_multi(
+pub fn feffit_joint(
     datasets: &[FeffFitDataset],
     variables: &FitVariables,
 ) -> Result<FeffFitResult, FittingError> {
@@ -153,23 +153,16 @@ pub fn feffit_multi(
     Ok(out)
 }
 
-pub fn feffit_batch(
-    datasets: &[FeffFitDataset],
-    variables: &FitVariables,
-) -> Result<Vec<FeffFitResult>, FittingError> {
-    feffit_batch_with_options(datasets, variables, &FeffBatchOptions::default())
-}
-
-pub fn feffit_batch_with_options(
+pub fn feffit_independent(
     datasets: &[FeffFitDataset],
     variables: &FitVariables,
     options: &FeffBatchOptions,
-) -> Result<Vec<FeffFitResult>, FittingError> {
+) -> Vec<Result<FeffFitResult, FittingError>> {
     if datasets.is_empty() {
-        return Ok(Vec::new());
+        return Vec::new();
     }
 
-    let chunk_size = options.chunk_size.max(1);
+    let chunk_size = options.chunk_size.get();
     let run_parallel = || {
         (0..datasets.len())
             .into_par_iter()
@@ -178,31 +171,26 @@ pub fn feffit_batch_with_options(
             .collect::<Vec<_>>()
     };
 
-    let raw_results = match options.parallel_mode {
-        FeffBatchParallelMode::Serial => datasets
+    match options.strategy {
+        FeffBatchExecutionStrategy::Sequential => datasets
             .iter()
             .map(|dataset| feffit(dataset, variables))
             .collect::<Vec<_>>(),
-        FeffBatchParallelMode::Rayon => {
-            if let Some(max_threads) = options.max_threads {
-                let pool = rayon::ThreadPoolBuilder::new()
-                    .num_threads(max_threads.max(1))
-                    .build()
-                    .map_err(|err| FittingError::SolverFailed {
-                        reason: format!("failed to build rayon thread pool: {err}"),
-                    })?;
-                pool.install(run_parallel)
-            } else {
-                run_parallel()
+        FeffBatchExecutionStrategy::GlobalPool => run_parallel(),
+        FeffBatchExecutionStrategy::DedicatedPool { threads } => {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(threads.get())
+                .build()
+                .map_err(|err| FittingError::SolverFailed {
+                    reason: format!("failed to build rayon thread pool: {err}"),
+                });
+
+            match pool {
+                Ok(pool) => pool.install(run_parallel),
+                Err(err) => vec![Err(err); datasets.len()],
             }
         }
-    };
-
-    let mut out = Vec::with_capacity(raw_results.len());
-    for item in raw_results {
-        out.push(item?);
     }
-    Ok(out)
 }
 
 fn validate_dataset(dataset: &FeffFitDataset) -> Result<(), FittingError> {
@@ -407,9 +395,11 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for FeffFitMultiProblem {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::num::NonZeroUsize;
+
     use crate::xafs::fitting::path_model::feffpath;
     use crate::xafs::fitting::types::{
-        FeffBatchOptions, FeffBatchParallelMode, FeffFlavor, FitVariable, PathParamSpec,
+        FeffBatchExecutionStrategy, FeffBatchOptions, FeffFlavor, FitVariable, PathParamSpec,
     };
     use crate::xafs::tests::TOP_DIR;
 
@@ -466,7 +456,7 @@ mod tests {
     }
 
     #[test]
-    fn test_multi_dataset_fit_runs() {
+    fn test_joint_dataset_fit_runs() {
         let pathfile = format!("{TOP_DIR}/tests/testfiles/feffcu01.dat");
         let mut path1 = feffpath(pathfile.clone(), FeffFlavor::Feff85L).unwrap();
         path1.s02 = PathParamSpec::Expression("amp".to_string());
@@ -510,7 +500,7 @@ mod tests {
         initial.insert("sig2_2", FitVariable::new(0.0020, true));
         initial.insert("dr", FitVariable::new(0.0, true));
 
-        let result = feffit_multi(&[ds1, ds2], &initial).unwrap();
+        let result = feffit_joint(&[ds1, ds2], &initial).unwrap();
         assert!(result.chi_square.is_finite());
         assert_eq!(result.datasets.len(), 2);
     }
@@ -540,35 +530,61 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        let serial = feffit_batch_with_options(
+        let serial = feffit_independent(
             &datasets,
             &initial,
             &FeffBatchOptions {
-                parallel_mode: FeffBatchParallelMode::Serial,
-                chunk_size: 2,
-                max_threads: None,
+                strategy: FeffBatchExecutionStrategy::Sequential,
+                chunk_size: NonZeroUsize::new(2).expect("nonzero constant"),
             },
-        )
-        .unwrap();
-        let parallel = feffit_batch_with_options(
+        );
+        let parallel = feffit_independent(
             &datasets,
             &initial,
-            &FeffBatchOptions {
-                parallel_mode: FeffBatchParallelMode::Rayon,
-                chunk_size: 2,
-                max_threads: Some(2),
-            },
-        )
-        .unwrap();
+            &FeffBatchOptions::dedicated(NonZeroUsize::new(2).expect("nonzero constant"))
+                .with_chunk_size(NonZeroUsize::new(2).expect("nonzero constant")),
+        );
 
         assert_eq!(serial.len(), datasets.len());
         assert_eq!(parallel.len(), datasets.len());
 
         for idx in 0..datasets.len() {
-            assert!((parallel[idx].data_chi[5] - datasets[idx].chi[5]).abs() < 1.0e-12);
-            let amp_serial = serial[idx].variables.get("amp").unwrap().value;
-            let amp_parallel = parallel[idx].variables.get("amp").unwrap().value;
+            let serial_result = serial[idx].as_ref().unwrap();
+            let parallel_result = parallel[idx].as_ref().unwrap();
+            assert!((parallel_result.data_chi[5] - datasets[idx].chi[5]).abs() < 1.0e-12);
+            let amp_serial = serial_result.variables.get("amp").unwrap().value;
+            let amp_parallel = parallel_result.variables.get("amp").unwrap().value;
             assert!((amp_serial - amp_parallel).abs() < 1.0e-8);
         }
+    }
+
+    #[test]
+    fn test_independent_batch_collects_per_item_failures() {
+        let pathfile = format!("{TOP_DIR}/tests/testfiles/feffcu01.dat");
+        let mut path = feffpath(pathfile, FeffFlavor::Feff85L).unwrap();
+        path.s02 = PathParamSpec::Expression("amp".to_string());
+
+        let k = DVector::from_iterator(140, (0..140).map(|i| 0.05 * (i as f64 + 1.0)));
+        let mut truth = FitVariables::new();
+        truth.insert("amp", FitVariable::new(0.9, false));
+        let synthetic = ff2chi(&[path.clone()], &truth, &k).unwrap();
+
+        let valid = FeffFitDataset::new()
+            .data(&k, &synthetic.chi)
+            .epsilon_k(1.0)
+            .add_path(path);
+        let invalid = FeffFitDataset::new()
+            .data(&k, &DVector::zeros(k.len() - 1))
+            .epsilon_k(1.0);
+        let datasets = vec![valid.clone(), invalid, valid];
+
+        let mut initial = FitVariables::new();
+        initial.insert("amp", FitVariable::new(0.95, true));
+
+        let out = feffit_independent(&datasets, &initial, &FeffBatchOptions::parallel());
+        assert_eq!(out.len(), datasets.len());
+        assert!(out[0].is_ok());
+        assert!(out[1].is_err());
+        assert!(out[2].is_ok());
     }
 }

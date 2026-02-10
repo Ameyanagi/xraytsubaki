@@ -3,9 +3,10 @@ mod perf;
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 use nalgebra::DVector;
 use perf::FlamegraphProfiler;
+use std::num::NonZeroUsize;
 use xraytsubaki::xafs::fitting::{
-    feffit_batch_with_options, feffpath, ff2chi, FeffBatchOptions, FeffBatchParallelMode,
-    FeffFitDataset, FeffFlavor, FitVariable, FitVariables, PathParamSpec,
+    feffit_independent, feffpath, ff2chi, FeffBatchOptions, FeffFitDataset, FeffFlavor,
+    FitVariable, FitVariables, PathParamSpec,
 };
 
 pub const TOP_DIR: &str = env!("CARGO_MANIFEST_DIR");
@@ -52,27 +53,23 @@ fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("feff_fitting_batch");
     group.throughput(Throughput::Elements(batch.len() as u64));
 
-    let serial = FeffBatchOptions {
-        parallel_mode: FeffBatchParallelMode::Serial,
-        chunk_size: 256,
-        max_threads: None,
-    };
+    let serial = FeffBatchOptions::sequential()
+        .with_chunk_size(NonZeroUsize::new(256).expect("nonzero constant"));
     group.bench_function("feff_batch_independent_serial_10k", |b| {
         b.iter(|| {
-            let out = feffit_batch_with_options(&batch, &vars, &serial).unwrap();
-            black_box(out.len())
+            let out = feffit_independent(&batch, &vars, &serial);
+            let ok_count = out.iter().filter(|item| item.is_ok()).count();
+            black_box(ok_count)
         })
     });
 
-    let rayon = FeffBatchOptions {
-        parallel_mode: FeffBatchParallelMode::Rayon,
-        chunk_size: 256,
-        max_threads: None,
-    };
+    let rayon = FeffBatchOptions::parallel()
+        .with_chunk_size(NonZeroUsize::new(256).expect("nonzero constant"));
     group.bench_function("feff_batch_independent_rayon_10k", |b| {
         b.iter(|| {
-            let out = feffit_batch_with_options(&batch, &vars, &rayon).unwrap();
-            black_box(out.len())
+            let out = feffit_independent(&batch, &vars, &rayon);
+            let ok_count = out.iter().filter(|item| item.is_ok()).count();
+            black_box(ok_count)
         })
     });
 

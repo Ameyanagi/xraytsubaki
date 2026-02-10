@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 
 use nalgebra::DVector;
@@ -29,32 +30,65 @@ impl Default for FeffExecutionMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum FeffBatchParallelMode {
-    Serial,
-    Rayon,
+pub enum FeffBatchExecutionStrategy {
+    Sequential,
+    GlobalPool,
+    DedicatedPool { threads: NonZeroUsize },
 }
 
-impl Default for FeffBatchParallelMode {
+impl Default for FeffBatchExecutionStrategy {
     fn default() -> Self {
-        Self::Serial
+        Self::GlobalPool
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct FeffBatchOptions {
-    pub parallel_mode: FeffBatchParallelMode,
-    pub chunk_size: usize,
-    pub max_threads: Option<usize>,
+    pub strategy: FeffBatchExecutionStrategy,
+    pub chunk_size: NonZeroUsize,
 }
 
 impl Default for FeffBatchOptions {
     fn default() -> Self {
         Self {
-            parallel_mode: FeffBatchParallelMode::Serial,
-            chunk_size: 256,
-            max_threads: None,
+            strategy: FeffBatchExecutionStrategy::GlobalPool,
+            chunk_size: NonZeroUsize::new(256).expect("nonzero constant"),
         }
+    }
+}
+
+impl FeffBatchOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn parallel() -> Self {
+        Self::default()
+    }
+
+    pub fn sequential() -> Self {
+        Self {
+            strategy: FeffBatchExecutionStrategy::Sequential,
+            ..Self::default()
+        }
+    }
+
+    pub fn dedicated(threads: NonZeroUsize) -> Self {
+        Self {
+            strategy: FeffBatchExecutionStrategy::DedicatedPool { threads },
+            ..Self::default()
+        }
+    }
+
+    pub fn with_strategy(mut self, strategy: FeffBatchExecutionStrategy) -> Self {
+        self.strategy = strategy;
+        self
+    }
+
+    pub fn with_chunk_size(mut self, chunk_size: NonZeroUsize) -> Self {
+        self.chunk_size = chunk_size;
+        self
     }
 }
 

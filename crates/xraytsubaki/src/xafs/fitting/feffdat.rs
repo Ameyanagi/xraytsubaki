@@ -6,6 +6,20 @@ use nalgebra::DVector;
 use super::errors::FittingError;
 use super::types::{FeffDat, FeffFlavor};
 
+fn split_at_char_boundary_prefix(line: &str, byte_limit: usize) -> (&str, &str) {
+    if byte_limit >= line.len() {
+        return (line, "");
+    }
+
+    let split_index = line
+        .char_indices()
+        .map(|(index, _)| index)
+        .take_while(|index| *index <= byte_limit)
+        .last()
+        .unwrap_or(0);
+    line.split_at(split_index)
+}
+
 pub fn parse_feff_path_file<P: AsRef<Path>>(
     path: P,
     flavor: FeffFlavor,
@@ -55,8 +69,9 @@ fn parse_feff85l_dat(path: &Path) -> Result<FeffDat, FittingError> {
         if title.is_none() {
             // FEFF files traditionally contain title/version in line 1.
             if line.len() > 64 {
-                title = Some(line[..64].trim().to_string());
-                version = line[64..].trim().to_string();
+                let (title_part, version_part) = split_at_char_boundary_prefix(line, 64);
+                title = Some(title_part.trim().to_string());
+                version = version_part.trim().to_string();
             } else {
                 title = Some(line.to_string());
             }
@@ -68,7 +83,12 @@ fn parse_feff85l_dat(path: &Path) -> Result<FeffDat, FittingError> {
             continue;
         }
 
-        if line.len() > 8 && line[2..].contains("----") {
+        let has_path_separator = line
+            .char_indices()
+            .nth(2)
+            .map(|(index, _)| line[index..].contains("----"))
+            .unwrap_or(false);
+        if line.len() > 8 && has_path_separator {
             mode = Mode::Path;
             continue;
         }
@@ -269,5 +289,28 @@ mod tests {
         let err = parse_feff_path_file(&tmp, FeffFlavor::Feff85L).unwrap_err();
         let _ = fs::remove_file(tmp);
         assert!(matches!(err, FittingError::InvalidFeffData { .. }));
+    }
+
+    #[test]
+    fn test_parse_multibyte_title_and_path_separator_without_panic() {
+        let unique = format!(
+            "xfeff-multibyte-{}-{}.dat",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let tmp = std::env::temp_dir().join(unique);
+        let title = format!("{} version", "あ".repeat(30));
+        let content = format!(
+            "{title}\nあい---- path\n2 12.0 2.5 1.0 0.0\nk real[p]@#\n0.0 1.0 1.0 1.0 1.0 1.0 1.0\n1.0 1.0 1.0 1.0 1.0 1.0 1.0\n2.0 1.0 1.0 1.0 1.0 1.0 1.0\n"
+        );
+        fs::write(&tmp, content).unwrap();
+
+        let parsed = parse_feff_path_file(&tmp, FeffFlavor::Feff85L).unwrap();
+        let _ = fs::remove_file(tmp);
+        assert_eq!(parsed.k.len(), 3);
+        assert_eq!(parsed.nleg, 2);
     }
 }

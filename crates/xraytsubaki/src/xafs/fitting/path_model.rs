@@ -188,6 +188,21 @@ fn interp_linear_clamped(
             reason: "interpolation requires at least 2 FEFF grid points".to_string(),
         });
     }
+    if let Some(index) = xin.iter().position(|value| !value.is_finite()) {
+        return Err(FittingError::InvalidFeffData {
+            reason: format!("FEFF k grid contains non-finite value at index {index}"),
+        });
+    }
+    if let Some(index) = yin.iter().position(|value| !value.is_finite()) {
+        return Err(FittingError::InvalidFeffData {
+            reason: format!("FEFF data contains non-finite value at index {index}"),
+        });
+    }
+    if let Some(index) = xout.iter().position(|value| !value.is_finite()) {
+        return Err(FittingError::InvalidDataset {
+            reason: format!("interpolation target grid contains non-finite value at index {index}"),
+        });
+    }
 
     for i in 1..xin.len() {
         if xin[i] < xin[i - 1] {
@@ -211,7 +226,7 @@ fn interp_linear_clamped(
             continue;
         }
 
-        let idx = match xs.binary_search_by(|probe| probe.partial_cmp(&x).unwrap()) {
+        let idx = match xs.binary_search_by(|probe| probe.total_cmp(&x)) {
             Ok(found) => found,
             Err(insert) => insert,
         };
@@ -358,5 +373,25 @@ mod tests {
             }
             assert_abs_diff_eq!(actual, expected, epsilon = 4.0e-3);
         }
+    }
+
+    #[test]
+    fn test_interp_linear_clamped_rejects_non_finite_target_grid() {
+        let xin = DVector::from_vec(vec![1.0, 2.0, 3.0]);
+        let yin = DVector::from_vec(vec![10.0, 20.0, 30.0]);
+        let xout = DVector::from_vec(vec![1.5, f64::NAN]);
+
+        let err = interp_linear_clamped(&xin, &yin, &xout).unwrap_err();
+        assert!(matches!(err, FittingError::InvalidDataset { .. }));
+    }
+
+    #[test]
+    fn test_interp_linear_clamped_rejects_non_finite_source_grid() {
+        let xin = DVector::from_vec(vec![1.0, f64::INFINITY, 3.0]);
+        let yin = DVector::from_vec(vec![10.0, 20.0, 30.0]);
+        let xout = DVector::from_vec(vec![1.5, 2.5]);
+
+        let err = interp_linear_clamped(&xin, &yin, &xout).unwrap_err();
+        assert!(matches!(err, FittingError::InvalidFeffData { .. }));
     }
 }

@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use levenberg_marquardt::{LeastSquaresProblem, LevenbergMarquardt};
 use nalgebra::{DMatrix, DVector, Dyn, Owned};
 use rayon::prelude::*;
@@ -9,8 +11,9 @@ use super::transform::{
 };
 use super::types::{
     DatasetResult, FeffBatchExecutionStrategy, FeffBatchOptions, FeffFitDataset, FeffFitResult,
-    FitVariables, PathContribution,
+    FitVariables, PathContribution, PathParamSpec,
 };
+use super::variables::try_extract_symbols;
 
 fn feffit(
     dataset: &FeffFitDataset,
@@ -77,7 +80,8 @@ pub fn feffit_joint(
         )?;
         let ds_chi_square = ds_residual.dot(&ds_residual);
         let ds_n_data = ds_residual.len();
-        let ds_dof = ds_n_data.saturating_sub(n_vary).max(1);
+        let ds_n_vary = dataset_vary_count(dataset, &solved.variables, &solved.variable_names)?;
+        let ds_dof = ds_n_data.saturating_sub(ds_n_vary).max(1);
         let ds_reduced_chi_square = ds_chi_square / ds_dof as f64;
 
         let data_norm = dataset.chi.iter().map(|value| value.abs()).sum::<f64>();
@@ -151,6 +155,75 @@ pub fn feffit_joint(
     };
     out.sync_primary_dataset_fields();
     Ok(out)
+}
+
+fn dataset_vary_count(
+    dataset: &FeffFitDataset,
+    variables: &FitVariables,
+    varying_names: &[String],
+) -> Result<usize, FittingError> {
+    let varying = varying_names
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    let mut referenced = BTreeSet::<String>::new();
+
+    for path in dataset.paths.iter().filter(|path| path.use_path) {
+        for spec in [
+            &path.degen,
+            &path.s02,
+            &path.e0,
+            &path.ei,
+            &path.deltar,
+            &path.sigma2,
+            &path.third,
+            &path.fourth,
+        ] {
+            if let PathParamSpec::Expression(expr) = spec {
+                for symbol in try_extract_symbols(expr)? {
+                    referenced.insert(symbol);
+                }
+            }
+        }
+    }
+
+    let mut active = BTreeSet::<String>::new();
+    let mut visiting = BTreeSet::<String>::new();
+
+    fn walk_symbol(
+        symbol: &str,
+        varying: &BTreeSet<&str>,
+        variables: &FitVariables,
+        active: &mut BTreeSet<String>,
+        visiting: &mut BTreeSet<String>,
+    ) -> Result<(), FittingError> {
+        if varying.contains(symbol) {
+            active.insert(symbol.to_string());
+            return Ok(());
+        }
+        if !visiting.insert(symbol.to_string()) {
+            return Ok(());
+        }
+
+        if let Some(expr) = variables
+            .vars
+            .get(symbol)
+            .and_then(|variable| variable.expr.as_ref())
+        {
+            for dependency in try_extract_symbols(expr)? {
+                walk_symbol(&dependency, varying, variables, active, visiting)?;
+            }
+        }
+
+        visiting.remove(symbol);
+        Ok(())
+    }
+
+    for symbol in referenced {
+        walk_symbol(&symbol, &varying, variables, &mut active, &mut visiting)?;
+    }
+
+    Ok(active.len())
 }
 
 pub fn feffit_independent(
@@ -511,6 +584,38 @@ mod tests {
         let result = feffit_joint(&[ds1, ds2], &initial).unwrap();
         assert!(result.chi_square.is_finite());
         assert_eq!(result.datasets.len(), 2);
+
+        // Per-dataset reduced chi-square should use dataset-local varying parameter counts.
+        let expected0 = result.datasets[0].chi_square
+            / result.datasets[0].n_data.saturating_sub(4).max(1) as f64;
+        let expected1 = result.datasets[1].chi_square
+            / result.datasets[1].n_data.saturating_sub(4).max(1) as f64;
+        assert!((result.datasets[0].reduced_chi_square - expected0).abs() < 1.0e-10);
+        assert!((result.datasets[1].reduced_chi_square - expected1).abs() < 1.0e-10);
+    }
+
+    #[test]
+    fn test_dataset_vary_count_tracks_expression_dependencies() {
+        let path1 = crate::xafs::fitting::types::FeffPathModel::default()
+            .set_s02("amp")
+            .set_sigma2("sig2_eff");
+        let path2 = crate::xafs::fitting::types::FeffPathModel::default().set_s02("amp2");
+
+        let ds1 = FeffFitDataset::new().add_path(path1);
+        let ds2 = FeffFitDataset::new().add_path(path2);
+
+        let mut vars = FitVariables::new();
+        vars.insert("amp", FitVariable::new(1.0, true));
+        vars.insert("amp2", FitVariable::new(1.0, true));
+        vars.insert("sig2", FitVariable::new(0.003, true));
+        vars.insert(
+            "sig2_eff",
+            FitVariable::new(0.0, false).with_expr("sig2 * 2.0"),
+        );
+        let varying = vec!["amp".to_string(), "amp2".to_string(), "sig2".to_string()];
+
+        assert_eq!(dataset_vary_count(&ds1, &vars, &varying).unwrap(), 2);
+        assert_eq!(dataset_vary_count(&ds2, &vars, &varying).unwrap(), 1);
     }
 
     #[test]

@@ -406,9 +406,9 @@ fn is_executable_file(path: &Path) -> bool {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        return fs::metadata(path)
+        fs::metadata(path)
             .map(|meta| meta.permissions().mode() & 0o111 != 0)
-            .unwrap_or(false);
+            .unwrap_or(false)
     }
 
     #[cfg(not(unix))]
@@ -425,14 +425,12 @@ struct StagedFeffInput {
 
 impl StagedFeffInput {
     fn restore(self) -> Result<(), FittingError> {
-        if self.staged_path.is_some() {
-            if self.target_path.exists() {
-                fs::remove_file(&self.target_path).map_err(|error| FittingError::IOFailed {
-                    action: "remove staged feff.inp".to_string(),
-                    path: self.target_path.display().to_string(),
-                    reason: error.to_string(),
-                })?;
-            }
+        if self.staged_path.is_some() && self.target_path.exists() {
+            fs::remove_file(&self.target_path).map_err(|error| FittingError::IOFailed {
+                action: "remove staged feff.inp".to_string(),
+                path: self.target_path.display().to_string(),
+                reason: error.to_string(),
+            })?;
         }
 
         if let Some(backup_path) = self.backup_path {

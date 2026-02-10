@@ -18,28 +18,20 @@ pub enum FitSpace {
     R,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum FeffExecutionMode {
+    #[default]
     Feff85LModules,
 }
 
-impl Default for FeffExecutionMode {
-    fn default() -> Self {
-        Self::Feff85LModules
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum FeffBatchExecutionStrategy {
     Sequential,
+    #[default]
     GlobalPool,
-    DedicatedPool { threads: NonZeroUsize },
-}
-
-impl Default for FeffBatchExecutionStrategy {
-    fn default() -> Self {
-        Self::GlobalPool
-    }
+    DedicatedPool {
+        threads: NonZeroUsize,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

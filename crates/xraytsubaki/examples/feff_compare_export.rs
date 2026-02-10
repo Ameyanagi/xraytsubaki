@@ -14,8 +14,7 @@ fn fixture_path(name: &str) -> PathBuf {
 }
 
 fn output_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../doc/plots/feff_vs_larch_data")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/plots/feff_vs_larch_data")
 }
 
 fn load_two_column(path: &Path) -> Result<(DVector<f64>, DVector<f64>), Box<dyn Error>> {
@@ -28,14 +27,8 @@ fn load_two_column(path: &Path) -> Result<(DVector<f64>, DVector<f64>), Box<dyn 
             continue;
         }
         let mut parts = line.split_whitespace();
-        let xv: f64 = parts
-            .next()
-            .ok_or("missing x value in fixture")?
-            .parse()?;
-        let yv: f64 = parts
-            .next()
-            .ok_or("missing y value in fixture")?
-            .parse()?;
+        let xv: f64 = parts.next().ok_or("missing x value in fixture")?.parse()?;
+        let yv: f64 = parts.next().ok_or("missing y value in fixture")?.parse()?;
         x.push(xv);
         y.push(yv);
     }
@@ -183,7 +176,9 @@ fn larch_truth_variables() -> FitVariables {
 
 fn export_path_builder() -> Result<(), Box<dyn Error>> {
     let base_path = feffpath(
-        fixture_path("feffcu01.dat").to_str().ok_or("invalid path")?,
+        fixture_path("feffcu01.dat")
+            .to_str()
+            .ok_or("invalid path")?,
         FeffFlavor::Feff85L,
     )?
     .set_s02("amp")
@@ -193,7 +188,12 @@ fn export_path_builder() -> Result<(), Box<dyn Error>> {
 
     let (k, larch) = load_two_column(&fixture_path("feff_path_chi_larch_ref.txt"))?;
     let model = path2chi(&path, &larch_truth_variables(), &k)?;
-    write_comparison_csv(&output_dir().join("01_path_builder.csv"), &k, &model, &larch)?;
+    write_comparison_csv(
+        &output_dir().join("01_path_builder.csv"),
+        &k,
+        &model,
+        &larch,
+    )?;
     write_rspace_comparison_csv(
         &output_dir().join("01_path_builder_rspace.csv"),
         &k,
@@ -211,7 +211,9 @@ fn export_path_builder() -> Result<(), Box<dyn Error>> {
 
 fn export_multi_path_model() -> Result<(), Box<dyn Error>> {
     let path1 = feffpath(
-        fixture_path("feffcu01.dat").to_str().ok_or("invalid path")?,
+        fixture_path("feffcu01.dat")
+            .to_str()
+            .ok_or("invalid path")?,
         FeffFlavor::Feff85L,
     )?
     .set_s02("amp")
@@ -219,7 +221,9 @@ fn export_multi_path_model() -> Result<(), Box<dyn Error>> {
     .set_sigma2("sig2")
     .set_deltar("dr");
     let path2 = feffpath(
-        fixture_path("feff0002.dat").to_str().ok_or("invalid path")?,
+        fixture_path("feff0002.dat")
+            .to_str()
+            .ok_or("invalid path")?,
         FeffFlavor::Feff85L,
     )?
     .set_s02("amp2")
@@ -230,7 +234,12 @@ fn export_multi_path_model() -> Result<(), Box<dyn Error>> {
     let (k, larch) = load_two_column(&fixture_path("feff_ff2chi_larch_ref.txt"))?;
     let out = ff2chi(&[path1, path2], &larch_truth_variables(), &k)?;
     let model = out.chi.clone();
-    write_comparison_csv(&output_dir().join("02_multi_path_model.csv"), &k, &model, &larch)?;
+    write_comparison_csv(
+        &output_dir().join("02_multi_path_model.csv"),
+        &k,
+        &model,
+        &larch,
+    )?;
     write_rspace_comparison_csv(
         &output_dir().join("02_multi_path_model_rspace.csv"),
         &k,
@@ -248,7 +257,9 @@ fn export_multi_path_model() -> Result<(), Box<dyn Error>> {
 
 fn export_single_dataset_fit() -> Result<(), Box<dyn Error>> {
     let path = feffpath(
-        fixture_path("feffcu01.dat").to_str().ok_or("invalid path")?,
+        fixture_path("feffcu01.dat")
+            .to_str()
+            .ok_or("invalid path")?,
         FeffFlavor::Feff85L,
     )?
     .set_s02("amp")
@@ -292,7 +303,9 @@ fn export_single_dataset_fit() -> Result<(), Box<dyn Error>> {
 
 fn export_clone_template() -> Result<(), Box<dyn Error>> {
     let path1 = feffpath(
-        fixture_path("feffcu01.dat").to_str().ok_or("invalid path")?,
+        fixture_path("feffcu01.dat")
+            .to_str()
+            .ok_or("invalid path")?,
         FeffFlavor::Feff85L,
     )?
     .set_s02("amp")
@@ -300,7 +313,9 @@ fn export_clone_template() -> Result<(), Box<dyn Error>> {
     .set_sigma2("sig2")
     .set_deltar("dr");
     let path2 = feffpath(
-        fixture_path("feff0002.dat").to_str().ok_or("invalid path")?,
+        fixture_path("feff0002.dat")
+            .to_str()
+            .ok_or("invalid path")?,
         FeffFlavor::Feff85L,
     )?
     .set_s02("amp2")
@@ -383,7 +398,9 @@ fn export_clone_template() -> Result<(), Box<dyn Error>> {
 
 fn export_multi_dataset() -> Result<(), Box<dyn Error>> {
     let ds1_path = feffpath(
-        fixture_path("feffcu01.dat").to_str().ok_or("invalid path")?,
+        fixture_path("feffcu01.dat")
+            .to_str()
+            .ok_or("invalid path")?,
         FeffFlavor::Feff85L,
     )?
     .set_s02("amp")
@@ -391,7 +408,9 @@ fn export_multi_dataset() -> Result<(), Box<dyn Error>> {
     .set_sigma2("sig2")
     .set_deltar("dr");
     let ds2_path1 = feffpath(
-        fixture_path("feffcu01.dat").to_str().ok_or("invalid path")?,
+        fixture_path("feffcu01.dat")
+            .to_str()
+            .ok_or("invalid path")?,
         FeffFlavor::Feff85L,
     )?
     .set_s02("amp")
@@ -399,7 +418,9 @@ fn export_multi_dataset() -> Result<(), Box<dyn Error>> {
     .set_sigma2("sig2")
     .set_deltar("dr");
     let ds2_path2 = feffpath(
-        fixture_path("feff0002.dat").to_str().ok_or("invalid path")?,
+        fixture_path("feff0002.dat")
+            .to_str()
+            .ok_or("invalid path")?,
         FeffFlavor::Feff85L,
     )?
     .set_s02("amp2")

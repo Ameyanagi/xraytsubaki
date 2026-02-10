@@ -31,7 +31,11 @@ fn assert_chi_matches_larch(
     expected: &DVector<f64>,
     epsilon: f64,
 ) {
-    assert_eq!(actual.len(), expected.len(), "model/expected length mismatch");
+    assert_eq!(
+        actual.len(),
+        expected.len(),
+        "model/expected length mismatch"
+    );
     assert_eq!(k.len(), expected.len(), "k/model length mismatch");
     for i in 0..k.len() {
         if k[i] < 2.0 {
@@ -218,16 +222,6 @@ fn example_multi_dataset_global_fit_matches_xraylarch_references() {
         .unwrap();
 
     assert_eq!(result.datasets.len(), 2);
-    assert_chi_matches_larch(
-        &k1,
-        &result.datasets[0].model_chi,
-        &chi1_expected,
-        8.0e-3,
-    );
-    assert_chi_matches_larch(
-        &k2,
-        &result.datasets[1].model_chi,
-        &chi2_expected,
-        8.0e-3,
-    );
+    assert_chi_matches_larch(&k1, &result.datasets[0].model_chi, &chi1_expected, 8.0e-3);
+    assert_chi_matches_larch(&k2, &result.datasets[1].model_chi, &chi2_expected, 8.0e-3);
 }

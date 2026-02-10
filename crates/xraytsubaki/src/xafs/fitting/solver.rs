@@ -382,10 +382,14 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for FeffFitMultiProblem {
         let mut jac = DMatrix::zeros(base.len(), x.len());
 
         for i in 0..x.len() {
+            let step = (epsilon * x[i].abs().max(1.0)).max(epsilon);
+            if !step.is_finite() {
+                return None;
+            }
             let mut xt = x.clone();
-            xt[i] += epsilon;
+            xt[i] += step;
             let fx1 = self.residual_for_parameter_vector(&xt);
-            jac.set_column(i, &((fx1 - &base) / epsilon));
+            jac.set_column(i, &((fx1 - &base) / step));
         }
 
         Some(jac)
@@ -475,8 +479,12 @@ mod tests {
         truth.insert("sig2_2", FitVariable::new(0.004, false));
         truth.insert("dr", FitVariable::new(0.01, false));
 
-        let chi1 = ff2chi(&[path1.clone()], &truth, &k1).unwrap().chi;
-        let chi2 = ff2chi(&[path2.clone()], &truth, &k2).unwrap().chi;
+        let chi1 = ff2chi(std::slice::from_ref(&path1), &truth, &k1)
+            .unwrap()
+            .chi;
+        let chi2 = ff2chi(std::slice::from_ref(&path2), &truth, &k2)
+            .unwrap()
+            .chi;
 
         let ds1 = FeffFitDataset {
             k: k1,

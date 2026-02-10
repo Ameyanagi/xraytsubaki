@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use nalgebra::DVector;
 use num_complex::Complex64;
 
@@ -22,7 +24,7 @@ pub fn validate_transform(transform: &FeffFitTransform) -> Result<(), FittingErr
             reason: "MVP only supports R-space fitting".to_string(),
         });
     }
-    if !(transform.kmax > transform.kmin) {
+    if transform.kmax.partial_cmp(&transform.kmin) != Some(Ordering::Greater) {
         return Err(FittingError::InvalidTransform {
             reason: format!(
                 "kmax ({}) must be larger than kmin ({})",
@@ -30,7 +32,7 @@ pub fn validate_transform(transform: &FeffFitTransform) -> Result<(), FittingErr
             ),
         });
     }
-    if !(transform.rmax > transform.rmin) {
+    if transform.rmax.partial_cmp(&transform.rmin) != Some(Ordering::Greater) {
         return Err(FittingError::InvalidTransform {
             reason: format!(
                 "rmax ({}) must be larger than rmin ({})",

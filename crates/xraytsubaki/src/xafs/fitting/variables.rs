@@ -93,17 +93,17 @@ impl FitVariables {
             resolve_one(name, &self.vars, &mut resolved, &mut visiting)?;
         }
 
-        Ok(BTreeMap::from_iter(resolved.into_iter()))
+        Ok(BTreeMap::from_iter(resolved))
     }
 }
 
 pub fn resolve_path_param(
     spec: &PathParamSpec,
-    default: f64,
+    _default: f64,
     globals: &BTreeMap<String, f64>,
     locals: &BTreeMap<String, f64>,
 ) -> Result<f64, FittingError> {
-    match spec {
+    let value = match spec {
         PathParamSpec::Value(value) => Ok(*value),
         PathParamSpec::Expression(expr) => eval_expression_with(expr, |symbol| {
             locals
@@ -114,8 +114,20 @@ pub fn resolve_path_param(
                     symbol: symbol.to_string(),
                 })
         }),
+    }?;
+
+    if value.is_finite() {
+        return Ok(value);
     }
-    .map(|value| if value.is_finite() { value } else { default })
+
+    Err(FittingError::InvalidDataset {
+        reason: match spec {
+            PathParamSpec::Value(_) => "path parameter literal value is non-finite".to_string(),
+            PathParamSpec::Expression(expr) => {
+                format!("path parameter expression '{expr}' resolved to non-finite value")
+            }
+        },
+    })
 }
 
 pub fn eval_expression_with<F>(expr: &str, resolver: F) -> Result<f64, FittingError>
@@ -200,5 +212,14 @@ mod tests {
     fn test_extract_symbols_excludes_reff() {
         let symbols = extract_symbols("amp * sqrt(reff) + sig2");
         assert_eq!(symbols, vec!["amp".to_string(), "sig2".to_string()]);
+    }
+
+    #[test]
+    fn test_resolve_path_param_rejects_non_finite_literal() {
+        let globals = BTreeMap::new();
+        let locals = BTreeMap::new();
+        let err = resolve_path_param(&PathParamSpec::Value(f64::NAN), 0.0, &globals, &locals)
+            .unwrap_err();
+        assert!(matches!(err, FittingError::InvalidDataset { .. }));
     }
 }

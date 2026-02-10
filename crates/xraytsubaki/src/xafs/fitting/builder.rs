@@ -437,7 +437,7 @@ mod tests {
         truth.insert("sig2", FitVariable::new(0.0030, false));
         truth.insert("dr", FitVariable::new(0.01, false));
 
-        let synthetic = ff2chi(&[path.clone()], &truth, &k).unwrap();
+        let synthetic = ff2chi(std::slice::from_ref(&path), &truth, &k).unwrap();
         let result = FeffFit::new()
             .data(&k, &synthetic.chi)
             .add_path(path)
@@ -473,8 +473,12 @@ mod tests {
         truth.insert("sig2_2", FitVariable::new(0.004, false));
         truth.insert("dr", FitVariable::new(0.01, false));
 
-        let chi1 = ff2chi(&[path1.clone()], &truth, &k1).unwrap().chi;
-        let chi2 = ff2chi(&[path2.clone()], &truth, &k2).unwrap().chi;
+        let chi1 = ff2chi(std::slice::from_ref(&path1), &truth, &k1)
+            .unwrap()
+            .chi;
+        let chi2 = ff2chi(std::slice::from_ref(&path2), &truth, &k2)
+            .unwrap()
+            .chi;
         let ds1 = FeffFitDataset::new()
             .data(&k1, &chi1)
             .add_path(path1)

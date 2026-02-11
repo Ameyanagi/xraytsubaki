@@ -69,6 +69,8 @@ pub fn feffit_joint(
     let mut covariance: Option<Vec<Vec<f64>>> = None;
     let mut correlation: Option<Vec<Vec<f64>>> = None;
     if let Some(covar) = solved.approx_covariance() {
+        // Keep covariance scaling on the raw LM residual convention to match Larch stderr
+        // behavior. Reported chi-square statistics apply additional presentation scaling.
         let error_scale = raw_chi_square / n_idp_dof;
         let scaled_covar = covar * error_scale;
         for (idx, name) in solved.variable_names.iter().enumerate() {

@@ -1,8 +1,8 @@
 {
-  "generated_at_utc": "2026-02-11T10:18:50.174544+00:00",
+  "generated_at_utc": "2026-02-11T11:11:52.232557+00:00",
   "xraylarch_version": "2026.1.1",
   "xraylarch_source_commit": "d8678dd666fd95839fe9dc71b4dbe8bedec278ff",
-  "fixtures_root": "/Users/ryuichi/dev/xraytsubaki/crates/xraytsubaki/tests/testfiles/xraylarch_d867",
+  "fixtures_root": "crates/xraytsubaki/tests/testfiles/xraylarch_d867",
   "references": {
     "cu": {
       "chi_square": 32.66539783293733,

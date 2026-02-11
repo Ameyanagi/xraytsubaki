@@ -76,7 +76,6 @@ pub(crate) fn extract_spectrum_panel_data(
                 .clone()
                 .ok_or(PlotError::MissingData { field: "energy" })?;
 
-            let mut title = PanelKind::Mu.title().to_string();
             let mut ylabel = PanelKind::Mu.ylabel(DEFAULT_KWEIGHT);
 
             let y_values = if let Some(flat) = spectrum.get_flat() {
@@ -90,7 +89,6 @@ pub(crate) fn extract_spectrum_panel_data(
                 if let Some(flat) = flattened {
                     flat
                 } else {
-                    title = "mu(E)".to_string();
                     ylabel = "mu(E)".to_string();
                     spectrum
                         .mu
@@ -101,7 +99,6 @@ pub(crate) fn extract_spectrum_panel_data(
 
             let (x, y) = truncate_pair(&energy, &y_values);
             Ok(PanelRenderData::new(
-                title,
                 PanelKind::Mu.xlabel(),
                 ylabel,
                 vec![TraceData::new(x, y, spectrum_label(spectrum), false)],
@@ -137,7 +134,6 @@ pub(crate) fn extract_spectrum_panel_data(
             }
 
             Ok(PanelRenderData::new(
-                PanelKind::Norm.title(),
                 PanelKind::Norm.xlabel(),
                 PanelKind::Norm.ylabel(DEFAULT_KWEIGHT),
                 traces,
@@ -197,12 +193,8 @@ pub(crate) fn extract_spectrum_panel_data(
                 let limit = ymin.abs().max(ymax.abs()) * 1.03;
                 (-limit, limit)
             });
-            let mut data = PanelRenderData::new(
-                PanelKind::K.title(),
-                PanelKind::K.xlabel(),
-                PanelKind::K.ylabel(kweight),
-                traces,
-            );
+            let mut data =
+                PanelRenderData::new(PanelKind::K.xlabel(), PanelKind::K.ylabel(kweight), traces);
             if let Some((min, max)) = ylim {
                 data = data.with_ylim(min, max);
             }
@@ -241,7 +233,6 @@ pub(crate) fn extract_spectrum_panel_data(
             }
 
             Ok(PanelRenderData::new(
-                PanelKind::R.title(),
                 PanelKind::R.xlabel(),
                 r_component_ylabel(kweight, panel.include_r_mag(), panel.r_real, panel.r_imag),
                 traces,

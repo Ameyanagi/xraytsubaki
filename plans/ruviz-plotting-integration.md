@@ -2,7 +2,7 @@
 
 ## Context
 
-xraytsubaki is a high-performance XAS analysis library that is purely computational — it has no plotting in the core crate. This plan adds ruviz (v0.1.3 from crates.io) as an optional `plotting` feature in the core crate, providing publication-quality XAS visualizations. GUI migration and Python bindings are out of scope for this PR.
+xraytsubaki is a high-performance XAS analysis library that is purely computational — it has no plotting in the core crate. This plan adds ruviz (v0.1.4 from crates.io) as an optional `plotting` feature in the core crate, providing publication-quality XAS visualizations. GUI migration and Python bindings are out of scope for this PR.
 
 Key alignment: both projects use nalgebra 0.32 `DVector<f64>`, and ruviz has `nalgebra_support` which implements `Data1D` for `DVector<f64>` — enabling zero-copy data passing.
 
@@ -11,13 +11,13 @@ Key alignment: both projects use nalgebra 0.32 `DVector<f64>`, and ruviz has `na
 ## Phase 1: Dependency & Module Skeleton
 
 ### 1.1 Add ruviz workspace dependency
-**File: `/Users/ryuichi/dev/xraytsubaki/Cargo.toml`**
+**File: `Cargo.toml`**
 ```toml
-ruviz = { version = "0.1.3", default-features = false }
+ruviz = { version = "0.1.4", default-features = false }
 ```
 
 ### 1.2 Add optional dependency + feature flag to core crate
-**File: `/Users/ryuichi/dev/xraytsubaki/crates/xraytsubaki/Cargo.toml`**
+**File: `crates/xraytsubaki/Cargo.toml`**
 ```toml
 [dependencies]
 ruviz = { workspace = true, optional = true, features = ["nalgebra_support", "svg"] }
@@ -29,7 +29,7 @@ plotting = ["ruviz"]
 ```
 
 ### 1.3 Create plot module skeleton
-**File: `/Users/ryuichi/dev/xraytsubaki/crates/xraytsubaki/src/lib.rs`** — add:
+**File: `crates/xraytsubaki/src/lib.rs`** — add:
 ```rust
 #[cfg(feature = "plotting")]
 pub mod plot;
@@ -50,7 +50,7 @@ plot/
 ```
 
 ### 1.4 Add plot exports to prelude
-**File: `/Users/ryuichi/dev/xraytsubaki/crates/xraytsubaki/src/prelude.rs`** — add:
+**File: `crates/xraytsubaki/src/prelude.rs`** — add:
 ```rust
 #[cfg(feature = "plotting")]
 pub use crate::plot::{PlotXAS, XASPlotBuilder, PlotError};

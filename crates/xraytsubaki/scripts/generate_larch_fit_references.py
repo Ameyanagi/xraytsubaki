@@ -187,7 +187,9 @@ def run_znse(base: Path, out_dir: Path) -> dict[str, object]:
 def main() -> None:
     script_dir = Path(__file__).resolve().parent
     crate_dir = script_dir.parent
-    fixture_root = crate_dir / "tests" / "testfiles" / "xraylarch_d867"
+    repo_root = crate_dir.parent.parent
+    fixture_root_rel = Path("crates/xraytsubaki/tests/testfiles/xraylarch_d867")
+    fixture_root = repo_root / fixture_root_rel
     out_dir = crate_dir / "tests" / "testfiles" / "larch_fit_refs"
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -198,7 +200,7 @@ def main() -> None:
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "xraylarch_version": getattr(larch, "__version__", "unknown"),
         "xraylarch_source_commit": SOURCE_COMMIT,
-        "fixtures_root": str(fixture_root),
+        "fixtures_root": fixture_root_rel.as_posix(),
         "references": {
             "cu": cu_stats,
             "znse": znse_stats,

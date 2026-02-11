@@ -16,15 +16,6 @@ pub enum PanelKind {
 }
 
 impl PanelKind {
-    pub fn title(self) -> &'static str {
-        match self {
-            Self::Mu => "Flattened mu(E)",
-            Self::Norm => "Normalized mu(E)",
-            Self::K => "chi(k)",
-            Self::R => "|chi(R)|",
-        }
-    }
-
     pub fn xlabel(self) -> &'static str {
         match self {
             Self::Mu | Self::Norm => "Energy [eV]",
@@ -177,7 +168,6 @@ impl TraceData {
 
 #[derive(Debug, Clone)]
 pub struct PanelRenderData {
-    pub title: String,
     pub xlabel: String,
     pub ylabel: String,
     pub traces: Vec<TraceData>,
@@ -187,13 +177,11 @@ pub struct PanelRenderData {
 
 impl PanelRenderData {
     pub fn new(
-        title: impl Into<String>,
         xlabel: impl Into<String>,
         ylabel: impl Into<String>,
         traces: Vec<TraceData>,
     ) -> Self {
         Self {
-            title: title.into(),
             xlabel: xlabel.into(),
             ylabel: ylabel.into(),
             traces,

@@ -79,7 +79,6 @@ fn append_trace_group(plot: Plot, group_label: String, traces: Vec<TraceData>) -
 
 pub(crate) fn render_panel(data: PanelRenderData, show_legend: bool) -> Result<Plot, PlotError> {
     let PanelRenderData {
-        title: _title,
         xlabel,
         ylabel,
         traces,

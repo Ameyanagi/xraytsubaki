@@ -109,8 +109,10 @@ pub(crate) fn calc_path_chi(
     let reff = path.feff.reff;
     let q = k.map(|kv| {
         let mut energy = kv * kv - params.e0 * ETOK;
+        // Preserve sign when clamping near zero so q continuity matches FEFF/Larch behavior.
+        let sign = if energy < 0.0 { -1.0 } else { 1.0 };
         if energy.abs() < 1.5 * SMALL_ENERGY {
-            energy = SMALL_ENERGY;
+            energy = sign * SMALL_ENERGY;
         }
         energy.signum() * energy.abs().sqrt()
     });
@@ -122,8 +124,14 @@ pub(crate) fn calc_path_chi(
 
     let mut cchi: Vec<Complex64> = Vec::with_capacity(k.len());
     for i in 0..k.len() {
+        // Avoid blow-ups when spline interpolation makes lambda very small.
+        let denom_lam = if lam[i].abs() < SMALL_ENERGY {
+            SMALL_ENERGY.copysign(lam[i])
+        } else {
+            lam[i]
+        };
         let pp =
-            Complex64::new(rep[i], 1.0 / lam[i]).powi(2) + Complex64::new(0.0, params.ei * ETOK);
+            Complex64::new(rep[i], 1.0 / denom_lam).powi(2) + Complex64::new(0.0, params.ei * ETOK);
         let p = pp.sqrt();
 
         let sigma_term = params.sigma2 - pp * (params.fourth / 3.0);
@@ -133,8 +141,12 @@ pub(crate) fn calc_path_chi(
         let exponent = Complex64::new(-2.0 * reff * p.im, 0.0) - 2.0 * pp * sigma_term
             + Complex64::new(0.0, 1.0) * phase_inner;
 
-        let denom_q = q[i];
-        let denom_r = (reff + params.deltar).powi(2);
+        let denom_q = if q[i].abs() < SMALL_ENERGY {
+            SMALL_ENERGY.copysign(q[i])
+        } else {
+            q[i]
+        };
+        let denom_r = (reff + params.deltar).powi(2).max(SMALL_ENERGY);
 
         let scale = params.degen * params.s02 * amp[i] / (denom_q * denom_r);
         cchi.push(scale * exponent.exp());

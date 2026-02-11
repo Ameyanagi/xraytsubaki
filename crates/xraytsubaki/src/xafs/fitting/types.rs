@@ -731,13 +731,18 @@ impl Default for FitWarning {
 #[serde(default)]
 pub struct FeffFitResult {
     pub variables: FitVariables,
+    /// Ordering of varying parameters used for covariance/correlation matrix rows and columns.
     pub varying_names: Vec<String>,
     pub n_vary: usize,
     pub n_data: usize,
     pub chi_square: f64,
     pub reduced_chi_square: f64,
     pub r_factor: f64,
+    /// Covariance matrix scaled from raw LM residuals using `raw_chi_square / (n_idp - n_vary)`.
+    /// This matches Larch-style stderr scaling.
     pub covariance: Option<Vec<Vec<f64>>>,
+    /// Correlation matrix derived from `covariance` with the same parameter ordering as
+    /// `varying_names`.
     pub correlation: Option<Vec<Vec<f64>>>,
     pub k: DVector<f64>,
     pub data_chi: DVector<f64>,

@@ -238,12 +238,8 @@ pub(crate) fn extract_fit_panel_data(
                 })
                 .or(marker_ylim);
 
-            let mut panel_data = PanelRenderData::new(
-                "k-space fit",
-                PanelKind::K.xlabel(),
-                PanelKind::K.ylabel(kweight),
-                traces,
-            );
+            let mut panel_data =
+                PanelRenderData::new(PanelKind::K.xlabel(), PanelKind::K.ylabel(kweight), traces);
             if let Some((min, max)) = final_ylim {
                 panel_data = panel_data.with_ylim(min, max);
             }
@@ -362,7 +358,6 @@ pub(crate) fn extract_fit_panel_data(
             }
 
             let mut panel_data = PanelRenderData::new(
-                "R-space fit",
                 PanelKind::R.xlabel(),
                 r_component_ylabel(kweight, panel.include_r_mag(), panel.r_real, panel.r_imag),
                 traces,

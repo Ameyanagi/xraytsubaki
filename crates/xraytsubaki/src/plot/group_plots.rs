@@ -35,7 +35,6 @@ pub(crate) fn extract_group_panel_data(
 
     let mut xlabel = String::new();
     let mut ylabel = String::new();
-    let mut title = String::new();
     let mut xlim = None;
     let mut ylim = None;
     let mut combined = Vec::new();
@@ -57,7 +56,6 @@ pub(crate) fn extract_group_panel_data(
         if order == 0 {
             xlabel = data.xlabel.clone();
             ylabel = data.ylabel.clone();
-            title = format!("{} (group)", data.title);
             xlim = data.xlim;
             ylim = data.ylim;
         }
@@ -93,7 +91,7 @@ pub(crate) fn extract_group_panel_data(
         ylim = symmetric_ylim(&combined);
     }
 
-    let mut panel_data = PanelRenderData::new(title, xlabel, ylabel, combined);
+    let mut panel_data = PanelRenderData::new(xlabel, ylabel, combined);
     if let Some((min, max)) = xlim {
         panel_data = panel_data.with_xlim(min, max);
     }

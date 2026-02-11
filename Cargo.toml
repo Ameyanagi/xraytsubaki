@@ -51,6 +51,7 @@ flate2 = "1.0.28"
 pest = "2.7.7"
 pest_derive = "2.7.7"
 thiserror = "1.0.69"
+ruviz = { version = "0.1.4", default-features = false }
 
 xraytsubaki = { version = "0.1.0", path = "crates/xraytsubaki" }
 

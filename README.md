@@ -33,3 +33,39 @@ Licensed under either of
   ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
 
 at your option.
+
+## Plotting Support
+
+`xraytsubaki` now supports feature-gated core plotting via `ruviz`.
+
+```bash
+cargo run -p xraytsubaki --features plotting --example plot_demo
+```
+
+`plot_demo` output path:
+- `crates/xraytsubaki/target/plot_demo`
+
+Current demo inputs:
+- FEFF calculation materials (`feff.inp`): `Co`, `FeO_withPb`, `MnO2`, `ZnSe`
+- Fit materials (`FeffFit::fit()`): `Cu`, `ZnSe`
+
+Regenerate the Cu/ZnSe XrayLarch fit references:
+
+```bash
+uv run --with xraylarch python crates/xraytsubaki/scripts/generate_larch_fit_references.py
+```
+
+Plotting APIs use a mutable entrypoint (`plot(&mut self)`) so missing intermediates can be auto-computed and cached (`normalize`, `calc_background`, `fft`) when panel selection requires them.
+
+Current defaults:
+- `mu()` renders flattened `mu(E)` (auto-normalized).
+- `k()` applies symmetric y-limits and k-weight-aware units in the y-axis label.
+- `FeffFitResult::plot().k()` uses the fit/dataset `kweight` by default.
+- `r()` uses `xlim(0.0, 6.0)` by default.
+- Plot text is rendered with `typst(true)` for scientific notation-friendly output.
+- `r()` plots magnitude by default; use `.real()` / `.imag()` for components, and `.mag().real().imag()` for all traces.
+- Window overlays are off by default.
+- `window(true)` on `k()` is an alias that enables both `window_fn(true)` and `window_box(true)`.
+- `window_fn(...)` is k-space only; `window_box(...)` supports k-space and fit r-space and draws two range lines (min/max).
+
+For this phase, multi-panel export is PNG-focused.

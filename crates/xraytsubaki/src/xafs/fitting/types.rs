@@ -664,7 +664,13 @@ pub struct DatasetResult {
     pub k: DVector<f64>,
     pub data_chi: DVector<f64>,
     pub model_chi: DVector<f64>,
+    pub kweight: f64,
+    pub kmin: Option<f64>,
+    pub kmax: Option<f64>,
+    pub kwin: DVector<f64>,
     pub r: DVector<f64>,
+    pub rmin: Option<f64>,
+    pub rmax: Option<f64>,
     pub data_chir_re: DVector<f64>,
     pub data_chir_im: DVector<f64>,
     pub model_chir_re: DVector<f64>,
@@ -684,7 +690,13 @@ impl Default for DatasetResult {
             k: DVector::zeros(0),
             data_chi: DVector::zeros(0),
             model_chi: DVector::zeros(0),
+            kweight: 2.0,
+            kmin: None,
+            kmax: None,
+            kwin: DVector::zeros(0),
             r: DVector::zeros(0),
+            rmin: None,
+            rmax: None,
             data_chir_re: DVector::zeros(0),
             data_chir_im: DVector::zeros(0),
             model_chir_re: DVector::zeros(0),
@@ -719,15 +731,29 @@ impl Default for FitWarning {
 #[serde(default)]
 pub struct FeffFitResult {
     pub variables: FitVariables,
+    /// Ordering of varying parameters used for covariance/correlation matrix rows and columns.
+    pub varying_names: Vec<String>,
     pub n_vary: usize,
     pub n_data: usize,
     pub chi_square: f64,
     pub reduced_chi_square: f64,
     pub r_factor: f64,
+    /// Covariance matrix scaled from raw LM residuals using `raw_chi_square / (n_idp - n_vary)`.
+    /// This matches Larch-style stderr scaling.
+    pub covariance: Option<Vec<Vec<f64>>>,
+    /// Correlation matrix derived from `covariance` with the same parameter ordering as
+    /// `varying_names`.
+    pub correlation: Option<Vec<Vec<f64>>>,
     pub k: DVector<f64>,
     pub data_chi: DVector<f64>,
     pub model_chi: DVector<f64>,
+    pub kweight: f64,
+    pub kmin: Option<f64>,
+    pub kmax: Option<f64>,
+    pub kwin: DVector<f64>,
     pub r: DVector<f64>,
+    pub rmin: Option<f64>,
+    pub rmax: Option<f64>,
     pub data_chir_re: DVector<f64>,
     pub data_chir_im: DVector<f64>,
     pub model_chir_re: DVector<f64>,
@@ -743,15 +769,24 @@ impl Default for FeffFitResult {
     fn default() -> Self {
         Self {
             variables: FitVariables::default(),
+            varying_names: Vec::new(),
             n_vary: 0,
             n_data: 0,
             chi_square: 0.0,
             reduced_chi_square: 0.0,
             r_factor: 0.0,
+            covariance: None,
+            correlation: None,
             k: DVector::zeros(0),
             data_chi: DVector::zeros(0),
             model_chi: DVector::zeros(0),
+            kweight: 2.0,
+            kmin: None,
+            kmax: None,
+            kwin: DVector::zeros(0),
             r: DVector::zeros(0),
+            rmin: None,
+            rmax: None,
             data_chir_re: DVector::zeros(0),
             data_chir_im: DVector::zeros(0),
             model_chir_re: DVector::zeros(0),
@@ -775,7 +810,13 @@ impl FeffFitResult {
             self.k = dataset.k.clone();
             self.data_chi = dataset.data_chi.clone();
             self.model_chi = dataset.model_chi.clone();
+            self.kweight = dataset.kweight;
+            self.kmin = dataset.kmin;
+            self.kmax = dataset.kmax;
+            self.kwin = dataset.kwin.clone();
             self.r = dataset.r.clone();
+            self.rmin = dataset.rmin;
+            self.rmax = dataset.rmax;
             self.data_chir_re = dataset.data_chir_re.clone();
             self.data_chir_im = dataset.data_chir_im.clone();
             self.model_chir_re = dataset.model_chir_re.clone();

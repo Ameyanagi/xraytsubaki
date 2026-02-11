@@ -18,3 +18,6 @@ pub use crate::xafs::normalization::{Normalization, NormalizationMethod};
 pub use crate::xafs::nshare::{ToNalgebra, ToNdarray1};
 pub use crate::xafs::xafsutils::{FTWindow, XAFSUtils};
 pub use crate::xafs::xrayfft::{FFTUtils, XrayFFTF, XrayFFTR};
+
+#[cfg(feature = "plotting")]
+pub use crate::plot::{PlotError, PlotXAS, XASPlotBuilder};

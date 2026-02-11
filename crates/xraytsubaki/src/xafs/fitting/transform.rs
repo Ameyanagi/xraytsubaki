@@ -3,6 +3,8 @@ use std::cmp::Ordering;
 use nalgebra::DVector;
 use num_complex::Complex64;
 
+#[cfg(feature = "ndarray-compat")]
+use crate::xafs::nshare::ToNdarray1;
 use crate::xafs::xrayfft::XrayFFTF;
 
 use super::errors::FittingError;
@@ -11,6 +13,7 @@ use super::types::{FeffFitTransform, FitSpace};
 #[derive(Debug, Clone)]
 pub struct TransformOutput {
     pub r: DVector<f64>,
+    pub kwin: DVector<f64>,
     pub chir: Vec<Complex64>,
     pub chir_re: DVector<f64>,
     pub chir_im: DVector<f64>,
@@ -85,16 +88,50 @@ pub fn apply_r_transform(
     fft.nfft = Some(transform.nfft);
     fft.kstep = transform.kstep;
 
-    fft.xftf(k, chi)
-        .map_err(|error| FittingError::InvalidTransform {
-            reason: error.to_string(),
+    #[cfg(feature = "ndarray-compat")]
+    let fft_result = {
+        let k_arr = k.clone().into_ndarray1();
+        let chi_arr = chi.clone().into_ndarray1();
+        fft.xftf(k_arr.view(), chi_arr.view())
+    };
+
+    #[cfg(not(feature = "ndarray-compat"))]
+    let fft_result = fft.xftf(k, chi);
+
+    fft_result.map_err(|error| FittingError::InvalidTransform {
+        reason: error.to_string(),
+    })?;
+
+    #[cfg(feature = "ndarray-compat")]
+    let r = fft
+        .get_r()
+        .map(|array| DVector::from_vec(array.to_vec()))
+        .ok_or_else(|| FittingError::InvalidTransform {
+            reason: "missing r grid after forward transform".to_string(),
         })?;
 
+    #[cfg(not(feature = "ndarray-compat"))]
     let r = fft
         .get_r()
         .cloned()
         .ok_or_else(|| FittingError::InvalidTransform {
             reason: "missing r grid after forward transform".to_string(),
+        })?;
+
+    #[cfg(feature = "ndarray-compat")]
+    let kwin = fft
+        .get_kwin()
+        .map(|array| DVector::from_vec(array.to_vec()))
+        .ok_or_else(|| FittingError::InvalidTransform {
+            reason: "missing k-window after forward transform".to_string(),
+        })?;
+
+    #[cfg(not(feature = "ndarray-compat"))]
+    let kwin = fft
+        .get_kwin()
+        .cloned()
+        .ok_or_else(|| FittingError::InvalidTransform {
+            reason: "missing k-window after forward transform".to_string(),
         })?;
 
     let chir_dft = fft
@@ -109,9 +146,30 @@ pub fn apply_r_transform(
         .map(|value| Complex64::new(value.re, value.im))
         .collect();
 
-    let mut chir_re = DVector::from_iterator(chir_raw.len(), chir_raw.iter().map(|value| value.re));
-    let mut chir_im = DVector::from_iterator(chir_raw.len(), chir_raw.iter().map(|value| value.im));
+    // Keep full chi(R) for plotting/output while using an R-windowed copy for fitting residuals.
+    let chir_re = DVector::from_iterator(chir_raw.len(), chir_raw.iter().map(|value| value.re));
+    let chir_im = DVector::from_iterator(chir_raw.len(), chir_raw.iter().map(|value| value.im));
+    let mut chir_fit_re = chir_re.clone();
+    let mut chir_fit_im = chir_im.clone();
 
+    #[cfg(feature = "ndarray-compat")]
+    let r_window = {
+        let r_arr = r.clone().into_ndarray1();
+        let window = crate::xafs::xafsutils::ftwindow(
+            &r_arr,
+            Some(transform.rmin),
+            Some(transform.rmax),
+            Some(transform.dr),
+            transform.dr2,
+            Some(transform.rwindow),
+        )
+        .map_err(|error| FittingError::InvalidTransform {
+            reason: format!("failed to create R-window: {error}"),
+        })?;
+        DVector::from_vec(window.to_vec())
+    };
+
+    #[cfg(not(feature = "ndarray-compat"))]
     let r_window = crate::xafs::xafsutils::ftwindow(
         &r,
         Some(transform.rmin),
@@ -124,17 +182,23 @@ pub fn apply_r_transform(
         reason: format!("failed to create R-window: {error}"),
     })?;
 
-    for i in 0..chir_re.len() {
-        chir_re[i] *= r_window[i];
-        chir_im[i] *= r_window[i];
+    for i in 0..chir_fit_re.len() {
+        chir_fit_re[i] *= r_window[i];
+        chir_fit_im[i] *= r_window[i];
     }
 
-    let chir = chir_re
+    let chir = chir_fit_re
         .iter()
-        .zip(chir_im.iter())
+        .zip(chir_fit_im.iter())
         .map(|(re, im)| Complex64::new(*re, *im))
         .collect::<Vec<_>>();
-    let chir_mag = DVector::from_iterator(chir.len(), chir.iter().map(|value| value.norm()));
+    let chir_mag = DVector::from_iterator(
+        chir_re.len(),
+        chir_re
+            .iter()
+            .zip(chir_im.iter())
+            .map(|(re, im)| (re * re + im * im).sqrt()),
+    );
 
     let mask_indices = r
         .iter()
@@ -150,6 +214,7 @@ pub fn apply_r_transform(
 
     Ok(TransformOutput {
         r,
+        kwin,
         chir,
         chir_re,
         chir_im,
@@ -161,6 +226,7 @@ pub fn apply_r_transform(
 pub fn residual_in_r_space(
     data: &TransformOutput,
     model: &TransformOutput,
+    transform: &FeffFitTransform,
     epsilon_k: Option<f64>,
 ) -> Result<DVector<f64>, FittingError> {
     if data.r.len() != model.r.len() {
@@ -173,7 +239,7 @@ pub fn residual_in_r_space(
         });
     }
 
-    let sigma = epsilon_k.unwrap_or(1.0).max(1.0e-12);
+    let sigma = epsilon_r_from_epsilon_k(transform, epsilon_k);
     let mut residual = Vec::with_capacity(data.mask_indices.len() * 2);
 
     for &index in data.mask_indices.iter() {
@@ -192,6 +258,42 @@ pub fn residual_in_r_space(
     }
 
     Ok(DVector::from_vec(residual))
+}
+
+pub fn data_residual_in_r_space(
+    data: &TransformOutput,
+    transform: &FeffFitTransform,
+    epsilon_k: Option<f64>,
+) -> Result<DVector<f64>, FittingError> {
+    let sigma = epsilon_r_from_epsilon_k(transform, epsilon_k);
+    let mut residual = Vec::with_capacity(data.mask_indices.len() * 2);
+
+    for &index in data.mask_indices.iter() {
+        if index >= data.chir.len() {
+            continue;
+        }
+        let value = data.chir[index];
+        residual.push(value.re / sigma);
+        residual.push(value.im / sigma);
+    }
+
+    if residual.is_empty() {
+        return Err(FittingError::InvalidTransform {
+            reason: "R-space data residual is empty after masking".to_string(),
+        });
+    }
+
+    Ok(DVector::from_vec(residual))
+}
+
+pub fn epsilon_r_from_epsilon_k(transform: &FeffFitTransform, epsilon_k: Option<f64>) -> f64 {
+    let eps_k = epsilon_k.unwrap_or(1.0).max(1.0e-12);
+    let kstep = transform.kstep.unwrap_or(0.05).max(1.0e-12);
+    let kweight = transform.kweight.max(0.0);
+    let w = 2.0 * kweight + 1.0;
+    let kspan = (transform.kmax.powf(w) - transform.kmin.powf(w)).max(1.0e-12);
+    let scale = 2.0 * ((std::f64::consts::PI * w) / (kstep * kspan)).sqrt();
+    (eps_k / scale).max(1.0e-12)
 }
 
 pub fn compute_n_idp(transform: &FeffFitTransform) -> f64 {
@@ -237,6 +339,35 @@ mod tests {
     }
 
     #[test]
+    fn test_apply_r_transform_preserves_full_chir_for_plotting() {
+        let k = DVector::from_iterator(400, (0..400).map(|i| 0.05 * (i as f64 + 1.0)));
+        let chi = k.map(|kv| (2.0 * kv).sin() * (-0.01 * kv * kv).exp());
+
+        let transform = FeffFitTransform {
+            kmin: 2.0,
+            kmax: 14.0,
+            window: FTWindow::Hanning,
+            rmin: 1.0,
+            rmax: 3.0,
+            ..FeffFitTransform::default()
+        };
+
+        let out = apply_r_transform(&k, &chi, &transform).unwrap();
+        let outside_max = out
+            .r
+            .iter()
+            .enumerate()
+            .filter(|(_, rv)| **rv > transform.rmax + 0.2)
+            .map(|(idx, _)| out.chir_mag[idx].abs())
+            .fold(0.0_f64, f64::max);
+
+        assert!(
+            outside_max > 1.0e-6,
+            "full chi(R) should be retained outside fit range for plotting"
+        );
+    }
+
+    #[test]
     fn test_compute_n_idp_positive() {
         let transform = FeffFitTransform {
             kmin: 2.0,
@@ -247,5 +378,19 @@ mod tests {
         };
         let n_idp = compute_n_idp(&transform);
         assert!(n_idp > 1.0);
+    }
+
+    #[test]
+    fn test_epsilon_r_from_epsilon_k_matches_larch_formula() {
+        let transform = FeffFitTransform {
+            kmin: 3.0,
+            kmax: 16.0,
+            kweight: 2.0,
+            kstep: Some(0.05),
+            ..FeffFitTransform::default()
+        };
+        let eps_k = 0.0015509900716108595;
+        let eps_r = epsilon_r_from_epsilon_k(&transform, Some(eps_k));
+        assert!((eps_r - 0.04479749340858802).abs() < 1.0e-12);
     }
 }

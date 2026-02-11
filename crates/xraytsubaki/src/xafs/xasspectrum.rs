@@ -400,6 +400,72 @@ impl XASSpectrum {
         self.background.as_ref()?.get_chi()
     }
 
+    pub fn get_norm(&self) -> Option<DVector<f64>> {
+        #[cfg(feature = "ndarray-compat")]
+        {
+            self.normalization
+                .as_ref()?
+                .get_norm()
+                .map(|x| DVector::from_vec(x.to_vec()))
+        }
+        #[cfg(not(feature = "ndarray-compat"))]
+        {
+            self.normalization.as_ref()?.get_norm().cloned()
+        }
+    }
+
+    pub fn get_flat(&self) -> Option<DVector<f64>> {
+        #[cfg(feature = "ndarray-compat")]
+        {
+            self.normalization
+                .as_ref()?
+                .get_flat()
+                .map(|x| DVector::from_vec(x.to_vec()))
+        }
+        #[cfg(not(feature = "ndarray-compat"))]
+        {
+            self.normalization.as_ref()?.get_flat().cloned()
+        }
+    }
+
+    pub fn get_pre_edge(&self) -> Option<DVector<f64>> {
+        let normalization = self.normalization.as_ref()?;
+        match normalization {
+            normalization::NormalizationMethod::PrePostEdge(prepost) => {
+                #[cfg(feature = "ndarray-compat")]
+                {
+                    prepost
+                        .get_pre_edge()
+                        .map(|x| DVector::from_vec(x.to_vec()))
+                }
+                #[cfg(not(feature = "ndarray-compat"))]
+                {
+                    prepost.get_pre_edge().cloned()
+                }
+            }
+            _ => None,
+        }
+    }
+
+    pub fn get_post_edge(&self) -> Option<DVector<f64>> {
+        let normalization = self.normalization.as_ref()?;
+        match normalization {
+            normalization::NormalizationMethod::PrePostEdge(prepost) => {
+                #[cfg(feature = "ndarray-compat")]
+                {
+                    prepost
+                        .get_post_edge()
+                        .map(|x| DVector::from_vec(x.to_vec()))
+                }
+                #[cfg(not(feature = "ndarray-compat"))]
+                {
+                    prepost.get_post_edge().cloned()
+                }
+            }
+            _ => None,
+        }
+    }
+
     #[cfg(feature = "ndarray-compat")]
     pub fn get_k_view(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
         self.background.as_ref()?.get_k_view()
@@ -437,6 +503,20 @@ impl XASSpectrum {
         #[cfg(not(feature = "ndarray-compat"))]
         {
             self.xftf.as_ref()?.get_chir_mag().cloned()
+        }
+    }
+
+    pub fn get_kwin(&self) -> Option<DVector<f64>> {
+        #[cfg(feature = "ndarray-compat")]
+        {
+            self.xftf
+                .as_ref()?
+                .get_kwin()
+                .map(|x| DVector::from_vec(x.to_vec()))
+        }
+        #[cfg(not(feature = "ndarray-compat"))]
+        {
+            self.xftf.as_ref()?.get_kwin().cloned()
         }
     }
 

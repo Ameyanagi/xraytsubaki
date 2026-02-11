@@ -11,7 +11,7 @@ use super::feffdat::parse_feff_path_file;
 use super::types::{FeffFlavor, FeffPathModel, FitVariables};
 use super::variables::resolve_path_param;
 
-const SMALL_Q: f64 = 1.0e-7;
+const SMALL_ENERGY: f64 = 1.0e-6;
 
 #[derive(Debug, Clone)]
 pub struct FF2ChiOutput {
@@ -108,33 +108,22 @@ pub(crate) fn calc_path_chi(
 
     let reff = path.feff.reff;
     let q = k.map(|kv| {
-        let energy = kv * kv - params.e0 * ETOK;
-        let signed_q = energy.signum() * energy.abs().sqrt();
-        if signed_q.abs() < SMALL_Q {
-            if signed_q.is_sign_negative() {
-                -SMALL_Q
-            } else {
-                SMALL_Q
-            }
-        } else {
-            signed_q
+        let mut energy = kv * kv - params.e0 * ETOK;
+        if energy.abs() < 1.5 * SMALL_ENERGY {
+            energy = SMALL_ENERGY;
         }
+        energy.signum() * energy.abs().sqrt()
     });
 
-    let pha = interp_linear_clamped(&path.feff.k, &path.feff.pha, &q)?;
-    let amp = interp_linear_clamped(&path.feff.k, &path.feff.amp, &q)?;
-    let rep = interp_linear_clamped(&path.feff.k, &path.feff.rep, &q)?;
-    let lam = interp_linear_clamped(&path.feff.k, &path.feff.lam, &q)?;
+    let pha = interp_cubic_spline_clamped(&path.feff.k, &path.feff.pha, &q)?;
+    let amp = interp_cubic_spline_clamped(&path.feff.k, &path.feff.amp, &q)?;
+    let rep = interp_cubic_spline_clamped(&path.feff.k, &path.feff.rep, &q)?;
+    let lam = interp_cubic_spline_clamped(&path.feff.k, &path.feff.lam, &q)?;
 
     let mut cchi: Vec<Complex64> = Vec::with_capacity(k.len());
     for i in 0..k.len() {
-        let inv_lam = if lam[i].abs() < SMALL_Q {
-            1.0 / SMALL_Q
-        } else {
-            1.0 / lam[i]
-        };
-
-        let pp = Complex64::new(rep[i], inv_lam).powi(2) + Complex64::new(0.0, params.ei * ETOK);
+        let pp =
+            Complex64::new(rep[i], 1.0 / lam[i]).powi(2) + Complex64::new(0.0, params.ei * ETOK);
         let p = pp.sqrt();
 
         let sigma_term = params.sigma2 - pp * (params.fourth / 3.0);
@@ -144,8 +133,8 @@ pub(crate) fn calc_path_chi(
         let exponent = Complex64::new(-2.0 * reff * p.im, 0.0) - 2.0 * pp * sigma_term
             + Complex64::new(0.0, 1.0) * phase_inner;
 
-        let denom_q = if q[i].abs() < SMALL_Q { SMALL_Q } else { q[i] };
-        let denom_r = (reff + params.deltar).powi(2).max(SMALL_Q);
+        let denom_q = q[i];
+        let denom_r = (reff + params.deltar).powi(2);
 
         let scale = params.degen * params.s02 * amp[i] / (denom_q * denom_r);
         cchi.push(scale * exponent.exp());
@@ -178,7 +167,7 @@ pub(crate) fn resolve_params(
     })
 }
 
-fn interp_linear_clamped(
+fn interp_cubic_spline_clamped(
     xin: &DVector<f64>,
     yin: &DVector<f64>,
     xout: &DVector<f64>,
@@ -212,41 +201,23 @@ fn interp_linear_clamped(
         }
     }
 
-    let mut out = DVector::zeros(xout.len());
-    let xs = xin.as_slice();
-    let ys = yin.as_slice();
-
-    for (i, &x) in xout.iter().enumerate() {
-        if x <= xs[0] {
-            out[i] = ys[0];
-            continue;
-        }
-        if x >= xs[xs.len() - 1] {
-            out[i] = ys[ys.len() - 1];
-            continue;
-        }
-
-        let idx = match xs.binary_search_by(|probe| probe.total_cmp(&x)) {
-            Ok(found) => found,
-            Err(insert) => insert,
-        };
-        let hi = idx;
-        let lo = hi.saturating_sub(1);
-
-        let x0 = xs[lo];
-        let x1 = xs[hi];
-        let y0 = ys[lo];
-        let y1 = ys[hi];
-
-        let t = if (x1 - x0).abs() < f64::EPSILON {
-            0.0
-        } else {
-            (x - x0) / (x1 - x0)
-        };
-        out[i] = y0 + t * (y1 - y0);
-    }
-
-    Ok(out)
+    let order = if xin.len() > 3 { 3 } else { 1 };
+    let (knots, coefs, _) = rusty_fitpack::splrep(
+        xin.as_slice().to_vec(),
+        yin.as_slice().to_vec(),
+        None,
+        None,
+        None,
+        Some(order),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    );
+    let values = rusty_fitpack::splev(knots, coefs, order, xout.as_slice().to_vec(), 0);
+    Ok(DVector::from_vec(values))
 }
 
 #[cfg(test)]
@@ -376,22 +347,22 @@ mod tests {
     }
 
     #[test]
-    fn test_interp_linear_clamped_rejects_non_finite_target_grid() {
+    fn test_interp_cubic_spline_clamped_rejects_non_finite_target_grid() {
         let xin = DVector::from_vec(vec![1.0, 2.0, 3.0]);
         let yin = DVector::from_vec(vec![10.0, 20.0, 30.0]);
         let xout = DVector::from_vec(vec![1.5, f64::NAN]);
 
-        let err = interp_linear_clamped(&xin, &yin, &xout).unwrap_err();
+        let err = interp_cubic_spline_clamped(&xin, &yin, &xout).unwrap_err();
         assert!(matches!(err, FittingError::InvalidDataset { .. }));
     }
 
     #[test]
-    fn test_interp_linear_clamped_rejects_non_finite_source_grid() {
+    fn test_interp_cubic_spline_clamped_rejects_non_finite_source_grid() {
         let xin = DVector::from_vec(vec![1.0, f64::INFINITY, 3.0]);
         let yin = DVector::from_vec(vec![10.0, 20.0, 30.0]);
         let xout = DVector::from_vec(vec![1.5, 2.5]);
 
-        let err = interp_linear_clamped(&xin, &yin, &xout).unwrap_err();
+        let err = interp_cubic_spline_clamped(&xin, &yin, &xout).unwrap_err();
         assert!(matches!(err, FittingError::InvalidFeffData { .. }));
     }
 }

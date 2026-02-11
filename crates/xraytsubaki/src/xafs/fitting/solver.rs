@@ -7,7 +7,8 @@ use rayon::prelude::*;
 use super::errors::FittingError;
 use super::path_model::ff2chi;
 use super::transform::{
-    apply_r_transform, compute_n_idp, residual_in_r_space, validate_transform, TransformOutput,
+    apply_r_transform, compute_n_idp, data_residual_in_r_space, residual_in_r_space,
+    validate_transform, TransformOutput,
 };
 use super::types::{
     DatasetResult, FeffBatchExecutionStrategy, FeffBatchOptions, FeffFitDataset, FeffFitResult,
@@ -20,6 +21,14 @@ fn feffit(
     variables: &FitVariables,
 ) -> Result<FeffFitResult, FittingError> {
     feffit_joint(std::slice::from_ref(dataset), variables)
+}
+
+fn matrix_to_nested(matrix: &DMatrix<f64>) -> Vec<Vec<f64>> {
+    let nrows = matrix.nrows();
+    let ncols = matrix.ncols();
+    (0..nrows)
+        .map(|r| (0..ncols).map(|c| matrix[(r, c)]).collect::<Vec<_>>())
+        .collect::<Vec<_>>()
 }
 
 pub fn feffit_joint(
@@ -45,19 +54,45 @@ pub fn feffit_joint(
     let residual = solved.current_residual()?;
 
     let mut solved_variables = solved.variables.clone();
-    let chi_square = residual.dot(&residual);
+    let raw_chi_square = residual.dot(&residual);
     let n_data = residual.len();
     let n_vary = solved.variable_names.len();
-    let dof = n_data.saturating_sub(n_vary).max(1);
-    let reduced_chi_square = chi_square / dof as f64;
+    let global_n_idp = solved
+        .datasets
+        .iter()
+        .map(|dataset| compute_n_idp(&dataset.transform))
+        .sum::<f64>();
+    let n_idp_dof = (global_n_idp - n_vary as f64).max(1.0e-12);
+    let chi_square = raw_chi_square * global_n_idp / n_data.max(1) as f64;
+    let reduced_chi_square = chi_square / n_idp_dof;
 
+    let mut covariance: Option<Vec<Vec<f64>>> = None;
+    let mut correlation: Option<Vec<Vec<f64>>> = None;
     if let Some(covar) = solved.approx_covariance() {
+        let error_scale = raw_chi_square / n_idp_dof;
+        let scaled_covar = covar * error_scale;
         for (idx, name) in solved.variable_names.iter().enumerate() {
             if let Some(var) = solved_variables.get_mut(name) {
-                let variance = covar[(idx, idx)].max(0.0) * reduced_chi_square;
+                let variance = scaled_covar[(idx, idx)].max(0.0);
                 var.stderr = Some(variance.sqrt());
             }
         }
+
+        let mut corr = DMatrix::<f64>::zeros(scaled_covar.nrows(), scaled_covar.ncols());
+        for i in 0..scaled_covar.nrows() {
+            for j in 0..scaled_covar.ncols() {
+                let denom = (scaled_covar[(i, i)].max(0.0) * scaled_covar[(j, j)].max(0.0)).sqrt();
+                corr[(i, j)] = if denom > 0.0 {
+                    scaled_covar[(i, j)] / denom
+                } else if i == j {
+                    1.0
+                } else {
+                    0.0
+                };
+            }
+        }
+        covariance = Some(matrix_to_nested(&scaled_covar));
+        correlation = Some(matrix_to_nested(&corr));
     }
 
     let model_evaluations = solved.evaluate_models(&solved.variables)?;
@@ -65,7 +100,6 @@ pub fn feffit_joint(
 
     let mut global_data_norm = 0.0;
     let mut global_model_diff_norm = 0.0;
-    let mut global_n_idp = 0.0;
 
     for ((dataset, data_transform), model_eval) in solved
         .datasets
@@ -76,21 +110,21 @@ pub fn feffit_joint(
         let ds_residual = residual_in_r_space(
             data_transform,
             &model_eval.model_transform,
+            &dataset.transform,
             dataset.epsilon_k,
         )?;
-        let ds_chi_square = ds_residual.dot(&ds_residual);
+        let ds_data_residual =
+            data_residual_in_r_space(data_transform, &dataset.transform, dataset.epsilon_k)?;
+        let ds_raw_chi_square = ds_residual.dot(&ds_residual);
         let ds_n_data = ds_residual.len();
         let ds_n_vary = dataset_vary_count(dataset, &solved.variables, &solved.variable_names)?;
-        let ds_dof = ds_n_data.saturating_sub(ds_n_vary).max(1);
-        let ds_reduced_chi_square = ds_chi_square / ds_dof as f64;
+        let ds_n_idp = compute_n_idp(&dataset.transform);
+        let ds_n_idp_dof = (ds_n_idp - ds_n_vary as f64).max(1.0e-12);
+        let ds_chi_square = ds_raw_chi_square * ds_n_idp / ds_n_data.max(1) as f64;
+        let ds_reduced_chi_square = ds_chi_square / ds_n_idp_dof;
 
-        let data_norm = dataset.chi.iter().map(|value| value.abs()).sum::<f64>();
-        let model_diff_norm = dataset
-            .chi
-            .iter()
-            .zip(model_eval.model_chi.iter())
-            .map(|(d, m)| (d - m).abs())
-            .sum::<f64>();
+        let data_norm = ds_data_residual.dot(&ds_data_residual);
+        let model_diff_norm = ds_raw_chi_square;
         global_data_norm += data_norm;
         global_model_diff_norm += model_diff_norm;
         let ds_r_factor = if data_norm.abs() < f64::EPSILON {
@@ -98,9 +132,6 @@ pub fn feffit_joint(
         } else {
             model_diff_norm / data_norm
         };
-
-        let ds_n_idp = compute_n_idp(&dataset.transform);
-        global_n_idp += ds_n_idp;
 
         let path_contributions = model_eval
             .path_chi
@@ -150,11 +181,14 @@ pub fn feffit_joint(
 
     let mut out = FeffFitResult {
         variables: solved_variables,
+        varying_names: solved.variable_names.clone(),
         n_vary,
         n_data,
         chi_square,
         reduced_chi_square,
         r_factor,
+        covariance,
+        correlation,
         datasets: datasets_out,
         n_idp: global_n_idp,
         ..FeffFitResult::default()
@@ -378,7 +412,12 @@ impl FeffFitMultiProblem {
             .zip(models.into_iter())
         {
             let ds_residual =
-                residual_in_r_space(data_transform, &model.model_transform, dataset.epsilon_k)?;
+                residual_in_r_space(
+                    data_transform,
+                    &model.model_transform,
+                    &dataset.transform,
+                    dataset.epsilon_k,
+                )?;
             residual.extend(ds_residual.iter().copied());
         }
         if residual.is_empty() {
@@ -407,7 +446,12 @@ impl FeffFitMultiProblem {
                 .zip(models.into_iter())
             {
                 let ds_residual =
-                    residual_in_r_space(data_transform, &model.model_transform, dataset.epsilon_k)?;
+                    residual_in_r_space(
+                        data_transform,
+                        &model.model_transform,
+                        &dataset.transform,
+                        dataset.epsilon_k,
+                    )?;
                 residual.extend(ds_residual.iter().copied());
             }
             Ok::<_, FittingError>(DVector::from_vec(residual))
@@ -591,11 +635,9 @@ mod tests {
         assert!(result.chi_square.is_finite());
         assert_eq!(result.datasets.len(), 2);
 
-        // Per-dataset reduced chi-square should use dataset-local varying parameter counts.
-        let expected0 = result.datasets[0].chi_square
-            / result.datasets[0].n_data.saturating_sub(4).max(1) as f64;
-        let expected1 = result.datasets[1].chi_square
-            / result.datasets[1].n_data.saturating_sub(4).max(1) as f64;
+        // Per-dataset reduced chi-square follows Larch scaling with n_idp.
+        let expected0 = result.datasets[0].chi_square / (result.datasets[0].n_idp - 4.0);
+        let expected1 = result.datasets[1].chi_square / (result.datasets[1].n_idp - 4.0);
         assert!((result.datasets[0].reduced_chi_square - expected0).abs() < 1.0e-10);
         assert!((result.datasets[1].reduced_chi_square - expected1).abs() < 1.0e-10);
     }
@@ -705,5 +747,53 @@ mod tests {
         assert!(out[0].is_ok());
         assert!(out[1].is_err());
         assert!(out[2].is_ok());
+    }
+
+    #[test]
+    fn test_fit_result_exposes_covariance_and_correlation() {
+        let pathfile = format!("{TOP_DIR}/tests/testfiles/feffcu01.dat");
+        let mut path = feffpath(pathfile, FeffFlavor::Feff85L).unwrap();
+        path.s02 = PathParamSpec::Expression("amp".to_string());
+        path.e0 = PathParamSpec::Expression("de0".to_string());
+        path.sigma2 = PathParamSpec::Expression("sig2".to_string());
+        path.deltar = PathParamSpec::Expression("dr".to_string());
+
+        let k = DVector::from_iterator(240, (0..240).map(|i| 0.05 * (i as f64 + 1.0)));
+        let mut truth = FitVariables::new();
+        truth.insert("amp", FitVariable::new(0.92, false));
+        truth.insert("de0", FitVariable::new(5.3, false));
+        truth.insert("sig2", FitVariable::new(0.0052, false));
+        truth.insert("dr", FitVariable::new(0.0018, false));
+        let synthetic = ff2chi(&[path.clone()], &truth, &k).unwrap();
+
+        let dataset = FeffFitDataset::new()
+            .data(&k, &synthetic.chi)
+            .epsilon_k(0.0015)
+            .krange(3.0, 16.0)
+            .rrange(1.4, 3.0)
+            .kweight(2.0)
+            .dk(5.0)
+            .add_path(path);
+
+        let mut initial = FitVariables::new();
+        initial.insert("amp", FitVariable::new(1.0, true));
+        initial.insert("de0", FitVariable::new(0.0, true));
+        initial.insert(
+            "sig2",
+            FitVariable::new(0.003, true).with_bounds(Some(0.0), Some(0.02)),
+        );
+        initial.insert("dr", FitVariable::new(0.0, true));
+
+        let result = feffit(&dataset, &initial).unwrap();
+        assert_eq!(result.varying_names.len(), result.n_vary);
+        let cov = result.covariance.as_ref().expect("missing covariance");
+        let corr = result.correlation.as_ref().expect("missing correlation");
+        assert_eq!(cov.len(), result.n_vary);
+        assert_eq!(corr.len(), result.n_vary);
+        for i in 0..result.n_vary {
+            assert_eq!(cov[i].len(), result.n_vary);
+            assert_eq!(corr[i].len(), result.n_vary);
+            assert!((corr[i][i] - 1.0).abs() < 1.0e-8);
+        }
     }
 }

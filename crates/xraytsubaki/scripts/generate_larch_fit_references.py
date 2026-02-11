@@ -43,7 +43,27 @@ def full_chir_mag(dset) -> tuple[np.ndarray, np.ndarray]:
     return np.abs(data_ft[:n]), np.abs(model_ft[:n])
 
 
-def run_cu(base: Path, out_dir: Path) -> dict[str, float]:
+def collect_fit_params(out) -> dict[str, dict[str, float]]:
+    selected = ("amp", "de0", "sig2", "dr")
+    params = {}
+    for name in selected:
+        p = out.params[name]
+        params[name] = {
+            "value": float(p.value),
+            "stderr": float(p.stderr),
+        }
+    return params
+
+
+def epsilon_k_mean(dset) -> float:
+    eps = getattr(dset, "epsilon_k", None)
+    if eps is None:
+        raise ValueError("missing epsilon_k in larch dataset")
+    arr = np.asarray(eps, dtype=float)
+    return float(arr.mean())
+
+
+def run_cu(base: Path, out_dir: Path) -> dict[str, object]:
     data = read_ascii(str(base / "xafsdata" / "cu_150k.xmu"), labels="energy mutrans")
     autobk(data.energy, data.mutrans, group=data, rbkg=1.1, kw=2, clamp_hi=50)
 
@@ -64,10 +84,15 @@ def run_cu(base: Path, out_dir: Path) -> dict[str, float]:
     dset = feffit_dataset(data=data, transform=trans, pathlist=[path1])
     out = feffit(pars, dset)
 
+    model_k = np.asarray(dset.model.k, dtype=float)
+    data_k = np.asarray(dset.data.k, dtype=float)
+    data_chi = np.interp(model_k, data_k, np.asarray(dset.data.chi, dtype=float))
+    model_chi = np.asarray(dset.model.chi, dtype=float)
+    model_kwin = np.asarray(dset.model.kwin, dtype=float)
     write_matrix(
         out_dir / "cu_fit_kspace.txt",
         "k data_chi model_chi kwin",
-        [dset.data.k, dset.data.chi, dset.model.chi, dset.data.kwin],
+        [model_k, data_chi, model_chi, model_kwin],
     )
     data_mag_full, model_mag_full = full_chir_mag(dset)
 
@@ -91,10 +116,12 @@ def run_cu(base: Path, out_dir: Path) -> dict[str, float]:
         "reduced_chi_square": float(out.chi2_reduced),
         "r_factor": float(out.rfactor),
         "n_idp": float(out.n_independent),
+        "epsilon_k": epsilon_k_mean(dset),
+        "params": collect_fit_params(out),
     }
 
 
-def run_znse(base: Path, out_dir: Path) -> dict[str, float]:
+def run_znse(base: Path, out_dir: Path) -> dict[str, object]:
     data = read_ascii(
         str(base / "xafsdata" / "znse_zn_xafs.001"),
         labels="energy dwelltime i0 i1",
@@ -120,10 +147,15 @@ def run_znse(base: Path, out_dir: Path) -> dict[str, float]:
     dset = feffit_dataset(data=data, transform=trans, pathlist=[path1])
     out = feffit(pars, dset)
 
+    model_k = np.asarray(dset.model.k, dtype=float)
+    data_k = np.asarray(dset.data.k, dtype=float)
+    data_chi = np.interp(model_k, data_k, np.asarray(dset.data.chi, dtype=float))
+    model_chi = np.asarray(dset.model.chi, dtype=float)
+    model_kwin = np.asarray(dset.model.kwin, dtype=float)
     write_matrix(
         out_dir / "znse_fit_kspace.txt",
         "k data_chi model_chi kwin",
-        [dset.data.k, dset.data.chi, dset.model.chi, dset.data.kwin],
+        [model_k, data_chi, model_chi, model_kwin],
     )
     data_mag_full, model_mag_full = full_chir_mag(dset)
 
@@ -147,6 +179,8 @@ def run_znse(base: Path, out_dir: Path) -> dict[str, float]:
         "reduced_chi_square": float(out.chi2_reduced),
         "r_factor": float(out.rfactor),
         "n_idp": float(out.n_independent),
+        "epsilon_k": epsilon_k_mean(dset),
+        "params": collect_fit_params(out),
     }
 
 

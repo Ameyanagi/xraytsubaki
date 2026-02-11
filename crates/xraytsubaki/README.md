@@ -45,6 +45,12 @@ Core plotting is available behind the `plotting` feature using `ruviz`.
 cargo run -p xraytsubaki --features plotting --example plot_demo
 ```
 
+On Apple Silicon, if your linker resolution requires an explicit target linker:
+
+```bash
+CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER=clang cargo run -p xraytsubaki --features plotting --example plot_demo
+```
+
 `plot_demo` writes outputs to:
 - `crates/xraytsubaki/target/plot_demo`
 
@@ -58,6 +64,11 @@ To regenerate Cu/ZnSe fit references directly from XrayLarch:
 ```bash
 uv run --with xraylarch python crates/xraytsubaki/scripts/generate_larch_fit_references.py
 ```
+
+Strict FEFF fit parity is regression-tested against these regenerated Cu/ZnSe fixtures:
+- compared fields: `amp`, `de0`, `sig2`, `dr` values and `stderr`
+- compared stats: `chi_square`, `reduced_chi_square`, `n_idp`, `r_factor`
+- tolerance policy: relative tolerance `20%` with absolute fallback `1e-8` (`de0` value uses `0.2 eV` absolute fallback near zero)
 
 ### Important behavior
 
@@ -77,6 +88,7 @@ uv run --with xraylarch python crates/xraytsubaki/scripts/generate_larch_fit_ref
 - `.window(true)` is an alias that enables both `.window_fn(true)` and `.window_box(true)` for `k()` panels.
 - `.window_fn(...)` is supported only on `k()` panels.
 - `.window_box(...)` is supported on `k()` panels, and on `r()` panels for `FeffFitResult` plots; it renders two range markers (min/max), not a rectangle.
+- `FeffFitResult` now includes `varying_names`, `covariance`, and `correlation` (matrix order follows `varying_names`).
 - Multi-panel output is PNG-only in this phase.
 
 ### XASSpectrum examples

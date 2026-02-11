@@ -226,6 +226,7 @@ pub fn apply_r_transform(
 pub fn residual_in_r_space(
     data: &TransformOutput,
     model: &TransformOutput,
+    transform: &FeffFitTransform,
     epsilon_k: Option<f64>,
 ) -> Result<DVector<f64>, FittingError> {
     if data.r.len() != model.r.len() {
@@ -238,7 +239,7 @@ pub fn residual_in_r_space(
         });
     }
 
-    let sigma = epsilon_k.unwrap_or(1.0).max(1.0e-12);
+    let sigma = epsilon_r_from_epsilon_k(transform, epsilon_k);
     let mut residual = Vec::with_capacity(data.mask_indices.len() * 2);
 
     for &index in data.mask_indices.iter() {
@@ -257,6 +258,42 @@ pub fn residual_in_r_space(
     }
 
     Ok(DVector::from_vec(residual))
+}
+
+pub fn data_residual_in_r_space(
+    data: &TransformOutput,
+    transform: &FeffFitTransform,
+    epsilon_k: Option<f64>,
+) -> Result<DVector<f64>, FittingError> {
+    let sigma = epsilon_r_from_epsilon_k(transform, epsilon_k);
+    let mut residual = Vec::with_capacity(data.mask_indices.len() * 2);
+
+    for &index in data.mask_indices.iter() {
+        if index >= data.chir.len() {
+            continue;
+        }
+        let value = data.chir[index];
+        residual.push(value.re / sigma);
+        residual.push(value.im / sigma);
+    }
+
+    if residual.is_empty() {
+        return Err(FittingError::InvalidTransform {
+            reason: "R-space data residual is empty after masking".to_string(),
+        });
+    }
+
+    Ok(DVector::from_vec(residual))
+}
+
+pub fn epsilon_r_from_epsilon_k(transform: &FeffFitTransform, epsilon_k: Option<f64>) -> f64 {
+    let eps_k = epsilon_k.unwrap_or(1.0).max(1.0e-12);
+    let kstep = transform.kstep.unwrap_or(0.05).max(1.0e-12);
+    let kweight = transform.kweight.max(0.0);
+    let w = 2.0 * kweight + 1.0;
+    let kspan = (transform.kmax.powf(w) - transform.kmin.powf(w)).max(1.0e-12);
+    let scale = 2.0 * ((std::f64::consts::PI * w) / (kstep * kspan)).sqrt();
+    (eps_k / scale).max(1.0e-12)
 }
 
 pub fn compute_n_idp(transform: &FeffFitTransform) -> f64 {
@@ -341,5 +378,19 @@ mod tests {
         };
         let n_idp = compute_n_idp(&transform);
         assert!(n_idp > 1.0);
+    }
+
+    #[test]
+    fn test_epsilon_r_from_epsilon_k_matches_larch_formula() {
+        let transform = FeffFitTransform {
+            kmin: 3.0,
+            kmax: 16.0,
+            kweight: 2.0,
+            kstep: Some(0.05),
+            ..FeffFitTransform::default()
+        };
+        let eps_k = 0.0015509900716108595;
+        let eps_r = epsilon_r_from_epsilon_k(&transform, Some(eps_k));
+        assert!((eps_r - 0.04479749340858802).abs() < 1.0e-12);
     }
 }

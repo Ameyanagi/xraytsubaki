@@ -731,11 +731,14 @@ impl Default for FitWarning {
 #[serde(default)]
 pub struct FeffFitResult {
     pub variables: FitVariables,
+    pub varying_names: Vec<String>,
     pub n_vary: usize,
     pub n_data: usize,
     pub chi_square: f64,
     pub reduced_chi_square: f64,
     pub r_factor: f64,
+    pub covariance: Option<Vec<Vec<f64>>>,
+    pub correlation: Option<Vec<Vec<f64>>>,
     pub k: DVector<f64>,
     pub data_chi: DVector<f64>,
     pub model_chi: DVector<f64>,
@@ -761,11 +764,14 @@ impl Default for FeffFitResult {
     fn default() -> Self {
         Self {
             variables: FitVariables::default(),
+            varying_names: Vec::new(),
             n_vary: 0,
             n_data: 0,
             chi_square: 0.0,
             reduced_chi_square: 0.0,
             r_factor: 0.0,
+            covariance: None,
+            correlation: None,
             k: DVector::zeros(0),
             data_chi: DVector::zeros(0),
             model_chi: DVector::zeros(0),

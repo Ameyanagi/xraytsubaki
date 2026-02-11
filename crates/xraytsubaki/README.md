@@ -45,6 +45,20 @@ Core plotting is available behind the `plotting` feature using `ruviz`.
 cargo run -p xraytsubaki --features plotting --example plot_demo
 ```
 
+`plot_demo` writes outputs to:
+- `crates/xraytsubaki/target/plot_demo`
+
+`plot_demo` coverage:
+- FEFF85L module runs from full `feff.inp`: `Co`, `FeO_withPb`, `MnO2`, `ZnSe`
+- Real fitting via `FeffFit::fit()`: `Cu`, `ZnSe`
+- Fit plots per material: `k`, `k + window`, `r`, `r + window range`
+
+To regenerate Cu/ZnSe fit references directly from XrayLarch:
+
+```bash
+uv run --with xraylarch python crates/xraytsubaki/scripts/generate_larch_fit_references.py
+```
+
 ### Important behavior
 
 - Plotting APIs are available through `PlotXAS` with a mutable entrypoint: `plot(&mut self)`.

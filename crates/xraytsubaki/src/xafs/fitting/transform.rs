@@ -146,8 +146,11 @@ pub fn apply_r_transform(
         .map(|value| Complex64::new(value.re, value.im))
         .collect();
 
-    let mut chir_re = DVector::from_iterator(chir_raw.len(), chir_raw.iter().map(|value| value.re));
-    let mut chir_im = DVector::from_iterator(chir_raw.len(), chir_raw.iter().map(|value| value.im));
+    // Keep full chi(R) for plotting/output while using an R-windowed copy for fitting residuals.
+    let chir_re = DVector::from_iterator(chir_raw.len(), chir_raw.iter().map(|value| value.re));
+    let chir_im = DVector::from_iterator(chir_raw.len(), chir_raw.iter().map(|value| value.im));
+    let mut chir_fit_re = chir_re.clone();
+    let mut chir_fit_im = chir_im.clone();
 
     #[cfg(feature = "ndarray-compat")]
     let r_window = {
@@ -179,17 +182,23 @@ pub fn apply_r_transform(
         reason: format!("failed to create R-window: {error}"),
     })?;
 
-    for i in 0..chir_re.len() {
-        chir_re[i] *= r_window[i];
-        chir_im[i] *= r_window[i];
+    for i in 0..chir_fit_re.len() {
+        chir_fit_re[i] *= r_window[i];
+        chir_fit_im[i] *= r_window[i];
     }
 
-    let chir = chir_re
+    let chir = chir_fit_re
         .iter()
-        .zip(chir_im.iter())
+        .zip(chir_fit_im.iter())
         .map(|(re, im)| Complex64::new(*re, *im))
         .collect::<Vec<_>>();
-    let chir_mag = DVector::from_iterator(chir.len(), chir.iter().map(|value| value.norm()));
+    let chir_mag = DVector::from_iterator(
+        chir_re.len(),
+        chir_re
+            .iter()
+            .zip(chir_im.iter())
+            .map(|(re, im)| (re * re + im * im).sqrt()),
+    );
 
     let mask_indices = r
         .iter()
@@ -290,6 +299,35 @@ mod tests {
         let out = apply_r_transform(&k, &chi, &transform).unwrap();
         assert!(!out.mask_indices.is_empty());
         assert_eq!(out.chir.len(), out.r.len());
+    }
+
+    #[test]
+    fn test_apply_r_transform_preserves_full_chir_for_plotting() {
+        let k = DVector::from_iterator(400, (0..400).map(|i| 0.05 * (i as f64 + 1.0)));
+        let chi = k.map(|kv| (2.0 * kv).sin() * (-0.01 * kv * kv).exp());
+
+        let transform = FeffFitTransform {
+            kmin: 2.0,
+            kmax: 14.0,
+            window: FTWindow::Hanning,
+            rmin: 1.0,
+            rmax: 3.0,
+            ..FeffFitTransform::default()
+        };
+
+        let out = apply_r_transform(&k, &chi, &transform).unwrap();
+        let outside_max = out
+            .r
+            .iter()
+            .enumerate()
+            .filter(|(_, rv)| **rv > transform.rmax + 0.2)
+            .map(|(idx, _)| out.chir_mag[idx].abs())
+            .fold(0.0_f64, f64::max);
+
+        assert!(
+            outside_max > 1.0e-6,
+            "full chi(R) should be retained outside fit range for plotting"
+        );
     }
 
     #[test]

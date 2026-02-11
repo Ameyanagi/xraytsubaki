@@ -219,7 +219,7 @@ pub(crate) fn extract_fit_panel_data(
             let marker_ylim = symmetric_ylim(&traces).or(base_ylim);
             if panel.window_box {
                 let marker_ylim = marker_ylim
-                    .and_then(|(ymin, ymax)| pad_ylim(ymin, ymax, 0.03))
+                    .and_then(|(ymin, ymax)| pad_ylim(ymin, ymax, 0.08))
                     .or(marker_ylim);
                 if let (Some((kmin, kmax)), Some((ymin, ymax))) = (view_k_range(&view), marker_ylim)
                 {
@@ -231,7 +231,12 @@ pub(crate) fn extract_fit_panel_data(
                 }
             }
 
-            let final_ylim = symmetric_ylim(&traces).or(marker_ylim);
+            let final_ylim = symmetric_ylim(&traces)
+                .map(|(ymin, ymax)| {
+                    let limit = ymin.abs().max(ymax.abs()) * 1.03;
+                    (-limit, limit)
+                })
+                .or(marker_ylim);
 
             let mut panel_data = PanelRenderData::new(
                 "k-space fit",
@@ -342,7 +347,7 @@ pub(crate) fn extract_fit_panel_data(
 
             if panel.window_box {
                 window_box_ylim =
-                    y_extent(&traces).and_then(|(ymin, ymax)| pad_ylim(ymin, ymax, 0.03));
+                    y_extent(&traces).and_then(|(ymin, ymax)| pad_ylim(ymin, ymax, 0.08));
                 if let (Some((mut rmin, mut rmax)), Some((ymin, ymax))) =
                     (view_r_range(&view), window_box_ylim)
                 {
@@ -410,7 +415,9 @@ mod tests {
         assert!(data.ylabel.contains("k^(3)") || data.ylabel.contains("k^3"));
         assert!(data.ylabel.contains("angstrom^(-3)"));
         assert!((data.traces[0].y[1] - 8.0).abs() < 1.0e-12);
-        assert_eq!(data.ylim, Some((-8.0, 8.0)));
+        let (ymin, ymax) = data.ylim.expect("k panel must set y limits");
+        assert!((ymin + ymax).abs() < 1.0e-12);
+        assert!(ymax > 8.0);
     }
 
     #[test]

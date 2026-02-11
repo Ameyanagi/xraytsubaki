@@ -42,6 +42,19 @@ at your option.
 cargo run -p xraytsubaki --features plotting --example plot_demo
 ```
 
+`plot_demo` output path:
+- `crates/xraytsubaki/target/plot_demo`
+
+Current demo inputs:
+- FEFF calculation materials (`feff.inp`): `Co`, `FeO_withPb`, `MnO2`, `ZnSe`
+- Fit materials (`FeffFit::fit()`): `Cu`, `ZnSe`
+
+Regenerate the Cu/ZnSe XrayLarch fit references:
+
+```bash
+uv run --with xraylarch python crates/xraytsubaki/scripts/generate_larch_fit_references.py
+```
+
 Plotting APIs use a mutable entrypoint (`plot(&mut self)`) so missing intermediates can be auto-computed and cached (`normalize`, `calc_background`, `fft`) when panel selection requires them.
 
 Current defaults:

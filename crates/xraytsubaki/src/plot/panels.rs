@@ -12,8 +12,8 @@ fn trace_style(trace: &TraceData) -> Option<LineStyle> {
         return None;
     }
     if is_window_range_marker(&trace.label, trace.legend_group.as_deref()) {
-        // Make marker dashes clearly visible even at high DPI.
-        return Some(LineStyle::Dotted.scaled(3.0));
+        // Keep long dash/gap spacing so range markers stay visibly dashed at high DPI.
+        return Some(LineStyle::Dashed.scaled(4.0));
     }
     Some(LineStyle::Dashed)
 }
@@ -62,7 +62,7 @@ fn append_trace_group(plot: Plot, group_label: String, traces: Vec<TraceData>) -
             }
             if first.dashed {
                 let style = if is_window_group {
-                    LineStyle::Dotted.scaled(3.0)
+                    LineStyle::Dashed.scaled(4.0)
                 } else {
                     LineStyle::Dashed
                 };

@@ -182,7 +182,7 @@ pub(crate) fn extract_spectrum_panel_data(
 
             if panel.window_box {
                 let base_marker_ylim = symmetric_ylim(&traces).unwrap_or((-max_abs, max_abs));
-                let marker_ylim = pad_ylim(base_marker_ylim.0, base_marker_ylim.1, 0.03)
+                let marker_ylim = pad_ylim(base_marker_ylim.0, base_marker_ylim.1, 0.08)
                     .unwrap_or(base_marker_ylim);
                 if let Some((kmin, kmax)) = spectrum_window_krange(spectrum, &k) {
                     if let Some(marker_traces) =
@@ -193,7 +193,10 @@ pub(crate) fn extract_spectrum_panel_data(
                 }
             }
 
-            let ylim = symmetric_ylim(&traces);
+            let ylim = symmetric_ylim(&traces).map(|(ymin, ymax)| {
+                let limit = ymin.abs().max(ymax.abs()) * 1.03;
+                (-limit, limit)
+            });
             let mut data = PanelRenderData::new(
                 PanelKind::K.title(),
                 PanelKind::K.xlabel(),

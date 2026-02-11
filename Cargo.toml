@@ -6,6 +6,7 @@ resolver = "2"
 members = [
   "crates/*",
   "py-xraytsubaki",
+  "xraytsubaki-app/src-tauri",
   # "examples/*",
 ]
 default-members = ["crates/*"]

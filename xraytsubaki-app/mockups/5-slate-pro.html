@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=1280, initial-scale=1.0">
+    <title>xraytsubaki - Slate Pro (Dual Workspace)</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-size: 13px;
+            color: #e2e8f0;
+            background: #0f172a;
+            width: 1280px;
+            height: 800px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Top Toolbar */
+        .toolbar {
+            height: 40px;
+            background: #1e293b;
+            border-bottom: 1px solid #334155;
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            gap: 12px;
+        }
+
+        .brand {
+            font-weight: 600;
+            color: #3b82f6;
+            margin-right: 8px;
+        }
+
+        .toolbar-btn {
+            background: #334155;
+            border: 1px solid #475569;
+            color: #e2e8f0;
+            padding: 4px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .toolbar-btn:hover {
+            background: #475569;
+        }
+
+        .toolbar-btn.primary {
+            background: #3b82f6;
+            border-color: #3b82f6;
+        }
+
+        .toolbar-btn.primary:hover {
+            background: #2563eb;
+        }
+
+        .toolbar-separator {
+            width: 1px;
+            height: 20px;
+            background: #334155;
+        }
+
+        .spacer {
+            flex: 1;
+        }
+
+        .toggle-group {
+            display: flex;
+            gap: 0;
+            border: 1px solid #334155;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .toggle-btn {
+            background: #1e293b;
+            border: none;
+            color: #94a3b8;
+            padding: 4px 12px;
+            cursor: pointer;
+            font-size: 11px;
+            border-right: 1px solid #334155;
+        }
+
+        .toggle-btn:last-child {
+            border-right: none;
+        }
+
+        .toggle-btn.active {
+            background: #3b82f6;
+            color: #ffffff;
+        }
+
+        .toggle-btn:hover:not(.active) {
+            background: #334155;
+        }
+
+        /* Main Content Area */
+        .main-content {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* Left Drawer - Spectra */
+        .left-drawer {
+            width: 180px;
+            background: #1e293b;
+            border-right: 1px solid #334155;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .drawer-header {
+            height: 32px;
+            padding: 0 8px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid #334155;
+            font-size: 11px;
+            font-weight: 600;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .collapse-btn {
+            background: none;
+            border: none;
+            color: #64748b;
+            cursor: pointer;
+            font-size: 14px;
+            padding: 2px;
+        }
+
+        .collapse-btn:hover {
+            color: #94a3b8;
+        }
+
+        .spectrum-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 4px;
+        }
+
+        .spectrum-item {
+            display: flex;
+            align-items: center;
+            padding: 6px 8px;
+            border-radius: 3px;
+            margin-bottom: 2px;
+            cursor: pointer;
+            gap: 6px;
+        }
+
+        .spectrum-item:hover {
+            background: rgba(59, 130, 246, 0.1);
+        }
+
+        .spectrum-item.active {
+            background: rgba(59, 130, 246, 0.15);
+        }
+
+        .spectrum-checkbox {
+            width: 14px;
+            height: 14px;
+            cursor: pointer;
+        }
+
+        .spectrum-name {
+            flex: 1;
+            font-size: 12px;
+            color: #e2e8f0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .status-dots {
+            display: flex;
+            gap: 3px;
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+        }
+
+        .status-dot.green { background: #22d3ee; }
+        .status-dot.blue { background: #3b82f6; }
+        .status-dot.amber { background: #f59e0b; }
+        .status-dot.purple { background: #a78bfa; }
+
+        /* Center Area - Dual Plots */
+        .center-area {
+            flex: 1;
+            display: flex;
+            background: #0f172a;
+        }
+
+        .plot-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid #334155;
+        }
+
+        .plot-panel:last-child {
+            border-right: none;
+        }
+
+        .plot-header {
+            height: 32px;
+            padding: 0 12px;
+            display: flex;
+            align-items: center;
+            border-bottom: 1px solid #334155;
+            background: #1e293b;
+        }
+
+        .plot-mode-selector {
+            background: #0f172a;
+            border: 1px solid #334155;
+            color: #e2e8f0;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            cursor: pointer;
+        }
+
+        .plot-mode-selector:hover {
+            border-color: #3b82f6;
+        }
+
+        .plot-area {
+            flex: 1;
+            padding: 16px;
+            position: relative;
+        }
+
+        .plot-svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Right Drawer - Parameters */
+        .right-drawer {
+            width: 220px;
+            background: #1e293b;
+            border-left: 1px solid #334155;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .params-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+        }
+
+        .param-section {
+            margin-bottom: 12px;
+        }
+
+        .param-section-header {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 0;
+            cursor: pointer;
+            font-size: 12px;
+            color: #94a3b8;
+            font-weight: 500;
+        }
+
+        .param-section-header:hover {
+            color: #e2e8f0;
+        }
+
+        .param-section-icon {
+            font-size: 10px;
+            width: 12px;
+        }
+
+        .param-section-content {
+            padding: 8px 0 0 18px;
+        }
+
+        .param-group {
+            margin-bottom: 12px;
+        }
+
+        .param-label {
+            display: block;
+            font-size: 11px;
+            color: #94a3b8;
+            margin-bottom: 4px;
+        }
+
+        .param-input {
+            width: 100%;
+            background: #0f172a;
+            border: 1px solid #334155;
+            color: #e2e8f0;
+            padding: 4px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+
+        .param-input:focus {
+            outline: none;
+            border-color: #3b82f6;
+        }
+
+        .param-checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+        }
+
+        /* Bottom Panel */
+        .bottom-panel {
+            height: 100px;
+            background: #1e293b;
+            border-top: 1px solid #334155;
+            display: flex;
+        }
+
+        .log-panel {
+            flex: 0 0 65%;
+            border-right: 1px solid #334155;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .fit-results-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .panel-header {
+            height: 24px;
+            padding: 0 8px;
+            display: flex;
+            align-items: center;
+            border-bottom: 1px solid #334155;
+            font-size: 11px;
+            font-weight: 600;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .panel-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 6px 8px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 11px;
+        }
+
+        .log-entry {
+            margin-bottom: 2px;
+            white-space: nowrap;
+        }
+
+        .log-time {
+            color: #64748b;
+        }
+
+        .log-level {
+            font-weight: 600;
+            margin: 0 6px;
+        }
+
+        .log-level.info {
+            color: #3b82f6;
+        }
+
+        .log-level.warn {
+            color: #f59e0b;
+        }
+
+        .log-message {
+            color: #cbd5e1;
+        }
+
+        /* Status Bar */
+        .status-bar {
+            height: 24px;
+            background: #1e293b;
+            border-top: 1px solid #334155;
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            font-size: 11px;
+            color: #64748b;
+            gap: 12px;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .status-separator {
+            color: #334155;
+        }
+
+        /* Scrollbar Styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+    </style>
+</head>
+<body>
+    <!-- Top Toolbar -->
+    <div class="toolbar">
+        <div class="brand">xraytsubaki</div>
+        <button class="toolbar-btn">Open</button>
+        <button class="toolbar-btn">Save</button>
+        <div class="toolbar-separator"></div>
+        <button class="toolbar-btn">Process All</button>
+        <button class="toolbar-btn primary">Fit</button>
+        <div class="toolbar-separator"></div>
+        <button class="toolbar-btn">Export</button>
+        <div class="spacer"></div>
+        <div class="toggle-group">
+            <button class="toggle-btn">Single</button>
+            <button class="toggle-btn active">Dual</button>
+        </div>
+        <div class="toggle-group">
+            <button class="toggle-btn active">Interactive</button>
+            <button class="toggle-btn">Core</button>
+        </div>
+    </div>
+
+    <!-- Main Content Area -->
+    <div class="main-content">
+        <!-- Left Drawer - Spectra -->
+        <div class="left-drawer">
+            <div class="drawer-header">
+                <span>Spectra</span>
+                <button class="collapse-btn">«</button>
+            </div>
+            <div class="spectrum-list">
+                <div class="spectrum-item active">
+                    <input type="checkbox" class="spectrum-checkbox" checked>
+                    <span class="spectrum-name">Cu_foil_001</span>
+                    <div class="status-dots">
+                        <div class="status-dot green"></div>
+                        <div class="status-dot blue"></div>
+                        <div class="status-dot amber"></div>
+                        <div class="status-dot purple"></div>
+                    </div>
+                </div>
+                <div class="spectrum-item">
+                    <input type="checkbox" class="spectrum-checkbox" checked>
+                    <span class="spectrum-name">Cu_foil_002</span>
+                    <div class="status-dots">
+                        <div class="status-dot green"></div>
+                        <div class="status-dot blue"></div>
+                        <div class="status-dot amber"></div>
+                    </div>
+                </div>
+                <div class="spectrum-item">
+                    <input type="checkbox" class="spectrum-checkbox">
+                    <span class="spectrum-name">Cu_foil_003</span>
+                    <div class="status-dots">
+                        <div class="status-dot green"></div>
+                        <div class="status-dot blue"></div>
+                    </div>
+                </div>
+                <div class="spectrum-item">
+                    <input type="checkbox" class="spectrum-checkbox">
+                    <span class="spectrum-name">Cu_foil_004</span>
+                    <div class="status-dots">
+                        <div class="status-dot green"></div>
+                    </div>
+                </div>
+                <div class="spectrum-item">
+                    <input type="checkbox" class="spectrum-checkbox">
+                    <span class="spectrum-name">Fe2O3_001</span>
+                    <div class="status-dots">
+                        <div class="status-dot green"></div>
+                        <div class="status-dot blue"></div>
+                        <div class="status-dot amber"></div>
+                        <div class="status-dot purple"></div>
+                    </div>
+                </div>
+                <div class="spectrum-item">
+                    <input type="checkbox" class="spectrum-checkbox">
+                    <span class="spectrum-name">Fe2O3_002</span>
+                    <div class="status-dots">
+                        <div class="status-dot green"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center Area - Dual Plots -->
+        <div class="center-area">
+            <!-- Left Plot Panel -->
+            <div class="plot-panel">
+                <div class="plot-header">
+                    <select class="plot-mode-selector">
+                        <option selected>μ(E)</option>
+                        <option>χ(k)</option>
+                        <option>χ(R)</option>
+                    </select>
+                </div>
+                <div class="plot-area">
+                    <svg class="plot-svg" viewBox="0 0 500 400" preserveAspectRatio="none">
+                        <!-- Grid -->
+                        <defs>
+                            <pattern id="grid-left" width="50" height="40" patternUnits="userSpaceOnUse">
+                                <path d="M 50 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+                            </pattern>
+                        </defs>
+                        <rect width="500" height="400" fill="#0f172a"/>
+                        <rect width="500" height="400" fill="url(#grid-left)"/>
+
+                        <!-- Axes -->
+                        <line x1="40" y1="360" x2="480" y2="360" stroke="#334155" stroke-width="1"/>
+                        <line x1="40" y1="20" x2="40" y2="360" stroke="#334155" stroke-width="1"/>
+
+                        <!-- Y-axis label -->
+                        <text x="15" y="190" fill="#94a3b8" font-size="11" text-anchor="middle" transform="rotate(-90, 15, 190)">μ(E)</text>
+
+                        <!-- X-axis label -->
+                        <text x="260" y="385" fill="#94a3b8" font-size="11" text-anchor="middle">Energy (eV)</text>
+
+                        <!-- Tick marks and labels -->
+                        <text x="100" y="375" fill="#64748b" font-size="9" text-anchor="middle">8960</text>
+                        <text x="200" y="375" fill="#64748b" font-size="9" text-anchor="middle">8980</text>
+                        <text x="300" y="375" fill="#64748b" font-size="9" text-anchor="middle">9000</text>
+                        <text x="400" y="375" fill="#64748b" font-size="9" text-anchor="middle">9020</text>
+
+                        <text x="35" y="310" fill="#64748b" font-size="9" text-anchor="end">0.5</text>
+                        <text x="35" y="230" fill="#64748b" font-size="9" text-anchor="end">1.0</text>
+                        <text x="35" y="150" fill="#64748b" font-size="9" text-anchor="end">1.5</text>
+                        <text x="35" y="70" fill="#64748b" font-size="9" text-anchor="end">2.0</text>
+
+                        <!-- XANES μ(E) curve - Pre-edge flat, sharp edge at ~200px, XANES oscillations -->
+                        <path d="M 40,340 L 80,338 L 120,336 L 160,334 L 190,330 L 200,310 L 205,260 L 210,180 L 215,120 L 220,90 L 230,75 L 240,72 L 250,78 L 260,90 L 270,98 L 280,100 L 290,96 L 300,88 L 310,82 L 320,80 L 330,82 L 340,86 L 350,92 L 360,96 L 370,98 L 380,98 L 390,96 L 400,94 L 410,92 L 420,91 L 430,90 L 440,89 L 450,88 L 460,88 L 470,87 L 480,87"
+                              fill="none" stroke="#3b82f6" stroke-width="2" vector-effect="non-scaling-stroke"/>
+
+                        <!-- Secondary trace at 35% opacity -->
+                        <path d="M 40,345 L 80,343 L 120,341 L 160,339 L 190,335 L 200,315 L 205,265 L 210,185 L 215,125 L 220,95 L 230,80 L 240,77 L 250,83 L 260,95 L 270,103 L 280,105 L 290,101 L 300,93 L 310,87 L 320,85 L 330,87 L 340,91 L 350,97 L 360,101 L 370,103 L 380,103 L 390,101 L 400,99 L 410,97 L 420,96 L 430,95 L 440,94 L 450,93 L 460,93 L 470,92 L 480,92"
+                              fill="none" stroke="#3b82f6" stroke-width="2" opacity="0.35" vector-effect="non-scaling-stroke"/>
+                    </svg>
+                </div>
+            </div>
+
+            <!-- Right Plot Panel -->
+            <div class="plot-panel">
+                <div class="plot-header">
+                    <select class="plot-mode-selector">
+                        <option>μ(E)</option>
+                        <option>χ(k)</option>
+                        <option selected>χ(R)</option>
+                    </select>
+                </div>
+                <div class="plot-area">
+                    <svg class="plot-svg" viewBox="0 0 500 400" preserveAspectRatio="none">
+                        <!-- Grid -->
+                        <defs>
+                            <pattern id="grid-right" width="50" height="40" patternUnits="userSpaceOnUse">
+                                <path d="M 50 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+                            </pattern>
+                        </defs>
+                        <rect width="500" height="400" fill="#0f172a"/>
+                        <rect width="500" height="400" fill="url(#grid-right)"/>
+
+                        <!-- Axes -->
+                        <line x1="40" y1="360" x2="480" y2="360" stroke="#334155" stroke-width="1"/>
+                        <line x1="40" y1="20" x2="40" y2="360" stroke="#334155" stroke-width="1"/>
+
+                        <!-- Y-axis label -->
+                        <text x="15" y="190" fill="#94a3b8" font-size="11" text-anchor="middle" transform="rotate(-90, 15, 190)">|χ(R)| (Å⁻³)</text>
+
+                        <!-- X-axis label -->
+                        <text x="260" y="385" fill="#94a3b8" font-size="11" text-anchor="middle">R (Å)</text>
+
+                        <!-- Tick marks and labels -->
+                        <text x="113" y="375" fill="#64748b" font-size="9" text-anchor="middle">1</text>
+                        <text x="186" y="375" fill="#64748b" font-size="9" text-anchor="middle">2</text>
+                        <text x="260" y="375" fill="#64748b" font-size="9" text-anchor="middle">3</text>
+                        <text x="333" y="375" fill="#64748b" font-size="9" text-anchor="middle">4</text>
+                        <text x="407" y="375" fill="#64748b" font-size="9" text-anchor="middle">5</text>
+                        <text x="480" y="375" fill="#64748b" font-size="9" text-anchor="middle">6</text>
+
+                        <text x="35" y="310" fill="#64748b" font-size="9" text-anchor="end">2</text>
+                        <text x="35" y="230" fill="#64748b" font-size="9" text-anchor="end">4</text>
+                        <text x="35" y="150" fill="#64748b" font-size="9" text-anchor="end">6</text>
+                        <text x="35" y="70" fill="#64748b" font-size="9" text-anchor="end">8</text>
+
+                        <!-- χ(R) curve - Fourier Transform magnitude -->
+                        <!-- Starts near zero, small features at R=1, large peak at R=2-2.5, smaller peak at R=3-3.5, decaying oscillations to R=6 -->
+                        <path d="M 40,360
+                                 L 50,358 L 60,355 L 70,350 L 80,348 L 90,352 L 100,358 L 110,360
+                                 L 120,356 L 130,345 L 140,320 L 150,270 L 160,200 L 170,130 L 180,80 L 190,60 L 200,70 L 210,110 L 220,170 L 230,240 L 240,290 L 250,320 L 260,340 L 270,350 L 280,355
+                                 L 290,352 L 300,340 L 310,315 L 320,280 L 330,250 L 340,240 L 350,250 L 360,275 L 370,300 L 380,318 L 390,328
+                                 L 400,330 L 410,328 L 420,330 L 430,335 L 440,342 L 450,348 L 460,352 L 470,355 L 480,357"
+                              fill="none" stroke="#22d3ee" stroke-width="2" vector-effect="non-scaling-stroke"/>
+
+                        <!-- Secondary trace at 35% opacity -->
+                        <path d="M 40,360
+                                 L 50,359 L 60,357 L 70,353 L 80,351 L 90,354 L 100,359 L 110,360
+                                 L 120,357 L 130,347 L 140,323 L 150,275 L 160,207 L 170,137 L 180,87 L 190,67 L 200,77 L 210,117 L 220,177 L 230,245 L 240,293 L 250,323 L 260,342 L 270,352 L 280,356
+                                 L 290,353 L 300,342 L 310,318 L 320,284 L 330,254 L 340,244 L 350,254 L 360,278 L 370,303 L 380,320 L 390,330
+                                 L 400,332 L 410,330 L 420,332 L 430,337 L 440,344 L 450,350 L 460,354 L 470,357 L 480,358"
+                              fill="none" stroke="#22d3ee" stroke-width="2" opacity="0.35" vector-effect="non-scaling-stroke"/>
+                    </svg>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Drawer - Parameters -->
+        <div class="right-drawer">
+            <div class="drawer-header">
+                <span>Parameters</span>
+                <button class="collapse-btn">»</button>
+            </div>
+            <div class="params-content">
+                <!-- E0 Section (collapsed) -->
+                <div class="param-section">
+                    <div class="param-section-header">
+                        <span class="param-section-icon">▸</span>
+                        <span>E0</span>
+                    </div>
+                </div>
+
+                <!-- Normalization Section (expanded) -->
+                <div class="param-section">
+                    <div class="param-section-header">
+                        <span class="param-section-icon">▾</span>
+                        <span>Normalization</span>
+                    </div>
+                    <div class="param-section-content">
+                        <div class="param-group">
+                            <label class="param-label">Pre-edge Range (eV)</label>
+                            <input type="text" class="param-input" value="-150, -30">
+                        </div>
+                        <div class="param-group">
+                            <label class="param-label">Post-edge Range (eV)</label>
+                            <input type="text" class="param-input" value="50, 300">
+                        </div>
+                        <div class="param-group">
+                            <label class="param-label">Normalization Order</label>
+                            <input type="number" class="param-input" value="2">
+                        </div>
+                        <div class="param-group">
+                            <div class="param-checkbox-group">
+                                <input type="checkbox" id="flatten" checked>
+                                <label for="flatten">Flatten</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Background Section (collapsed) -->
+                <div class="param-section">
+                    <div class="param-section-header">
+                        <span class="param-section-icon">▸</span>
+                        <span>Background</span>
+                    </div>
+                </div>
+
+                <!-- FFT Section (collapsed) -->
+                <div class="param-section">
+                    <div class="param-section-header">
+                        <span class="param-section-icon">▸</span>
+                        <span>FFT</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom Panel -->
+    <div class="bottom-panel">
+        <!-- Log Panel -->
+        <div class="log-panel">
+            <div class="panel-header">Log</div>
+            <div class="panel-content">
+                <div class="log-entry">
+                    <span class="log-time">14:31:42</span>
+                    <span class="log-level info">INFO</span>
+                    <span class="log-message">Loaded 6 spectra from /data/Cu_K/</span>
+                </div>
+                <div class="log-entry">
+                    <span class="log-time">14:31:43</span>
+                    <span class="log-level info">INFO</span>
+                    <span class="log-message">E0 found: Cu_foil_001 → 8979.0 eV</span>
+                </div>
+                <div class="log-entry">
+                    <span class="log-time">14:31:58</span>
+                    <span class="log-level warn">WARN</span>
+                    <span class="log-message">Cu_foil_004: edge step small (0.003)</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Fit Results Panel -->
+        <div class="fit-results-panel">
+            <div class="panel-header">Fit Results</div>
+            <div class="panel-content">
+            </div>
+        </div>
+    </div>
+
+    <!-- Status Bar -->
+    <div class="status-bar">
+        <span class="status-item">6 spectra loaded</span>
+        <span class="status-separator">|</span>
+        <span class="status-item">2 selected</span>
+        <span class="status-separator">|</span>
+        <span class="status-item">View: Dual</span>
+        <span class="status-separator">|</span>
+        <span class="status-item">Plot L: μ(E)</span>
+        <span class="status-separator">|</span>
+        <span class="status-item">Plot R: χ(R)</span>
+        <span class="status-separator">|</span>
+        <span class="status-item">Render: Interactive</span>
+    </div>
+</body>
+</html>

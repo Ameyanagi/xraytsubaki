@@ -1,0 +1,29 @@
+[package]
+name = "xraytsubaki-app"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+name = "xraytsubaki_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "xraytsubaki-app"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+nalgebra.workspace = true
+uuid = { version = "1", features = ["v4"] }
+
+xraytsubaki = { workspace = true, features = ["plotting"] }

@@ -1,0 +1,77 @@
+@import "tailwindcss";
+@import "rc-dock/dist/rc-dock.css";
+
+:root {
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    system-ui,
+    sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #e2e8f0;
+  background-color: #0f172a;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Prevent text selection on UI chrome (not in inputs/code areas) */
+button,
+label,
+[role="tab"] {
+  user-select: none;
+}
+
+/* rc-dock dark theme overrides */
+.dock-layout {
+  --color-bg: #1e293b;
+  --color-border: #334155;
+}
+
+.dock-layout .dock-panel {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+.dock-layout .dock-tab {
+  background: #1e293b;
+  color: #94a3b8;
+  border-color: #334155;
+}
+
+.dock-layout .dock-tab-active,
+.dock-layout .dock-tab-active:hover {
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+.dock-layout .dock-tab-bar {
+  background: #1e293b;
+}
+
+.dock-layout .dock-ink-bar {
+  background: #3b82f6;
+}
+
+.dock-layout .dock-divider {
+  background: #334155;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}

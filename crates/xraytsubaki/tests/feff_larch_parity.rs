@@ -146,9 +146,7 @@ fn assert_reference_finite(reference: &LarchDatasetRef, dataset: &str) {
 
     for name in ["amp", "de0", "sig2", "dr"] {
         let param = reference.params.get(name).unwrap_or_else(|| {
-            panic!(
-                "missing reference parameter {dataset}.params.{name}; regenerate fixtures"
-            )
+            panic!("missing reference parameter {dataset}.params.{name}; regenerate fixtures")
         });
         assert!(
             param.value.is_finite(),
@@ -240,7 +238,11 @@ fn build_znse_fit(reference: &LarchDatasetRef) -> FeffFitResult {
         .unwrap()
 }
 
-fn assert_fit_matches_reference(result: &FeffFitResult, reference: &LarchDatasetRef, dataset: &str) {
+fn assert_fit_matches_reference(
+    result: &FeffFitResult,
+    reference: &LarchDatasetRef,
+    dataset: &str,
+) {
     if std::env::var("XRAYTSUBAKI_PARITY_DEBUG").is_ok() {
         eprintln!(
             "{dataset}: stats actual chi2={} redchi={} rfactor={} n_idp={} n_data={} | expected chi2={} redchi={} rfactor={} n_idp={}",
@@ -305,9 +307,7 @@ fn assert_fit_matches_reference(result: &FeffFitResult, reference: &LarchDataset
         );
 
         let stderr = actual.stderr.unwrap_or_else(|| {
-            panic!(
-                "missing fitted stderr for {dataset}.{name}; covariance scaling failed"
-            )
+            panic!("missing fitted stderr for {dataset}.{name}; covariance scaling failed")
         });
         assert_near(
             stderr,
@@ -343,7 +343,10 @@ fn znse_path2chi_curve_matches_larch_reference_curve() {
     let mut vars = FitVariables::new();
     vars.insert("amp", FitVariable::new(ref_value(reference, "amp"), false));
     vars.insert("de0", FitVariable::new(ref_value(reference, "de0"), false));
-    vars.insert("sig2", FitVariable::new(ref_value(reference, "sig2"), false));
+    vars.insert(
+        "sig2",
+        FitVariable::new(ref_value(reference, "sig2"), false),
+    );
     vars.insert("dr", FitVariable::new(ref_value(reference, "dr"), false));
     let rust_model = path2chi(&path, &vars, &k).unwrap();
 

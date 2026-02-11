@@ -411,13 +411,12 @@ impl FeffFitMultiProblem {
             .zip(self.data_transforms.iter())
             .zip(models.into_iter())
         {
-            let ds_residual =
-                residual_in_r_space(
-                    data_transform,
-                    &model.model_transform,
-                    &dataset.transform,
-                    dataset.epsilon_k,
-                )?;
+            let ds_residual = residual_in_r_space(
+                data_transform,
+                &model.model_transform,
+                &dataset.transform,
+                dataset.epsilon_k,
+            )?;
             residual.extend(ds_residual.iter().copied());
         }
         if residual.is_empty() {
@@ -445,13 +444,12 @@ impl FeffFitMultiProblem {
                 .zip(self.data_transforms.iter())
                 .zip(models.into_iter())
             {
-                let ds_residual =
-                    residual_in_r_space(
-                        data_transform,
-                        &model.model_transform,
-                        &dataset.transform,
-                        dataset.epsilon_k,
-                    )?;
+                let ds_residual = residual_in_r_space(
+                    data_transform,
+                    &model.model_transform,
+                    &dataset.transform,
+                    dataset.epsilon_k,
+                )?;
                 residual.extend(ds_residual.iter().copied());
             }
             Ok::<_, FittingError>(DVector::from_vec(residual))

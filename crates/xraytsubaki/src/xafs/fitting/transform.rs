@@ -3,6 +3,8 @@ use std::cmp::Ordering;
 use nalgebra::DVector;
 use num_complex::Complex64;
 
+#[cfg(feature = "ndarray-compat")]
+use crate::xafs::nshare::ToNdarray1;
 use crate::xafs::xrayfft::XrayFFTF;
 
 use super::errors::FittingError;
@@ -11,6 +13,7 @@ use super::types::{FeffFitTransform, FitSpace};
 #[derive(Debug, Clone)]
 pub struct TransformOutput {
     pub r: DVector<f64>,
+    pub kwin: DVector<f64>,
     pub chir: Vec<Complex64>,
     pub chir_re: DVector<f64>,
     pub chir_im: DVector<f64>,
@@ -85,16 +88,50 @@ pub fn apply_r_transform(
     fft.nfft = Some(transform.nfft);
     fft.kstep = transform.kstep;
 
-    fft.xftf(k, chi)
-        .map_err(|error| FittingError::InvalidTransform {
-            reason: error.to_string(),
+    #[cfg(feature = "ndarray-compat")]
+    let fft_result = {
+        let k_arr = k.clone().into_ndarray1();
+        let chi_arr = chi.clone().into_ndarray1();
+        fft.xftf(k_arr.view(), chi_arr.view())
+    };
+
+    #[cfg(not(feature = "ndarray-compat"))]
+    let fft_result = fft.xftf(k, chi);
+
+    fft_result.map_err(|error| FittingError::InvalidTransform {
+        reason: error.to_string(),
+    })?;
+
+    #[cfg(feature = "ndarray-compat")]
+    let r = fft
+        .get_r()
+        .map(|array| DVector::from_vec(array.to_vec()))
+        .ok_or_else(|| FittingError::InvalidTransform {
+            reason: "missing r grid after forward transform".to_string(),
         })?;
 
+    #[cfg(not(feature = "ndarray-compat"))]
     let r = fft
         .get_r()
         .cloned()
         .ok_or_else(|| FittingError::InvalidTransform {
             reason: "missing r grid after forward transform".to_string(),
+        })?;
+
+    #[cfg(feature = "ndarray-compat")]
+    let kwin = fft
+        .get_kwin()
+        .map(|array| DVector::from_vec(array.to_vec()))
+        .ok_or_else(|| FittingError::InvalidTransform {
+            reason: "missing k-window after forward transform".to_string(),
+        })?;
+
+    #[cfg(not(feature = "ndarray-compat"))]
+    let kwin = fft
+        .get_kwin()
+        .cloned()
+        .ok_or_else(|| FittingError::InvalidTransform {
+            reason: "missing k-window after forward transform".to_string(),
         })?;
 
     let chir_dft = fft
@@ -112,6 +149,24 @@ pub fn apply_r_transform(
     let mut chir_re = DVector::from_iterator(chir_raw.len(), chir_raw.iter().map(|value| value.re));
     let mut chir_im = DVector::from_iterator(chir_raw.len(), chir_raw.iter().map(|value| value.im));
 
+    #[cfg(feature = "ndarray-compat")]
+    let r_window = {
+        let r_arr = r.clone().into_ndarray1();
+        let window = crate::xafs::xafsutils::ftwindow(
+            &r_arr,
+            Some(transform.rmin),
+            Some(transform.rmax),
+            Some(transform.dr),
+            transform.dr2,
+            Some(transform.rwindow),
+        )
+        .map_err(|error| FittingError::InvalidTransform {
+            reason: format!("failed to create R-window: {error}"),
+        })?;
+        DVector::from_vec(window.to_vec())
+    };
+
+    #[cfg(not(feature = "ndarray-compat"))]
     let r_window = crate::xafs::xafsutils::ftwindow(
         &r,
         Some(transform.rmin),
@@ -150,6 +205,7 @@ pub fn apply_r_transform(
 
     Ok(TransformOutput {
         r,
+        kwin,
         chir,
         chir_re,
         chir_im,

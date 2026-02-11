@@ -36,3 +36,90 @@ See `crates/xraytsubaki/doc/feff-fitting-mvp.md` for details and FEFF10 follow-u
 ## Licensing
 
 (To be completed...)
+
+## Plotting (Feature-Gated)
+
+Core plotting is available behind the `plotting` feature using `ruviz`.
+
+```bash
+cargo run -p xraytsubaki --features plotting --example plot_demo
+```
+
+### Important behavior
+
+- Plotting APIs are available through `PlotXAS` with a mutable entrypoint: `plot(&mut self)`.
+- Plot text rendering uses `typst(true)` by default for scientific notation-friendly labels/ticks.
+- Plotting auto-computes missing intermediates when required:
+  - `mu()` may call `normalize()` and renders flattened `mu(E)` by default
+  - `norm()` may call `normalize()`
+  - `k()` may call `calc_background()`
+  - `r()` may call `calc_background()` and `fft()`
+- `k()` panels use symmetric y-limits (`-y_lim..y_lim`) and y-axis units derived from `kweight`.
+- `FeffFitResult::plot().k()` defaults to fit/dataset `kweight` unless `.kweight(...)` overrides it.
+- `r()` panels default to `xlim(0.0, 6.0)`.
+- `r()` defaults to magnitude traces. Calling `.real()` and/or `.imag()` switches to those components unless `.mag()` is also included (e.g. `.r().mag().real().imag()`).
+- `FeffFitResult::plot().r()` includes path `|chi(R)|` traces when magnitude is active.
+- Window overlays are disabled by default.
+- `.window(true)` is an alias that enables both `.window_fn(true)` and `.window_box(true)` for `k()` panels.
+- `.window_fn(...)` is supported only on `k()` panels.
+- `.window_box(...)` is supported on `k()` panels, and on `r()` panels for `FeffFitResult` plots; it renders two range markers (min/max), not a rectangle.
+- Multi-panel output is PNG-only in this phase.
+
+### XASSpectrum examples
+
+```rust,no_run
+use xraytsubaki::prelude::*;
+use xraytsubaki::xafs::io::load_spectrum_QAS_trans;
+
+let path = format!("{}/tests/testfiles/Ru_QAS.dat", env!("CARGO_MANIFEST_DIR"));
+let mut spectrum = load_spectrum_QAS_trans(path)?;
+
+spectrum.plot().mu().save_png("flat_mu.png")?;
+spectrum.plot().norm().edges(true).save_png("norm_edges.png")?;
+spectrum.plot().k().kweight(2.0).window(true).save_png("chi_k.png")?;
+spectrum.plot().r().save_png("chi_r_mag.png")?;
+spectrum.plot().r().real().save_png("chi_r_real.png")?;
+spectrum.plot().r().mag().real().imag().save_png("chi_r_all.png")?;
+
+spectrum
+    .plot()
+    .mu()
+    .norm()
+    .k()
+    .r()
+    .title("overview")
+    .save_png("overview.png")?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+### XASGroup examples
+
+```rust,no_run
+use xraytsubaki::prelude::*;
+
+let mut group = XASGroup::new();
+// populate group.spectra ...
+
+group.plot().mu().save_png("group_overlay.png")?;
+group.plot().mu().select(&[0, 2]).save_png("group_selected.png")?;
+group.plot().mu().stacked(0.25).save_png("group_stacked.png")?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+### FeffFitResult examples
+
+```rust,no_run
+use xraytsubaki::prelude::*;
+
+let mut fit = FeffFitResult::default();
+// populate fit result vectors or datasets ...
+
+fit.plot().k().save_png("fit_k.png")?; // uses fit kweight by default
+fit.plot().k().window(true).save_png("fit_k_window.png")?; // with window
+fit.plot().r().save_png("fit_r.png")?; // includes path |chi(R)| traces
+fit.plot().r().window_box(true).save_png("fit_r_window.png")?; // with range markers
+fit.plot().r().real().save_png("fit_r_real.png")?;
+fit.plot().r().mag().real().imag().save_png("fit_r_all.png")?;
+fit.plot().k().dataset(0).save_png("fit_dataset0_k.png")?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```

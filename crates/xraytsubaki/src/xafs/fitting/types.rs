@@ -664,7 +664,13 @@ pub struct DatasetResult {
     pub k: DVector<f64>,
     pub data_chi: DVector<f64>,
     pub model_chi: DVector<f64>,
+    pub kweight: f64,
+    pub kmin: Option<f64>,
+    pub kmax: Option<f64>,
+    pub kwin: DVector<f64>,
     pub r: DVector<f64>,
+    pub rmin: Option<f64>,
+    pub rmax: Option<f64>,
     pub data_chir_re: DVector<f64>,
     pub data_chir_im: DVector<f64>,
     pub model_chir_re: DVector<f64>,
@@ -684,7 +690,13 @@ impl Default for DatasetResult {
             k: DVector::zeros(0),
             data_chi: DVector::zeros(0),
             model_chi: DVector::zeros(0),
+            kweight: 2.0,
+            kmin: None,
+            kmax: None,
+            kwin: DVector::zeros(0),
             r: DVector::zeros(0),
+            rmin: None,
+            rmax: None,
             data_chir_re: DVector::zeros(0),
             data_chir_im: DVector::zeros(0),
             model_chir_re: DVector::zeros(0),
@@ -727,7 +739,13 @@ pub struct FeffFitResult {
     pub k: DVector<f64>,
     pub data_chi: DVector<f64>,
     pub model_chi: DVector<f64>,
+    pub kweight: f64,
+    pub kmin: Option<f64>,
+    pub kmax: Option<f64>,
+    pub kwin: DVector<f64>,
     pub r: DVector<f64>,
+    pub rmin: Option<f64>,
+    pub rmax: Option<f64>,
     pub data_chir_re: DVector<f64>,
     pub data_chir_im: DVector<f64>,
     pub model_chir_re: DVector<f64>,
@@ -751,7 +769,13 @@ impl Default for FeffFitResult {
             k: DVector::zeros(0),
             data_chi: DVector::zeros(0),
             model_chi: DVector::zeros(0),
+            kweight: 2.0,
+            kmin: None,
+            kmax: None,
+            kwin: DVector::zeros(0),
             r: DVector::zeros(0),
+            rmin: None,
+            rmax: None,
             data_chir_re: DVector::zeros(0),
             data_chir_im: DVector::zeros(0),
             model_chir_re: DVector::zeros(0),
@@ -775,7 +799,13 @@ impl FeffFitResult {
             self.k = dataset.k.clone();
             self.data_chi = dataset.data_chi.clone();
             self.model_chi = dataset.model_chi.clone();
+            self.kweight = dataset.kweight;
+            self.kmin = dataset.kmin;
+            self.kmax = dataset.kmax;
+            self.kwin = dataset.kwin.clone();
             self.r = dataset.r.clone();
+            self.rmin = dataset.rmin;
+            self.rmax = dataset.rmax;
             self.data_chir_re = dataset.data_chir_re.clone();
             self.data_chir_im = dataset.data_chir_im.clone();
             self.model_chir_re = dataset.model_chir_re.clone();

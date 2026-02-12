@@ -1,8 +1,15 @@
+import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { backend } from "@/backend/tauri";
 import { useSpectraStore } from "@/stores/spectra";
 import { addLog } from "@/panels/LogPanel";
-import type { PipelineOptions, NormOptions, BgOptions, FFTOptions } from "@/backend/types";
+import type {
+  PipelineOptions,
+  NormOptions,
+  BgOptions,
+  FFTOptions,
+  BatchProgressEvent,
+} from "@/backend/types";
 
 export function useSpectrumList() {
   const version = useSpectraStore((s) => s.spectraVersion);
@@ -19,6 +26,36 @@ export function useSpectrumData(index: number | null) {
     queryFn: () => backend.getSpectrumData(index!),
     enabled: index !== null,
   });
+}
+
+export function useBatchProgressEvents() {
+  const updateBatchProgress = useSpectraStore((s) => s.updateBatchProgress);
+
+  useEffect(() => {
+    let isDisposed = false;
+    let unlisten: (() => void) | undefined;
+
+    async function setupListener() {
+      if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) return;
+      const { listen } = await import("@tauri-apps/api/event");
+      if (isDisposed) return;
+      unlisten = await listen<BatchProgressEvent>("batch-progress", (event) => {
+        updateBatchProgress({
+          current: event.payload.current,
+          total: event.payload.total,
+          succeeded: event.payload.succeeded,
+          failed: event.payload.failed,
+        });
+      });
+    }
+
+    void setupListener();
+
+    return () => {
+      isDisposed = true;
+      unlisten?.();
+    };
+  }, [updateBatchProgress]);
 }
 
 export function useLoadSpectra() {
@@ -157,14 +194,20 @@ export function useRunPipeline() {
 export function useBatchProcess() {
   const queryClient = useQueryClient();
   const invalidate = useSpectraStore((s) => s.invalidateSpectra);
+  const startBatchProgress = useSpectraStore((s) => s.startBatchProgress);
+  const finishBatchProgress = useSpectraStore((s) => s.finishBatchProgress);
 
   return useMutation({
     mutationFn: ({ indices, opts }: { indices: number[]; opts?: PipelineOptions }) =>
       backend.batchProcess(indices, opts),
+    onMutate: ({ indices }) => {
+      startBatchProgress(indices.length);
+    },
     onSuccess: (result) => {
       invalidate();
       queryClient.invalidateQueries({ queryKey: ["spectrumData"] });
       queryClient.invalidateQueries({ queryKey: ["spectrumList"] });
+      finishBatchProgress(result);
       addLog("info", `Batch: ${result.succeeded} succeeded, ${result.failed} failed`);
       if (result.errors.length > 0) {
         for (const err of result.errors) {
@@ -173,6 +216,7 @@ export function useBatchProcess() {
       }
     },
     onError: (err) => {
+      finishBatchProgress();
       addLog("error", `Batch processing failed: ${err}`);
     },
   });

@@ -48,6 +48,8 @@ export function ParameterPanel() {
     dk: 1,
     window: "hanning",
   });
+  const [livePreview, setLivePreview] = useState(true);
+  const lastAutoApplyKeyRef = useRef<string | null>(null);
 
   // Seed E0 from spectrum when it changes
   const prevIndexRef = useRef<number | null>(null);
@@ -95,6 +97,73 @@ export function ParameterPanel() {
     fft.isPending ||
     runPipeline.isPending;
 
+  const getAutoApplyKey = useCallback(
+    (tab: ParamTab): string | null => {
+      if (activeIndex === null) return null;
+      switch (tab) {
+        case "norm":
+          return `${activeIndex}:norm:${JSON.stringify(normOpts)}`;
+        case "bkg":
+          return `${activeIndex}:bkg:${JSON.stringify(bgOpts)}`;
+        case "fft":
+          return `${activeIndex}:fft:${JSON.stringify(fftOpts)}`;
+        default:
+          return null;
+      }
+    },
+    [activeIndex, normOpts, bgOpts, fftOpts],
+  );
+
+  // Reset auto-apply baseline whenever target spectrum/tab changes.
+  useEffect(() => {
+    if (activeIndex === null) {
+      lastAutoApplyKeyRef.current = null;
+      return;
+    }
+    if (paramTab === "norm") {
+      lastAutoApplyKeyRef.current = `${activeIndex}:norm:${JSON.stringify(normOpts)}`;
+    } else if (paramTab === "bkg") {
+      lastAutoApplyKeyRef.current = `${activeIndex}:bkg:${JSON.stringify(bgOpts)}`;
+    } else if (paramTab === "fft") {
+      lastAutoApplyKeyRef.current = `${activeIndex}:fft:${JSON.stringify(fftOpts)}`;
+    } else {
+      lastAutoApplyKeyRef.current = null;
+    }
+  }, [activeIndex, paramTab]);
+
+  // Live preview: debounced reprocessing as parameters change.
+  useEffect(() => {
+    if (!livePreview || activeIndex === null || isPending) return;
+
+    const autoKey = getAutoApplyKey(paramTab);
+    if (!autoKey || autoKey === lastAutoApplyKeyRef.current) return;
+
+    const timer = window.setTimeout(() => {
+      lastAutoApplyKeyRef.current = autoKey;
+      if (paramTab === "norm") {
+        normalize.mutate({ index: activeIndex, opts: normOpts });
+      } else if (paramTab === "bkg") {
+        calcBg.mutate({ index: activeIndex, opts: bgOpts });
+      } else if (paramTab === "fft") {
+        fft.mutate({ index: activeIndex, opts: fftOpts });
+      }
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    livePreview,
+    activeIndex,
+    isPending,
+    paramTab,
+    normOpts,
+    bgOpts,
+    fftOpts,
+    getAutoApplyKey,
+    normalize,
+    calcBg,
+    fft,
+  ]);
+
   const handleApply = useCallback(() => {
     if (activeIndex === null) return;
     switch (paramTab) {
@@ -102,19 +171,37 @@ export function ParameterPanel() {
         findE0.mutate(activeIndex);
         break;
       case "norm":
+        lastAutoApplyKeyRef.current = getAutoApplyKey("norm");
         normalize.mutate({ index: activeIndex, opts: normOpts });
         break;
       case "bkg":
+        lastAutoApplyKeyRef.current = getAutoApplyKey("bkg");
         calcBg.mutate({ index: activeIndex, opts: bgOpts });
         break;
       case "fft":
+        lastAutoApplyKeyRef.current = getAutoApplyKey("fft");
         fft.mutate({ index: activeIndex, opts: fftOpts });
         break;
     }
-  }, [activeIndex, paramTab, normOpts, bgOpts, fftOpts, findE0, normalize, calcBg, fft]);
+  }, [
+    activeIndex,
+    paramTab,
+    normOpts,
+    bgOpts,
+    fftOpts,
+    findE0,
+    normalize,
+    calcBg,
+    fft,
+    getAutoApplyKey,
+  ]);
 
   const handleApplyAll = useCallback(() => {
     if (activeIndex === null) return;
+    const keyForCurrentTab = getAutoApplyKey(paramTab);
+    if (keyForCurrentTab) {
+      lastAutoApplyKeyRef.current = keyForCurrentTab;
+    }
     runPipeline.mutate({
       index: activeIndex,
       opts: {
@@ -123,7 +210,7 @@ export function ParameterPanel() {
         fft: fftOpts,
       },
     });
-  }, [activeIndex, normOpts, bgOpts, fftOpts, runPipeline]);
+  }, [activeIndex, normOpts, bgOpts, fftOpts, runPipeline, getAutoApplyKey, paramTab]);
 
   const handlePick = useCallback(
     (label: string) => {
@@ -330,7 +417,16 @@ export function ParameterPanel() {
       </div>
 
       {/* Action buttons */}
-      <div className="px-3 py-2 border-t border-slate-700 shrink-0 flex gap-2">
+      <div className="px-3 py-2 border-t border-slate-700 shrink-0 flex items-center gap-2">
+        <label className="flex items-center gap-1 text-[11px] text-slate-400 cursor-pointer">
+          <input
+            type="checkbox"
+            className="w-3 h-3 accent-blue-500"
+            checked={livePreview}
+            onChange={(e) => setLivePreview(e.target.checked)}
+          />
+          Live
+        </label>
         <button
           className="flex-1 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors disabled:opacity-50"
           onClick={handleApply}

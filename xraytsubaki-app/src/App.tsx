@@ -1,4 +1,6 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { DockLayout } from "rc-dock";
+import type { LayoutBase, LayoutData, TabBase, TabData } from "rc-dock";
 import { Folder, Search, Activity, Settings } from "lucide-react";
 import { Toolbar } from "@/components/Toolbar";
 import { StatusBar } from "@/components/StatusBar";
@@ -10,24 +12,53 @@ import { LogPanel } from "@/panels/LogPanel";
 import { FitPanel } from "@/panels/FitPanel";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useSpectraStore } from "@/stores/spectra";
+import { useBatchProgressEvents } from "@/hooks/useSpectra";
+import {
+  createDefaultDockLayout,
+  readWorkspaceLayoutFromStorage,
+  sanitizeDockLayout,
+  serializeWorkspaceLayout,
+  writeWorkspaceLayoutToStorage,
+} from "@/lib/workspace-serde";
+
+const LEFT_SIDEBAR_MIN = 160;
+const LEFT_SIDEBAR_MAX = 420;
 
 export default function App() {
-  const [activeSidebar, setActiveSidebar] = useState<string | null>("spectra");
+  useBatchProgressEvents();
+
+  const [activeSidebar, setActiveSidebar] = useState<string>("spectra");
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
 
   const tabs = useWorkspaceStore((s) => s.tabs);
   const activeTabId = useWorkspaceStore((s) => s.activeTabId);
   const setActiveTab = useWorkspaceStore((s) => s.setActiveTab);
   const removeTab = useWorkspaceStore((s) => s.removeTab);
+  const leftSidebarCollapsed = useWorkspaceStore((s) => s.leftSidebarCollapsed);
+  const setLeftSidebarCollapsed = useWorkspaceStore((s) => s.setLeftSidebarCollapsed);
+  const leftSidebarWidth = useWorkspaceStore((s) => s.leftSidebarWidth);
+  const setLeftSidebarWidth = useWorkspaceStore((s) => s.setLeftSidebarWidth);
+  const dockLayout = useWorkspaceStore((s) => s.dockLayout);
+  const setDockLayout = useWorkspaceStore((s) => s.setDockLayout);
+
   const setActiveIndex = useSpectraStore((s) => s.setActiveIndex);
 
-  // Resizable panel widths
-  const [leftWidth, setLeftWidth] = useState(200);
-  const [rightWidth, setRightWidth] = useState(250);
-  const [bottomHeight, setBottomHeight] = useState(120);
+  const defaultDockLayout = useMemo(() => createDefaultDockLayout(), []);
+  const dockRef = useRef<DockLayout | null>(null);
+  const lastAppliedDockKeyRef = useRef<string | null>(null);
+  const restoredLayoutRef = useRef(false);
 
-  const toggleSidebar = useCallback((panel: string) => {
-    setActiveSidebar((current) => (current === panel ? null : panel));
-  }, []);
+  const handleSidebarToggle = useCallback(
+    (panel: string) => {
+      if (activeSidebar === panel && !leftSidebarCollapsed) {
+        setLeftSidebarCollapsed(true);
+        return;
+      }
+      setActiveSidebar(panel);
+      setLeftSidebarCollapsed(false);
+    },
+    [activeSidebar, leftSidebarCollapsed, setLeftSidebarCollapsed],
+  );
 
   const handleTabClick = useCallback(
     (tabId: string, spectrumIndex: number) => {
@@ -37,114 +68,221 @@ export default function App() {
     [setActiveTab, setActiveIndex],
   );
 
-  // Right-click context menu state
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
-
   const handleParamContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     setCtxMenu({ x: e.clientX, y: e.clientY });
   }, []);
 
-  // Close context menu on any click
+  useEffect(() => {
+    if (restoredLayoutRef.current) return;
+
+    const storedLayout = readWorkspaceLayoutFromStorage();
+    if (storedLayout) {
+      setLeftSidebarCollapsed(storedLayout.left_sidebar.collapsed);
+      setLeftSidebarWidth(storedLayout.left_sidebar.width);
+      setDockLayout(storedLayout.dock);
+    }
+
+    restoredLayoutRef.current = true;
+  }, [setDockLayout, setLeftSidebarCollapsed, setLeftSidebarWidth]);
+
+  useEffect(() => {
+    if (!dockRef.current || !dockLayout) return;
+
+    const sanitized = sanitizeDockLayout(dockLayout);
+    const key = JSON.stringify(sanitized);
+    if (key === lastAppliedDockKeyRef.current) return;
+
+    dockRef.current.loadLayout(sanitized);
+    lastAppliedDockKeyRef.current = key;
+  }, [dockLayout]);
+
+  useEffect(() => {
+    const currentLayout = dockRef.current?.saveLayout() ?? dockLayout ?? defaultDockLayout;
+    const payload = serializeWorkspaceLayout(currentLayout, leftSidebarCollapsed, leftSidebarWidth);
+    writeWorkspaceLayoutToStorage(payload);
+  }, [defaultDockLayout, dockLayout, leftSidebarCollapsed, leftSidebarWidth]);
+
   useEffect(() => {
     if (!ctxMenu) return;
+
     const close = () => setCtxMenu(null);
     document.addEventListener("click", close);
     return () => document.removeEventListener("click", close);
   }, [ctxMenu]);
 
-  // Global keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const isMod = e.metaKey || e.ctrlKey;
       if (!isMod) return;
 
-      // Cmd+O — Open files
       if (e.key === "o") {
         e.preventDefault();
-        // Trigger the toolbar open button by clicking it
         const openBtn = document.querySelector('[title="Open"]') as HTMLButtonElement;
         openBtn?.click();
       }
-      // Cmd+S — Save workspace
+
       if (e.key === "s") {
         e.preventDefault();
         const saveBtn = document.querySelector('[title="Save"]') as HTMLButtonElement;
         saveBtn?.click();
       }
-      // Cmd+Shift+P — Process All
+
       if (e.key === "p" && e.shiftKey) {
         e.preventDefault();
         const processBtn = document.querySelector('[title="Process All"]') as HTMLButtonElement;
         processBtn?.click();
       }
-      // Cmd+1/2/3/4 — Switch plot mode
+
       if (e.key >= "1" && e.key <= "4") {
         e.preventDefault();
         const modes = ["mu", "norm", "k", "r"] as const;
-        const idx = parseInt(e.key) - 1;
+        const idx = parseInt(e.key, 10) - 1;
         if (idx < modes.length) {
           useWorkspaceStore.getState().setPlotMode(modes[idx]);
         }
       }
     };
+
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  const loadDockTab = useCallback(
+    (tab: TabBase): TabData => {
+      switch (tab.id) {
+        case "plot":
+          return {
+            id: "plot",
+            group: "workspace",
+            title: "Plot",
+            closable: false,
+            cached: true,
+            content: (
+              <ErrorBoundary>
+                <PlotPanel />
+              </ErrorBoundary>
+            ),
+          };
+        case "parameters":
+          return {
+            id: "parameters",
+            group: "workspace",
+            title: "Parameters",
+            closable: false,
+            cached: true,
+            content: (
+              <div className="h-full bg-slate-800" onContextMenu={handleParamContextMenu}>
+                <ErrorBoundary>
+                  <ParameterPanel />
+                </ErrorBoundary>
+              </div>
+            ),
+          };
+        case "log":
+          return {
+            id: "log",
+            group: "workspace",
+            title: "Log",
+            closable: false,
+            cached: true,
+            content: <LogPanel />,
+          };
+        case "fit":
+          return {
+            id: "fit",
+            group: "workspace",
+            title: "Fit",
+            closable: false,
+            cached: true,
+            content: <FitPanel />,
+          };
+        default: {
+          const id = typeof tab.id === "string" ? tab.id : "unknown";
+          return {
+            id,
+            group: "workspace",
+            title: id,
+            closable: false,
+            content: (
+              <div className="h-full flex items-center justify-center text-xs text-slate-500">
+                Unknown panel: {id}
+              </div>
+            ),
+          };
+        }
+      }
+    },
+    [handleParamContextMenu],
+  );
+
+  const handleDockLayoutChange = useCallback(
+    (layout: LayoutBase) => {
+      const sanitized = sanitizeDockLayout(layout);
+      const key = JSON.stringify(sanitized);
+      lastAppliedDockKeyRef.current = key;
+      setDockLayout(sanitized);
+
+      writeWorkspaceLayoutToStorage(
+        serializeWorkspaceLayout(sanitized, leftSidebarCollapsed, leftSidebarWidth),
+      );
+    },
+    [leftSidebarCollapsed, leftSidebarWidth, setDockLayout],
+  );
+
   return (
     <div className="flex flex-col h-screen overflow-hidden text-[13px] leading-normal">
-      {/* ═══ Toolbar ═══ */}
       <Toolbar />
 
-      {/* ═══ Main area ═══ */}
       <div className="flex flex-1 min-h-0">
-        {/* Activity Bar */}
         <div className="w-[42px] shrink-0 bg-slate-800 border-r border-slate-700 flex flex-col items-center py-2 gap-0.5">
           <ActivityIcon
             icon={Folder}
             label="Spectra"
-            active={activeSidebar === "spectra"}
-            onClick={() => toggleSidebar("spectra")}
+            active={!leftSidebarCollapsed && activeSidebar === "spectra"}
+            onClick={() => handleSidebarToggle("spectra")}
           />
           <ActivityIcon
             icon={Search}
             label="Search"
-            active={activeSidebar === "search"}
-            onClick={() => toggleSidebar("search")}
+            active={!leftSidebarCollapsed && activeSidebar === "search"}
+            onClick={() => handleSidebarToggle("search")}
           />
           <ActivityIcon
             icon={Activity}
             label="Processing"
-            active={activeSidebar === "processing"}
-            onClick={() => toggleSidebar("processing")}
+            active={!leftSidebarCollapsed && activeSidebar === "processing"}
+            onClick={() => handleSidebarToggle("processing")}
           />
           <div className="flex-1" />
-          <ActivityIcon icon={Settings} label="Settings" onClick={() => {}} />
+          <ActivityIcon
+            icon={Settings}
+            label="Settings"
+            active={!leftSidebarCollapsed && activeSidebar === "settings"}
+            onClick={() => handleSidebarToggle("settings")}
+          />
         </div>
 
-        {/* Left Sidebar (resizable) */}
-        {activeSidebar === "spectra" && (
+        {!leftSidebarCollapsed && (
           <>
             <div
               className="shrink-0 bg-slate-800 border-r border-slate-700 flex flex-col"
-              style={{ width: leftWidth }}
+              style={{ width: leftSidebarWidth }}
             >
-              <div className="px-3 py-2 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                Spectra
-              </div>
-              <SpectraList />
+              <SidebarHeader panel={activeSidebar} />
+              <SidebarContent panel={activeSidebar} />
             </div>
             <ResizeHandle
-              direction="horizontal"
-              onResize={(delta) => setLeftWidth((w) => Math.max(120, Math.min(400, w + delta)))}
+              onResize={(delta) =>
+                setLeftSidebarWidth(
+                  Math.max(LEFT_SIDEBAR_MIN, Math.min(LEFT_SIDEBAR_MAX, leftSidebarWidth + delta)),
+                )
+              }
             />
           </>
         )}
 
-        {/* Center: analysis tabs + plot area */}
-        <div className="flex-1 flex flex-col min-w-0">
-          {/* Analysis tabs */}
+        <div className="flex-1 flex flex-col min-w-0 min-h-0">
           {tabs.length > 0 && (
             <div className="flex bg-slate-800/60 border-b border-slate-700 shrink-0">
               {tabs.map((tab) => (
@@ -172,60 +310,26 @@ export default function App() {
             </div>
           )}
 
-          {/* Plot panels (single default, splittable) */}
-          <ErrorBoundary>
-            <PlotPanel />
-          </ErrorBoundary>
-        </div>
-
-        {/* Right Sidebar resize handle + panel */}
-        <ResizeHandle
-          direction="horizontal"
-          onResize={(delta) => setRightWidth((w) => Math.max(180, Math.min(400, w - delta)))}
-        />
-        <div
-          className="shrink-0 bg-slate-800 border-l border-slate-700 flex flex-col"
-          style={{ width: rightWidth }}
-          onContextMenu={handleParamContextMenu}
-        >
-          <ErrorBoundary>
-            <ParameterPanel />
-          </ErrorBoundary>
+          <div className="dock-host flex-1 min-h-0 min-w-0 bg-slate-950">
+            <DockLayout
+              ref={dockRef}
+              defaultLayout={defaultDockLayout as unknown as LayoutData}
+              loadTab={loadDockTab}
+              onLayoutChange={handleDockLayoutChange}
+              style={{ width: "100%", height: "100%" }}
+            />
+          </div>
         </div>
       </div>
 
-      {/* ═══ Bottom Panel (resizable) ═══ */}
-      <ResizeHandle
-        direction="vertical"
-        onResize={(delta) => setBottomHeight((h) => Math.max(60, Math.min(400, h - delta)))}
-      />
-      <div className="shrink-0 border-t border-blue-500 flex" style={{ height: bottomHeight }}>
-        <div className="flex-1 min-w-0">
-          <LogPanel />
-        </div>
-        <div className="w-[280px] shrink-0 border-l border-slate-700">
-          <FitPanel />
-        </div>
-      </div>
-
-      {/* ═══ Status Bar ═══ */}
       <StatusBar />
 
-      {/* ═══ Right-click Context Menu ═══ */}
       {ctxMenu && <ContextMenu x={ctxMenu.x} y={ctxMenu.y} onClose={() => setCtxMenu(null)} />}
     </div>
   );
 }
 
-/* ─── Resizable Panel Handle ─── */
-
-function ResizeHandle({
-  direction,
-  onResize,
-}: {
-  direction: "horizontal" | "vertical";
-  onResize: (delta: number) => void;
-}) {
+function ResizeHandle({ onResize }: { onResize: (delta: number) => void }) {
   const dragging = useRef(false);
   const lastPos = useRef(0);
 
@@ -233,13 +337,12 @@ function ResizeHandle({
     (e: React.MouseEvent) => {
       e.preventDefault();
       dragging.current = true;
-      lastPos.current = direction === "horizontal" ? e.clientX : e.clientY;
+      lastPos.current = e.clientX;
 
       const handleMouseMove = (ev: MouseEvent) => {
         if (!dragging.current) return;
-        const currentPos = direction === "horizontal" ? ev.clientX : ev.clientY;
-        const delta = currentPos - lastPos.current;
-        lastPos.current = currentPos;
+        const delta = ev.clientX - lastPos.current;
+        lastPos.current = ev.clientX;
         onResize(delta);
       };
 
@@ -253,25 +356,51 @@ function ResizeHandle({
 
       document.addEventListener("mousemove", handleMouseMove);
       document.addEventListener("mouseup", handleMouseUp);
-      document.body.style.cursor = direction === "horizontal" ? "col-resize" : "row-resize";
+      document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
     },
-    [direction, onResize],
+    [onResize],
   );
 
   return (
     <div
-      className={
-        direction === "horizontal"
-          ? "w-1 shrink-0 cursor-col-resize hover:bg-blue-500/30 active:bg-blue-500/50 transition-colors"
-          : "h-1 shrink-0 cursor-row-resize hover:bg-blue-500/30 active:bg-blue-500/50 transition-colors"
-      }
+      className="w-1 shrink-0 cursor-col-resize hover:bg-blue-500/30 active:bg-blue-500/50 transition-colors"
       onMouseDown={handleMouseDown}
     />
   );
 }
 
-/* ─── Activity Bar Icon ─── */
+function SidebarHeader({ panel }: { panel: string }) {
+  const title =
+    panel === "spectra"
+      ? "Spectra"
+      : panel === "search"
+        ? "Search"
+        : panel === "processing"
+          ? "Processing"
+          : "Settings";
+
+  return (
+    <div className="px-3 py-2 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+      {title}
+    </div>
+  );
+}
+
+function SidebarContent({ panel }: { panel: string }) {
+  if (panel === "spectra") {
+    return <SpectraList />;
+  }
+
+  const text =
+    panel === "search"
+      ? "Search tools are not implemented yet."
+      : panel === "processing"
+        ? "Processing queue view is not implemented yet."
+        : "Settings panel is not implemented yet.";
+
+  return <div className="px-3 py-2 text-xs text-slate-500">{text}</div>;
+}
 
 function ActivityIcon({
   icon: Icon,
@@ -292,21 +421,16 @@ function ActivityIcon({
       onClick={onClick}
       title={label}
     >
-      {active && (
-        <div className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-blue-500 rounded-r" />
-      )}
+      {active && <div className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-blue-500 rounded-r" />}
       <Icon size={20} />
     </button>
   );
 }
 
-/* ─── Right-click Context Menu ─── */
-
 function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
-
-  // Adjust position if menu overflows viewport
   const [pos, setPos] = useState({ x, y });
+
   useEffect(() => {
     if (!ref.current) return;
     const rect = ref.current.getBoundingClientRect();

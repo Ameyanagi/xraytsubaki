@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { PlotMode, RenderMode } from "@/backend/types";
+import type { PlotMode, RenderMode, WorkspaceLayoutPayload } from "@/backend/types";
 
 export interface AnalysisTab {
   id: string;
@@ -10,6 +10,7 @@ export interface AnalysisTab {
 export type CursorTool = "select" | "pick" | "zoom" | "pan";
 export type ParamTab = "e0" | "norm" | "bkg" | "fft";
 export type PlotLayout = "1x1" | "1x2" | "2x1" | "2x2";
+type DockLayoutState = WorkspaceLayoutPayload["dock"];
 
 export interface PlotGroup {
   id: string;
@@ -84,9 +85,26 @@ interface WorkspaceState {
   theme: string;
   setTheme: (theme: string) => void;
 
+  // Shell layout
+  leftSidebarCollapsed: boolean;
+  setLeftSidebarCollapsed: (collapsed: boolean) => void;
+  toggleLeftSidebarCollapsed: () => void;
+  leftSidebarWidth: number;
+  setLeftSidebarWidth: (width: number) => void;
+  dockLayout: DockLayoutState | null;
+  setDockLayout: (layout: DockLayoutState | null) => void;
+
   // Workspace path
   workspacePath: string | null;
   setWorkspacePath: (path: string | null) => void;
+}
+
+const LEFT_SIDEBAR_MIN = 160;
+const LEFT_SIDEBAR_MAX = 420;
+const LEFT_SIDEBAR_DEFAULT = 220;
+
+function clampLeftSidebarWidth(width: number): number {
+  return Math.max(LEFT_SIDEBAR_MIN, Math.min(LEFT_SIDEBAR_MAX, width));
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set) => ({
@@ -151,8 +169,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
     set((state) => {
       if (state.plotGroups.length <= 1) return {}; // Can't close last group
       const groups = state.plotGroups.filter((g) => g.id !== groupId);
-      const activeGroupId =
-        state.activeGroupId === groupId ? groups[0].id : state.activeGroupId;
+      const activeGroupId = state.activeGroupId === groupId ? groups[0].id : state.activeGroupId;
       const activeGroup = groups.find((g) => g.id === activeGroupId) ?? groups[0];
       return {
         plotGroups: groups,
@@ -238,6 +255,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   // Theme
   theme: "slate-pro",
   setTheme: (theme) => set({ theme }),
+
+  // Shell layout
+  leftSidebarCollapsed: false,
+  setLeftSidebarCollapsed: (collapsed) => set({ leftSidebarCollapsed: collapsed }),
+  toggleLeftSidebarCollapsed: () =>
+    set((state) => ({ leftSidebarCollapsed: !state.leftSidebarCollapsed })),
+  leftSidebarWidth: LEFT_SIDEBAR_DEFAULT,
+  setLeftSidebarWidth: (width) => set({ leftSidebarWidth: clampLeftSidebarWidth(width) }),
+  dockLayout: null,
+  setDockLayout: (layout) => set({ dockLayout: layout }),
 
   // Workspace path
   workspacePath: null,

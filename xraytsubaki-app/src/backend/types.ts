@@ -1,3 +1,5 @@
+import type { LayoutBase } from "rc-dock";
+
 // --- Load / Spectrum Metadata ---
 
 export interface LoadResult {
@@ -89,6 +91,15 @@ export interface BatchError {
   message: string;
 }
 
+export interface BatchProgressEvent {
+  current: number;
+  total: number;
+  succeeded: number;
+  failed: number;
+  index: number;
+  name: string;
+}
+
 // --- Plotting ---
 
 export interface PlotTrace {
@@ -113,9 +124,19 @@ export interface PlotResult {
 
 // --- Workspace ---
 
+export interface LeftSidebarLayoutState {
+  collapsed: boolean;
+  width: number;
+}
+
+export interface WorkspaceLayoutPayload {
+  dock: LayoutBase;
+  left_sidebar: LeftSidebarLayoutState;
+}
+
 export interface WorkspaceData {
   version: string;
-  layout: unknown;
+  layout: WorkspaceLayoutPayload | null;
   tabs: unknown[];
   spectra_source: string | null;
   spectra_count: number;

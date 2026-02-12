@@ -1,4 +1,13 @@
 import { create } from "zustand";
+import type { BatchResult } from "@/backend/types";
+
+export interface BatchProgressState {
+  active: boolean;
+  current: number;
+  total: number;
+  succeeded: number;
+  failed: number;
+}
 
 interface SpectraState {
   // Selection
@@ -16,6 +25,13 @@ interface SpectraState {
   // Invalidation counter to trigger refetches
   spectraVersion: number;
   invalidateSpectra: () => void;
+
+  // Batch processing progress
+  batchProgress: BatchProgressState | null;
+  startBatchProgress: (total: number) => void;
+  updateBatchProgress: (progress: Omit<BatchProgressState, "active">) => void;
+  finishBatchProgress: (result?: BatchResult) => void;
+  clearBatchProgress: () => void;
 }
 
 export const useSpectraStore = create<SpectraState>((set) => ({
@@ -54,4 +70,37 @@ export const useSpectraStore = create<SpectraState>((set) => ({
 
   spectraVersion: 0,
   invalidateSpectra: () => set((state) => ({ spectraVersion: state.spectraVersion + 1 })),
+
+  batchProgress: null,
+  startBatchProgress: (total) =>
+    set({
+      batchProgress: {
+        active: true,
+        current: 0,
+        total,
+        succeeded: 0,
+        failed: 0,
+      },
+    }),
+  updateBatchProgress: (progress) =>
+    set({
+      batchProgress: {
+        active: true,
+        ...progress,
+      },
+    }),
+  finishBatchProgress: (result) =>
+    set((state) => {
+      if (!state.batchProgress) return {};
+      return {
+        batchProgress: {
+          ...state.batchProgress,
+          active: false,
+          current: state.batchProgress.total,
+          succeeded: result?.succeeded ?? state.batchProgress.succeeded,
+          failed: result?.failed ?? state.batchProgress.failed,
+        },
+      };
+    }),
+  clearBatchProgress: () => set({ batchProgress: null }),
 }));

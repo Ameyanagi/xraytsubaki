@@ -1,10 +1,17 @@
 import { FolderOpen, Save, Play, Zap, Download } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { useLoadSpectra, useBatchProcess } from "@/hooks/useSpectra";
 import { useSpectraStore } from "@/stores/spectra";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { backend } from "@/backend/tauri";
 import type { WorkspaceData } from "@/backend/types";
+import {
+  deserializeWorkspaceLayout,
+  serializeWorkspaceLayout,
+  writeWorkspaceLayoutToStorage,
+} from "@/lib/workspace-serde";
+import { addLog } from "@/panels/LogPanel";
 
 const THEMES = [
   { value: "slate-pro", label: "Slate Pro" },
@@ -14,24 +21,73 @@ const THEMES = [
   { value: "light", label: "Light" },
 ];
 
+function isWorkspaceFile(path: string): boolean {
+  return path.toLowerCase().endsWith(".xtw");
+}
+
+function fileName(path: string): string {
+  const normalized = path.replaceAll("\\", "/");
+  const idx = normalized.lastIndexOf("/");
+  return idx >= 0 ? normalized.slice(idx + 1) : normalized;
+}
+
 export function Toolbar() {
+  const queryClient = useQueryClient();
+
   const loadSpectra = useLoadSpectra();
   const batchProcess = useBatchProcess();
   const selectedIndices = useSpectraStore((s) => s.selectedIndices);
-  const { workspacePath, setWorkspacePath, theme, setTheme } = useWorkspaceStore();
+  const batchProgress = useSpectraStore((s) => s.batchProgress);
+  const invalidateSpectra = useSpectraStore((s) => s.invalidateSpectra);
+
+  const workspacePath = useWorkspaceStore((s) => s.workspacePath);
+  const setWorkspacePath = useWorkspaceStore((s) => s.setWorkspacePath);
+  const theme = useWorkspaceStore((s) => s.theme);
+  const setTheme = useWorkspaceStore((s) => s.setTheme);
+  const tabs = useWorkspaceStore((s) => s.tabs);
+  const dockLayout = useWorkspaceStore((s) => s.dockLayout);
+  const setDockLayout = useWorkspaceStore((s) => s.setDockLayout);
+  const leftSidebarCollapsed = useWorkspaceStore((s) => s.leftSidebarCollapsed);
+  const setLeftSidebarCollapsed = useWorkspaceStore((s) => s.setLeftSidebarCollapsed);
+  const leftSidebarWidth = useWorkspaceStore((s) => s.leftSidebarWidth);
+  const setLeftSidebarWidth = useWorkspaceStore((s) => s.setLeftSidebarWidth);
 
   const handleOpen = async () => {
     const files = await open({
       multiple: true,
       filters: [
+        { name: "Workspace", extensions: ["xtw"] },
         { name: "XAS Data", extensions: ["dat", "txt", "xmu", "csv", "qas"] },
         { name: "All Files", extensions: ["*"] },
       ],
     });
-    if (files) {
-      const paths = Array.isArray(files) ? files : [files];
-      loadSpectra.mutate(paths);
+    if (!files) return;
+
+    const paths = Array.isArray(files) ? files : [files];
+    if (paths.length === 1 && isWorkspaceFile(paths[0])) {
+      try {
+        const data = await backend.loadWorkspace(paths[0]);
+        const layout = deserializeWorkspaceLayout(data.layout);
+
+        setDockLayout(layout.dock);
+        setLeftSidebarCollapsed(layout.left_sidebar.collapsed);
+        setLeftSidebarWidth(layout.left_sidebar.width);
+        writeWorkspaceLayoutToStorage(layout);
+
+        setWorkspacePath(paths[0]);
+
+        invalidateSpectra();
+        await queryClient.invalidateQueries({ queryKey: ["spectrumList"] });
+        await queryClient.invalidateQueries({ queryKey: ["spectrumData"] });
+
+        addLog("info", `Workspace loaded: ${fileName(paths[0])}`);
+      } catch (error) {
+        addLog("error", `Workspace load failed: ${String(error)}`);
+      }
+      return;
     }
+
+    loadSpectra.mutate(paths);
   };
 
   const handleSave = async () => {
@@ -43,18 +99,36 @@ export function Toolbar() {
       if (!selected) return;
       path = selected;
     }
+
+    const layoutPayload = serializeWorkspaceLayout(
+      dockLayout,
+      leftSidebarCollapsed,
+      leftSidebarWidth,
+    );
+
     const data: WorkspaceData = {
       version: "0.1.0",
-      layout: null,
-      tabs: [],
+      layout: layoutPayload,
+      tabs: tabs.map((tab) => ({
+        id: tab.id,
+        label: tab.label,
+        spectrumIndex: tab.spectrumIndex,
+      })),
       spectra_source: null,
       spectra_count: 0,
       processing: {},
       fits: {},
       plot_settings: {},
     };
-    await backend.saveWorkspace(path, data);
-    setWorkspacePath(path);
+
+    try {
+      await backend.saveWorkspace(path, data);
+      setWorkspacePath(path);
+      writeWorkspaceLayoutToStorage(layoutPayload);
+      addLog("info", `Workspace saved: ${fileName(path)}`);
+    } catch (error) {
+      addLog("error", `Workspace save failed: ${String(error)}`);
+    }
   };
 
   const handleProcessAll = () => {
@@ -67,10 +141,12 @@ export function Toolbar() {
   const handleExportSvg = async () => {
     const active = useSpectraStore.getState().activeIndex;
     if (active === null) return;
+
     const path = await save({
       filters: [{ name: "SVG", extensions: ["svg"] }],
     });
     if (!path) return;
+
     const plotMode = useWorkspaceStore.getState().plotMode;
     const svgs = await backend.plotSvg(active, [plotMode]);
     if (svgs.length > 0) {
@@ -81,7 +157,6 @@ export function Toolbar() {
 
   return (
     <div className="flex items-center gap-1 h-9 px-3 bg-slate-800 border-b border-slate-700 shrink-0">
-      {/* Brand */}
       <span className="text-[13px] font-semibold text-blue-500 mr-3 tracking-tight">
         xray<span className="font-normal text-slate-400">tsubaki</span>
       </span>
@@ -93,19 +168,23 @@ export function Toolbar() {
         icon={<Play size={15} />}
         label="Process All"
         onClick={handleProcessAll}
-        disabled={selectedIndices.size === 0}
+        disabled={selectedIndices.size === 0 || batchProcess.isPending}
       />
       <ToolButton icon={<Zap size={15} />} label="Fit" onClick={() => {}} disabled />
       <Divider />
       <ToolButton icon={<Download size={15} />} label="Export" onClick={handleExportSvg} />
 
-      {(loadSpectra.isPending || batchProcess.isPending) && (
-        <span className="ml-2 text-xs text-blue-400 animate-pulse">Processing...</span>
+      {loadSpectra.isPending && (
+        <span className="ml-2 text-xs text-blue-400 animate-pulse">Loading...</span>
+      )}
+      {batchProgress?.active && (
+        <span className="ml-2 text-xs text-blue-400 animate-pulse">
+          Batch {batchProgress.current}/{batchProgress.total}
+        </span>
       )}
 
       <div className="flex-1" />
 
-      {/* Theme dropdown */}
       <select
         className="bg-slate-700 border border-slate-600 text-slate-300 text-[11px] px-2 py-0.5 rounded cursor-pointer focus:outline-none focus:border-blue-500 min-w-[110px]"
         value={theme}

@@ -2,12 +2,7 @@
 @import "rc-dock/dist/rc-dock.css";
 
 :root {
-  font-family:
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    system-ui,
-    sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   font-size: 13px;
   line-height: 1.5;
   color: #e2e8f0;
@@ -55,6 +50,15 @@ label,
 
 .dock-layout .dock-divider {
   background: #334155;
+}
+
+.dock-host .dock-layout {
+  width: 100%;
+  height: 100%;
+}
+
+.dock-host .dock-panel {
+  min-height: 0;
 }
 
 /* Scrollbar styling */

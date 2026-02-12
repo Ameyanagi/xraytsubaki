@@ -13,6 +13,7 @@ export function StatusBar() {
   const { data: spectra } = useSpectrumList();
   const selectedCount = useSpectraStore((s) => s.selectedIndices.size);
   const activeIndex = useSpectraStore((s) => s.activeIndex);
+  const batchProgress = useSpectraStore((s) => s.batchProgress);
   const plotMode = useWorkspaceStore((s) => s.plotMode);
   const renderMode = useWorkspaceStore((s) => s.renderMode);
   const pickTarget = useWorkspaceStore((s) => s.pickTarget);
@@ -27,6 +28,12 @@ export function StatusBar() {
       </span>
       {selectedCount > 0 && <span>{selectedCount} selected</span>}
       {activeIndex !== null && <span>Active: #{activeIndex}</span>}
+      {batchProgress && (
+        <span className={batchProgress.active ? "text-blue-400" : "text-slate-400"}>
+          Batch {batchProgress.current}/{batchProgress.total} (
+          {Math.round((batchProgress.current / Math.max(batchProgress.total, 1)) * 100)}%)
+        </span>
+      )}
       <div className="flex-1" />
       <span>Plot: {MODE_LABELS[plotMode] ?? plotMode}</span>
       {plotGroups.length > 1 && <span>{plotGroups.length} panels</span>}

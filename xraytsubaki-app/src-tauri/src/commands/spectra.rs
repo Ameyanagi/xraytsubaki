@@ -1,11 +1,11 @@
 use std::path::Path;
 
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 use xraytsubaki::prelude::*;
 
 use crate::dto::{
-    BatchError, BatchResult, BgOptions, FFTOptions, LoadError, LoadResult, NormOptions,
-    PipelineOptions, SpectrumData, SpectrumMeta,
+    BatchError, BatchProgressEvent, BatchResult, BgOptions, FFTOptions, LoadError, LoadResult,
+    NormOptions, PipelineOptions, SpectrumData, SpectrumMeta,
 };
 use crate::state::AppState;
 
@@ -256,6 +256,7 @@ pub fn run_pipeline(
 
 #[tauri::command]
 pub fn batch_process(
+    app: AppHandle,
     state: State<'_, AppState>,
     indices: Vec<usize>,
     opts: Option<PipelineOptions>,
@@ -263,8 +264,9 @@ pub fn batch_process(
     let mut group = state.group.lock().map_err(|e| e.to_string())?;
     let mut succeeded = 0;
     let mut errors = Vec::new();
+    let total = indices.len();
 
-    for &idx in &indices {
+    for (position, &idx) in indices.iter().enumerate() {
         let result = (|| -> Result<(), String> {
             let spec = group.get_spectrum_mut(idx).map_err(|e| e.to_string())?;
 
@@ -290,17 +292,33 @@ pub fn batch_process(
         match result {
             Ok(()) => succeeded += 1,
             Err(msg) => {
-                let name = group
-                    .get_spectrum(idx)
-                    .ok()
-                    .and_then(|s| s.name.clone())
-                    .unwrap_or_else(|| format!("Spectrum {}", idx));
                 errors.push(BatchError {
                     index: idx,
-                    name,
+                    name: group
+                        .get_spectrum(idx)
+                        .ok()
+                        .and_then(|s| s.name.clone())
+                        .unwrap_or_else(|| format!("Spectrum {}", idx)),
                     message: msg,
                 });
             }
+        }
+
+        let progress = BatchProgressEvent {
+            current: position + 1,
+            total,
+            succeeded,
+            failed: errors.len(),
+            index: idx,
+            name: group
+                .get_spectrum(idx)
+                .ok()
+                .and_then(|s| s.name.clone())
+                .unwrap_or_else(|| format!("Spectrum {}", idx)),
+        };
+
+        if let Err(err) = app.emit("batch-progress", &progress) {
+            eprintln!("[batch-progress] emit failed: {err}");
         }
     }
 

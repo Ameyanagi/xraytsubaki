@@ -101,6 +101,16 @@ pub struct BatchError {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchProgressEvent {
+    pub current: usize,
+    pub total: usize,
+    pub succeeded: usize,
+    pub failed: usize,
+    pub index: usize,
+    pub name: String,
+}
+
 // --- Plotting ---
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,7 +1,6 @@
 import { useCallback, useRef, useEffect } from "react";
 import { Trash2, PlayCircle } from "lucide-react";
 import { useSpectrumList, useRemoveSpectra, useBatchProcess } from "@/hooks/useSpectra";
-import { useSpectraStore } from "@/stores/spectra";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { addLog } from "@/panels/LogPanel";
 
@@ -17,8 +16,8 @@ export function SpectraList() {
     selectRange,
     selectAll,
     clearSelection,
-  } = useSpectraStore();
-  const addTab = useWorkspaceStore((s) => s.addTab);
+  } = useWorkspaceStore();
+  const openSpectrumTab = useWorkspaceStore((s) => s.openSpectrumTab);
   const lastClickedRef = useRef<number | null>(null);
   const didAutoSelect = useRef(false);
 
@@ -51,10 +50,9 @@ export function SpectraList() {
 
   const handleDoubleClick = useCallback(
     (index: number, name: string) => {
-      setActiveIndex(index);
-      addTab({ id: `spectrum-${index}`, label: name, spectrumIndex: index });
+      openSpectrumTab(index, name);
     },
-    [setActiveIndex, addTab],
+    [openSpectrumTab],
   );
 
   const handleSelectAll = () => {
@@ -122,8 +120,7 @@ export function SpectraList() {
           <div className="p-4 text-center text-slate-500 text-sm">
             No spectra loaded.
             <br />
-            Use <kbd className="px-1 py-0.5 bg-slate-700 rounded text-xs">Cmd+O</kbd> to open
-            files.
+            Use <kbd className="px-1 py-0.5 bg-slate-700 rounded text-xs">Cmd+O</kbd> to open files.
           </div>
         ) : (
           spectra.map((spec) => (

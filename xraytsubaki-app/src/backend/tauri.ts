@@ -11,6 +11,8 @@ import type {
   BatchResult,
   PlotResult,
   WorkspaceData,
+  FeffRunConfig,
+  FeffRunResultDto,
   FeffFitConfig,
   FeffFitResultDto,
 } from "./types";
@@ -74,6 +76,14 @@ export class TauriBackend implements XASBackend {
 
   async plotSvg(index: number, panels: string[]): Promise<string[]> {
     return invoke("plot_svg", { index, panels });
+  }
+
+  async plotFit(fitId: string, panel: "k" | "r", includePaths = true): Promise<PlotResult> {
+    return invoke("plot_fit", { fitId, panel, includePaths });
+  }
+
+  async runFeffPaths(config: FeffRunConfig): Promise<FeffRunResultDto> {
+    return invoke("run_feff_paths", { config });
   }
 
   async runFeffFit(config: FeffFitConfig): Promise<FeffFitResultDto> {

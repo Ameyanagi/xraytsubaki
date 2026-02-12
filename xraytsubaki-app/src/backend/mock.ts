@@ -11,6 +11,8 @@ import type {
   PlotResult,
   PlotTrace,
   WorkspaceData,
+  FeffRunConfig,
+  FeffRunResultDto,
   FeffFitConfig,
   FeffFitResultDto,
 } from "./types";
@@ -34,6 +36,23 @@ function hanningWindow(kArr: number[], kmin: number, kmax: number, dk: number): 
     if (k > kmax - dk) return 0.5 * (1 + Math.cos(Math.PI * (k - kmax + dk) / (2 * dk)));
     return 1;
   });
+}
+
+function fnv1a(input: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+}
+
+function buildDeterministicRng(seed: number): () => number {
+  let state = seed || 1;
+  return () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 0xffffffff;
+  };
 }
 
 // Generate realistic Cu K-edge XANES/EXAFS data
@@ -165,12 +184,13 @@ interface StoredOptions {
 export class MockBackend implements XASBackend {
   private spectra = [...MOCK_SPECTRA];
   private options: Map<number, StoredOptions> = new Map();
+  private fitResults = new Map<string, FeffFitResultDto>();
 
   async loadSpectraFromFiles(paths: string[]): Promise<LoadResult> {
     return { loaded: paths.length, errors: [] };
   }
 
-  async loadWorkspace(): Promise<WorkspaceData> {
+  async loadWorkspace(_path: string): Promise<WorkspaceData> {
     return {
       version: "0.1.0",
       layout: null,
@@ -183,7 +203,7 @@ export class MockBackend implements XASBackend {
     };
   }
 
-  async saveWorkspace(): Promise<void> {}
+  async saveWorkspace(_path: string, _data: WorkspaceData): Promise<void> {}
 
   async getSpectrumList(): Promise<SpectrumMeta[]> {
     return this.spectra.map((s) => ({
@@ -388,20 +408,213 @@ export class MockBackend implements XASBackend {
     return { ...first, traces };
   }
 
-  async plotSvg(): Promise<string[]> {
+  async plotSvg(_index: number, _panels: string[]): Promise<string[]> {
     return [];
   }
 
-  async runFeffFit(_config: FeffFitConfig): Promise<FeffFitResultDto> {
-    throw new Error("Not implemented in mock");
+  async plotFit(fitId: string, panel: "k" | "r", includePaths = true): Promise<PlotResult> {
+    const fit = this.fitResults.get(fitId);
+    if (!fit) {
+      throw new Error(`Fit result '${fitId}' not found`);
+    }
+
+    if (panel === "k") {
+      const traces: PlotTrace[] = [
+        { x: fit.k, y: fit.data_chi, label: "Data χ(k)", panel: "k" },
+        { x: fit.k, y: fit.model_chi, label: "Model χ(k)", panel: "k" },
+      ];
+      if (includePaths) {
+        for (const path of fit.path_contributions) {
+          traces.push({
+            x: fit.k,
+            y: path.chi,
+            label: `Path ${path.label}`,
+            panel: "k",
+            overlay: "path",
+            dash: "dot",
+            color: "#22c55e",
+          });
+        }
+      }
+      return {
+        traces,
+        svgs: [],
+        x_label: "k (Å⁻¹)",
+        y_label: "χ(k)",
+      };
+    }
+
+    const dataMag = fit.data_chir_re.map((re, i) => {
+      const im = fit.data_chir_im[i] ?? 0;
+      return Math.sqrt(re * re + im * im);
+    });
+    const traces: PlotTrace[] = [
+      { x: fit.r, y: dataMag, label: "Data |χ(R)|", panel: "r" },
+      { x: fit.r, y: fit.model_chir_mag, label: "Model |χ(R)|", panel: "r" },
+    ];
+    if (includePaths) {
+      for (const path of fit.path_contributions) {
+        traces.push({
+          x: fit.r,
+          y: path.chir_mag,
+          label: `Path ${path.label}`,
+          panel: "r",
+          overlay: "path",
+          dash: "dot",
+          color: "#f59e0b",
+        });
+      }
+    }
+    return {
+      traces,
+      svgs: [],
+      x_label: "R (Å)",
+      y_label: "|χ(R)|",
+    };
   }
 
-  async getFitResult(_fitId: string): Promise<FeffFitResultDto> {
-    throw new Error("Not implemented in mock");
+  async runFeffPaths(config: FeffRunConfig): Promise<FeffRunResultDto> {
+    const workspace = config.workspace_dir.trim();
+    if (!workspace) {
+      throw new Error("Workspace directory is required");
+    }
+    if (!config.executable_path.trim()) {
+      throw new Error("FEFF executable path is required");
+    }
+
+    const seed = fnv1a(JSON.stringify(config));
+    const pathCount = 2 + (seed % 3);
+    const normalizedWorkspace = workspace.endsWith("/") ? workspace.slice(0, -1) : workspace;
+    const path_files = Array.from({ length: pathCount }, (_, i) => {
+      const fileId = String(i + 1).padStart(4, "0");
+      return `${normalizedWorkspace}/feff${fileId}.dat`;
+    });
+
+    return {
+      mode: "Feff85LModules",
+      workspace_dir: workspace,
+      feffinp_path: config.feffinp?.trim() || `${normalizedWorkspace}/feff.inp`,
+      modules: [
+        { module: "rdinp", executable: config.executable_path },
+        { module: "pot", executable: config.executable_path },
+        { module: "xsph", executable: config.executable_path },
+        { module: "pathfinder", executable: config.executable_path },
+        { module: "genfmt", executable: config.executable_path },
+        { module: "ff2x", executable: config.executable_path },
+      ],
+      logs: [
+        `${normalizedWorkspace}/log1.dat`,
+        `${normalizedWorkspace}/log2.dat`,
+      ],
+      path_files,
+    };
+  }
+
+  async runFeffFit(config: FeffFitConfig): Promise<FeffFitResultDto> {
+    const spectrum = this.spectra[config.data_index] ?? this.spectra[0];
+    const k = spectrum.k ?? [];
+    const dataChi = spectrum.chi ?? spectrum.chi_kweighted ?? [];
+    const r = spectrum.r ?? [];
+    const dataRe = spectrum.chir_re ?? [];
+    const dataIm = spectrum.chir_im ?? [];
+
+    if (k.length === 0 || dataChi.length === 0) {
+      throw new Error("Selected spectrum has no χ(k) data. Run processing first.");
+    }
+
+    const seed = fnv1a(JSON.stringify(config));
+    const rand = buildDeterministicRng(seed);
+    const fitId = `mock-fit-${seed.toString(16)}`;
+
+    const modelChi = dataChi.map((value, i) => {
+      const phase = i * 0.02 + rand() * 0.5;
+      return value * (0.96 + 0.06 * Math.sin(phase));
+    });
+
+    const modelRe = dataRe.map((value, i) => value * (0.95 + 0.05 * Math.cos(i * 0.015)));
+    const modelIm = dataIm.map((value, i) => value * (0.95 + 0.05 * Math.sin(i * 0.018)));
+    const modelMag = modelRe.map((value, i) => {
+      const im = modelIm[i] ?? 0;
+      return Math.sqrt(value * value + im * im);
+    });
+
+    const variables = (config.variables.length > 0
+      ? config.variables
+      : [
+          { name: "amp", value: 1.0, vary: true, min: 0.0, max: 2.0 },
+          { name: "de0", value: 0.0, vary: true, min: -10, max: 10 },
+          { name: "sig2", value: 0.003, vary: true, min: 0.0, max: 0.02 },
+          { name: "dr", value: 0.0, vary: true, min: -0.1, max: 0.1 },
+        ]) as Array<{
+      name: string;
+      value: number;
+      vary: boolean;
+      min?: number;
+      max?: number;
+      expr?: string;
+    }>;
+
+    const variableResults = variables.map((variable) => {
+      const jitter = variable.vary ? (rand() - 0.5) * 0.04 : 0;
+      const value = variable.value * (1 + jitter);
+      return {
+        name: variable.name,
+        value,
+        stderr: variable.vary ? Math.max(Math.abs(value) * 0.02, 1e-6) : null,
+        vary: variable.vary,
+        init_value: variable.value,
+      };
+    });
+
+    const activePaths = config.paths.filter((p) => p.use_path);
+    const pathContributions = activePaths.map((path, idx) => {
+      const weight = 0.35 / (idx + 1);
+      return {
+        label: path.label || `path-${idx + 1}`,
+        chi: modelChi.map((v, i) => v * weight * (1 + 0.02 * Math.sin(i * 0.03 + idx))),
+        chir_re: modelRe.map((v) => v * weight),
+        chir_im: modelIm.map((v) => v * weight),
+        chir_mag: modelMag.map((v) => v * weight),
+      };
+    });
+
+    const fit: FeffFitResultDto = {
+      id: fitId,
+      chi_square: 2.0 + rand() * 8,
+      reduced_chi_square: 1.0 + rand() * 2,
+      r_factor: 0.01 + rand() * 0.03,
+      n_vary: variableResults.filter((v) => v.vary).length,
+      n_data: k.length,
+      n_idp: Math.max(10, 80 + rand() * 40),
+      variables: variableResults,
+      correlation: null,
+      k: [...k],
+      data_chi: [...dataChi],
+      model_chi: modelChi,
+      r: [...r],
+      data_chir_re: [...dataRe],
+      data_chir_im: [...dataIm],
+      model_chir_re: modelRe,
+      model_chir_im: modelIm,
+      model_chir_mag: modelMag,
+      path_contributions: pathContributions,
+      warnings: [],
+    };
+
+    this.fitResults.set(fit.id, fit);
+    return fit;
+  }
+
+  async getFitResult(fitId: string): Promise<FeffFitResultDto> {
+    const fit = this.fitResults.get(fitId);
+    if (!fit) {
+      throw new Error(`Fit result '${fitId}' not found`);
+    }
+    return fit;
   }
 
   async listFitResults(): Promise<string[]> {
-    return [];
+    return Array.from(this.fitResults.keys()).sort();
   }
 
   async getWorkspacePath(): Promise<string | null> {

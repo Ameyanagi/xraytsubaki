@@ -31,9 +31,11 @@ pub fn run() {
             commands::workspace::load_workspace,
             commands::workspace::get_workspace_path,
             // Fitting commands
+            commands::fitting::run_feff_paths,
             commands::fitting::run_feff_fit,
             commands::fitting::get_fit_result,
             commands::fitting::list_fit_results,
+            commands::fitting::plot_fit,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

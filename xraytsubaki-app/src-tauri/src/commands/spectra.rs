@@ -52,7 +52,10 @@ pub fn get_spectrum_list(state: State<'_, AppState>) -> Result<Vec<SpectrumMeta>
         if let Ok(spec) = group.get_spectrum(i) {
             list.push(SpectrumMeta {
                 index: i,
-                name: spec.name.clone().unwrap_or_else(|| format!("Spectrum {}", i)),
+                name: spec
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| format!("Spectrum {}", i)),
                 has_e0: spec.e0.is_some(),
                 has_norm: spec
                     .normalization
@@ -75,7 +78,10 @@ pub fn get_spectrum_data(state: State<'_, AppState>, index: usize) -> Result<Spe
 
     Ok(SpectrumData {
         index,
-        name: spec.name.clone().unwrap_or_else(|| format!("Spectrum {}", index)),
+        name: spec
+            .name
+            .clone()
+            .unwrap_or_else(|| format!("Spectrum {}", index)),
         energy: dvec_to_vec(&spec.energy),
         mu: dvec_to_vec(&spec.mu),
         e0: spec.e0,
@@ -330,13 +336,8 @@ pub fn batch_process(
 }
 
 #[tauri::command]
-pub fn remove_spectra(
-    state: State<'_, AppState>,
-    indices: Vec<usize>,
-) -> Result<usize, String> {
+pub fn remove_spectra(state: State<'_, AppState>, indices: Vec<usize>) -> Result<usize, String> {
     let mut group = state.group.lock().map_err(|e| e.to_string())?;
-    group
-        .remove_spectra(&indices)
-        .map_err(|e| e.to_string())?;
+    group.remove_spectra(&indices).map_err(|e| e.to_string())?;
     Ok(group.len())
 }

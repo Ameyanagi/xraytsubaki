@@ -11,7 +11,6 @@ import { ParameterPanel } from "@/panels/ParameterPanel";
 import { LogPanel } from "@/panels/LogPanel";
 import { FitPanel } from "@/panels/FitPanel";
 import { useWorkspaceStore } from "@/stores/workspace";
-import { useSpectraStore } from "@/stores/spectra";
 import { useBatchProgressEvents } from "@/hooks/useSpectra";
 import {
   createDefaultDockLayout,
@@ -41,8 +40,6 @@ export default function App() {
   const dockLayout = useWorkspaceStore((s) => s.dockLayout);
   const setDockLayout = useWorkspaceStore((s) => s.setDockLayout);
 
-  const setActiveIndex = useSpectraStore((s) => s.setActiveIndex);
-
   const defaultDockLayout = useMemo(() => createDefaultDockLayout(), []);
   const dockRef = useRef<DockLayout | null>(null);
   const lastAppliedDockKeyRef = useRef<string | null>(null);
@@ -61,11 +58,10 @@ export default function App() {
   );
 
   const handleTabClick = useCallback(
-    (tabId: string, spectrumIndex: number) => {
+    (tabId: string) => {
       setActiveTab(tabId);
-      setActiveIndex(spectrumIndex);
     },
-    [setActiveTab, setActiveIndex],
+    [setActiveTab],
   );
 
   const handleParamContextMenu = useCallback((e: React.MouseEvent) => {
@@ -132,6 +128,11 @@ export default function App() {
         e.preventDefault();
         const processBtn = document.querySelector('[title="Process All"]') as HTMLButtonElement;
         processBtn?.click();
+      }
+
+      if (e.key === "Enter") {
+        e.preventDefault();
+        window.dispatchEvent(new Event("xraytsubaki:fit-run-request"));
       }
 
       if (e.key >= "1" && e.key <= "4") {
@@ -293,7 +294,7 @@ export default function App() {
                       ? "bg-slate-950 text-slate-200 border-t-2 border-t-blue-500"
                       : "text-slate-400 hover:text-slate-200 border-t-2 border-t-transparent"
                   }`}
-                  onClick={() => handleTabClick(tab.id, tab.spectrumIndex)}
+                  onClick={() => handleTabClick(tab.id)}
                 >
                   {tab.label}
                   <button

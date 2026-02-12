@@ -4,23 +4,23 @@ import { backend } from "@/backend/tauri";
 import { useSpectraStore } from "@/stores/spectra";
 import type { PlotMode } from "@/backend/types";
 
-export function usePlotSpectrum(index: number | null, mode: PlotMode) {
+export function usePlotSpectrum(index: number | null, mode: PlotMode, tabKey?: string | null) {
   const version = useSpectraStore((s) => s.spectraVersion);
 
   return useQuery({
-    queryKey: ["plotSpectrum", index, mode, version],
+    queryKey: ["plotSpectrum", tabKey ?? "global", index, mode, version],
     queryFn: () => backend.plotSpectrum(index!, [mode]),
     enabled: index !== null,
   });
 }
 
-export function usePlotGroup(indices: number[], mode: PlotMode) {
+export function usePlotGroup(indices: number[], mode: PlotMode, tabKey?: string | null) {
   const version = useSpectraStore((s) => s.spectraVersion);
   const sortedIndices = useMemo(() => [...indices].sort((a, b) => a - b), [indices]);
   const indexKey = useMemo(() => sortedIndices.join(","), [sortedIndices]);
 
   return useQuery({
-    queryKey: ["plotGroup", indexKey, mode, version],
+    queryKey: ["plotGroup", tabKey ?? "global", indexKey, mode, version],
     queryFn: () => backend.plotGroup(sortedIndices, [mode]),
     enabled: sortedIndices.length > 0,
   });

@@ -162,6 +162,30 @@ pub struct ProcessingState {
 
 // --- FEFF Fitting ---
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct FeffRunConfig {
+    pub executable_path: String,
+    pub workspace_dir: String,
+    pub feffinp: Option<String>,
+    pub timeout_sec: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeffResolvedModuleDto {
+    pub module: String,
+    pub executable: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeffRunResultDto {
+    pub mode: String,
+    pub workspace_dir: String,
+    pub feffinp_path: String,
+    pub modules: Vec<FeffResolvedModuleDto>,
+    pub logs: Vec<String>,
+    pub path_files: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeffFitConfig {
     pub paths: Vec<FeffPathConfig>,

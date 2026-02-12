@@ -1,16 +1,8 @@
 import { useMemo, useState, useCallback, useRef, useEffect } from "react";
 import Plot from "react-plotly.js";
-import {
-  MousePointer2,
-  Crosshair,
-  ZoomIn,
-  Move,
-  Plus,
-  X,
-} from "lucide-react";
-import { useSpectraStore } from "@/stores/spectra";
+import { MousePointer2, Crosshair, ZoomIn, Move, Plus, X } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
-import { usePlotSpectrum, usePlotGroup } from "@/hooks/usePlot";
+import { usePlotSpectrum, usePlotGroup, usePlotSvg } from "@/hooks/usePlot";
 import type { PlotMode } from "@/backend/types";
 import type { CursorTool, PlotGroup, PlotLayout } from "@/stores/workspace";
 
@@ -63,8 +55,16 @@ export function PlotPanel() {
 /* ─── Plot Toolbar: cursor tools + pick indicator + render toggle ─── */
 
 function PlotToolbar() {
-  const { cursorTool, setCursorTool, pickTarget, setPickTarget, renderMode, setRenderMode } =
-    useWorkspaceStore();
+  const {
+    cursorTool,
+    setCursorTool,
+    pickTarget,
+    setPickTarget,
+    renderMode,
+    renderModeSource,
+    setRenderMode,
+    enableRenderModeAuto,
+  } = useWorkspaceStore();
 
   const handleCursorTool = (tool: CursorTool) => {
     setCursorTool(tool);
@@ -107,6 +107,17 @@ function PlotToolbar() {
 
       <div className="flex border border-slate-600 rounded overflow-hidden">
         <button
+          className={`px-2.5 py-0.5 text-[11px] border-r border-slate-600 transition-colors ${
+            renderModeSource === "auto"
+              ? "text-emerald-300 bg-emerald-500/10"
+              : "text-slate-500 hover:text-slate-300"
+          }`}
+          onClick={enableRenderModeAuto}
+          title="Enable automatic render mode switching"
+        >
+          Auto
+        </button>
+        <button
           className={`px-2.5 py-0.5 text-[11px] transition-colors ${
             renderMode === "interactive"
               ? "text-blue-400 bg-blue-500/15"
@@ -144,9 +155,7 @@ function PlotGrid() {
   };
 
   return (
-    <div
-      className={`flex-1 grid gap-px bg-slate-700 min-h-0 ${gridClass[plotLayout]}`}
-    >
+    <div className={`flex-1 grid gap-px bg-slate-700 min-h-0 ${gridClass[plotLayout]}`}>
       {plotGroups.map((group) => (
         <EditorGroup key={group.id} group={group} />
       ))}
@@ -338,20 +347,42 @@ function EditorGroup({ group }: { group: PlotGroup }) {
 
 /* ─── Plot Area (Plotly.js or SVG) ─── */
 
-function GroupPlotArea({ mode, enabledOverlays }: { mode: PlotMode; enabledOverlays: Set<string> }) {
-  const activeIndex = useSpectraStore((s) => s.activeIndex);
-  const selectedIndices = useSpectraStore((s) => s.selectedIndices);
+function GroupPlotArea({
+  mode,
+  enabledOverlays,
+}: {
+  mode: PlotMode;
+  enabledOverlays: Set<string>;
+}) {
+  const activeIndex = useWorkspaceStore((s) => s.activeIndex);
+  const selectedIndices = useWorkspaceStore((s) => s.selectedIndices);
+  const activeTabId = useWorkspaceStore((s) => s.activeTabId);
   const renderMode = useWorkspaceStore((s) => s.renderMode);
+  const renderModeSource = useWorkspaceStore((s) => s.renderModeSource);
+  const setAutoRenderMode = useWorkspaceStore((s) => s.setAutoRenderMode);
   const pickTarget = useWorkspaceStore((s) => s.pickTarget);
 
   const selectedArray = useMemo(() => Array.from(selectedIndices), [selectedIndices]);
   const useGroup = selectedArray.length > 1;
 
   // Each group independently fetches its own mode's data
-  const { data: singlePlot } = usePlotSpectrum(!useGroup ? activeIndex : null, mode);
-  const { data: groupPlot } = usePlotGroup(useGroup ? selectedArray : [], mode);
+  const { data: singlePlot } = usePlotSpectrum(!useGroup ? activeIndex : null, mode, activeTabId);
+  const { data: groupPlot } = usePlotGroup(useGroup ? selectedArray : [], mode, activeTabId);
+  const { data: coreSvgs } = usePlotSvg(
+    renderMode === "core" && !useGroup ? activeIndex : null,
+    renderMode === "core" ? [mode] : [],
+  );
 
   const plotResult = useGroup ? groupPlot : singlePlot;
+  const traceCount = plotResult?.traces.length ?? 0;
+
+  useEffect(() => {
+    if (renderModeSource !== "auto") return;
+    const nextMode = traceCount > 1000 && !useGroup ? "core" : "interactive";
+    if (nextMode !== renderMode) {
+      setAutoRenderMode(nextMode);
+    }
+  }, [renderModeSource, traceCount, useGroup, renderMode, setAutoRenderMode]);
 
   const plotData = useMemo(() => {
     if (!plotResult?.traces) return [];
@@ -374,9 +405,7 @@ function GroupPlotArea({ mode, enabledOverlays }: { mode: PlotMode; enabledOverl
           ...(trace.color ? { color: trace.color } : {}),
         },
         // Overlay traces: no hover, subtle opacity
-        ...(trace.overlay
-          ? { hoverinfo: "skip" as const, opacity: 0.8, showlegend: true }
-          : {}),
+        ...(trace.overlay ? { hoverinfo: "skip" as const, opacity: 0.8, showlegend: true } : {}),
       }));
   }, [enabledOverlays, plotResult]);
 
@@ -418,12 +447,12 @@ function GroupPlotArea({ mode, enabledOverlays }: { mode: PlotMode; enabledOverl
     [pickTarget],
   );
 
-  if (renderMode === "core" && plotResult?.svgs && plotResult.svgs.length > 0) {
+  if (renderMode === "core" && !useGroup && coreSvgs && coreSvgs.length > 0) {
     // SVG from Rust backend — trusted source
     return (
       <div
         className="flex-1 overflow-auto p-1 min-h-0"
-        dangerouslySetInnerHTML={{ __html: plotResult.svgs[0] }}
+        dangerouslySetInnerHTML={{ __html: coreSvgs[0] }}
       />
     );
   }
@@ -458,7 +487,16 @@ function GroupPlotArea({ mode, enabledOverlays }: { mode: PlotMode; enabledOverl
 
 function SplitRightIcon() {
   return (
-    <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 14 14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <rect x="1" y="1" width="12" height="12" rx="1" />
       <line x1="7" y1="1" x2="7" y2="13" />
     </svg>
@@ -467,7 +505,16 @@ function SplitRightIcon() {
 
 function SplitDownIcon() {
   return (
-    <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 14 14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <rect x="1" y="1" width="12" height="12" rx="1" />
       <line x1="1" y1="7" x2="13" y2="7" />
     </svg>

@@ -2,8 +2,8 @@ import { FolderOpen, Save, Play, Zap, Download } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { useLoadSpectra, useBatchProcess } from "@/hooks/useSpectra";
-import { useSpectraStore } from "@/stores/spectra";
 import { useWorkspaceStore } from "@/stores/workspace";
+import { useSpectraStore } from "@/stores/spectra";
 import { backend } from "@/backend/tauri";
 import type { WorkspaceData } from "@/backend/types";
 import {
@@ -36,15 +36,17 @@ export function Toolbar() {
 
   const loadSpectra = useLoadSpectra();
   const batchProcess = useBatchProcess();
-  const selectedIndices = useSpectraStore((s) => s.selectedIndices);
   const batchProgress = useSpectraStore((s) => s.batchProgress);
   const invalidateSpectra = useSpectraStore((s) => s.invalidateSpectra);
+  const selectedIndices = useWorkspaceStore((s) => s.selectedIndices);
+  const activeIndex = useWorkspaceStore((s) => s.activeIndex);
 
   const workspacePath = useWorkspaceStore((s) => s.workspacePath);
   const setWorkspacePath = useWorkspaceStore((s) => s.setWorkspacePath);
   const theme = useWorkspaceStore((s) => s.theme);
   const setTheme = useWorkspaceStore((s) => s.setTheme);
-  const tabs = useWorkspaceStore((s) => s.tabs);
+  const importTabsFromWorkspace = useWorkspaceStore((s) => s.importTabsFromWorkspace);
+  const exportTabsForWorkspace = useWorkspaceStore((s) => s.exportTabsForWorkspace);
   const dockLayout = useWorkspaceStore((s) => s.dockLayout);
   const setDockLayout = useWorkspaceStore((s) => s.setDockLayout);
   const leftSidebarCollapsed = useWorkspaceStore((s) => s.leftSidebarCollapsed);
@@ -75,6 +77,7 @@ export function Toolbar() {
         writeWorkspaceLayoutToStorage(layout);
 
         setWorkspacePath(paths[0]);
+        importTabsFromWorkspace(data.tabs);
 
         invalidateSpectra();
         await queryClient.invalidateQueries({ queryKey: ["spectrumList"] });
@@ -109,11 +112,7 @@ export function Toolbar() {
     const data: WorkspaceData = {
       version: "0.1.0",
       layout: layoutPayload,
-      tabs: tabs.map((tab) => ({
-        id: tab.id,
-        label: tab.label,
-        spectrumIndex: tab.spectrumIndex,
-      })),
+      tabs: exportTabsForWorkspace(),
       spectra_source: null,
       spectra_count: 0,
       processing: {},
@@ -138,9 +137,12 @@ export function Toolbar() {
     }
   };
 
+  const handleRunFit = () => {
+    window.dispatchEvent(new Event("xraytsubaki:fit-run-request"));
+  };
+
   const handleExportSvg = async () => {
-    const active = useSpectraStore.getState().activeIndex;
-    if (active === null) return;
+    if (activeIndex === null) return;
 
     const path = await save({
       filters: [{ name: "SVG", extensions: ["svg"] }],
@@ -148,7 +150,7 @@ export function Toolbar() {
     if (!path) return;
 
     const plotMode = useWorkspaceStore.getState().plotMode;
-    const svgs = await backend.plotSvg(active, [plotMode]);
+    const svgs = await backend.plotSvg(activeIndex, [plotMode]);
     if (svgs.length > 0) {
       const { writeTextFile } = await import("@tauri-apps/plugin-fs");
       await writeTextFile(path, svgs[0]);
@@ -170,7 +172,12 @@ export function Toolbar() {
         onClick={handleProcessAll}
         disabled={selectedIndices.size === 0 || batchProcess.isPending}
       />
-      <ToolButton icon={<Zap size={15} />} label="Fit" onClick={() => {}} disabled />
+      <ToolButton
+        icon={<Zap size={15} />}
+        label="Fit"
+        onClick={handleRunFit}
+        disabled={activeIndex === null}
+      />
       <Divider />
       <ToolButton icon={<Download size={15} />} label="Export" onClick={handleExportSvg} />
 

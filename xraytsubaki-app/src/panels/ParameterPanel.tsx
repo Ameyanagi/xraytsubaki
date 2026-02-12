@@ -8,9 +8,7 @@ import {
   useFFT,
   useRunPipeline,
 } from "@/hooks/useSpectra";
-import { useSpectraStore } from "@/stores/spectra";
 import { useWorkspaceStore } from "@/stores/workspace";
-import type { NormOptions, BgOptions, FFTOptions } from "@/backend/types";
 import type { ParamTab } from "@/stores/workspace";
 
 const TAB_LABELS: Record<ParamTab, string> = {
@@ -23,39 +21,29 @@ const TAB_LABELS: Record<ParamTab, string> = {
 const TABS: ParamTab[] = ["e0", "norm", "bkg", "fft"];
 
 export function ParameterPanel() {
-  const activeIndex = useSpectraStore((s) => s.activeIndex);
+  const activeIndex = useWorkspaceStore((s) => s.activeIndex);
   const { data: spectrum } = useSpectrumData(activeIndex);
-  const { paramTab, setParamTab, pickTarget, setPickTarget, registerPickListener, unregisterPickListener } =
-    useWorkspaceStore();
-
-  // Parameter state — seeded from spectrum data
-  const [normOpts, setNormOpts] = useState<NormOptions>({
-    pre_edge_start: -200,
-    pre_edge_end: -30,
-    norm_start: 150,
-    norm_end: 800,
-  });
-  const [bgOpts, setBgOpts] = useState<BgOptions>({
-    rbkg: 1.0,
-    kweight: 2,
-    kmin: 0,
-    kmax: 15,
-  });
-  const [fftOpts, setFftOpts] = useState<FFTOptions>({
-    kmin: 2,
-    kmax: 12,
-    kweight: 2,
-    dk: 1,
-    window: "hanning",
-  });
-  const [livePreview, setLivePreview] = useState(true);
+  const paramTab = useWorkspaceStore((s) => s.paramTab);
+  const setParamTab = useWorkspaceStore((s) => s.setParamTab);
+  const pickTarget = useWorkspaceStore((s) => s.pickTarget);
+  const setPickTarget = useWorkspaceStore((s) => s.setPickTarget);
+  const registerPickListener = useWorkspaceStore((s) => s.registerPickListener);
+  const unregisterPickListener = useWorkspaceStore((s) => s.unregisterPickListener);
+  const normOpts = useWorkspaceStore((s) => s.normOpts);
+  const setNormOpts = useWorkspaceStore((s) => s.setNormOpts);
+  const bgOpts = useWorkspaceStore((s) => s.bgOpts);
+  const setBgOpts = useWorkspaceStore((s) => s.setBgOpts);
+  const fftOpts = useWorkspaceStore((s) => s.fftOpts);
+  const setFftOpts = useWorkspaceStore((s) => s.setFftOpts);
+  const livePreview = useWorkspaceStore((s) => s.livePreview);
+  const setLivePreview = useWorkspaceStore((s) => s.setLivePreview);
   const lastAutoApplyKeyRef = useRef<string | null>(null);
 
   // Seed E0 from spectrum when it changes
   const prevIndexRef = useRef<number | null>(null);
   useEffect(() => {
     if (activeIndex !== null && activeIndex !== prevIndexRef.current && spectrum?.e0) {
-      setNormOpts((o) => ({ ...o, e0: spectrum.e0 ?? undefined }));
+      setNormOpts((prev) => ({ ...prev, e0: spectrum.e0 ?? undefined }));
     }
     prevIndexRef.current = activeIndex;
   }, [activeIndex, spectrum?.e0]);
@@ -65,11 +53,20 @@ export function ParameterPanel() {
     const e0Val = spectrum?.e0 ?? 0;
 
     const listeners: [string, (v: number) => void][] = [
-      ["E0", (v) => setNormOpts((o) => ({ ...o, e0: v }))],
-      ["Pre-edge start", (v) => setNormOpts((o) => ({ ...o, pre_edge_start: Math.round(v - e0Val) }))],
-      ["Pre-edge end", (v) => setNormOpts((o) => ({ ...o, pre_edge_end: Math.round(v - e0Val) }))],
-      ["Norm start", (v) => setNormOpts((o) => ({ ...o, norm_start: Math.round(v - e0Val) }))],
-      ["Norm end", (v) => setNormOpts((o) => ({ ...o, norm_end: Math.round(v - e0Val) }))],
+      ["E0", (v) => setNormOpts((prev) => ({ ...prev, e0: v }))],
+      [
+        "Pre-edge start",
+        (v) => setNormOpts((prev) => ({ ...prev, pre_edge_start: Math.round(v - e0Val) })),
+      ],
+      [
+        "Pre-edge end",
+        (v) => setNormOpts((prev) => ({ ...prev, pre_edge_end: Math.round(v - e0Val) })),
+      ],
+      [
+        "Norm start",
+        (v) => setNormOpts((prev) => ({ ...prev, norm_start: Math.round(v - e0Val) })),
+      ],
+      ["Norm end", (v) => setNormOpts((prev) => ({ ...prev, norm_end: Math.round(v - e0Val) }))],
     ];
 
     for (const [target, cb] of listeners) {
@@ -279,7 +276,7 @@ export function ParameterPanel() {
           <ParamInput
             label="Pre start"
             value={normOpts.pre_edge_start}
-            onChange={(v) => setNormOpts((o) => ({ ...o, pre_edge_start: v }))}
+            onChange={(v) => setNormOpts((prev) => ({ ...prev, pre_edge_start: v }))}
             unit="eV"
           >
             <PickButton
@@ -291,7 +288,7 @@ export function ParameterPanel() {
           <ParamInput
             label="Pre end"
             value={normOpts.pre_edge_end}
-            onChange={(v) => setNormOpts((o) => ({ ...o, pre_edge_end: v }))}
+            onChange={(v) => setNormOpts((prev) => ({ ...prev, pre_edge_end: v }))}
             unit="eV"
           >
             <PickButton
@@ -305,7 +302,9 @@ export function ParameterPanel() {
             <select
               className="w-full bg-slate-700 text-slate-200 text-xs px-2 py-1.5 rounded border border-slate-600 focus:border-blue-500 focus:outline-none"
               value={normOpts.norm_polyorder ?? 2}
-              onChange={(e) => setNormOpts((o) => ({ ...o, norm_polyorder: parseInt(e.target.value) }))}
+              onChange={(e) =>
+                setNormOpts((prev) => ({ ...prev, norm_polyorder: parseInt(e.target.value) }))
+              }
             >
               <option value="1">1</option>
               <option value="2">2</option>
@@ -315,7 +314,7 @@ export function ParameterPanel() {
           <ParamInput
             label="Norm start"
             value={normOpts.norm_start}
-            onChange={(v) => setNormOpts((o) => ({ ...o, norm_start: v }))}
+            onChange={(v) => setNormOpts((prev) => ({ ...prev, norm_start: v }))}
             unit="eV"
           >
             <PickButton
@@ -327,7 +326,7 @@ export function ParameterPanel() {
           <ParamInput
             label="Norm end"
             value={normOpts.norm_end}
-            onChange={(v) => setNormOpts((o) => ({ ...o, norm_end: v }))}
+            onChange={(v) => setNormOpts((prev) => ({ ...prev, norm_end: v }))}
             unit="eV"
           >
             <PickButton
@@ -342,24 +341,29 @@ export function ParameterPanel() {
           <ParamInput
             label="Rbkg"
             value={bgOpts.rbkg}
-            onChange={(v) => setBgOpts((o) => ({ ...o, rbkg: v }))}
+            onChange={(v) => setBgOpts((prev) => ({ ...prev, rbkg: v }))}
             unit={"\u00C5"}
           />
           <ParamInput
             label="k-weight"
             value={bgOpts.kweight}
-            onChange={(v) => setBgOpts((o) => ({ ...o, kweight: v !== undefined ? Math.round(v) : undefined }))}
+            onChange={(v) =>
+              setBgOpts((prev) => ({
+                ...prev,
+                kweight: v !== undefined ? Math.round(v) : undefined,
+              }))
+            }
           />
           <ParamInput
             label="k-min"
             value={bgOpts.kmin}
-            onChange={(v) => setBgOpts((o) => ({ ...o, kmin: v }))}
+            onChange={(v) => setBgOpts((prev) => ({ ...prev, kmin: v }))}
             unit={"\u00C5\u207B\u00B9"}
           />
           <ParamInput
             label="k-max"
             value={bgOpts.kmax}
-            onChange={(v) => setBgOpts((o) => ({ ...o, kmax: v }))}
+            onChange={(v) => setBgOpts((prev) => ({ ...prev, kmax: v }))}
             unit={"\u00C5\u207B\u00B9"}
           />
           <div>
@@ -380,26 +384,26 @@ export function ParameterPanel() {
           <ParamInput
             label="k-min"
             value={fftOpts.kmin}
-            onChange={(v) => setFftOpts((o) => ({ ...o, kmin: v }))}
+            onChange={(v) => setFftOpts((prev) => ({ ...prev, kmin: v }))}
             unit={"\u00C5\u207B\u00B9"}
           />
           <ParamInput
             label="k-max"
             value={fftOpts.kmax}
-            onChange={(v) => setFftOpts((o) => ({ ...o, kmax: v }))}
+            onChange={(v) => setFftOpts((prev) => ({ ...prev, kmax: v }))}
             unit={"\u00C5\u207B\u00B9"}
           />
           <ParamInput
             label="k-weight"
             value={fftOpts.kweight}
-            onChange={(v) => setFftOpts((o) => ({ ...o, kweight: v }))}
+            onChange={(v) => setFftOpts((prev) => ({ ...prev, kweight: v }))}
           />
           <div>
             <ParamLabel label="Window" />
             <select
               className="w-full bg-slate-700 text-slate-200 text-xs px-2 py-1.5 rounded border border-slate-600 focus:border-blue-500 focus:outline-none"
               value={fftOpts.window ?? "hanning"}
-              onChange={(e) => setFftOpts((o) => ({ ...o, window: e.target.value }))}
+              onChange={(e) => setFftOpts((prev) => ({ ...prev, window: e.target.value }))}
             >
               <option value="hanning">Hanning</option>
               <option value="kaiserbessel">Kaiser-Bessel</option>
@@ -410,7 +414,7 @@ export function ParameterPanel() {
           <ParamInput
             label="dk"
             value={fftOpts.dk}
-            onChange={(v) => setFftOpts((o) => ({ ...o, dk: v }))}
+            onChange={(v) => setFftOpts((prev) => ({ ...prev, dk: v }))}
             unit={"\u00C5\u207B\u00B9"}
           />
         </div>

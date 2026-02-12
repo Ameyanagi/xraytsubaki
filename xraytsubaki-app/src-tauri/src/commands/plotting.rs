@@ -59,7 +59,13 @@ fn derivative(x: &[f64], y: &[f64]) -> Vec<f64> {
         return vec![0.0];
     }
 
-    let slope = |dy: f64, dx: f64| if dx.abs() <= f64::EPSILON { 0.0 } else { dy / dx };
+    let slope = |dy: f64, dx: f64| {
+        if dx.abs() <= f64::EPSILON {
+            0.0
+        } else {
+            dy / dx
+        }
+    };
     let mut d = Vec::with_capacity(n);
     for i in 0..n {
         if i == 0 {
@@ -89,7 +95,11 @@ fn build_overlays(spec: &XASSpectrum, name: &str, panel: &str) -> Vec<PlotTrace>
                 let mu_min = mu_vec.iter().copied().fold(f64::INFINITY, f64::min);
                 let mu_max = mu_vec.iter().copied().fold(f64::NEG_INFINITY, f64::max);
                 let mu_range = mu_max - mu_min;
-                let scale = if max_dmu > 0.0 { mu_range * 0.4 / max_dmu } else { 1.0 };
+                let scale = if max_dmu > 0.0 {
+                    mu_range * 0.4 / max_dmu
+                } else {
+                    1.0
+                };
                 let scaled_dmude: Vec<f64> = dmude.iter().map(|d| d * scale + mu_min).collect();
                 overlays.push(overlay_trace(
                     e_vec.clone(),
@@ -175,7 +185,9 @@ fn build_overlays(spec: &XASSpectrum, name: &str, panel: &str) -> Vec<PlotTrace>
                 ));
 
                 // Pre-edge in normalized space
-                if let (Some(pre_edge), Some(post_edge)) = (spec.get_pre_edge(), spec.get_post_edge()) {
+                if let (Some(pre_edge), Some(post_edge)) =
+                    (spec.get_pre_edge(), spec.get_post_edge())
+                {
                     let fallback_e0 = e_vec.get(e_vec.len() / 3).copied().unwrap_or(0.0);
                     let e0 = spec.e0.unwrap_or(fallback_e0);
                     let e0_idx = e_vec.iter().position(|e| *e >= e0).unwrap_or(0);
@@ -185,7 +197,8 @@ fn build_overlays(spec: &XASSpectrum, name: &str, panel: &str) -> Vec<PlotTrace>
 
                     let pre0 = pre_edge.get(0).copied().unwrap_or(0.0);
                     let norm_pre: Vec<f64> = pre_edge.iter().map(|p| (p - pre0) / step).collect();
-                    let norm_post: Vec<f64> = post_edge.iter().map(|p| (p - pre_at_e0) / step).collect();
+                    let norm_post: Vec<f64> =
+                        post_edge.iter().map(|p| (p - pre_at_e0) / step).collect();
 
                     overlays.push(overlay_trace(
                         e_vec.clone(),
@@ -289,18 +302,23 @@ fn build_overlays(spec: &XASSpectrum, name: &str, panel: &str) -> Vec<PlotTrace>
                     let rmin = 1.0_f64;
                     let rmax = 3.0_f64;
                     let dr = 0.2_f64;
-                    let rwin: Vec<f64> = r_vec.iter().map(|rv| {
-                        let w = if *rv < rmin - dr || *rv > rmax + dr {
-                            0.0
-                        } else if *rv < rmin + dr {
-                            0.5 * (1.0 + (std::f64::consts::PI * (rv - rmin - dr) / (2.0 * dr)).cos())
-                        } else if *rv > rmax - dr {
-                            0.5 * (1.0 + (std::f64::consts::PI * (rv - rmax + dr) / (2.0 * dr)).cos())
-                        } else {
-                            1.0
-                        };
-                        w * max_mag
-                    }).collect();
+                    let rwin: Vec<f64> = r_vec
+                        .iter()
+                        .map(|rv| {
+                            let w = if *rv < rmin - dr || *rv > rmax + dr {
+                                0.0
+                            } else if *rv < rmin + dr {
+                                0.5 * (1.0
+                                    + (std::f64::consts::PI * (rv - rmin - dr) / (2.0 * dr)).cos())
+                            } else if *rv > rmax - dr {
+                                0.5 * (1.0
+                                    + (std::f64::consts::PI * (rv - rmax + dr) / (2.0 * dr)).cos())
+                            } else {
+                                1.0
+                            };
+                            w * max_mag
+                        })
+                        .collect();
                     overlays.push(overlay_trace(
                         r_vec.clone(),
                         rwin,
@@ -364,12 +382,7 @@ pub fn plot_spectrum(
             }
             "k" => {
                 if let (Some(k), Some(y_data)) = (&spec.k, k_trace_data(spec)) {
-                    traces.push(main_trace(
-                        dvec_to_vec(k),
-                        y_data,
-                        name.clone(),
-                        "k",
-                    ));
+                    traces.push(main_trace(dvec_to_vec(k), y_data, name.clone(), "k"));
                     x_label = "k (\u{00C5}\u{207B}\u{00B9})".into();
                     y_label = "k\u{00B2}\u{03C7}(k)".into();
                 }
@@ -450,12 +463,7 @@ pub fn plot_group(
                 }
                 "k" => {
                     if let (Some(k), Some(y_data)) = (&spec.k, k_trace_data(spec)) {
-                        all_traces.push(main_trace(
-                            dvec_to_vec(k),
-                            y_data,
-                            name.clone(),
-                            "k",
-                        ));
+                        all_traces.push(main_trace(dvec_to_vec(k), y_data, name.clone(), "k"));
                         x_label = "k (\u{00C5}\u{207B}\u{00B9})".into();
                         y_label = "k\u{00B2}\u{03C7}(k)".into();
                     }

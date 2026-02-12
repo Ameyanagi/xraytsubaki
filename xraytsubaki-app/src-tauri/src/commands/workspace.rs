@@ -22,11 +22,7 @@ pub fn save_workspace(
     if !group.is_empty() {
         let data_path = PathBuf::from(&path).with_extension("xas.bson");
         group
-            .write_bson(
-                data_path
-                    .to_str()
-                    .ok_or("Invalid path for data file")?,
-            )
+            .write_bson(data_path.to_str().ok_or("Invalid path for data file")?)
             .map_err(|e| e.to_string())?;
     }
 
@@ -34,10 +30,7 @@ pub fn save_workspace(
 }
 
 #[tauri::command]
-pub fn load_workspace(
-    state: State<'_, AppState>,
-    path: String,
-) -> Result<WorkspaceData, String> {
+pub fn load_workspace(state: State<'_, AppState>, path: String) -> Result<WorkspaceData, String> {
     let json = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let data: WorkspaceData = serde_json::from_str(&json).map_err(|e| e.to_string())?;
 
@@ -47,11 +40,7 @@ pub fn load_workspace(
         let mut group = state.group.lock().map_err(|e| e.to_string())?;
         *group = xraytsubaki::prelude::XASGroup::new();
         group
-            .read_bson(
-                data_path
-                    .to_str()
-                    .ok_or("Invalid path for data file")?,
-            )
+            .read_bson(data_path.to_str().ok_or("Invalid path for data file")?)
             .map_err(|e| e.to_string())?;
     }
 

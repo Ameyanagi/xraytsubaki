@@ -9,6 +9,8 @@ import type {
   BatchResult,
   PlotResult,
   WorkspaceData,
+  FeffRunConfig,
+  FeffRunResultDto,
   FeffFitConfig,
   FeffFitResultDto,
 } from "./types";
@@ -38,8 +40,10 @@ export interface XASBackend {
   plotSpectrum(index: number, panels: string[]): Promise<PlotResult>;
   plotGroup(indices: number[], panels: string[]): Promise<PlotResult>;
   plotSvg(index: number, panels: string[]): Promise<string[]>;
+  plotFit(fitId: string, panel: "k" | "r", includePaths?: boolean): Promise<PlotResult>;
 
   // Fitting
+  runFeffPaths(config: FeffRunConfig): Promise<FeffRunResultDto>;
   runFeffFit(config: FeffFitConfig): Promise<FeffFitResultDto>;
   getFitResult(fitId: string): Promise<FeffFitResultDto>;
   listFitResults(): Promise<string[]>;

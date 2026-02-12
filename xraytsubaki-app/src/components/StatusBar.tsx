@@ -1,6 +1,6 @@
 import { useSpectrumList } from "@/hooks/useSpectra";
-import { useSpectraStore } from "@/stores/spectra";
 import { useWorkspaceStore } from "@/stores/workspace";
+import { useSpectraStore } from "@/stores/spectra";
 
 const MODE_LABELS: Record<string, string> = {
   mu: "\u03BC(E)",
@@ -11,13 +11,13 @@ const MODE_LABELS: Record<string, string> = {
 
 export function StatusBar() {
   const { data: spectra } = useSpectrumList();
-  const selectedCount = useSpectraStore((s) => s.selectedIndices.size);
-  const activeIndex = useSpectraStore((s) => s.activeIndex);
-  const batchProgress = useSpectraStore((s) => s.batchProgress);
+  const selectedCount = useWorkspaceStore((s) => s.selectedIndices.size);
+  const activeIndex = useWorkspaceStore((s) => s.activeIndex);
   const plotMode = useWorkspaceStore((s) => s.plotMode);
   const renderMode = useWorkspaceStore((s) => s.renderMode);
   const pickTarget = useWorkspaceStore((s) => s.pickTarget);
   const plotGroups = useWorkspaceStore((s) => s.plotGroups);
+  const batchProgress = useSpectraStore((s) => s.batchProgress);
 
   const total = spectra?.length ?? 0;
 

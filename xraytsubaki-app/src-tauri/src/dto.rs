@@ -133,6 +133,7 @@ pub struct PlotTrace {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlotResult {
     pub traces: Vec<PlotTrace>,
+    pub pngs: Vec<String>,
     pub svgs: Vec<String>,
     pub x_label: String,
     pub y_label: String,
@@ -164,7 +165,8 @@ pub struct ProcessingState {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct FeffRunConfig {
-    pub executable_path: String,
+    #[serde(default)]
+    pub executable_path: Option<String>,
     pub workspace_dir: String,
     pub feffinp: Option<String>,
     pub timeout_sec: Option<u64>,

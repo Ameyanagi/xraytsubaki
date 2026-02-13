@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { backend } from "@/backend/tauri";
 import { useSpectraStore } from "@/stores/spectra";
+import { useWorkspaceStore } from "@/stores/workspace";
 import { addLog } from "@/panels/LogPanel";
 import type {
   PipelineOptions,
@@ -83,10 +84,12 @@ export function useLoadSpectra() {
 export function useRemoveSpectra() {
   const queryClient = useQueryClient();
   const invalidate = useSpectraStore((s) => s.invalidateSpectra);
+  const remapAfterSpectraRemoval = useWorkspaceStore((s) => s.remapAfterSpectraRemoval);
 
   return useMutation({
     mutationFn: (indices: number[]) => backend.removeSpectra(indices),
     onSuccess: (_newCount, indices) => {
+      remapAfterSpectraRemoval(indices);
       invalidate();
       queryClient.invalidateQueries({ queryKey: ["spectrumList"] });
       addLog("info", `Removed ${indices.length} spectrum(s)`);
@@ -158,8 +161,7 @@ export function useFFT() {
   const invalidate = useSpectraStore((s) => s.invalidateSpectra);
 
   return useMutation({
-    mutationFn: ({ index, opts }: { index: number; opts?: FFTOptions }) =>
-      backend.fft(index, opts),
+    mutationFn: ({ index, opts }: { index: number; opts?: FFTOptions }) => backend.fft(index, opts),
     onSuccess: (_, { index }) => {
       invalidate();
       queryClient.invalidateQueries({ queryKey: ["spectrumData"] });

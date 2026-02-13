@@ -31,6 +31,22 @@ function fileName(path: string): string {
   return idx >= 0 ? normalized.slice(idx + 1) : normalized;
 }
 
+function parseDataUrl(dataUrl: string): { mime: string; bytes: Uint8Array } | null {
+  const match = /^data:([^;]+);base64,(.+)$/i.exec(dataUrl.trim());
+  if (!match) return null;
+  const [, mime, base64] = match;
+  try {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return { mime, bytes };
+  } catch {
+    return null;
+  }
+}
+
 export function Toolbar() {
   const queryClient = useQueryClient();
 
@@ -141,26 +157,54 @@ export function Toolbar() {
     window.dispatchEvent(new Event("xraytsubaki:fit-run-request"));
   };
 
-  const handleExportSvg = async () => {
+  const handleExportPlot = async () => {
     if (activeIndex === null) return;
 
     const path = await save({
-      filters: [{ name: "SVG", extensions: ["svg"] }],
+      defaultPath: `plot-${Date.now()}.png`,
+      filters: [
+        { name: "PNG", extensions: ["png"] },
+        { name: "SVG", extensions: ["svg"] },
+      ],
     });
     if (!path) return;
 
-    const plotMode = useWorkspaceStore.getState().plotMode;
-    const svgs = await backend.plotSvg(activeIndex, [plotMode]);
-    if (svgs.length > 0) {
+    const { plotMode, energyMain } = useWorkspaceStore.getState();
+    const exportPanel =
+      plotMode === "energy" ? (energyMain === "mu" ? "mu" : "norm") : plotMode;
+    const core = await backend.plotCore(activeIndex, [exportPanel]);
+    const asSvg = path.toLowerCase().endsWith(".svg");
+
+    if (asSvg) {
+      if (core.svgs.length === 0) {
+        addLog("error", "Export failed: no SVG payload available");
+        return;
+      }
       const { writeTextFile } = await import("@tauri-apps/plugin-fs");
-      await writeTextFile(path, svgs[0]);
+      await writeTextFile(path, core.svgs[0]);
+      addLog("info", `Plot exported as SVG: ${fileName(path)}`);
+      return;
     }
+
+    if (core.pngs.length === 0) {
+      addLog("error", "Export failed: no PNG payload available");
+      return;
+    }
+
+    const parsed = parseDataUrl(core.pngs[0]);
+    if (!parsed || !parsed.mime.includes("png")) {
+      addLog("error", "Export failed: invalid PNG payload");
+      return;
+    }
+    const { writeFile } = await import("@tauri-apps/plugin-fs");
+    await writeFile(path, parsed.bytes);
+    addLog("info", `Plot exported as PNG: ${fileName(path)}`);
   };
 
   return (
-    <div className="flex items-center gap-1 h-9 px-3 bg-slate-800 border-b border-slate-700 shrink-0">
-      <span className="text-[13px] font-semibold text-blue-500 mr-3 tracking-tight">
-        xray<span className="font-normal text-slate-400">tsubaki</span>
+    <div className="flex items-center gap-1 h-10 px-3 bg-[#151515] shrink-0">
+      <span className="text-[14px] font-semibold text-blue-400 mr-3 tracking-tight">
+        xray<span className="font-normal text-[#a0a0a0]">tsubaki</span>
       </span>
 
       <ToolButton icon={<FolderOpen size={15} />} label="Open" onClick={handleOpen} />
@@ -171,15 +215,17 @@ export function Toolbar() {
         label="Process All"
         onClick={handleProcessAll}
         disabled={selectedIndices.size === 0 || batchProcess.isPending}
+        variant="primary"
       />
       <ToolButton
         icon={<Zap size={15} />}
         label="Fit"
         onClick={handleRunFit}
         disabled={activeIndex === null}
+        iconOnly
       />
       <Divider />
-      <ToolButton icon={<Download size={15} />} label="Export" onClick={handleExportSvg} />
+      <ToolButton icon={<Download size={15} />} label="Export" onClick={handleExportPlot} iconOnly />
 
       {loadSpectra.isPending && (
         <span className="ml-2 text-xs text-blue-400 animate-pulse">Loading...</span>
@@ -193,7 +239,7 @@ export function Toolbar() {
       <div className="flex-1" />
 
       <select
-        className="bg-slate-700 border border-slate-600 text-slate-300 text-[11px] px-2 py-0.5 rounded cursor-pointer focus:outline-none focus:border-blue-500 min-w-[110px]"
+        className="bg-[#242424] border border-[#343434] text-[#e0e0e0] text-[12px] px-2 py-0.5 rounded cursor-pointer focus:outline-none focus:border-blue-500 min-w-[110px]"
         value={theme}
         onChange={(e) => setTheme(e.target.value)}
       >
@@ -212,25 +258,36 @@ function ToolButton({
   label,
   onClick,
   disabled = false,
+  variant = "ghost",
+  iconOnly = false,
 }: {
   icon: React.ReactNode;
   label: string;
   onClick: () => void;
   disabled?: boolean;
+  variant?: "ghost" | "primary";
+  iconOnly?: boolean;
 }) {
+  const base = iconOnly
+    ? "w-8 h-8 justify-center"
+    : "px-2.5 py-1.5 justify-start";
+  const style =
+    variant === "primary"
+      ? "bg-[#5b9aff] text-white hover:bg-[#4a89ee]"
+      : "text-[#d0d0d0] hover:bg-[#242424] hover:text-white";
   return (
     <button
-      className="flex items-center gap-1.5 px-2 py-1 rounded text-xs text-slate-300 hover:bg-slate-700 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+      className={`flex items-center gap-1.5 rounded text-[12px] transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${base} ${style}`}
       onClick={onClick}
       disabled={disabled}
       title={label}
     >
       {icon}
-      <span>{label}</span>
+      {!iconOnly && <span className="font-medium">{label}</span>}
     </button>
   );
 }
 
 function Divider() {
-  return <div className="w-px h-4 bg-slate-600 mx-1" />;
+  return <div className="w-px h-4 bg-[#343434] mx-1" />;
 }

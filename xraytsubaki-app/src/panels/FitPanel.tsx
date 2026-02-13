@@ -134,7 +134,7 @@ export function FitPanel() {
   const runFeff = useCallback(async () => {
     try {
       const result = await runFeffPaths.mutateAsync({
-        executable_path: runConfig.executable_path.trim(),
+        executable_path: runConfig.executable_path.trim() || undefined,
         workspace_dir: runConfig.workspace_dir.trim(),
         feffinp: runConfig.feffinp.trim() || undefined,
         timeout_sec: parseOptionalNumber(runConfig.timeout_sec),
@@ -161,7 +161,8 @@ export function FitPanel() {
       <div className="px-3 py-2 border-b border-slate-700">
         <div className="text-sm font-medium text-slate-200">FEFF Fitting</div>
         <div className="text-xs text-slate-500 mt-0.5">
-          Run FEFF modules, configure path/variable constraints, then fit in R-space.
+          Run FEFF modules, configure path/variable constraints, then fit in R-space. Bundled FEFF
+          uses FEFF85EXAFS by Bruce Ravel, Matt Newville, and xraypy contributors.
         </div>
       </div>
 
@@ -170,10 +171,10 @@ export function FitPanel() {
           <div className="text-xs font-medium text-slate-300">1. FEFF Run</div>
           <div className="grid grid-cols-1 gap-1.5">
             <TextInput
-              label="Executable"
+              label="Executable (optional)"
               value={runConfig.executable_path}
               onChange={(value) => setRunConfig((prev) => ({ ...prev, executable_path: value }))}
-              placeholder="/path/to/feff8l"
+              placeholder="Bundled FEFF (auto)"
             />
             <TextInput
               label="Workspace dir"

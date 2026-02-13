@@ -66,16 +66,20 @@ export class TauriBackend implements XASBackend {
     return invoke("batch_process", { indices, opts: opts ?? null });
   }
 
-  async plotSpectrum(index: number, panels: string[]): Promise<PlotResult> {
-    return invoke("plot_spectrum", { index, panels });
+  async plotSpectrum(index: number, panels: string[], opts?: PipelineOptions): Promise<PlotResult> {
+    return invoke("plot_spectrum", { index, panels, opts: opts ?? null });
   }
 
-  async plotGroup(indices: number[], panels: string[]): Promise<PlotResult> {
-    return invoke("plot_group", { indices, panels });
+  async plotGroup(
+    indices: number[],
+    panels: string[],
+    opts?: PipelineOptions,
+  ): Promise<PlotResult> {
+    return invoke("plot_group", { indices, panels, opts: opts ?? null });
   }
 
-  async plotSvg(index: number, panels: string[]): Promise<string[]> {
-    return invoke("plot_svg", { index, panels });
+  async plotCore(index: number, panels: string[], opts?: PipelineOptions): Promise<PlotResult> {
+    return invoke("plot_core", { index, panels, opts: opts ?? null });
   }
 
   async plotFit(fitId: string, panel: "k" | "r", includePaths = true): Promise<PlotResult> {

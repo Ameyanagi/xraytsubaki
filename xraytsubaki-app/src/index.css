@@ -5,9 +5,17 @@
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   font-size: 13px;
   line-height: 1.5;
-  color: #e2e8f0;
-  background-color: #0f172a;
+  color: #e8e8e8;
+  background-color: #0d0d0d;
   -webkit-font-smoothing: antialiased;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  background: #0d0d0d;
+  color: #e8e8e8;
 }
 
 /* Prevent text selection on UI chrome (not in inputs/code areas) */
@@ -19,37 +27,63 @@ label,
 
 /* rc-dock dark theme overrides */
 .dock-layout {
-  --color-bg: #1e293b;
-  --color-border: #334155;
+  --color-bg: #1a1a1a;
+  --color-border: #232323;
 }
 
 .dock-layout .dock-panel {
-  background: #1e293b;
-  border-color: #334155;
+  background: #1a1a1a;
+  border-color: #232323;
 }
 
 .dock-layout .dock-tab {
-  background: #1e293b;
-  color: #94a3b8;
-  border-color: #334155;
+  background: #1a1a1a;
+  color: #a0a0a0;
+  border-color: #232323;
+}
+
+/* Override rc-dock style-main/style-card defaults that inject white bars. */
+.dock-panel.dock-style-main .dock-bar,
+.dock-panel.dock-style-card .dock-bar,
+.dock-top .dock-bar {
+  background: #151515 !important;
+  border-bottom-color: #232323 !important;
+}
+
+.dock-panel.dock-style-main .dock-tab,
+.dock-panel.dock-style-card .dock-tab,
+.dock-panel.dock-style-card .dock-tab.dock-tab-active {
+  background: #151515 !important;
+  border-color: #2f2f2f !important;
+  color: #a0a0a0 !important;
+}
+
+.dock-panel.dock-style-main .dock-tab.dock-tab-active,
+.dock-panel.dock-style-card .dock-tab.dock-tab-active {
+  background: #0f1115 !important;
+  color: #e8e8e8 !important;
+}
+
+.dock-panel.dock-style-card .dock-ink-bar {
+  background: transparent !important;
 }
 
 .dock-layout .dock-tab-active,
 .dock-layout .dock-tab-active:hover {
-  background: #0f172a;
-  color: #e2e8f0;
+  background: #0f1115;
+  color: #e8e8e8;
 }
 
 .dock-layout .dock-tab-bar {
-  background: #1e293b;
+  background: #151515;
 }
 
 .dock-layout .dock-ink-bar {
-  background: #3b82f6;
+  background: #5b9aff;
 }
 
 .dock-layout .dock-divider {
-  background: #334155;
+  background: #232323;
 }
 
 .dock-host .dock-layout {
@@ -68,14 +102,14 @@ label,
 }
 
 ::-webkit-scrollbar-track {
-  background: #0f172a;
+  background: #0d0d0d;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: #343434;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: #4a4a4a;
 }

@@ -48,6 +48,32 @@ function isLayoutBase(value: unknown): value is LayoutBase {
   return true;
 }
 
+function preferLogTabInBox(box: BoxBase): void {
+  for (const child of box.children) {
+    if (isBoxBase(child)) {
+      preferLogTabInBox(child);
+      continue;
+    }
+
+    const hasFit = child.tabs.some((tab) => tab.id === "fit");
+    const hasLog = child.tabs.some((tab) => tab.id === "log");
+    if (!hasFit || !hasLog) continue;
+
+    if (child.activeId === undefined || child.activeId === "fit") {
+      child.activeId = "log";
+    }
+  }
+}
+
+function withPreferredLogTab(layout: LayoutBase): LayoutBase {
+  const cloned = JSON.parse(JSON.stringify(layout)) as LayoutBase;
+  preferLogTabInBox(cloned.dockbox);
+  if (cloned.floatbox) preferLogTabInBox(cloned.floatbox);
+  if (cloned.windowbox) preferLogTabInBox(cloned.windowbox);
+  if (cloned.maxbox) preferLogTabInBox(cloned.maxbox);
+  return cloned;
+}
+
 function clampLeftSidebarWidth(width: number): number {
   return Math.max(LEFT_SIDEBAR_MIN, Math.min(LEFT_SIDEBAR_MAX, width));
 }
@@ -69,7 +95,7 @@ function parseLeftSidebarLayout(value: unknown): LeftSidebarLayoutState {
 }
 
 export function createDefaultDockLayout(): LayoutBase {
-  return {
+  return withPreferredLogTab({
     dockbox: {
       id: "root",
       mode: "vertical",
@@ -101,11 +127,12 @@ export function createDefaultDockLayout(): LayoutBase {
         },
       ],
     },
-  };
+  });
 }
 
 export function sanitizeDockLayout(layout: unknown): LayoutBase {
-  return isLayoutBase(layout) ? layout : createDefaultDockLayout();
+  if (!isLayoutBase(layout)) return createDefaultDockLayout();
+  return withPreferredLogTab(layout);
 }
 
 export function serializeWorkspaceLayout(

@@ -25,6 +25,7 @@ pub fn run() {
             // Plotting commands
             commands::plotting::plot_spectrum,
             commands::plotting::plot_group,
+            commands::plotting::plot_core,
             commands::plotting::plot_svg,
             // Workspace commands
             commands::workspace::save_workspace,

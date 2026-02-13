@@ -37,9 +37,9 @@ export interface XASBackend {
   batchProcess(indices: number[], opts?: PipelineOptions): Promise<BatchResult>;
 
   // Plotting
-  plotSpectrum(index: number, panels: string[]): Promise<PlotResult>;
-  plotGroup(indices: number[], panels: string[]): Promise<PlotResult>;
-  plotSvg(index: number, panels: string[]): Promise<string[]>;
+  plotSpectrum(index: number, panels: string[], opts?: PipelineOptions): Promise<PlotResult>;
+  plotGroup(indices: number[], panels: string[], opts?: PipelineOptions): Promise<PlotResult>;
+  plotCore(index: number, panels: string[], opts?: PipelineOptions): Promise<PlotResult>;
   plotFit(fitId: string, panel: "k" | "r", includePaths?: boolean): Promise<PlotResult>;
 
   // Fitting

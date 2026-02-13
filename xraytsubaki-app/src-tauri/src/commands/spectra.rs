@@ -87,8 +87,8 @@ pub fn get_spectrum_data(state: State<'_, AppState>, index: usize) -> Result<Spe
         e0: spec.e0,
         norm: spec.get_norm().map(|v| v.iter().copied().collect()),
         flat: spec.get_flat().map(|v| v.iter().copied().collect()),
-        k: dvec_to_vec(&spec.k),
-        chi: dvec_to_vec(&spec.chi),
+        k: spec.get_k().map(|v| v.iter().copied().collect()),
+        chi: spec.get_chi().map(|v| v.iter().copied().collect()),
         chi_kweighted: spec
             .get_chi_kweighted()
             .map(|v| v.iter().copied().collect()),
@@ -112,7 +112,7 @@ pub fn find_e0(state: State<'_, AppState>, index: usize) -> Result<f64, String> 
     Ok(spec.e0.unwrap_or(0.0))
 }
 
-fn apply_norm_options(spec: &mut XASSpectrum, opts: &NormOptions) -> Result<(), String> {
+pub(crate) fn apply_norm_options(spec: &mut XASSpectrum, opts: &NormOptions) -> Result<(), String> {
     let mut method = NormalizationMethod::new_prepostedge();
     if let NormalizationMethod::PrePostEdge(ref mut ppe) = method {
         if let Some(e0) = opts.e0 {
@@ -139,7 +139,7 @@ fn apply_norm_options(spec: &mut XASSpectrum, opts: &NormOptions) -> Result<(), 
     Ok(())
 }
 
-fn apply_bg_options(spec: &mut XASSpectrum, opts: &BgOptions) -> Result<(), String> {
+pub(crate) fn apply_bg_options(spec: &mut XASSpectrum, opts: &BgOptions) -> Result<(), String> {
     let mut autobk = AUTOBK::new();
     if let Some(v) = opts.rbkg {
         autobk.rbkg = Some(v);
@@ -158,7 +158,7 @@ fn apply_bg_options(spec: &mut XASSpectrum, opts: &BgOptions) -> Result<(), Stri
     Ok(())
 }
 
-fn apply_fft_options(spec: &mut XASSpectrum, opts: &FFTOptions) -> Result<(), String> {
+pub(crate) fn apply_fft_options(spec: &mut XASSpectrum, opts: &FFTOptions) -> Result<(), String> {
     let mut fftf = XrayFFTF::new();
     if let Some(v) = opts.kmin {
         fftf.kmin = Some(v);
@@ -184,6 +184,24 @@ fn apply_fft_options(spec: &mut XASSpectrum, opts: &FFTOptions) -> Result<(), St
         });
     }
     spec.xftf = Some(fftf);
+    Ok(())
+}
+
+pub(crate) fn apply_pipeline_options(
+    spec: &mut XASSpectrum,
+    opts: Option<&PipelineOptions>,
+) -> Result<(), String> {
+    if let Some(pipeline) = opts {
+        if let Some(ref norm) = pipeline.norm {
+            apply_norm_options(spec, norm)?;
+        }
+        if let Some(ref bg) = pipeline.bg {
+            apply_bg_options(spec, bg)?;
+        }
+        if let Some(ref fft_opts) = pipeline.fft {
+            apply_fft_options(spec, fft_opts)?;
+        }
+    }
     Ok(())
 }
 
@@ -241,17 +259,7 @@ pub fn run_pipeline(
     let mut group = state.group.lock().map_err(|e| e.to_string())?;
     let spec = group.get_spectrum_mut(index).map_err(|e| e.to_string())?;
 
-    if let Some(ref pipeline) = opts {
-        if let Some(ref norm) = pipeline.norm {
-            apply_norm_options(spec, norm)?;
-        }
-        if let Some(ref bg) = pipeline.bg {
-            apply_bg_options(spec, bg)?;
-        }
-        if let Some(ref fft_opts) = pipeline.fft {
-            apply_fft_options(spec, fft_opts)?;
-        }
-    }
+    apply_pipeline_options(spec, opts.as_ref())?;
 
     spec.find_e0().map_err(|e| e.to_string())?;
     spec.normalize().map_err(|e| e.to_string())?;
@@ -276,17 +284,7 @@ pub fn batch_process(
         let result = (|| -> Result<(), String> {
             let spec = group.get_spectrum_mut(idx).map_err(|e| e.to_string())?;
 
-            if let Some(ref pipeline) = opts {
-                if let Some(ref norm) = pipeline.norm {
-                    apply_norm_options(spec, norm)?;
-                }
-                if let Some(ref bg) = pipeline.bg {
-                    apply_bg_options(spec, bg)?;
-                }
-                if let Some(ref fft_opts) = pipeline.fft {
-                    apply_fft_options(spec, fft_opts)?;
-                }
-            }
+            apply_pipeline_options(spec, opts.as_ref())?;
 
             spec.find_e0().map_err(|e| e.to_string())?;
             spec.normalize().map_err(|e| e.to_string())?;

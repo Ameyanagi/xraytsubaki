@@ -25,6 +25,12 @@
       "csp": null
     }
   },
+  "bundle": {
+    "resources": [
+      "resources/feff/**",
+      "../THIRD_PARTY_NOTICES.md"
+    ]
+  },
   "plugins": {}
 
 }

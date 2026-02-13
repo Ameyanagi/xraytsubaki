@@ -32,8 +32,8 @@ function derivative(x: number[], y: number[]): number[] {
 function hanningWindow(kArr: number[], kmin: number, kmax: number, dk: number): number[] {
   return kArr.map((k) => {
     if (k < kmin - dk || k > kmax + dk) return 0;
-    if (k < kmin + dk) return 0.5 * (1 + Math.cos(Math.PI * (k - kmin - dk) / (2 * dk)));
-    if (k > kmax - dk) return 0.5 * (1 + Math.cos(Math.PI * (k - kmax + dk) / (2 * dk)));
+    if (k < kmin + dk) return 0.5 * (1 + Math.cos((Math.PI * (k - kmin - dk)) / (2 * dk)));
+    if (k > kmax - dk) return 0.5 * (1 + Math.cos((Math.PI * (k - kmax + dk)) / (2 * dk)));
     return 1;
   });
 }
@@ -110,7 +110,9 @@ function generateCuKedge(name: string, shift = 0, noise = 0.002): SpectrumData {
   const chiKw: number[] = [];
   const kwin = hanningWindow(
     Array.from({ length: 200 }, (_, i) => i * 0.05 + 0.5),
-    2, 12, 1,
+    2,
+    12,
+    1,
   );
   for (let i = 0; i < 200; i++) {
     const k = i * 0.05 + 0.5;
@@ -169,6 +171,9 @@ const MOCK_SPECTRA = [
   generateCuKedge("Fe2O3_001.dat", 100, 0.004),
   generateCuKedge("Fe2O3_002.dat", 100.5, 0.0035),
 ];
+
+const MOCK_PNG_DATA_URL =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO5w9q0AAAAASUVORK5CYII=";
 
 MOCK_SPECTRA.forEach((s, i) => {
   s.index = i;
@@ -259,11 +264,19 @@ export class MockBackend implements XASBackend {
     const mu = spec.mu!;
 
     // Fit pre-edge line (linear) over [e0+preStart, e0+preEnd]
-    let sx = 0, sy = 0, sxx = 0, sxy = 0, n = 0;
+    let sx = 0,
+      sy = 0,
+      sxx = 0,
+      sxy = 0,
+      n = 0;
     for (let i = 0; i < energy.length; i++) {
       const rel = energy[i] - e0;
       if (rel >= preStart && rel <= preEnd) {
-        sx += energy[i]; sy += mu[i]; sxx += energy[i] * energy[i]; sxy += energy[i] * mu[i]; n++;
+        sx += energy[i];
+        sy += mu[i];
+        sxx += energy[i] * energy[i];
+        sxy += energy[i] * mu[i];
+        n++;
       }
     }
     const preSlope = n > 1 ? (n * sxy - sx * sy) / (n * sxx - sx * sx) : 0;
@@ -274,7 +287,11 @@ export class MockBackend implements XASBackend {
     for (let i = 0; i < energy.length; i++) {
       const rel = energy[i] - e0;
       if (rel >= normStart && rel <= normEnd) {
-        sx += energy[i]; sy += mu[i]; sxx += energy[i] * energy[i]; sxy += energy[i] * mu[i]; n++;
+        sx += energy[i];
+        sy += mu[i];
+        sxx += energy[i] * energy[i];
+        sxy += energy[i] * mu[i];
+        n++;
       }
     }
     const postSlope = n > 1 ? (n * sxy - sx * sy) / (n * sxx - sx * sx) : 0;
@@ -390,13 +407,21 @@ export class MockBackend implements XASBackend {
     return { succeeded: indices.length, failed: 0, errors: [] };
   }
 
-  async plotSpectrum(index: number, panels: string[]): Promise<PlotResult> {
+  async plotSpectrum(
+    index: number,
+    panels: string[],
+    _opts?: PipelineOptions,
+  ): Promise<PlotResult> {
     const spec = this.spectra[index] ?? this.spectra[0];
     const mode = panels[0] ?? "mu";
     return this.buildPlotResult(spec, mode);
   }
 
-  async plotGroup(indices: number[], panels: string[]): Promise<PlotResult> {
+  async plotGroup(
+    indices: number[],
+    panels: string[],
+    _opts?: PipelineOptions,
+  ): Promise<PlotResult> {
     const mode = panels[0] ?? "mu";
     // Group plots: only main traces, no overlays (too noisy)
     const traces = indices.flatMap((idx) => {
@@ -408,8 +433,15 @@ export class MockBackend implements XASBackend {
     return { ...first, traces };
   }
 
-  async plotSvg(_index: number, _panels: string[]): Promise<string[]> {
-    return [];
+  async plotCore(index: number, panels: string[], opts?: PipelineOptions): Promise<PlotResult> {
+    const base = await this.plotSpectrum(index, panels, opts);
+    return {
+      ...base,
+      pngs: [MOCK_PNG_DATA_URL],
+      svgs: [
+        `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360"><rect width="100%" height="100%" fill="#0f172a"/><text x="20" y="30" fill="#94a3b8" font-size="14">Mock Core Plot (${panels[0] ?? "mu"})</text></svg>`,
+      ],
+    };
   }
 
   async plotFit(fitId: string, panel: "k" | "r", includePaths = true): Promise<PlotResult> {
@@ -438,6 +470,7 @@ export class MockBackend implements XASBackend {
       }
       return {
         traces,
+        pngs: [],
         svgs: [],
         x_label: "k (Å⁻¹)",
         y_label: "χ(k)",
@@ -467,6 +500,7 @@ export class MockBackend implements XASBackend {
     }
     return {
       traces,
+      pngs: [],
       svgs: [],
       x_label: "R (Å)",
       y_label: "|χ(R)|",
@@ -478,9 +512,7 @@ export class MockBackend implements XASBackend {
     if (!workspace) {
       throw new Error("Workspace directory is required");
     }
-    if (!config.executable_path.trim()) {
-      throw new Error("FEFF executable path is required");
-    }
+    const executable = config.executable_path?.trim() || "bundled://feff8l_rdinp";
 
     const seed = fnv1a(JSON.stringify(config));
     const pathCount = 2 + (seed % 3);
@@ -495,17 +527,14 @@ export class MockBackend implements XASBackend {
       workspace_dir: workspace,
       feffinp_path: config.feffinp?.trim() || `${normalizedWorkspace}/feff.inp`,
       modules: [
-        { module: "rdinp", executable: config.executable_path },
-        { module: "pot", executable: config.executable_path },
-        { module: "xsph", executable: config.executable_path },
-        { module: "pathfinder", executable: config.executable_path },
-        { module: "genfmt", executable: config.executable_path },
-        { module: "ff2x", executable: config.executable_path },
+        { module: "rdinp", executable },
+        { module: "pot", executable },
+        { module: "xsph", executable },
+        { module: "pathfinder", executable },
+        { module: "genfmt", executable },
+        { module: "ff2x", executable },
       ],
-      logs: [
-        `${normalizedWorkspace}/log1.dat`,
-        `${normalizedWorkspace}/log2.dat`,
-      ],
+      logs: [`${normalizedWorkspace}/log1.dat`, `${normalizedWorkspace}/log2.dat`],
       path_files,
     };
   }
@@ -538,14 +567,16 @@ export class MockBackend implements XASBackend {
       return Math.sqrt(value * value + im * im);
     });
 
-    const variables = (config.variables.length > 0
-      ? config.variables
-      : [
-          { name: "amp", value: 1.0, vary: true, min: 0.0, max: 2.0 },
-          { name: "de0", value: 0.0, vary: true, min: -10, max: 10 },
-          { name: "sig2", value: 0.003, vary: true, min: 0.0, max: 0.02 },
-          { name: "dr", value: 0.0, vary: true, min: -0.1, max: 0.1 },
-        ]) as Array<{
+    const variables = (
+      config.variables.length > 0
+        ? config.variables
+        : [
+            { name: "amp", value: 1.0, vary: true, min: 0.0, max: 2.0 },
+            { name: "de0", value: 0.0, vary: true, min: -10, max: 10 },
+            { name: "sig2", value: 0.003, vary: true, min: 0.0, max: 0.02 },
+            { name: "dr", value: 0.0, vary: true, min: -0.1, max: 0.1 },
+          ]
+    ) as Array<{
       name: string;
       value: number;
       vary: boolean;
@@ -632,14 +663,12 @@ export class MockBackend implements XASBackend {
       case "r":
         return this.buildRPlot(spec);
       default:
-        return { traces: [], svgs: [], x_label: "", y_label: "" };
+        return { traces: [], pngs: [], svgs: [], x_label: "", y_label: "" };
     }
   }
 
   private buildMuPlot(spec: SpectrumData): PlotResult {
-    const traces: PlotTrace[] = [
-      { x: spec.energy!, y: spec.mu!, label: spec.name, panel: "mu" },
-    ];
+    const traces: PlotTrace[] = [{ x: spec.energy!, y: spec.mu!, label: spec.name, panel: "mu" }];
     // Overlay: derivative dμ/dE (scaled to fit on same axis)
     if (spec.energy && spec.mu) {
       const dmude = derivative(spec.energy, spec.mu);
@@ -695,7 +724,7 @@ export class MockBackend implements XASBackend {
         color: "#06b6d4",
       });
     }
-    return { traces, svgs: [], x_label: "Energy (eV)", y_label: "\u03BC(E)" };
+    return { traces, pngs: [], svgs: [], x_label: "Energy (eV)", y_label: "\u03BC(E)" };
   }
 
   private buildNormPlot(spec: SpectrumData): PlotResult {
@@ -754,7 +783,13 @@ export class MockBackend implements XASBackend {
         color: "#22c55e",
       });
     }
-    return { traces, svgs: [], x_label: "Energy (eV)", y_label: "Normalized \u03BC(E)" };
+    return {
+      traces,
+      pngs: [],
+      svgs: [],
+      x_label: "Energy (eV)",
+      y_label: "Normalized \u03BC(E)",
+    };
   }
 
   private buildKPlot(spec: SpectrumData): PlotResult {
@@ -798,13 +833,17 @@ export class MockBackend implements XASBackend {
         color: "#eab308",
       });
     }
-    return { traces, svgs: [], x_label: "k (\u00C5\u207B\u00B9)", y_label: "k\u00B2\u03C7(k)" };
+    return {
+      traces,
+      pngs: [],
+      svgs: [],
+      x_label: "k (\u00C5\u207B\u00B9)",
+      y_label: "k\u00B2\u03C7(k)",
+    };
   }
 
   private buildRPlot(spec: SpectrumData): PlotResult {
-    const traces: PlotTrace[] = [
-      { x: spec.r!, y: spec.chir_mag!, label: spec.name, panel: "r" },
-    ];
+    const traces: PlotTrace[] = [{ x: spec.r!, y: spec.chir_mag!, label: spec.name, panel: "r" }];
     // Overlay: Re[chi(R)]
     if (spec.r && spec.chir_re) {
       traces.push({
@@ -831,12 +870,14 @@ export class MockBackend implements XASBackend {
     }
     // Overlay: R-space window (simplified — not stored, use a default)
     if (spec.r) {
-      const rmin = 1.0, rmax = 3.0, dr = 0.2;
+      const rmin = 1.0,
+        rmax = 3.0,
+        dr = 0.2;
       const maxMag = Math.max(...spec.chir_mag!);
       const rwin = spec.r.map((rv) => {
         if (rv < rmin - dr || rv > rmax + dr) return 0;
-        if (rv < rmin + dr) return 0.5 * (1 + Math.cos(Math.PI * (rv - rmin - dr) / (2 * dr)));
-        if (rv > rmax - dr) return 0.5 * (1 + Math.cos(Math.PI * (rv - rmax + dr) / (2 * dr)));
+        if (rv < rmin + dr) return 0.5 * (1 + Math.cos((Math.PI * (rv - rmin - dr)) / (2 * dr)));
+        if (rv > rmax - dr) return 0.5 * (1 + Math.cos((Math.PI * (rv - rmax + dr)) / (2 * dr)));
         return 1;
       });
       traces.push({
@@ -849,6 +890,12 @@ export class MockBackend implements XASBackend {
         color: "#eab308",
       });
     }
-    return { traces, svgs: [], x_label: "R (\u00C5)", y_label: "|\u03C7(R)| (\u00C5\u207B\u00B3)" };
+    return {
+      traces,
+      pngs: [],
+      svgs: [],
+      x_label: "R (\u00C5)",
+      y_label: "|\u03C7(R)| (\u00C5\u207B\u00B3)",
+    };
   }
 }

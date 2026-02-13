@@ -3,8 +3,7 @@ import { useWorkspaceStore } from "@/stores/workspace";
 import { useSpectraStore } from "@/stores/spectra";
 
 const MODE_LABELS: Record<string, string> = {
-  mu: "\u03BC(E)",
-  norm: "Norm",
+  energy: "Energy",
   k: "\u03C7(k)",
   r: "\u03C7(R)",
 };
@@ -15,6 +14,7 @@ export function StatusBar() {
   const activeIndex = useWorkspaceStore((s) => s.activeIndex);
   const plotMode = useWorkspaceStore((s) => s.plotMode);
   const renderMode = useWorkspaceStore((s) => s.renderMode);
+  const coreFormat = useWorkspaceStore((s) => s.coreFormat);
   const pickTarget = useWorkspaceStore((s) => s.pickTarget);
   const plotGroups = useWorkspaceStore((s) => s.plotGroups);
   const batchProgress = useSpectraStore((s) => s.batchProgress);
@@ -22,14 +22,14 @@ export function StatusBar() {
   const total = spectra?.length ?? 0;
 
   return (
-    <div className="flex items-center gap-4 px-3 h-[22px] bg-slate-800 border-t border-slate-700 text-[11px] text-slate-400 shrink-0">
+    <div className="flex items-center gap-4 px-3 h-[24px] bg-[#151515] text-[11px] text-[#a0a0a0] shrink-0">
       <span>
         {total} spectr{total === 1 ? "um" : "a"} loaded
       </span>
       {selectedCount > 0 && <span>{selectedCount} selected</span>}
       {activeIndex !== null && <span>Active: #{activeIndex}</span>}
       {batchProgress && (
-        <span className={batchProgress.active ? "text-blue-400" : "text-slate-400"}>
+        <span className={batchProgress.active ? "text-blue-400" : "text-[#a0a0a0]"}>
           Batch {batchProgress.current}/{batchProgress.total} (
           {Math.round((batchProgress.current / Math.max(batchProgress.total, 1)) * 100)}%)
         </span>
@@ -38,7 +38,7 @@ export function StatusBar() {
       <span>Plot: {MODE_LABELS[plotMode] ?? plotMode}</span>
       {plotGroups.length > 1 && <span>{plotGroups.length} panels</span>}
       {pickTarget && <span className="text-blue-400">Picking: {pickTarget}</span>}
-      <span>Render: {renderMode}</span>
+      <span>Render: {renderMode}{renderMode === "core" ? ` (${coreFormat})` : ""}</span>
     </div>
   );
 }

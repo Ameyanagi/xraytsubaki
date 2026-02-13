@@ -1,6 +1,14 @@
-use tauri::State;
+use std::fs;
+use std::path::PathBuf;
 
-use crate::dto::{PlotResult, PlotTrace};
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine as _;
+use tauri::State;
+use uuid::Uuid;
+use xraytsubaki::prelude::{BackgroundMethod, PlotXAS};
+
+use crate::commands::spectra::{apply_bg_options, apply_fft_options, apply_norm_options};
+use crate::dto::{PipelineOptions, PlotResult, PlotTrace};
 use crate::state::AppState;
 use xraytsubaki::prelude::XASSpectrum;
 
@@ -8,11 +16,44 @@ fn dvec_to_vec(v: &nalgebra::DVector<f64>) -> Vec<f64> {
     v.iter().copied().collect()
 }
 
-fn k_trace_data(spec: &XASSpectrum) -> Option<Vec<f64>> {
-    spec.chi_kweighted
-        .as_ref()
-        .or(spec.chi.as_ref())
+fn k_axis_data(spec: &XASSpectrum) -> Option<Vec<f64>> {
+    spec.get_k()
+        .or_else(|| spec.k.clone())
         .map(|v| v.iter().copied().collect())
+}
+
+fn chi_data(spec: &XASSpectrum) -> Option<Vec<f64>> {
+    spec.get_chi()
+        .or_else(|| spec.chi.clone())
+        .map(|v| v.iter().copied().collect())
+}
+
+fn background_kweight(spec: &XASSpectrum) -> Option<i32> {
+    match spec.background.as_ref() {
+        Some(BackgroundMethod::AUTOBK(autobk)) => autobk.get_kweight().copied(),
+        _ => None,
+    }
+}
+
+fn k_trace_data(spec: &XASSpectrum) -> Option<Vec<f64>> {
+    let chi = chi_data(spec)?;
+    let Some(kweight) = background_kweight(spec) else {
+        return Some(chi);
+    };
+
+    let k = k_axis_data(spec)?;
+    Some(
+        chi.iter()
+            .zip(k.iter())
+            .map(|(chi_i, k_i)| {
+                if kweight == 0 {
+                    *chi_i
+                } else {
+                    chi_i * k_i.powi(kweight)
+                }
+            })
+            .collect(),
+    )
 }
 
 /// Create a main trace (not an overlay).
@@ -222,12 +263,9 @@ fn build_overlays(spec: &XASSpectrum, name: &str, panel: &str) -> Vec<PlotTrace>
             }
         }
         "k" => {
-            if let Some(k) = &spec.k {
-                let k_vec = dvec_to_vec(k);
-
+            if let Some(k_vec) = k_axis_data(spec) {
                 // |chi(k)| magnitude envelope
-                if let Some(chi_kw) = spec.chi_kweighted.as_ref().or(spec.chi.as_ref()) {
-                    let chi_kw_vec: Vec<f64> = chi_kw.iter().copied().collect();
+                if let Some(chi_kw_vec) = k_trace_data(spec) {
                     let mag: Vec<f64> = chi_kw_vec.iter().map(|v| v.abs()).collect();
                     let neg_mag: Vec<f64> = mag.iter().map(|v| -v).collect();
                     overlays.push(overlay_trace(
@@ -337,14 +375,149 @@ fn build_overlays(spec: &XASSpectrum, name: &str, panel: &str) -> Vec<PlotTrace>
     overlays
 }
 
+fn panel_labels(panel: &str) -> (String, String) {
+    match panel {
+        "mu" => ("Energy (eV)".to_string(), "\u{03BC}(E)".to_string()),
+        "norm" => (
+            "Energy (eV)".to_string(),
+            "Normalized \u{03BC}(E)".to_string(),
+        ),
+        "k" => (
+            "k (\u{00C5}\u{207B}\u{00B9})".to_string(),
+            "k\u{00B2}\u{03C7}(k)".to_string(),
+        ),
+        "r" => (
+            "R (\u{00C5})".to_string(),
+            "|\u{03C7}(R)| (\u{00C5}\u{207B}\u{00B3})".to_string(),
+        ),
+        _ => (String::new(), String::new()),
+    }
+}
+
+fn panel_builder<'a>(
+    spec: &'a mut XASSpectrum,
+    panel: &str,
+) -> Option<xraytsubaki::plot::XASPlotBuilder<'a>> {
+    let builder = spec.plot();
+    match panel {
+        "mu" => Some(builder.mu()),
+        "norm" => Some(builder.norm()),
+        "k" => Some(builder.k()),
+        "r" => Some(builder.r()),
+        _ => None,
+    }
+}
+
+fn ensure_e0(spec: &mut XASSpectrum) -> Result<(), String> {
+    if spec.e0.is_none() {
+        spec.find_e0().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn has_owned_vec_data(v: Option<nalgebra::DVector<f64>>) -> bool {
+    v.map(|data| !data.is_empty()).unwrap_or(false)
+}
+
+fn ensure_normalized(spec: &mut XASSpectrum, opts: Option<&PipelineOptions>) -> Result<(), String> {
+    if !spec.get_norm().map(|v| !v.is_empty()).unwrap_or(false)
+        || !spec.get_flat().map(|v| !v.is_empty()).unwrap_or(false)
+        || !spec.get_pre_edge().map(|v| !v.is_empty()).unwrap_or(false)
+        || !spec.get_post_edge().map(|v| !v.is_empty()).unwrap_or(false)
+    {
+        if let Some(norm_opts) = opts.and_then(|pipeline| pipeline.norm.as_ref()) {
+            apply_norm_options(spec, norm_opts)?;
+        }
+        ensure_e0(spec)?;
+        spec.normalize().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn ensure_background(spec: &mut XASSpectrum, opts: Option<&PipelineOptions>) -> Result<(), String> {
+    if !has_owned_vec_data(spec.get_k()) || !has_owned_vec_data(spec.get_chi()) {
+        ensure_normalized(spec, opts)?;
+        if let Some(bg_opts) = opts.and_then(|pipeline| pipeline.bg.as_ref()) {
+            apply_bg_options(spec, bg_opts)?;
+        }
+        spec.calc_background().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn ensure_fft(spec: &mut XASSpectrum, opts: Option<&PipelineOptions>) -> Result<(), String> {
+    if !spec.get_r().map(|v| !v.is_empty()).unwrap_or(false)
+        || !spec.get_chir_mag().map(|v| !v.is_empty()).unwrap_or(false)
+        || !spec.get_chir_real().map(|v| !v.is_empty()).unwrap_or(false)
+        || !spec.get_chir_imag().map(|v| !v.is_empty()).unwrap_or(false)
+    {
+        ensure_background(spec, opts)?;
+        if let Some(fft_opts) = opts.and_then(|pipeline| pipeline.fft.as_ref()) {
+            apply_fft_options(spec, fft_opts)?;
+        }
+        spec.fft().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn ensure_panel_data(
+    spec: &mut XASSpectrum,
+    panel: &str,
+    opts: Option<&PipelineOptions>,
+) -> Result<(), String> {
+    match panel {
+        // Mu overlays depend on normalization outputs and e0 marker.
+        "mu" | "norm" => ensure_normalized(spec, opts),
+        "k" => ensure_background(spec, opts),
+        "r" => ensure_fft(spec, opts),
+        _ => Ok(()),
+    }
+}
+
+fn render_panel_png_data_url(
+    spec: &mut XASSpectrum,
+    panel: &str,
+) -> Result<Option<String>, String> {
+    let Some(builder) = panel_builder(spec, panel) else {
+        return Ok(None);
+    };
+
+    let mut png_path: PathBuf = std::env::temp_dir();
+    png_path.push(format!("xraytsubaki-core-{}-{}.png", panel, Uuid::new_v4()));
+
+    builder
+        .save_png(&png_path)
+        .map_err(|e| format!("Failed to render PNG for panel '{panel}': {e}"))?;
+
+    let png_bytes = fs::read(&png_path)
+        .map_err(|e| format!("Failed to read rendered PNG for panel '{panel}': {e}"))?;
+    let _ = fs::remove_file(&png_path);
+
+    Ok(Some(format!(
+        "data:image/png;base64,{}",
+        BASE64_STANDARD.encode(png_bytes)
+    )))
+}
+
+fn render_panel_svg(spec: &mut XASSpectrum, panel: &str) -> Result<Option<String>, String> {
+    let Some(builder) = panel_builder(spec, panel) else {
+        return Ok(None);
+    };
+    let svg = builder
+        .to_svg()
+        .map_err(|e| format!("Failed to render SVG for panel '{panel}': {e}"))?;
+    Ok(Some(svg))
+}
+
 #[tauri::command]
 pub fn plot_spectrum(
     state: State<'_, AppState>,
     index: usize,
     panels: Vec<String>,
+    opts: Option<PipelineOptions>,
 ) -> Result<PlotResult, String> {
-    let group = state.group.lock().map_err(|e| e.to_string())?;
-    let spec = group.get_spectrum(index).map_err(|e| e.to_string())?;
+    let mut group = state.group.lock().map_err(|e| e.to_string())?;
+    let spec = group.get_spectrum_mut(index).map_err(|e| e.to_string())?;
     let name = spec
         .name
         .clone()
@@ -355,6 +528,12 @@ pub fn plot_spectrum(
     let mut y_label = String::new();
 
     for panel in &panels {
+        ensure_panel_data(spec, panel, opts.as_ref()).map_err(|err| {
+            format!(
+                "Failed to prepare panel '{}' for spectrum #{}: {}",
+                panel, index, err
+            )
+        })?;
         match panel.as_str() {
             "mu" => {
                 if let (Some(energy), Some(mu)) = (&spec.energy, &spec.mu) {
@@ -381,8 +560,8 @@ pub fn plot_spectrum(
                 }
             }
             "k" => {
-                if let (Some(k), Some(y_data)) = (&spec.k, k_trace_data(spec)) {
-                    traces.push(main_trace(dvec_to_vec(k), y_data, name.clone(), "k"));
+                if let (Some(k), Some(y_data)) = (k_axis_data(spec), k_trace_data(spec)) {
+                    traces.push(main_trace(k, y_data, name.clone(), "k"));
                     x_label = "k (\u{00C5}\u{207B}\u{00B9})".into();
                     y_label = "k\u{00B2}\u{03C7}(k)".into();
                 }
@@ -408,6 +587,7 @@ pub fn plot_spectrum(
 
     Ok(PlotResult {
         traces,
+        pngs: Vec::new(),
         svgs: Vec::new(),
         x_label,
         y_label,
@@ -419,14 +599,16 @@ pub fn plot_group(
     state: State<'_, AppState>,
     indices: Vec<usize>,
     panels: Vec<String>,
+    opts: Option<PipelineOptions>,
 ) -> Result<PlotResult, String> {
-    let group = state.group.lock().map_err(|e| e.to_string())?;
+    let mut group = state.group.lock().map_err(|e| e.to_string())?;
     let mut all_traces = Vec::new();
     let mut x_label = String::new();
     let mut y_label = String::new();
+    let mut prep_errors: Vec<String> = Vec::new();
 
     for &idx in &indices {
-        let spec = match group.get_spectrum(idx) {
+        let spec = match group.get_spectrum_mut(idx) {
             Ok(s) => s,
             Err(_) => continue,
         };
@@ -436,6 +618,13 @@ pub fn plot_group(
             .unwrap_or_else(|| format!("Spectrum {}", idx));
 
         for panel in &panels {
+            if let Err(err) = ensure_panel_data(spec, panel, opts.as_ref()) {
+                prep_errors.push(format!(
+                    "panel '{}' for spectrum #{} ({}): {}",
+                    panel, idx, name, err
+                ));
+                continue;
+            }
             match panel.as_str() {
                 "mu" => {
                     if let (Some(energy), Some(mu)) = (&spec.energy, &spec.mu) {
@@ -462,8 +651,8 @@ pub fn plot_group(
                     }
                 }
                 "k" => {
-                    if let (Some(k), Some(y_data)) = (&spec.k, k_trace_data(spec)) {
-                        all_traces.push(main_trace(dvec_to_vec(k), y_data, name.clone(), "k"));
+                    if let (Some(k), Some(y_data)) = (k_axis_data(spec), k_trace_data(spec)) {
+                        all_traces.push(main_trace(k, y_data, name.clone(), "k"));
                         x_label = "k (\u{00C5}\u{207B}\u{00B9})".into();
                         y_label = "k\u{00B2}\u{03C7}(k)".into();
                     }
@@ -485,9 +674,68 @@ pub fn plot_group(
         }
     }
 
+    if all_traces.is_empty() && !prep_errors.is_empty() {
+        let details = prep_errors
+            .iter()
+            .take(5)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(" | ");
+        return Err(format!(
+            "Failed to prepare all selected spectra for plotting. {}",
+            details
+        ));
+    }
+
     Ok(PlotResult {
         traces: all_traces,
+        pngs: Vec::new(),
         svgs: Vec::new(),
+        x_label,
+        y_label,
+    })
+}
+
+#[tauri::command]
+pub fn plot_core(
+    state: State<'_, AppState>,
+    index: usize,
+    panels: Vec<String>,
+    opts: Option<PipelineOptions>,
+) -> Result<PlotResult, String> {
+    let mut group = state.group.lock().map_err(|e| e.to_string())?;
+    let spec = group.get_spectrum_mut(index).map_err(|e| e.to_string())?;
+
+    let mut pngs = Vec::new();
+    let mut svgs = Vec::new();
+    let mut x_label = String::new();
+    let mut y_label = String::new();
+
+    for panel in &panels {
+        ensure_panel_data(spec, panel, opts.as_ref()).map_err(|err| {
+            format!(
+                "Failed to prepare panel '{}' for core plot on spectrum #{}: {}",
+                panel, index, err
+            )
+        })?;
+        if x_label.is_empty() && y_label.is_empty() {
+            let (x, y) = panel_labels(panel);
+            x_label = x;
+            y_label = y;
+        }
+
+        if let Some(png) = render_panel_png_data_url(spec, panel)? {
+            pngs.push(png);
+        }
+        if let Some(svg) = render_panel_svg(spec, panel)? {
+            svgs.push(svg);
+        }
+    }
+
+    Ok(PlotResult {
+        traces: Vec::new(),
+        pngs,
+        svgs,
         x_label,
         y_label,
     })
@@ -499,22 +747,46 @@ pub fn plot_svg(
     index: usize,
     panels: Vec<String>,
 ) -> Result<Vec<String>, String> {
-    use xraytsubaki::prelude::PlotXAS;
+    let result = plot_core(state, index, panels, None)?;
+    Ok(result.svgs)
+}
 
-    let mut group = state.group.lock().map_err(|e| e.to_string())?;
-    let spec = group.get_spectrum_mut(index).map_err(|e| e.to_string())?;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dto::{BgOptions, NormOptions};
+    use std::path::Path;
+    use xraytsubaki::prelude::io;
 
-    let mut builder = spec.plot();
-
-    for panel in &panels {
-        builder = match panel.as_str() {
-            "mu" => builder.mu(),
-            "norm" => builder.norm(),
-            "k" => builder.k(),
-            "r" => builder.r(),
-            _ => builder,
-        };
+    fn load_test_spectrum() -> XASSpectrum {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let repo_root = manifest_dir
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("repo root");
+        let test_file = repo_root.join("crates/xraytsubaki/tests/testfiles/Ru_QAS.dat");
+        io::load_spectrum_QAS_trans(&test_file).expect("load Ru_QAS.dat")
     }
 
-    builder.to_svg_panels().map_err(|e| e.to_string())
+    #[test]
+    fn k_panel_prep_produces_non_empty_main_trace() {
+        let mut spec = load_test_spectrum();
+        let opts = PipelineOptions {
+            norm: Some(NormOptions::default()),
+            bg: Some(BgOptions {
+                rbkg: Some(1.0),
+                kmin: Some(0.0),
+                kmax: Some(15.0),
+                kweight: Some(2),
+            }),
+            fft: None,
+        };
+
+        ensure_panel_data(&mut spec, "k", Some(&opts)).expect("prepare k panel");
+
+        let k_len = k_axis_data(&spec).map(|v| v.len()).unwrap_or(0);
+        let y_len = k_trace_data(&spec).map(|v| v.len()).unwrap_or(0);
+        assert!(k_len > 0, "expected non-empty k axis after prep");
+        assert!(y_len > 0, "expected non-empty chi(k) trace data after prep");
+    }
 }

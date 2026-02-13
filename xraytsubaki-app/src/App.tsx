@@ -137,7 +137,7 @@ export default function App() {
 
       if (e.key >= "1" && e.key <= "4") {
         e.preventDefault();
-        const modes = ["mu", "norm", "k", "r"] as const;
+        const modes = ["energy", "k", "r"] as const;
         const idx = parseInt(e.key, 10) - 1;
         if (idx < modes.length) {
           useWorkspaceStore.getState().setPlotMode(modes[idx]);
@@ -173,7 +173,7 @@ export default function App() {
             closable: false,
             cached: true,
             content: (
-              <div className="h-full bg-slate-800" onContextMenu={handleParamContextMenu}>
+              <div className="h-full bg-[#1a1a1a]" onContextMenu={handleParamContextMenu}>
                 <ErrorBoundary>
                   <ParameterPanel />
                 </ErrorBoundary>
@@ -206,7 +206,7 @@ export default function App() {
             title: id,
             closable: false,
             content: (
-              <div className="h-full flex items-center justify-center text-xs text-slate-500">
+              <div className="h-full flex items-center justify-center text-xs text-[#888]">
                 Unknown panel: {id}
               </div>
             ),
@@ -232,11 +232,11 @@ export default function App() {
   );
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden text-[13px] leading-normal">
+    <div className="flex flex-col h-screen overflow-hidden text-[13px] leading-normal bg-[#0d0d0d] text-[#e8e8e8]">
       <Toolbar />
 
       <div className="flex flex-1 min-h-0">
-        <div className="w-[42px] shrink-0 bg-slate-800 border-r border-slate-700 flex flex-col items-center py-2 gap-0.5">
+        <div className="w-[42px] shrink-0 bg-[#151515] flex flex-col items-center py-2 gap-0.5">
           <ActivityIcon
             icon={Folder}
             label="Spectra"
@@ -267,7 +267,7 @@ export default function App() {
         {!leftSidebarCollapsed && (
           <>
             <div
-              className="shrink-0 bg-slate-800 border-r border-slate-700 flex flex-col"
+              className="shrink-0 bg-[#1a1a1a] flex flex-col"
               style={{ width: leftSidebarWidth }}
             >
               <SidebarHeader panel={activeSidebar} />
@@ -285,20 +285,20 @@ export default function App() {
 
         <div className="flex-1 flex flex-col min-w-0 min-h-0">
           {tabs.length > 0 && (
-            <div className="flex bg-slate-800/60 border-b border-slate-700 shrink-0">
+            <div className="flex bg-[#151515] shrink-0">
               {tabs.map((tab) => (
                 <div
                   key={tab.id}
-                  className={`flex items-center gap-1.5 px-4 py-1.5 text-xs cursor-pointer border-r border-slate-700 transition-colors ${
+                  className={`flex items-center gap-1.5 px-4 py-2 text-[12px] cursor-pointer transition-colors ${
                     activeTabId === tab.id
-                      ? "bg-slate-950 text-slate-200 border-t-2 border-t-blue-500"
-                      : "text-slate-400 hover:text-slate-200 border-t-2 border-t-transparent"
+                      ? "bg-[#0f1115] text-[#e8e8e8]"
+                      : "text-[#a0a0a0] hover:text-[#e8e8e8] hover:bg-[#202020]"
                   }`}
                   onClick={() => handleTabClick(tab.id)}
                 >
                   {tab.label}
                   <button
-                    className="ml-1 w-4 h-4 flex items-center justify-center rounded text-slate-500 hover:bg-slate-700 hover:text-slate-200"
+                    className="ml-1 w-4 h-4 flex items-center justify-center rounded text-[#777] hover:bg-[#2a2a2a] hover:text-[#e8e8e8]"
                     onClick={(e) => {
                       e.stopPropagation();
                       removeTab(tab.id);
@@ -311,7 +311,7 @@ export default function App() {
             </div>
           )}
 
-          <div className="dock-host flex-1 min-h-0 min-w-0 bg-slate-950">
+          <div className="dock-host flex-1 min-h-0 min-w-0 bg-[#0f1115]">
             <DockLayout
               ref={dockRef}
               defaultLayout={defaultDockLayout as unknown as LayoutData}
@@ -382,7 +382,7 @@ function SidebarHeader({ panel }: { panel: string }) {
           : "Settings";
 
   return (
-    <div className="px-3 py-2 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+    <div className="px-3 py-2 text-[12px] font-semibold text-[#b0b0b0] uppercase tracking-wider">
       {title}
     </div>
   );
@@ -400,7 +400,7 @@ function SidebarContent({ panel }: { panel: string }) {
         ? "Processing queue view is not implemented yet."
         : "Settings panel is not implemented yet.";
 
-  return <div className="px-3 py-2 text-xs text-slate-500">{text}</div>;
+  return <div className="px-3 py-2 text-xs text-[#8c8c8c]">{text}</div>;
 }
 
 function ActivityIcon({
@@ -417,12 +417,12 @@ function ActivityIcon({
   return (
     <button
       className={`relative w-9 h-9 flex items-center justify-center rounded cursor-pointer transition-colors ${
-        active ? "text-slate-200" : "text-slate-500 hover:text-slate-300"
+        active ? "text-[#e8e8e8]" : "text-[#777] hover:text-[#d0d0d0]"
       }`}
       onClick={onClick}
       title={label}
     >
-      {active && <div className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-blue-500 rounded-r" />}
+      {active && <div className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-[#5b9aff] rounded-r" />}
       <Icon size={20} />
     </button>
   );
@@ -444,14 +444,14 @@ function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: () => v
   return (
     <div
       ref={ref}
-      className="fixed z-50 bg-slate-800 border border-slate-600 rounded-md shadow-xl min-w-[180px] py-1 text-xs"
+      className="fixed z-50 bg-[#1a1a1a] border border-[#343434] rounded-md shadow-xl min-w-[180px] py-1 text-xs"
       style={{ left: pos.x, top: pos.y }}
     >
       <CtxItem label="Copy to marked" shortcut="⌘⇧C" onClick={onClose} />
       <CtxItem label="Copy to all" shortcut="⌘⇧A" onClick={onClose} />
-      <div className="h-px bg-slate-700 my-1" />
+      <div className="h-px bg-[#2f2f2f] my-1" />
       <CtxItem label="Paste from..." onClick={onClose} />
-      <div className="h-px bg-slate-700 my-1" />
+      <div className="h-px bg-[#2f2f2f] my-1" />
       <CtxItem label="Reset to defaults" onClick={onClose} />
     </div>
   );
@@ -468,11 +468,11 @@ function CtxItem({
 }) {
   return (
     <button
-      className="w-full flex items-center gap-2 px-3 py-1.5 text-slate-200 hover:bg-blue-500/20 transition-colors text-left"
+      className="w-full flex items-center gap-2 px-3 py-1.5 text-[#e0e0e0] hover:bg-[#1f2a3a] transition-colors text-left"
       onClick={onClick}
     >
       <span className="flex-1">{label}</span>
-      {shortcut && <span className="text-slate-500">{shortcut}</span>}
+      {shortcut && <span className="text-[#777]">{shortcut}</span>}
     </button>
   );
 }

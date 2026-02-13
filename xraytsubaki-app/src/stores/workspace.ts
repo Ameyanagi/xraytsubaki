@@ -1,12 +1,14 @@
 import { create } from "zustand";
 import type {
   BgOptions,
+  EnergyMain,
   FFTOptions,
   NormOptions,
   PlotMode,
   RenderMode,
   WorkspaceAnalysisTab,
   WorkspaceAnalysisTabState,
+  WorkspaceCoreFormat,
   WorkspaceLayoutPayload,
 } from "@/backend/types";
 
@@ -20,6 +22,7 @@ export type CursorTool = "select" | "pick" | "zoom" | "pan";
 export type ParamTab = "e0" | "norm" | "bkg" | "fft";
 export type PlotLayout = "1x1" | "1x2" | "2x1" | "2x2";
 export type RenderModeSource = "auto" | "manual";
+export type CoreFormat = WorkspaceCoreFormat;
 type DockLayoutState = WorkspaceLayoutPayload["dock"];
 
 type Updater<T> = T | ((prev: T) => T);
@@ -34,8 +37,10 @@ interface AnalysisTabState {
   activeIndex: number | null;
   selectedIndices: number[];
   plotMode: PlotMode;
+  energyMain: EnergyMain;
   renderMode: RenderMode;
   renderModeSource: RenderModeSource;
+  coreFormat: CoreFormat;
   plotGroups: PlotGroup[];
   plotLayout: PlotLayout;
   activeGroupId: string;
@@ -49,17 +54,21 @@ interface AnalysisTabState {
 }
 
 const PLOT_MODE_TO_PARAM_TAB: Record<PlotMode, ParamTab> = {
+  energy: "norm",
   mu: "e0",
   norm: "norm",
   k: "bkg",
   r: "fft",
 };
 
-const ALL_MODES: PlotMode[] = ["mu", "norm", "k", "r"];
+const PLOT_MODE_VALUES: PlotMode[] = ["energy", "k", "r", "mu", "norm"];
+const ALL_MODES: PlotMode[] = ["energy", "k", "r"];
 const PLOT_LAYOUT_VALUES: PlotLayout[] = ["1x1", "1x2", "2x1", "2x2"];
 const CURSOR_TOOL_VALUES: CursorTool[] = ["select", "pick", "zoom", "pan"];
 const PARAM_TAB_VALUES: ParamTab[] = ["e0", "norm", "bkg", "fft"];
 const RENDER_MODE_SOURCE_VALUES: RenderModeSource[] = ["auto", "manual"];
+const CORE_FORMAT_VALUES: CoreFormat[] = ["png", "svg"];
+const ENERGY_MAIN_VALUES: EnergyMain[] = ["mu", "norm", "flattened"];
 
 const DEFAULT_NORM_OPTS: NormOptions = {
   pre_edge_start: -200,
@@ -85,8 +94,12 @@ const DEFAULT_FFT_OPTS: FFTOptions = {
 
 let _groupCounter = 1;
 
+function normalizePlotMode(mode: PlotMode): PlotMode {
+  return mode === "mu" || mode === "norm" ? "energy" : mode;
+}
+
 function createDefaultPlotGroups(): PlotGroup[] {
-  return [{ id: "g1", tabs: [...ALL_MODES], activeMode: "mu" }];
+  return [{ id: "g1", tabs: [...ALL_MODES], activeMode: "energy" }];
 }
 
 function clonePlotGroups(groups: PlotGroup[]): PlotGroup[] {
@@ -101,13 +114,15 @@ function createDefaultTabState(spectrumIndex: number | null = null): AnalysisTab
   return {
     activeIndex: spectrumIndex,
     selectedIndices: spectrumIndex === null ? [] : [spectrumIndex],
-    plotMode: "mu",
+    plotMode: "energy",
+    energyMain: "mu",
     renderMode: "interactive",
     renderModeSource: "auto",
+    coreFormat: "png",
     plotGroups: createDefaultPlotGroups(),
     plotLayout: "1x1",
     activeGroupId: "g1",
-    paramTab: "e0",
+    paramTab: "norm",
     cursorTool: "select",
     pickTarget: null,
     normOpts: { ...DEFAULT_NORM_OPTS },
@@ -122,8 +137,10 @@ function snapshotFromState(state: WorkspaceState): AnalysisTabState {
     activeIndex: state.activeIndex,
     selectedIndices: Array.from(state.selectedIndices).sort((a, b) => a - b),
     plotMode: state.plotMode,
+    energyMain: state.energyMain,
     renderMode: state.renderMode,
     renderModeSource: state.renderModeSource,
+    coreFormat: state.coreFormat,
     plotGroups: clonePlotGroups(state.plotGroups),
     plotLayout: state.plotLayout,
     activeGroupId: state.activeGroupId,
@@ -144,8 +161,10 @@ function applySnapshot(
   | "activeIndex"
   | "selectedIndices"
   | "plotMode"
+  | "energyMain"
   | "renderMode"
   | "renderModeSource"
+  | "coreFormat"
   | "plotGroups"
   | "plotLayout"
   | "activeGroupId"
@@ -161,8 +180,10 @@ function applySnapshot(
     activeIndex: snapshot.activeIndex,
     selectedIndices: new Set(snapshot.selectedIndices),
     plotMode: snapshot.plotMode,
+    energyMain: snapshot.energyMain,
     renderMode: snapshot.renderMode,
     renderModeSource: snapshot.renderModeSource,
+    coreFormat: snapshot.coreFormat,
     plotGroups: clonePlotGroups(snapshot.plotGroups),
     plotLayout: snapshot.plotLayout,
     activeGroupId: snapshot.activeGroupId,
@@ -174,6 +195,70 @@ function applySnapshot(
     fftOpts: { ...snapshot.fftOpts },
     livePreview: snapshot.livePreview,
   };
+}
+
+function normalizeRemovedIndices(indices: number[]): number[] {
+  const normalized = Array.from(
+    new Set(
+      indices.filter((index) => Number.isInteger(index) && Number.isFinite(index) && index >= 0),
+    ),
+  );
+  normalized.sort((a, b) => a - b);
+  return normalized;
+}
+
+function countRemovedBefore(removedSorted: number[], index: number): number {
+  let lo = 0;
+  let hi = removedSorted.length;
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (removedSorted[mid] < index) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  return lo;
+}
+
+function mapIndexAfterRemoval(index: number | null, removedSorted: number[]): number | null {
+  if (index === null || !Number.isInteger(index) || index < 0) return null;
+
+  const removedBefore = countRemovedBefore(removedSorted, index);
+  const isRemoved = removedBefore < removedSorted.length && removedSorted[removedBefore] === index;
+  if (isRemoved) return null;
+  return index - removedBefore;
+}
+
+function remapIndexList(indices: number[], removedSorted: number[]): number[] {
+  const mapped = indices
+    .map((index) => mapIndexAfterRemoval(index, removedSorted))
+    .filter((index): index is number => index !== null);
+  return Array.from(new Set(mapped)).sort((a, b) => a - b);
+}
+
+function remapTabStateAfterRemoval(
+  snapshot: AnalysisTabState,
+  removedSorted: number[],
+): AnalysisTabState {
+  const selectedIndices = remapIndexList(snapshot.selectedIndices, removedSorted);
+  let activeIndex = mapIndexAfterRemoval(snapshot.activeIndex, removedSorted);
+  if (activeIndex === null && selectedIndices.length > 0) {
+    activeIndex = selectedIndices[0];
+  }
+
+  return {
+    ...snapshot,
+    activeIndex,
+    selectedIndices,
+  };
+}
+
+function remapSpectrumTabId(tabId: string, mappedSpectrumIndex: number): string {
+  if (/^spectrum-\d+$/.test(tabId)) {
+    return `spectrum-${mappedSpectrumIndex}`;
+  }
+  return tabId;
 }
 
 function updateCurrentTabState(
@@ -259,7 +344,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isPlotMode(value: unknown): value is PlotMode {
-  return typeof value === "string" && ALL_MODES.includes(value as PlotMode);
+  return typeof value === "string" && PLOT_MODE_VALUES.includes(value as PlotMode);
 }
 
 function isRenderMode(value: unknown): value is RenderMode {
@@ -267,9 +352,15 @@ function isRenderMode(value: unknown): value is RenderMode {
 }
 
 function isRenderModeSource(value: unknown): value is RenderModeSource {
-  return (
-    typeof value === "string" && RENDER_MODE_SOURCE_VALUES.includes(value as RenderModeSource)
-  );
+  return typeof value === "string" && RENDER_MODE_SOURCE_VALUES.includes(value as RenderModeSource);
+}
+
+function isCoreFormat(value: unknown): value is CoreFormat {
+  return typeof value === "string" && CORE_FORMAT_VALUES.includes(value as CoreFormat);
+}
+
+function isEnergyMain(value: unknown): value is EnergyMain {
+  return typeof value === "string" && ENERGY_MAIN_VALUES.includes(value as EnergyMain);
 }
 
 function isParamTab(value: unknown): value is ParamTab {
@@ -298,11 +389,19 @@ function parsePlotGroups(value: unknown): PlotGroup[] {
     if (typeof item.id !== "string") continue;
     if (!Array.isArray(item.tabs)) continue;
 
-    const tabs = item.tabs.filter((tab): tab is PlotMode => isPlotMode(tab));
+    const tabs = Array.from(
+      new Set(
+        item.tabs
+          .filter((tab): tab is PlotMode => isPlotMode(tab))
+          .map((tab) => normalizePlotMode(tab)),
+      ),
+    );
     if (tabs.length === 0) continue;
 
-    const activeMode =
-      isPlotMode(item.activeMode) && tabs.includes(item.activeMode) ? item.activeMode : tabs[0];
+    const rawActiveMode = isPlotMode(item.activeMode)
+      ? normalizePlotMode(item.activeMode)
+      : undefined;
+    const activeMode = rawActiveMode && tabs.includes(rawActiveMode) ? rawActiveMode : tabs[0];
 
     parsed.push({ id: item.id, tabs, activeMode });
   }
@@ -349,9 +448,18 @@ function deserializeTabState(value: unknown, fallbackIndex: number): AnalysisTab
     : plotGroups[0].id;
 
   const plotModeRaw = value.plot_mode ?? value.plotMode;
-  const plotMode = isPlotMode(plotModeRaw) ? plotModeRaw : defaults.plotMode;
+  const plotMode = isPlotMode(plotModeRaw) ? normalizePlotMode(plotModeRaw) : defaults.plotMode;
+  const energyMainRaw = value.energy_main ?? value.energyMain;
+  const energyMain = isEnergyMain(energyMainRaw)
+    ? energyMainRaw
+    : plotModeRaw === "norm"
+      ? "norm"
+      : plotModeRaw === "mu"
+        ? "mu"
+        : defaults.energyMain;
   const renderModeRaw = value.render_mode ?? value.renderMode;
   const renderModeSourceRaw = value.render_mode_source ?? value.renderModeSource;
+  const coreFormatRaw = value.core_format ?? value.coreFormat;
   const plotLayoutRaw = value.plot_layout ?? value.plotLayout;
   const paramTabRaw = value.param_tab ?? value.paramTab;
   const cursorToolRaw = value.cursor_tool ?? value.cursorTool;
@@ -360,10 +468,12 @@ function deserializeTabState(value: unknown, fallbackIndex: number): AnalysisTab
     activeIndex,
     selectedIndices,
     plotMode,
+    energyMain,
     renderMode: isRenderMode(renderModeRaw) ? renderModeRaw : defaults.renderMode,
     renderModeSource: isRenderModeSource(renderModeSourceRaw)
       ? renderModeSourceRaw
       : defaults.renderModeSource,
+    coreFormat: isCoreFormat(coreFormatRaw) ? coreFormatRaw : defaults.coreFormat,
     plotGroups,
     plotLayout: isPlotLayout(plotLayoutRaw) ? plotLayoutRaw : calcLayout(plotGroups.length),
     activeGroupId,
@@ -392,8 +502,10 @@ function serializeTabState(state: AnalysisTabState): WorkspaceAnalysisTabState {
     active_index: state.activeIndex,
     selected_indices: [...state.selectedIndices].sort((a, b) => a - b),
     plot_mode: state.plotMode,
+    energy_main: state.energyMain,
     render_mode: state.renderMode,
     render_mode_source: state.renderModeSource,
+    core_format: state.coreFormat,
     plot_groups: clonePlotGroups(state.plotGroups),
     plot_layout: state.plotLayout,
     active_group_id: state.activeGroupId,
@@ -461,15 +573,20 @@ interface WorkspaceState {
   selectAll: (indices: number[]) => void;
   clearSelection: () => void;
   setSelectedIndices: (indices: Set<number>) => void;
+  remapAfterSpectraRemoval: (removedIndices: number[]) => void;
 
   // Plot mode (reflects active group's mode)
   plotMode: PlotMode;
+  energyMain: EnergyMain;
   setPlotMode: (mode: PlotMode) => void;
+  setEnergyMain: (mode: EnergyMain) => void;
   renderMode: RenderMode;
   renderModeSource: RenderModeSource;
+  coreFormat: CoreFormat;
   setRenderMode: (mode: RenderMode) => void;
   setAutoRenderMode: (mode: RenderMode) => void;
   enableRenderModeAuto: () => void;
+  setCoreFormat: (format: CoreFormat) => void;
 
   // Plot groups (VS Code-style editor groups)
   plotGroups: PlotGroup[];
@@ -773,28 +890,115 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       }),
     })),
 
+  remapAfterSpectraRemoval: (removedIndices) =>
+    set((state) => {
+      const removedSorted = normalizeRemovedIndices(removedIndices);
+      if (removedSorted.length === 0) return {};
+
+      const sourceTabStates = { ...state.tabStates };
+      if (state.activeTabId) {
+        sourceTabStates[state.activeTabId] = snapshotFromState(state);
+      }
+
+      const tabs: AnalysisTab[] = [];
+      const tabStates: Record<string, AnalysisTabState> = {};
+      const idMap = new Map<string, string>();
+      const usedIds = new Set<string>();
+
+      for (const tab of state.tabs) {
+        const mappedSpectrumIndex = mapIndexAfterRemoval(tab.spectrumIndex, removedSorted);
+        if (mappedSpectrumIndex === null) continue;
+
+        let mappedTabId = remapSpectrumTabId(tab.id, mappedSpectrumIndex);
+        if (usedIds.has(mappedTabId)) {
+          let suffix = 2;
+          while (usedIds.has(`${mappedTabId}-${suffix}`)) {
+            suffix += 1;
+          }
+          mappedTabId = `${mappedTabId}-${suffix}`;
+        }
+        usedIds.add(mappedTabId);
+        idMap.set(tab.id, mappedTabId);
+
+        const sourceState = sourceTabStates[tab.id] ?? createDefaultTabState(tab.spectrumIndex);
+        tabStates[mappedTabId] = remapTabStateAfterRemoval(sourceState, removedSorted);
+        tabs.push({
+          ...tab,
+          id: mappedTabId,
+          spectrumIndex: mappedSpectrumIndex,
+        });
+      }
+
+      if (tabs.length === 0) {
+        const defaults = createDefaultTabState(null);
+        return {
+          tabs: [],
+          activeTabId: null,
+          tabStates: {},
+          ...applySnapshot(defaults),
+        };
+      }
+
+      let activeTabId = state.activeTabId !== null ? (idMap.get(state.activeTabId) ?? null) : null;
+      if (!activeTabId) {
+        activeTabId = tabs[0].id;
+      }
+
+      const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
+      let activeState = tabStates[activeTabId] ?? createDefaultTabState(activeTab.spectrumIndex);
+      if (activeState.activeIndex === null) {
+        activeState = {
+          ...activeState,
+          activeIndex: activeTab.spectrumIndex,
+          selectedIndices:
+            activeState.selectedIndices.length > 0
+              ? activeState.selectedIndices
+              : [activeTab.spectrumIndex],
+        };
+        tabStates[activeTabId] = activeState;
+      }
+      syncGroupCounter(activeState.plotGroups);
+
+      return {
+        tabs,
+        activeTabId,
+        tabStates,
+        ...applySnapshot(activeState),
+      };
+    }),
+
   // Plot mode — updates active group + param tab
-  plotMode: "mu",
+  plotMode: "energy",
+  energyMain: "mu",
   setPlotMode: (mode) =>
     set((state) => {
+      const normalizedMode = normalizePlotMode(mode);
       const plotGroups = state.plotGroups.map((group) =>
-        group.id === state.activeGroupId ? { ...group, activeMode: mode } : group,
+        group.id === state.activeGroupId ? { ...group, activeMode: normalizedMode } : group,
       );
-      const paramTab = PLOT_MODE_TO_PARAM_TAB[mode];
+      const paramTab = PLOT_MODE_TO_PARAM_TAB[normalizedMode];
       return {
         plotGroups,
-        plotMode: mode,
+        plotMode: normalizedMode,
         paramTab,
         tabStates: updateCurrentTabState(state, {
           plotGroups,
-          plotMode: mode,
+          plotMode: normalizedMode,
           paramTab,
         }),
       };
     }),
+  setEnergyMain: (mode) =>
+    set((state) => ({
+      energyMain: mode,
+      tabStates: updateCurrentTabState(state, {
+        energyMain: mode,
+      }),
+    })),
 
   renderMode: "interactive",
   renderModeSource: "auto",
+  coreFormat: "png",
   setRenderMode: (mode) =>
     set((state) => ({
       renderMode: mode,
@@ -818,6 +1022,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       renderModeSource: "auto",
       tabStates: updateCurrentTabState(state, {
         renderModeSource: "auto",
+      }),
+    })),
+  setCoreFormat: (format) =>
+    set((state) => ({
+      coreFormat: format,
+      tabStates: updateCurrentTabState(state, {
+        coreFormat: format,
       }),
     })),
 
@@ -862,7 +1073,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         state.activeGroupId === groupId ? plotGroups[0].id : state.activeGroupId;
       const activeGroup = plotGroups.find((group) => group.id === activeGroupId) ?? plotGroups[0];
       const plotLayout = calcLayout(plotGroups.length, undefined, state.plotLayout);
-      const plotMode = activeGroup.activeMode;
+      const plotMode = normalizePlotMode(activeGroup.activeMode);
       const paramTab = PLOT_MODE_TO_PARAM_TAB[plotMode];
 
       return {
@@ -883,9 +1094,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   addPlotTab: (groupId, mode) =>
     set((state) => {
+      const normalizedMode = normalizePlotMode(mode);
       const plotGroups = state.plotGroups.map((group) =>
-        group.id === groupId && !group.tabs.includes(mode)
-          ? { ...group, tabs: [...group.tabs, mode], activeMode: mode }
+        group.id === groupId && !group.tabs.includes(normalizedMode)
+          ? { ...group, tabs: [...group.tabs, normalizedMode], activeMode: normalizedMode }
           : group,
       );
       return {
@@ -898,10 +1110,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   removePlotTab: (groupId, mode) =>
     set((state) => {
+      const normalizedMode = normalizePlotMode(mode);
       const plotGroups = state.plotGroups.map((group) => {
         if (group.id !== groupId || group.tabs.length <= 1) return group;
-        const tabs = group.tabs.filter((tabMode) => tabMode !== mode);
-        const activeMode = group.activeMode === mode ? tabs[0] : group.activeMode;
+        const tabs = group.tabs.filter((tabMode) => tabMode !== normalizedMode);
+        const activeMode = group.activeMode === normalizedMode ? tabs[0] : group.activeMode;
         return { ...group, tabs, activeMode };
       });
 
@@ -915,19 +1128,22 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   setGroupActiveMode: (groupId, mode) =>
     set((state) => {
+      const normalizedMode = normalizePlotMode(mode);
       const plotGroups = state.plotGroups.map((group) =>
-        group.id === groupId ? { ...group, activeMode: mode } : group,
+        group.id === groupId ? { ...group, activeMode: normalizedMode } : group,
       );
       const isActiveGroup = groupId === state.activeGroupId;
       const patch: Partial<AnalysisTabState> = { plotGroups };
       if (isActiveGroup) {
-        patch.plotMode = mode;
-        patch.paramTab = PLOT_MODE_TO_PARAM_TAB[mode];
+        patch.plotMode = normalizedMode;
+        patch.paramTab = PLOT_MODE_TO_PARAM_TAB[normalizedMode];
       }
 
       return {
         plotGroups,
-        ...(isActiveGroup ? { plotMode: mode, paramTab: PLOT_MODE_TO_PARAM_TAB[mode] } : {}),
+        ...(isActiveGroup
+          ? { plotMode: normalizedMode, paramTab: PLOT_MODE_TO_PARAM_TAB[normalizedMode] }
+          : {}),
         tabStates: updateCurrentTabState(state, patch),
       };
     }),
@@ -937,7 +1153,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       const group = state.plotGroups.find((item) => item.id === groupId);
       if (!group) return {};
 
-      const plotMode = group.activeMode;
+      const plotMode = normalizePlotMode(group.activeMode);
       const paramTab = PLOT_MODE_TO_PARAM_TAB[plotMode];
 
       return {
@@ -953,7 +1169,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }),
 
   // Parameter tab + options
-  paramTab: "e0",
+  paramTab: "norm",
   setParamTab: (tab) =>
     set((state) => ({
       paramTab: tab,

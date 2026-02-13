@@ -17,10 +17,15 @@ pub fn save_workspace(
     let mut ws_path = state.workspace_path.lock().map_err(|e| e.to_string())?;
     *ws_path = Some(PathBuf::from(&path));
 
-    // Also save spectral data as BSON alongside workspace
+    // Save spectral data as BSON alongside workspace.
+    // If there are no spectra, remove stale companion data to avoid loading old state later.
+    let data_path = PathBuf::from(&path).with_extension("xas.bson");
     let group = state.group.lock().map_err(|e| e.to_string())?;
-    if !group.is_empty() {
-        let data_path = PathBuf::from(&path).with_extension("xas.bson");
+    if group.is_empty() {
+        if data_path.exists() {
+            std::fs::remove_file(&data_path).map_err(|e| e.to_string())?;
+        }
+    } else {
         group
             .write_bson(data_path.to_str().ok_or("Invalid path for data file")?)
             .map_err(|e| e.to_string())?;
@@ -34,11 +39,13 @@ pub fn load_workspace(state: State<'_, AppState>, path: String) -> Result<Worksp
     let json = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let data: WorkspaceData = serde_json::from_str(&json).map_err(|e| e.to_string())?;
 
-    // Load spectral data from companion BSON file
+    // Always reset the in-memory spectra when loading a workspace.
+    let mut group = state.group.lock().map_err(|e| e.to_string())?;
+    *group = xraytsubaki::prelude::XASGroup::new();
+
+    // Load spectral data from companion BSON file when present.
     let data_path = PathBuf::from(&path).with_extension("xas.bson");
     if data_path.exists() {
-        let mut group = state.group.lock().map_err(|e| e.to_string())?;
-        *group = xraytsubaki::prelude::XASGroup::new();
         group
             .read_bson(data_path.to_str().ok_or("Invalid path for data file")?)
             .map_err(|e| e.to_string())?;

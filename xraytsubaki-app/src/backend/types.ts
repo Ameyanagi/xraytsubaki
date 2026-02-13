@@ -117,6 +117,7 @@ export interface PlotTrace {
 
 export interface PlotResult {
   traces: PlotTrace[];
+  pngs: string[];
   svgs: string[];
   x_label: string;
   y_label: string;
@@ -138,6 +139,7 @@ export type WorkspaceParamTab = "e0" | "norm" | "bkg" | "fft";
 export type WorkspaceCursorTool = "select" | "pick" | "zoom" | "pan";
 export type WorkspacePlotLayout = "1x1" | "1x2" | "2x1" | "2x2";
 export type WorkspaceRenderModeSource = "auto" | "manual";
+export type WorkspaceCoreFormat = "png" | "svg";
 
 export interface WorkspacePlotGroupState {
   id: string;
@@ -145,12 +147,16 @@ export interface WorkspacePlotGroupState {
   activeMode: PlotMode;
 }
 
+export type EnergyMain = "mu" | "norm" | "flattened";
+
 export interface WorkspaceAnalysisTabState {
   active_index: number | null;
   selected_indices: number[];
   plot_mode: PlotMode;
+  energy_main: EnergyMain;
   render_mode: RenderMode;
   render_mode_source: WorkspaceRenderModeSource;
+  core_format: WorkspaceCoreFormat;
   plot_groups: WorkspacePlotGroupState[];
   plot_layout: WorkspacePlotLayout;
   active_group_id: string;
@@ -192,7 +198,7 @@ export interface ProcessingState {
 // --- FEFF Fitting ---
 
 export interface FeffRunConfig {
-  executable_path: string;
+  executable_path?: string;
   workspace_dir: string;
   feffinp?: string;
   timeout_sec?: number;
@@ -288,5 +294,5 @@ export interface PathContributionDto {
 
 // --- Plot Mode ---
 
-export type PlotMode = "mu" | "norm" | "k" | "r";
+export type PlotMode = "energy" | "k" | "r" | "mu" | "norm";
 export type RenderMode = "interactive" | "core";

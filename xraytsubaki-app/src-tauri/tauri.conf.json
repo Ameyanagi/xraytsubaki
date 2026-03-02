@@ -1,0 +1,36 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicegui-org/nicegui/main/tauri/tauri.conf.json",
+  "productName": "xraytsubaki",
+  "version": "0.1.0",
+  "identifier": "com.xraytsubaki.app",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "xraytsubaki",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "resources": [
+      "resources/feff/**",
+      "../THIRD_PARTY_NOTICES.md"
+    ]
+  },
+  "plugins": {}
+
+}

@@ -1,0 +1,44 @@
+import { useSpectrumList } from "@/hooks/useSpectra";
+import { useWorkspaceStore } from "@/stores/workspace";
+import { useSpectraStore } from "@/stores/spectra";
+
+const MODE_LABELS: Record<string, string> = {
+  energy: "Energy",
+  k: "\u03C7(k)",
+  r: "\u03C7(R)",
+};
+
+export function StatusBar() {
+  const { data: spectra } = useSpectrumList();
+  const selectedCount = useWorkspaceStore((s) => s.selectedIndices.size);
+  const activeIndex = useWorkspaceStore((s) => s.activeIndex);
+  const plotMode = useWorkspaceStore((s) => s.plotMode);
+  const renderMode = useWorkspaceStore((s) => s.renderMode);
+  const coreFormat = useWorkspaceStore((s) => s.coreFormat);
+  const pickTarget = useWorkspaceStore((s) => s.pickTarget);
+  const plotGroups = useWorkspaceStore((s) => s.plotGroups);
+  const batchProgress = useSpectraStore((s) => s.batchProgress);
+
+  const total = spectra?.length ?? 0;
+
+  return (
+    <div className="flex items-center gap-4 px-3 h-[24px] bg-[#151515] text-[11px] text-[#a0a0a0] shrink-0">
+      <span>
+        {total} spectr{total === 1 ? "um" : "a"} loaded
+      </span>
+      {selectedCount > 0 && <span>{selectedCount} selected</span>}
+      {activeIndex !== null && <span>Active: #{activeIndex}</span>}
+      {batchProgress && (
+        <span className={batchProgress.active ? "text-blue-400" : "text-[#a0a0a0]"}>
+          Batch {batchProgress.current}/{batchProgress.total} (
+          {Math.round((batchProgress.current / Math.max(batchProgress.total, 1)) * 100)}%)
+        </span>
+      )}
+      <div className="flex-1" />
+      <span>Plot: {MODE_LABELS[plotMode] ?? plotMode}</span>
+      {plotGroups.length > 1 && <span>{plotGroups.length} panels</span>}
+      {pickTarget && <span className="text-blue-400">Picking: {pickTarget}</span>}
+      <span>Render: {renderMode}{renderMode === "core" ? ` (${coreFormat})` : ""}</span>
+    </div>
+  );
+}

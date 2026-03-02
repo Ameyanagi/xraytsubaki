@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use super::types::FeffFlavor;
+use super::types::{FeffExecutionMode, FeffFlavor};
 
 #[derive(Error, Debug, Clone)]
 pub enum FittingError {
@@ -49,6 +49,12 @@ pub enum FittingError {
     #[error("required FEFF module executable could not be resolved: {module}")]
     ExecutableNotFound { module: String },
 
+    #[error("requested FEFF execution mode is not available in this build: {mode:?} ({reason})")]
+    UnsupportedExecutionMode {
+        mode: FeffExecutionMode,
+        reason: String,
+    },
+
     #[error("failed to spawn FEFF module '{module}' using '{executable}': {reason}")]
     ProcessSpawnFailed {
         module: String,
@@ -64,6 +70,9 @@ pub enum FittingError {
 
     #[error("failed to read FEFF module output for '{module}': {reason}")]
     OutputReadFailed { module: String, reason: String },
+
+    #[error("FEFF10 pipeline failed: {reason}")]
+    Feff10PipelineFailed { reason: String },
 
     #[error("FEFF execution produced no path output files (feffNNNN.dat) in '{workspace}'")]
     NoPathOutputs { workspace: String },

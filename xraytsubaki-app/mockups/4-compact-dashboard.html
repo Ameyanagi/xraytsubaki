@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mockup 4: Compact Dashboard - xraytsubaki</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-size: 13px;
+            color: #a9b7c6;
+            background: #2b2b2b;
+            width: 1280px;
+            height: 800px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Top Toolbar */
+        .toolbar {
+            height: 38px;
+            background: #3c3f41;
+            border-bottom: 1px solid #515151;
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            gap: 8px;
+        }
+
+        .toolbar-brand {
+            font-weight: 700;
+            font-size: 14px;
+            color: #a9b7c6;
+            margin-right: 12px;
+        }
+
+        .toolbar-separator {
+            width: 1px;
+            height: 20px;
+            background: #515151;
+            margin: 0 4px;
+        }
+
+        .toolbar-button {
+            padding: 4px 12px;
+            background: #4c5052;
+            border: 1px solid #515151;
+            border-radius: 3px;
+            color: #a9b7c6;
+            font-size: 12px;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .toolbar-button:hover {
+            background: #5c6164;
+        }
+
+        .toolbar-button.primary {
+            background: #365880;
+            border-color: #365880;
+        }
+
+        .toolbar-button.primary:hover {
+            background: #4a6fa5;
+        }
+
+        .toolbar-spacer {
+            flex: 1;
+        }
+
+        .toolbar-dropdown {
+            padding: 4px 12px;
+            background: #4c5052;
+            border: 1px solid #515151;
+            border-radius: 3px;
+            color: #a9b7c6;
+            font-size: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .toolbar-dropdown:hover {
+            background: #5c6164;
+        }
+
+        /* Main Content Area */
+        .main-content {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* Far Left Tool Window Strip */
+        .tool-strip {
+            width: 44px;
+            background: #3c3f41;
+            border-right: 1px solid #515151;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding-top: 8px;
+            gap: 4px;
+        }
+
+        .tool-button {
+            width: 36px;
+            height: 36px;
+            background: transparent;
+            border: none;
+            border-radius: 3px;
+            color: #808080;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            transition: background 0.15s, color 0.15s;
+        }
+
+        .tool-button:hover {
+            background: rgba(88, 157, 246, 0.12);
+            color: #a9b7c6;
+        }
+
+        .tool-button.active {
+            background: rgba(88, 157, 246, 0.12);
+            color: #589df6;
+            border-left: 2px solid #589df6;
+        }
+
+        /* Left Panel - Spectra List */
+        .left-panel {
+            width: 180px;
+            background: #3c3f41;
+            border-right: 1px solid #515151;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .panel-header {
+            height: 28px;
+            background: #3c3f41;
+            border-bottom: 1px solid #515151;
+            display: flex;
+            align-items: center;
+            padding: 0 8px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #a9b7c6;
+        }
+
+        .spectra-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 4px 0;
+        }
+
+        .spectrum-item {
+            display: flex;
+            align-items: center;
+            height: 24px;
+            padding: 0 8px 0 12px;
+            cursor: pointer;
+            position: relative;
+            border-left: 2px solid transparent;
+        }
+
+        .spectrum-item::before {
+            content: '';
+            position: absolute;
+            left: 4px;
+            top: 0;
+            bottom: 0;
+            width: 1px;
+            background: #3c3c3c;
+        }
+
+        .spectrum-item:hover {
+            background: rgba(88, 157, 246, 0.08);
+        }
+
+        .spectrum-item.active {
+            background: rgba(88, 157, 246, 0.12);
+            border-left-color: #589df6;
+        }
+
+        .spectrum-checkbox {
+            width: 14px;
+            height: 14px;
+            margin-right: 6px;
+            cursor: pointer;
+        }
+
+        .spectrum-name {
+            flex: 1;
+            font-size: 12px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .status-dots {
+            display: flex;
+            gap: 3px;
+            margin-left: 4px;
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+        }
+
+        .status-dot.green { background: #6a8759; }
+        .status-dot.blue { background: #589df6; }
+        .status-dot.amber { background: #bbb529; }
+        .status-dot.purple { background: #9876aa; }
+
+        /* Center Area - Plot and Parameters Side by Side */
+        .center-area {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* Center Left - Plot */
+        .plot-container {
+            flex: 1.2;
+            background: #2b2b2b;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid #515151;
+        }
+
+        .plot-tabs {
+            height: 32px;
+            background: #3c3f41;
+            border-bottom: 1px solid #515151;
+            display: flex;
+            gap: 0;
+        }
+
+        .plot-tab {
+            padding: 0 16px;
+            height: 32px;
+            background: transparent;
+            border: none;
+            color: #808080;
+            font-size: 12px;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: color 0.15s, border-color 0.15s;
+            position: relative;
+        }
+
+        .plot-tab:hover {
+            color: #a9b7c6;
+        }
+
+        .plot-tab.active {
+            background: #2b2b2b;
+            color: #a9b7c6;
+            border-bottom-color: #589df6;
+        }
+
+        .plot-area {
+            flex: 1;
+            padding: 16px;
+            overflow: hidden;
+        }
+
+        /* Center Right - Parameters */
+        .parameters-panel {
+            flex: 1;
+            background: #2b2b2b;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .parameters-header {
+            height: 32px;
+            background: #3c3f41;
+            border-bottom: 1px solid #515151;
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .parameters-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px 12px;
+        }
+
+        .param-section {
+            margin-bottom: 12px;
+        }
+
+        .param-header {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            color: #a9b7c6;
+        }
+
+        .param-header:hover {
+            color: #589df6;
+        }
+
+        .param-toggle {
+            font-size: 10px;
+            color: #808080;
+        }
+
+        .param-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+            padding-left: 14px;
+        }
+
+        .param-label {
+            font-size: 11px;
+            color: #808080;
+            min-width: 80px;
+        }
+
+        .param-input {
+            flex: 1;
+            padding: 3px 6px;
+            background: #45494a;
+            border: 1px solid #646464;
+            border-radius: 3px;
+            color: #a9b7c6;
+            font-size: 12px;
+        }
+
+        .param-input:focus {
+            outline: none;
+            border-color: #589df6;
+        }
+
+        .param-button {
+            padding: 3px 12px;
+            background: #4c5052;
+            border: 1px solid #515151;
+            border-radius: 3px;
+            color: #a9b7c6;
+            font-size: 11px;
+            cursor: pointer;
+        }
+
+        .param-button:hover {
+            background: #5c6164;
+        }
+
+        .param-divider {
+            height: 1px;
+            background: #515151;
+            margin: 12px 0;
+        }
+
+        .fit-results {
+            padding-left: 14px;
+            font-size: 12px;
+            color: #606060;
+            font-style: italic;
+        }
+
+        /* Bottom Panel - Log */
+        .bottom-panel {
+            height: 90px;
+            background: #3c3f41;
+            border-top: 1px solid #515151;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .bottom-tabs {
+            height: 28px;
+            background: #3c3f41;
+            border-bottom: 1px solid #515151;
+            display: flex;
+            align-items: center;
+            padding: 0 8px;
+        }
+
+        .bottom-tab {
+            padding: 4px 12px;
+            font-size: 12px;
+            color: #a9b7c6;
+            cursor: pointer;
+            border-bottom: 2px solid #589df6;
+        }
+
+        .log-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 6px 12px;
+            font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+            font-size: 11px;
+        }
+
+        .log-entry {
+            margin-bottom: 2px;
+            line-height: 16px;
+        }
+
+        .log-time {
+            color: #606060;
+        }
+
+        .log-level {
+            font-weight: 600;
+            margin-left: 8px;
+        }
+
+        .log-level.info {
+            color: #589df6;
+        }
+
+        .log-level.warn {
+            color: #bbb529;
+        }
+
+        .log-message {
+            margin-left: 8px;
+            color: #a9b7c6;
+        }
+
+        /* Status Bar */
+        .status-bar {
+            height: 22px;
+            background: #3c3f41;
+            border-top: 1px solid #515151;
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            font-size: 11px;
+            color: #808080;
+            gap: 16px;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        /* SVG Plot Styles */
+        svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        .grid-line {
+            stroke: #363636;
+            stroke-width: 1;
+        }
+
+        .axis-line {
+            stroke: #515151;
+            stroke-width: 1.5;
+        }
+
+        .axis-label {
+            fill: #808080;
+            font-size: 11px;
+        }
+
+        .spectrum-line {
+            fill: none;
+            stroke: #589df6;
+            stroke-width: 2;
+        }
+
+        .spectrum-line-secondary {
+            fill: none;
+            stroke: #589df6;
+            stroke-width: 1.5;
+            opacity: 0.35;
+        }
+    </style>
+</head>
+<body>
+    <!-- Top Toolbar -->
+    <div class="toolbar">
+        <div class="toolbar-brand">xraytsubaki</div>
+        <button class="toolbar-button">Open</button>
+        <button class="toolbar-button">Save</button>
+        <div class="toolbar-separator"></div>
+        <button class="toolbar-button primary">Process All</button>
+        <button class="toolbar-button">Fit</button>
+        <div class="toolbar-separator"></div>
+        <button class="toolbar-button">Export</button>
+        <div class="toolbar-spacer"></div>
+        <div class="toolbar-dropdown">
+            <span>Interactive</span>
+            <span>▾</span>
+        </div>
+    </div>
+
+    <!-- Main Content Area -->
+    <div class="main-content">
+        <!-- Far Left Tool Strip -->
+        <div class="tool-strip">
+            <button class="tool-button active" title="Spectra">☰</button>
+            <button class="tool-button" title="Charts">📊</button>
+            <button class="tool-button" title="Settings">⚙</button>
+        </div>
+
+        <!-- Left Panel - Spectra List -->
+        <div class="left-panel">
+            <div class="panel-header">Spectra</div>
+            <div class="spectra-list">
+                <div class="spectrum-item active">
+                    <input type="checkbox" class="spectrum-checkbox" checked>
+                    <span class="spectrum-name">Cu_foil_001</span>
+                    <div class="status-dots">
+                        <div class="status-dot green"></div>
+                        <div class="status-dot blue"></div>
+                        <div class="status-dot amber"></div>
+                        <div class="status-dot purple"></div>
+                    </div>
+                </div>
+                <div class="spectrum-item">
+                    <input type="checkbox" class="spectrum-checkbox" checked>
+                    <span class="spectrum-name">Cu_foil_002</span>
+                    <div class="status-dots">
+                        <div class="status-dot green"></div>
+                        <div class="status-dot blue"></div>
+                        <div class="status-dot amber"></div>
+                    </div>
+                </div>
+                <div class="spectrum-item">
+                    <input type="checkbox" class="spectrum-checkbox">
+                    <span class="spectrum-name">Cu_foil_003</span>
+                    <div class="status-dots">
+                        <div class="status-dot green"></div>
+                        <div class="status-dot blue"></div>
+                    </div>
+                </div>
+                <div class="spectrum-item">
+                    <input type="checkbox" class="spectrum-checkbox">
+                    <span class="spectrum-name">Cu_foil_004</span>
+                    <div class="status-dots">
+                        <div class="status-dot green"></div>
+                    </div>
+                </div>
+                <div class="spectrum-item">
+                    <input type="checkbox" class="spectrum-checkbox">
+                    <span class="spectrum-name">Fe2O3_001</span>
+                    <div class="status-dots">
+                        <div class="status-dot green"></div>
+                        <div class="status-dot blue"></div>
+                        <div class="status-dot amber"></div>
+                        <div class="status-dot purple"></div>
+                    </div>
+                </div>
+                <div class="spectrum-item">
+                    <input type="checkbox" class="spectrum-checkbox">
+                    <span class="spectrum-name">Fe2O3_002</span>
+                    <div class="status-dots">
+                        <div class="status-dot green"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center Area - Plot and Parameters -->
+        <div class="center-area">
+            <!-- Center Left - Plot -->
+            <div class="plot-container">
+                <div class="plot-tabs">
+                    <button class="plot-tab active">μ(E)</button>
+                    <button class="plot-tab">Norm</button>
+                    <button class="plot-tab">χ(k)</button>
+                    <button class="plot-tab">χ(R)</button>
+                </div>
+                <div class="plot-area">
+                    <svg viewBox="0 0 600 440">
+                        <!-- Grid -->
+                        <line class="grid-line" x1="50" y1="40" x2="50" y2="400"></line>
+                        <line class="grid-line" x1="150" y1="40" x2="150" y2="400"></line>
+                        <line class="grid-line" x1="250" y1="40" x2="250" y2="400"></line>
+                        <line class="grid-line" x1="350" y1="40" x2="350" y2="400"></line>
+                        <line class="grid-line" x1="450" y1="40" x2="450" y2="400"></line>
+                        <line class="grid-line" x1="550" y1="40" x2="550" y2="400"></line>
+
+                        <line class="grid-line" x1="50" y1="40" x2="550" y2="40"></line>
+                        <line class="grid-line" x1="50" y1="130" x2="550" y2="130"></line>
+                        <line class="grid-line" x1="50" y1="220" x2="550" y2="220"></line>
+                        <line class="grid-line" x1="50" y1="310" x2="550" y2="310"></line>
+                        <line class="grid-line" x1="50" y1="400" x2="550" y2="400"></line>
+
+                        <!-- Axes -->
+                        <line class="axis-line" x1="50" y1="400" x2="550" y2="400"></line>
+                        <line class="axis-line" x1="50" y1="40" x2="50" y2="400"></line>
+
+                        <!-- Secondary spectrum -->
+                        <path class="spectrum-line-secondary" d="M 50,380 L 80,375 L 110,368 L 140,360 L 170,350 L 200,338 L 230,322 L 260,302 L 290,278 L 320,250 L 350,218 L 380,182 L 410,145 L 440,110 L 470,80 L 500,58 L 530,45 L 550,40"></path>
+
+                        <!-- Primary XANES spectrum -->
+                        <path class="spectrum-line" d="M 50,390 L 70,388 L 90,385 L 110,382 L 130,378 L 150,373 L 170,367 L 190,359 L 210,348 L 230,334 L 250,315 L 270,290 L 290,258 L 310,218 L 330,170 L 350,118 L 370,75 L 390,50 L 410,42 L 430,45 L 450,52 L 470,62 L 490,75 L 510,88 L 530,100 L 550,110"></path>
+
+                        <!-- Axis Labels -->
+                        <text class="axis-label" x="300" y="430" text-anchor="middle">Energy (eV)</text>
+                        <text class="axis-label" x="30" y="220" text-anchor="middle" transform="rotate(-90, 30, 220)">μ(E)</text>
+
+                        <!-- Tick labels -->
+                        <text class="axis-label" x="50" y="415" text-anchor="middle" font-size="10">8960</text>
+                        <text class="axis-label" x="250" y="415" text-anchor="middle" font-size="10">8980</text>
+                        <text class="axis-label" x="450" y="415" text-anchor="middle" font-size="10">9000</text>
+
+                        <text class="axis-label" x="45" y="405" text-anchor="end" font-size="10">0</text>
+                        <text class="axis-label" x="45" y="220" text-anchor="end" font-size="10">0.5</text>
+                        <text class="axis-label" x="45" y="45" text-anchor="end" font-size="10">1.0</text>
+                    </svg>
+                </div>
+            </div>
+
+            <!-- Center Right - Parameters -->
+            <div class="parameters-panel">
+                <div class="parameters-header">Parameters</div>
+                <div class="parameters-content">
+                    <div class="param-section">
+                        <div class="param-header">
+                            <span class="param-toggle">▾</span>
+                            <span>E0: 8979.0 eV</span>
+                        </div>
+                    </div>
+
+                    <div class="param-section">
+                        <div class="param-header">
+                            <span class="param-toggle">▾</span>
+                            <span>Normalization</span>
+                        </div>
+                        <div class="param-row">
+                            <label class="param-label">Pre-edge start</label>
+                            <input type="text" class="param-input" value="-150">
+                        </div>
+                        <div class="param-row">
+                            <label class="param-label">Pre-edge end</label>
+                            <input type="text" class="param-input" value="-30">
+                        </div>
+                        <div class="param-row">
+                            <label class="param-label">Norm start</label>
+                            <input type="text" class="param-input" value="150">
+                        </div>
+                        <div class="param-row">
+                            <label class="param-label">Norm end</label>
+                            <input type="text" class="param-input" value="800">
+                        </div>
+                        <div class="param-row">
+                            <button class="param-button">Apply</button>
+                        </div>
+                    </div>
+
+                    <div class="param-section">
+                        <div class="param-header">
+                            <span class="param-toggle">▸</span>
+                            <span>Background</span>
+                        </div>
+                    </div>
+
+                    <div class="param-section">
+                        <div class="param-header">
+                            <span class="param-toggle">▸</span>
+                            <span>FFT</span>
+                        </div>
+                    </div>
+
+                    <div class="param-divider"></div>
+
+                    <div class="param-section">
+                        <div class="param-header">
+                            <span>Fit Results</span>
+                        </div>
+                        <div class="fit-results">No fits configured</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom Panel - Log -->
+    <div class="bottom-panel">
+        <div class="bottom-tabs">
+            <div class="bottom-tab">Log</div>
+        </div>
+        <div class="log-content">
+            <div class="log-entry">
+                <span class="log-time">14:31:42</span>
+                <span class="log-level info">INFO</span>
+                <span class="log-message">Loaded 6 spectra from /data/Cu_K/</span>
+            </div>
+            <div class="log-entry">
+                <span class="log-time">14:31:43</span>
+                <span class="log-level info">INFO</span>
+                <span class="log-message">E0 found: Cu_foil_001 → 8979.0 eV</span>
+            </div>
+            <div class="log-entry">
+                <span class="log-time">14:31:58</span>
+                <span class="log-level warn">WARN</span>
+                <span class="log-message">Cu_foil_004: edge step small (0.003)</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Status Bar -->
+    <div class="status-bar">
+        <div class="status-item">6 spectra loaded</div>
+        <div class="status-item">2 selected</div>
+        <div class="status-item">Active: Cu_foil_001</div>
+        <div class="status-item">Plot: μ(E)</div>
+        <div class="status-item">Render: Interactive</div>
+    </div>
+</body>
+</html>

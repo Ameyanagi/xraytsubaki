@@ -1,49 +1,15 @@
-(Work in progress, I will work after the core functionality are implemented)
-# Development
-{% if styling == "Tailwind" %}
-1. Install npm: https://docs.npmjs.com/downloading-and-installing-node-js-and-npm
-2. Install the tailwind css cli: https://tailwindcss.com/docs/installation
-3. Run the following command in the root of the project to start the tailwind CSS compiler:
+# `xraytsubaki-gui` (Deprecated)
 
-```bash
-npx tailwindcss -i ./input.css -o ./public/tailwind.css --watch
-```
-{% endif %}
-{% if platform == "desktop" %}
-Run the following command in the root of the project to start the Dioxus dev server:
+This Dioxus-based GUI is deprecated and no longer the primary desktop client.
 
-```bash
-dx serve --hot-reload --platform desktop
-```
-{% else %}
-{% if platform == "TUI" %}
-Run the following command in the root of the project to start the Dioxus dev server:
+Use the Tauri + React application instead:
 
-```bash
-dx serve --hot-reload --platform desktop
-```
-{% else %}
-{% if platform == "web" %}
-Run the following command in the root of the project to start the Dioxus dev server:
+- App root: `xraytsubaki-app/`
+- Dev server: `cd xraytsubaki-app && npm run dev`
+- Desktop app: `cd xraytsubaki-app && npm run tauri dev`
 
-```bash
-dx serve --hot-reload
-```
+Migration status:
 
-- Open the browser to http://localhost:8080
-{% else %}
-{% if platform == "Fullstack" %}
-Launch the Dioxus Fullstack app:
-
-```bash
-dx build --features web --release
-cargo run --features ssr --release
-```
-{% else %}
-Launch the Dioxus app:
-
-```bash
-cargo run
-```
-{% endif %}
-{% endif %}
+- New feature work goes to `xraytsubaki-app`.
+- CI now validates the Tauri app path instead of this crate.
+- This crate remains in the repository only for legacy reference during transition.

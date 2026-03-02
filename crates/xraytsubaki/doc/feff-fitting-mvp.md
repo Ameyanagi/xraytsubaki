@@ -17,7 +17,7 @@ Out of scope in MVP:
 - Python binding surface for fitting APIs.
 - Multi-dataset/global fits.
 - Non-R fitspaces (`k`, `q`, wavelet).
-- FEFF10 execution support.
+- FEFF10 parser normalization into `FeffDat`.
 
 ## Builder API and Canonical Examples
 
@@ -56,6 +56,12 @@ Compatibility policy:
 - `FeffFlavor::Feff10`: intentionally returns a typed unsupported error.
 
 This explicit dispatch behavior is intentional to keep caller contracts stable while FEFF10 parsing is implemented in a follow-up.
+
+## FEFF Execution Compatibility
+
+- `FeffExecutionMode::Feff85LModules`: supported.
+- `FeffExecutionMode::Feff10Pipeline`: supported when crate feature `feff10-runner` is enabled.
+- FEFF10 execution auto-raises `PRINT` `ipr6` to at least `3` so `feffNNNN.dat` files are generated for existing fitting path loading.
 
 ## FEFF10 Follow-up Path
 

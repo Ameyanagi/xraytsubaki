@@ -22,6 +22,7 @@ pub enum FitSpace {
 pub enum FeffExecutionMode {
     #[default]
     Feff85LModules,
+    Feff10Pipeline,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]

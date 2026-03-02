@@ -1,0 +1,115 @@
+@import "tailwindcss";
+@import "rc-dock/dist/rc-dock.css";
+
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #e8e8e8;
+  background-color: #0d0d0d;
+  -webkit-font-smoothing: antialiased;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  background: #0d0d0d;
+  color: #e8e8e8;
+}
+
+/* Prevent text selection on UI chrome (not in inputs/code areas) */
+button,
+label,
+[role="tab"] {
+  user-select: none;
+}
+
+/* rc-dock dark theme overrides */
+.dock-layout {
+  --color-bg: #1a1a1a;
+  --color-border: #232323;
+}
+
+.dock-layout .dock-panel {
+  background: #1a1a1a;
+  border-color: #232323;
+}
+
+.dock-layout .dock-tab {
+  background: #1a1a1a;
+  color: #a0a0a0;
+  border-color: #232323;
+}
+
+/* Override rc-dock style-main/style-card defaults that inject white bars. */
+.dock-panel.dock-style-main .dock-bar,
+.dock-panel.dock-style-card .dock-bar,
+.dock-top .dock-bar {
+  background: #151515 !important;
+  border-bottom-color: #232323 !important;
+}
+
+.dock-panel.dock-style-main .dock-tab,
+.dock-panel.dock-style-card .dock-tab,
+.dock-panel.dock-style-card .dock-tab.dock-tab-active {
+  background: #151515 !important;
+  border-color: #2f2f2f !important;
+  color: #a0a0a0 !important;
+}
+
+.dock-panel.dock-style-main .dock-tab.dock-tab-active,
+.dock-panel.dock-style-card .dock-tab.dock-tab-active {
+  background: #0f1115 !important;
+  color: #e8e8e8 !important;
+}
+
+.dock-panel.dock-style-card .dock-ink-bar {
+  background: transparent !important;
+}
+
+.dock-layout .dock-tab-active,
+.dock-layout .dock-tab-active:hover {
+  background: #0f1115;
+  color: #e8e8e8;
+}
+
+.dock-layout .dock-tab-bar {
+  background: #151515;
+}
+
+.dock-layout .dock-ink-bar {
+  background: #5b9aff;
+}
+
+.dock-layout .dock-divider {
+  background: #232323;
+}
+
+.dock-host .dock-layout {
+  width: 100%;
+  height: 100%;
+}
+
+.dock-host .dock-panel {
+  min-height: 0;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0d0d0d;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #343434;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #4a4a4a;
+}

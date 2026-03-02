@@ -512,7 +512,8 @@ export class MockBackend implements XASBackend {
     if (!workspace) {
       throw new Error("Workspace directory is required");
     }
-    const executable = config.executable_path?.trim() || "bundled://feff8l_rdinp";
+    const explicitExecutable = config.executable_path?.trim();
+    const useFeff85 = Boolean(explicitExecutable);
 
     const seed = fnv1a(JSON.stringify(config));
     const pathCount = 2 + (seed % 3);
@@ -522,18 +523,41 @@ export class MockBackend implements XASBackend {
       return `${normalizedWorkspace}/feff${fileId}.dat`;
     });
 
+    const modules = useFeff85
+      ? [
+          { module: "rdinp", executable: explicitExecutable! },
+          { module: "pot", executable: explicitExecutable! },
+          { module: "xsph", executable: explicitExecutable! },
+          { module: "pathfinder", executable: explicitExecutable! },
+          { module: "genfmt", executable: explicitExecutable! },
+          { module: "ff2x", executable: explicitExecutable! },
+        ]
+      : [
+          "rdinp",
+          "dmdw",
+          "atomic",
+          "pot",
+          "ldos",
+          "screen",
+          "crpa",
+          "opconsat",
+          "xsph",
+          "fms",
+          "mkgtr",
+          "path",
+          "genfmt",
+          "ff2x",
+          "sfconv",
+          "compton",
+          "eels",
+          "rhorrp",
+        ].map((module) => ({ module, executable: `feff10::${module}` }));
+
     return {
-      mode: "Feff85LModules",
+      mode: useFeff85 ? "Feff85LModules" : "Feff10Pipeline",
       workspace_dir: workspace,
       feffinp_path: config.feffinp?.trim() || `${normalizedWorkspace}/feff.inp`,
-      modules: [
-        { module: "rdinp", executable },
-        { module: "pot", executable },
-        { module: "xsph", executable },
-        { module: "pathfinder", executable },
-        { module: "genfmt", executable },
-        { module: "ff2x", executable },
-      ],
+      modules,
       logs: [`${normalizedWorkspace}/log1.dat`, `${normalizedWorkspace}/log2.dat`],
       path_files,
     };

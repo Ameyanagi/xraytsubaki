@@ -21,8 +21,27 @@ const FEFF85L_MODULES: [(&str, &str); 6] = [
     ("genfmt", "feff8l_genfmt"),
     ("ff2x", "feff8l_ff2x"),
 ];
+#[cfg(feature = "feff10-runner")]
+const FEFF10_MODULE_PREFIX: &str = "feff10::";
+const NO_EXTERNAL_MODULES: [(&str, &str); 0] = [];
 
 pub fn resolve_feff_commands(
+    request: &FeffRunRequest,
+) -> Result<FeffResolvedCommands, FittingError> {
+    match request.mode {
+        FeffExecutionMode::Feff85LModules => resolve_feff85l_commands(request),
+        FeffExecutionMode::Feff10Pipeline => resolve_feff10_commands(request.mode),
+    }
+}
+
+pub fn run_feff(request: &FeffRunRequest) -> Result<FeffRunResult, FittingError> {
+    match request.mode {
+        FeffExecutionMode::Feff85LModules => run_feff85l_modules(request),
+        FeffExecutionMode::Feff10Pipeline => run_feff10_pipeline(request),
+    }
+}
+
+fn resolve_feff85l_commands(
     request: &FeffRunRequest,
 ) -> Result<FeffResolvedCommands, FittingError> {
     let executable_path = validate_executable_path(&request.executable_path)?;
@@ -64,10 +83,10 @@ pub fn resolve_feff_commands(
     })
 }
 
-pub fn run_feff(request: &FeffRunRequest) -> Result<FeffRunResult, FittingError> {
+fn run_feff85l_modules(request: &FeffRunRequest) -> Result<FeffRunResult, FittingError> {
     let workspace_dir = validate_workspace_dir(&request.workspace_dir)?;
     let feffinp_path = resolve_feffinp_path(request, &workspace_dir)?;
-    let resolved = resolve_feff_commands(request)?;
+    let resolved = resolve_feff85l_commands(request)?;
 
     let staged_input = stage_feff_input(&workspace_dir, &feffinp_path)?;
 
@@ -104,6 +123,107 @@ pub fn run_feff(request: &FeffRunRequest) -> Result<FeffRunResult, FittingError>
     }
 }
 
+#[cfg(feature = "feff10-runner")]
+fn resolve_feff10_commands(mode: FeffExecutionMode) -> Result<FeffResolvedCommands, FittingError> {
+    let modules = feff10::stage::Stage::all()
+        .iter()
+        .map(|stage| FeffModuleCommand {
+            module: stage.executable_name().to_string(),
+            executable: PathBuf::from(format!("{FEFF10_MODULE_PREFIX}{}", stage.executable_name())),
+        })
+        .collect();
+
+    Ok(FeffResolvedCommands { mode, modules })
+}
+
+#[cfg(not(feature = "feff10-runner"))]
+fn resolve_feff10_commands(mode: FeffExecutionMode) -> Result<FeffResolvedCommands, FittingError> {
+    Err(FittingError::UnsupportedExecutionMode {
+        mode,
+        reason: "enable the 'feff10-runner' crate feature to use FEFF10 pipeline execution"
+            .to_string(),
+    })
+}
+
+#[cfg(feature = "feff10-runner")]
+fn run_feff10_pipeline(request: &FeffRunRequest) -> Result<FeffRunResult, FittingError> {
+    let workspace_dir = validate_workspace_dir(&request.workspace_dir)?;
+    let feffinp_path = resolve_feffinp_path(request, &workspace_dir)?;
+    let mut input = feff10::input::FeffInput::from_file(&feffinp_path).map_err(|error| {
+        FittingError::Feff10PipelineFailed {
+            reason: format!(
+                "failed to parse FEFF10 input '{}': {error}",
+                feffinp_path.display()
+            ),
+        }
+    })?;
+
+    // FEFF10 must keep ipr6 >= 3 to emit feffNNNN.dat path files for fitting.
+    if input.print_flags[5] < 3 {
+        input.print_flags[5] = 3;
+    }
+
+    let mut builder = feff10::config::FeffConfigBuilder::new()
+        .work_dir(&workspace_dir)
+        .input(input);
+    if let Some(timeout_sec) = request.timeout_sec {
+        builder = builder.stage_timeout(Duration::from_secs(timeout_sec));
+    }
+
+    let config = builder
+        .build()
+        .map_err(|error| FittingError::Feff10PipelineFailed {
+            reason: format!("failed to build FEFF10 configuration: {error}"),
+        })?;
+
+    let result = feff10::pipeline::FeffPipeline::new(config)
+        .run()
+        .map_err(|error| FittingError::Feff10PipelineFailed {
+            reason: error.to_string(),
+        })?;
+
+    let resolved = FeffResolvedCommands {
+        mode: request.mode,
+        modules: result
+            .stages
+            .iter()
+            .map(|stage_result| {
+                let stage_name = stage_result.stage.executable_name();
+                FeffModuleCommand {
+                    module: stage_name.to_string(),
+                    executable: PathBuf::from(format!("{FEFF10_MODULE_PREFIX}{stage_name}")),
+                }
+            })
+            .collect(),
+    };
+
+    let logs = discover_feff10_logs(&workspace_dir)?;
+    let path_files = discover_path_files(&workspace_dir)?;
+    if path_files.is_empty() {
+        return Err(FittingError::NoPathOutputs {
+            workspace: workspace_dir.display().to_string(),
+        });
+    }
+
+    Ok(FeffRunResult {
+        mode: request.mode,
+        workspace_dir,
+        feffinp_path,
+        resolved,
+        logs,
+        path_files,
+    })
+}
+
+#[cfg(not(feature = "feff10-runner"))]
+fn run_feff10_pipeline(request: &FeffRunRequest) -> Result<FeffRunResult, FittingError> {
+    Err(FittingError::UnsupportedExecutionMode {
+        mode: request.mode,
+        reason: "enable the 'feff10-runner' crate feature to use FEFF10 pipeline execution"
+            .to_string(),
+    })
+}
+
 pub fn run_feff_and_load_paths(
     request: &FeffRunRequest,
     flavor: FeffFlavor,
@@ -126,6 +246,7 @@ pub fn load_paths_from_run_result(
 fn required_modules(mode: FeffExecutionMode) -> &'static [(&'static str, &'static str)] {
     match mode {
         FeffExecutionMode::Feff85LModules => &FEFF85L_MODULES,
+        FeffExecutionMode::Feff10Pipeline => &NO_EXTERNAL_MODULES,
     }
 }
 
@@ -341,6 +462,45 @@ fn discover_path_files(workspace_dir: &Path) -> Result<Vec<PathBuf>, FittingErro
     Ok(output_paths)
 }
 
+fn discover_feff10_logs(workspace_dir: &Path) -> Result<Vec<PathBuf>, FittingError> {
+    let mut logs = Vec::new();
+
+    let entries = fs::read_dir(workspace_dir).map_err(|error| FittingError::IOFailed {
+        action: "read workspace directory for FEFF10 logs".to_string(),
+        path: workspace_dir.display().to_string(),
+        reason: error.to_string(),
+    })?;
+
+    for entry_result in entries {
+        let entry = entry_result.map_err(|error| FittingError::IOFailed {
+            action: "iterate workspace entries for FEFF10 logs".to_string(),
+            path: workspace_dir.display().to_string(),
+            reason: error.to_string(),
+        })?;
+
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+
+        let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+
+        if is_feff10_log_file_name(file_name) {
+            logs.push(path);
+        }
+    }
+
+    logs.sort_by(|lhs, rhs| {
+        lhs.file_name()
+            .unwrap_or_default()
+            .cmp(rhs.file_name().unwrap_or_default())
+    });
+
+    Ok(logs)
+}
+
 fn is_feff_path_file_name(file_name: &str) -> bool {
     if !file_name.starts_with("feff") || !file_name.ends_with(".dat") {
         return false;
@@ -348,6 +508,10 @@ fn is_feff_path_file_name(file_name: &str) -> bool {
 
     let digits = &file_name[4..file_name.len() - 4];
     !digits.is_empty() && digits.chars().all(|ch| ch.is_ascii_digit())
+}
+
+fn is_feff10_log_file_name(file_name: &str) -> bool {
+    (file_name.starts_with("log") && file_name.ends_with(".dat")) || file_name == ".feff.error"
 }
 
 fn platform_executable_name(base_name: &str) -> String {
@@ -608,6 +772,15 @@ mod tests {
         assert!(!is_feff_path_file_name("notfeff0001.dat"));
     }
 
+    #[test]
+    fn test_is_feff10_log_file_name() {
+        assert!(is_feff10_log_file_name("log.dat"));
+        assert!(is_feff10_log_file_name("log1.dat"));
+        assert!(is_feff10_log_file_name(".feff.error"));
+        assert!(!is_feff10_log_file_name("feff0001.dat"));
+        assert!(!is_feff10_log_file_name("log.txt"));
+    }
+
     #[cfg(unix)]
     #[test]
     fn test_resolve_commands_from_sibling_modules() {
@@ -632,6 +805,50 @@ mod tests {
 
         let err = resolve_feff_commands(&request).unwrap_err();
         assert!(matches!(err, FittingError::InvalidExecutablePath { .. }));
+    }
+
+    #[cfg(not(feature = "feff10-runner"))]
+    #[test]
+    fn test_resolve_feff10_mode_requires_feature() {
+        let workspace = TestDir::new("xfeff-work-feff10-resolve");
+        let request = FeffRunRequest {
+            executable_path: PathBuf::new(),
+            workspace_dir: workspace.path.clone(),
+            feffinp: None,
+            mode: FeffExecutionMode::Feff10Pipeline,
+            timeout_sec: None,
+        };
+
+        let err = resolve_feff_commands(&request).unwrap_err();
+        assert!(matches!(
+            err,
+            FittingError::UnsupportedExecutionMode {
+                mode: FeffExecutionMode::Feff10Pipeline,
+                ..
+            }
+        ));
+    }
+
+    #[cfg(not(feature = "feff10-runner"))]
+    #[test]
+    fn test_run_feff10_mode_requires_feature() {
+        let workspace = TestDir::new("xfeff-work-feff10-run");
+        let request = FeffRunRequest {
+            executable_path: PathBuf::new(),
+            workspace_dir: workspace.path.clone(),
+            feffinp: None,
+            mode: FeffExecutionMode::Feff10Pipeline,
+            timeout_sec: None,
+        };
+
+        let err = run_feff(&request).unwrap_err();
+        assert!(matches!(
+            err,
+            FittingError::UnsupportedExecutionMode {
+                mode: FeffExecutionMode::Feff10Pipeline,
+                ..
+            }
+        ));
     }
 
     #[cfg(unix)]

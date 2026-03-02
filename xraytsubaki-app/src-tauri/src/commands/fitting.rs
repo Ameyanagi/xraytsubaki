@@ -1,6 +1,6 @@
-use std::{env, path::PathBuf};
+use std::path::PathBuf;
 
-use tauri::{path::BaseDirectory, Manager, State};
+use tauri::State;
 use uuid::Uuid;
 use xraytsubaki::prelude::{
     feffpath, run_feff, FeffExecutionMode, FeffFit, FeffFitDataset, FeffFitResult, FeffFlavor,
@@ -146,63 +146,18 @@ fn overlay_trace(
     }
 }
 
-#[cfg(target_os = "windows")]
-fn platform_executable(base_name: &str) -> String {
-    if base_name.to_ascii_lowercase().ends_with(".exe") {
-        base_name.to_string()
-    } else {
-        format!("{base_name}.exe")
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn platform_executable(base_name: &str) -> String {
-    base_name.to_string()
-}
-
-fn resolve_bundled_feff_executable(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let platform_dir = format!("{}-{}", env::consts::OS, env::consts::ARCH);
-    let module_name = platform_executable("feff8l_rdinp");
-    let relative = PathBuf::from("feff").join(&platform_dir).join(&module_name);
-
-    let mut candidates: Vec<PathBuf> = Vec::new();
-    if let Ok(resource_path) = app.path().resolve(&relative, BaseDirectory::Resource) {
-        candidates.push(resource_path);
-    }
-    candidates.push(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("resources")
-            .join(&relative),
-    );
-
-    if let Some(found) = candidates.iter().find(|path| path.is_file()) {
-        return Ok(found.to_path_buf());
-    }
-
-    let expected = candidates
-        .iter()
-        .map(|path| path.display().to_string())
-        .collect::<Vec<_>>()
-        .join(" or ");
-    Err(format!(
-        "Bundled FEFF executable not found. Expected '{}' (from FEFF85EXAFS) at {}.",
-        module_name, expected
-    ))
-}
-
 #[tauri::command]
-pub fn run_feff_paths(
-    app: tauri::AppHandle,
-    config: FeffRunConfig,
-) -> Result<FeffRunResultDto, String> {
-    let executable_path = config
+pub fn run_feff_paths(config: FeffRunConfig) -> Result<FeffRunResultDto, String> {
+    let explicit_executable = config
         .executable_path
         .as_deref()
         .map(str::trim)
         .filter(|path| !path.is_empty())
-        .map(PathBuf::from)
-        .map(Ok)
-        .unwrap_or_else(|| resolve_bundled_feff_executable(&app))?;
+        .map(PathBuf::from);
+    let (mode, executable_path) = match explicit_executable {
+        Some(path) => (FeffExecutionMode::Feff85LModules, path),
+        None => (FeffExecutionMode::Feff10Pipeline, PathBuf::new()),
+    };
 
     let workspace_dir = config.workspace_dir.trim();
     if workspace_dir.is_empty() {
@@ -218,7 +173,7 @@ pub fn run_feff_paths(
             .map(str::trim)
             .filter(|v| !v.is_empty())
             .map(PathBuf::from),
-        mode: FeffExecutionMode::Feff85LModules,
+        mode,
         timeout_sec: config.timeout_sec,
     };
 

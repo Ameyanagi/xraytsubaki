@@ -537,7 +537,10 @@ function GroupPlotArea({
   const fftOpts = useWorkspaceStore((s) => s.fftOpts);
   const pickTarget = useWorkspaceStore((s) => s.pickTarget);
   const cursorTool = useWorkspaceStore((s) => s.cursorTool);
-  const plotContainerRef = useRef<HTMLDivElement | null>(null);
+  const [plotContainerEl, setPlotContainerEl] = useState<HTMLDivElement | null>(null);
+  const plotContainerRef = useCallback((node: HTMLDivElement | null) => {
+    setPlotContainerEl((prev) => (prev === node ? prev : node));
+  }, []);
   const [plotSize, setPlotSize] = useState({ width: 0, height: 0 });
 
   const selectedArray = useMemo(() => Array.from(selectedIndices), [selectedIndices]);
@@ -600,8 +603,7 @@ function GroupPlotArea({
   }, [renderModeSource, selectedCount, totalPoints, renderMode, setAutoRenderMode]);
 
   useEffect(() => {
-    const container = plotContainerRef.current;
-    if (!container) return;
+    if (!plotContainerEl) return;
 
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
@@ -614,10 +616,10 @@ function GroupPlotArea({
           : { width: nextWidth, height: nextHeight },
       );
     });
-    observer.observe(container);
+    observer.observe(plotContainerEl);
 
     return () => observer.disconnect();
-  }, [renderMode, useGroup, mode]);
+  }, [plotContainerEl]);
 
   const plotData = useMemo(() => {
     if (!plotResult?.traces) return [];

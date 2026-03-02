@@ -4,6 +4,30 @@ xraytsubaki is a Rust-based program that implements the core functionalities of 
 
 Currently the main source code is placed under `./crates/xraytsubaki/`.
 
+## Tauri App Dev (Bun Default)
+
+The desktop app lives in `xraytsubaki-app/`.
+
+Recommended dev flow:
+
+```bash
+cd xraytsubaki-app
+bun install
+bun run tauri:dev
+```
+
+Notes:
+- The Tauri/Vite dev server uses `http://localhost:1420` with strict port binding.
+- If port `1420` is already used, stop the previous dev process before rerunning.
+
+npm fallback (if Bun is unavailable):
+
+```bash
+cd xraytsubaki-app
+npm install
+npm run tauri -- dev
+```
+
 ## Project Genesis and Objectives
 
 The inception of this project was triggered when I needed to process over 1000 spectra from in-situ measurements. The data loading and processing in xraylarch were too time-consuming, not to mention also for demeter. The goal was to develop a tool capable of processing data within a reasonable timeframe. While this project does not seek to replace xraylarch, it does aim to provide a phenomenally fast core API for xraylarch's backend to augment its capacity.

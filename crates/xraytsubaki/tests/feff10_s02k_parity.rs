@@ -239,6 +239,7 @@ fn select_matching_feff10_path() -> FeffPathModel {
         feffinp: Some(feffinp),
         mode: FeffExecutionMode::Feff10Pipeline,
         timeout_sec: Some(180),
+        use_sfconv: false,
     };
 
     let run_result = run_feff(&request).expect("FEFF10 pipeline run failed");

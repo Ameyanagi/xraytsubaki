@@ -140,6 +140,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             feffinp: Some(feffinp_path.to_path_buf()),
             mode: FeffExecutionMode::Feff85LModules,
             timeout_sec: Some(180),
+            use_sfconv: false,
         };
 
         let run_result = match run_feff(&request) {

@@ -4,6 +4,10 @@
 
  CONTROL   1      1     1     1     1     1
  PRINT     1      0     0     0     0     3
+ * SFCONV
+ * OPCONS
+ * MPSE      1    100
+ * EPS0      <dielectric_constant>
  RMAX      6.0
  NLEG      4
  EXAFS     20

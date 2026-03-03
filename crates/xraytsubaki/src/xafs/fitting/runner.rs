@@ -162,6 +162,9 @@ fn run_feff10_pipeline(request: &FeffRunRequest) -> Result<FeffRunResult, Fittin
     if input.print_flags[5] < 3 {
         input.print_flags[5] = 3;
     }
+    if request.use_sfconv {
+        ensure_other_card_present(&mut input.other_cards, "SFCONV");
+    }
 
     let mut builder = feff10::config::FeffConfigBuilder::new()
         .work_dir(&workspace_dir)
@@ -213,6 +216,18 @@ fn run_feff10_pipeline(request: &FeffRunRequest) -> Result<FeffRunResult, Fittin
         logs,
         path_files,
     })
+}
+
+#[cfg(feature = "feff10-runner")]
+fn ensure_other_card_present(other_cards: &mut Vec<String>, keyword: &str) {
+    if other_cards.iter().any(|line| {
+        line.split_whitespace()
+            .next()
+            .is_some_and(|first| first.eq_ignore_ascii_case(keyword))
+    }) {
+        return;
+    }
+    other_cards.push(keyword.to_string());
 }
 
 #[cfg(not(feature = "feff10-runner"))]
@@ -749,6 +764,7 @@ mod tests {
             feffinp: None,
             mode: FeffExecutionMode::Feff85LModules,
             timeout_sec: Some(5),
+            use_sfconv: false,
         }
     }
 
@@ -779,6 +795,23 @@ mod tests {
         assert!(is_feff10_log_file_name(".feff.error"));
         assert!(!is_feff10_log_file_name("feff0001.dat"));
         assert!(!is_feff10_log_file_name("log.txt"));
+    }
+
+    #[cfg(feature = "feff10-runner")]
+    #[test]
+    fn test_ensure_other_card_present_adds_card_once() {
+        let mut cards = vec!["EXAFS 20".to_string()];
+        ensure_other_card_present(&mut cards, "SFCONV");
+        ensure_other_card_present(&mut cards, "sfconv");
+        let count = cards
+            .iter()
+            .filter(|line| {
+                line.split_whitespace()
+                    .next()
+                    .is_some_and(|first| first.eq_ignore_ascii_case("SFCONV"))
+            })
+            .count();
+        assert_eq!(count, 1);
     }
 
     #[cfg(unix)]
@@ -817,6 +850,7 @@ mod tests {
             feffinp: None,
             mode: FeffExecutionMode::Feff10Pipeline,
             timeout_sec: None,
+            use_sfconv: false,
         };
 
         let err = resolve_feff_commands(&request).unwrap_err();
@@ -839,6 +873,7 @@ mod tests {
             feffinp: None,
             mode: FeffExecutionMode::Feff10Pipeline,
             timeout_sec: None,
+            use_sfconv: false,
         };
 
         let err = run_feff(&request).unwrap_err();

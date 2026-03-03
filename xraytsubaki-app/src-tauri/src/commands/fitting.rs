@@ -175,6 +175,7 @@ pub fn run_feff_paths(config: FeffRunConfig) -> Result<FeffRunResultDto, String>
             .map(PathBuf::from),
         mode,
         timeout_sec: config.timeout_sec,
+        use_sfconv: config.use_sfconv,
     };
 
     let run_result = run_feff(&request).map_err(|e| e.to_string())?;

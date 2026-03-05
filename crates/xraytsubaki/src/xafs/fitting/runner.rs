@@ -125,7 +125,7 @@ fn run_feff85l_modules(request: &FeffRunRequest) -> Result<FeffRunResult, Fittin
 
 #[cfg(feature = "feff10-runner")]
 fn resolve_feff10_commands(mode: FeffExecutionMode) -> Result<FeffResolvedCommands, FittingError> {
-    let modules = feff10::stage::Stage::all()
+    let modules = feff10::Stage::all()
         .iter()
         .map(|stage| FeffModuleCommand {
             module: stage.executable_name().to_string(),
@@ -149,10 +149,17 @@ fn resolve_feff10_commands(mode: FeffExecutionMode) -> Result<FeffResolvedComman
 fn run_feff10_pipeline(request: &FeffRunRequest) -> Result<FeffRunResult, FittingError> {
     let workspace_dir = validate_workspace_dir(&request.workspace_dir)?;
     let feffinp_path = resolve_feffinp_path(request, &workspace_dir)?;
-    let mut input = feff10::input::FeffInput::from_file(&feffinp_path).map_err(|error| {
+    let mut input = feff10::FeffInput::from_file(&feffinp_path).map_err(|error| {
+        let error_text = error.to_string();
+        let strict_hint = if error_text.to_ascii_lowercase().contains("unrecognized keyword") {
+            " (feff10 >= 0.2 uses strict card parsing; verify card keywords)"
+        } else {
+            ""
+        };
+
         FittingError::Feff10PipelineFailed {
             reason: format!(
-                "failed to parse FEFF10 input '{}': {error}",
+                "failed to parse FEFF10 input '{}': {error_text}{strict_hint}",
                 feffinp_path.display()
             ),
         }
@@ -166,7 +173,7 @@ fn run_feff10_pipeline(request: &FeffRunRequest) -> Result<FeffRunResult, Fittin
         ensure_other_card_present(&mut input.other_cards, "SFCONV");
     }
 
-    let mut builder = feff10::config::FeffConfigBuilder::new()
+    let mut builder = feff10::FeffConfigBuilder::new()
         .work_dir(&workspace_dir)
         .input(input);
     if let Some(timeout_sec) = request.timeout_sec {
@@ -179,7 +186,7 @@ fn run_feff10_pipeline(request: &FeffRunRequest) -> Result<FeffRunResult, Fittin
             reason: format!("failed to build FEFF10 configuration: {error}"),
         })?;
 
-    let result = feff10::pipeline::FeffPipeline::new(config)
+    let result = feff10::FeffPipeline::new(config)
         .run()
         .map_err(|error| FittingError::Feff10PipelineFailed {
             reason: error.to_string(),

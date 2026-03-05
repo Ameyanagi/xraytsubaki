@@ -37,7 +37,7 @@ pest = { workspace = true }
 pest_derive = { workspace = true }
 thiserror = { workspace = true }
 ruviz = { workspace = true, optional = true, features = ["nalgebra_support", "svg", "typst-math"] }
-feff10 = { version = "0.1.1", features = ["prebuilt"], optional = true }
+feff10 = { version = "0.2.0", features = ["prebuilt"], optional = true }
 
 [features]
 default = []

@@ -445,7 +445,10 @@ fn feff10_a_times_s02k_amp_is_stable_across_k_ranges() {
         ));
     }
 
-    assert!(!rows.is_empty(), "no k-range rows generated");
+    debug_assert!(
+        !rows.is_empty(),
+        "ranges is a compile-time constant; this should never be empty"
+    );
     let (_, _, baseline_amp, baseline_stderr, _, _) = rows[0];
 
     for (kmin, kmax, amp, amp_stderr, _, _) in rows.iter().skip(1) {

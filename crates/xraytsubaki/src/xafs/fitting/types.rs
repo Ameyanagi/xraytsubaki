@@ -93,6 +93,7 @@ pub struct FeffRunRequest {
     pub feffinp: Option<PathBuf>,
     pub mode: FeffExecutionMode,
     pub timeout_sec: Option<u64>,
+    pub use_sfconv: bool,
 }
 
 impl Default for FeffRunRequest {
@@ -103,6 +104,7 @@ impl Default for FeffRunRequest {
             feffinp: None,
             mode: FeffExecutionMode::Feff85LModules,
             timeout_sec: None,
+            use_sfconv: false,
         }
     }
 }

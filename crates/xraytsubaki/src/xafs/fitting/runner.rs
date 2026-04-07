@@ -125,7 +125,7 @@ fn run_feff85l_modules(request: &FeffRunRequest) -> Result<FeffRunResult, Fittin
 
 #[cfg(feature = "feff10-runner")]
 fn resolve_feff10_commands(mode: FeffExecutionMode) -> Result<FeffResolvedCommands, FittingError> {
-    let modules = feff10::stage::Stage::all()
+    let modules = feff10::Stage::all()
         .iter()
         .map(|stage| FeffModuleCommand {
             module: stage.executable_name().to_string(),
@@ -149,10 +149,20 @@ fn resolve_feff10_commands(mode: FeffExecutionMode) -> Result<FeffResolvedComman
 fn run_feff10_pipeline(request: &FeffRunRequest) -> Result<FeffRunResult, FittingError> {
     let workspace_dir = validate_workspace_dir(&request.workspace_dir)?;
     let feffinp_path = resolve_feffinp_path(request, &workspace_dir)?;
-    let mut input = feff10::input::FeffInput::from_file(&feffinp_path).map_err(|error| {
+    let mut input = feff10::FeffInput::from_file(&feffinp_path).map_err(|error| {
+        let error_text = error.to_string();
+        let strict_hint = if error_text
+            .to_ascii_lowercase()
+            .contains("unrecognized keyword")
+        {
+            " (feff10 >= 0.2 uses strict card parsing; verify card keywords)"
+        } else {
+            ""
+        };
+
         FittingError::Feff10PipelineFailed {
             reason: format!(
-                "failed to parse FEFF10 input '{}': {error}",
+                "failed to parse FEFF10 input '{}': {error_text}{strict_hint}",
                 feffinp_path.display()
             ),
         }
@@ -162,8 +172,11 @@ fn run_feff10_pipeline(request: &FeffRunRequest) -> Result<FeffRunResult, Fittin
     if input.print_flags[5] < 3 {
         input.print_flags[5] = 3;
     }
+    if request.use_sfconv {
+        ensure_other_card_present(&mut input.other_cards, "SFCONV");
+    }
 
-    let mut builder = feff10::config::FeffConfigBuilder::new()
+    let mut builder = feff10::FeffConfigBuilder::new()
         .work_dir(&workspace_dir)
         .input(input);
     if let Some(timeout_sec) = request.timeout_sec {
@@ -176,11 +189,11 @@ fn run_feff10_pipeline(request: &FeffRunRequest) -> Result<FeffRunResult, Fittin
             reason: format!("failed to build FEFF10 configuration: {error}"),
         })?;
 
-    let result = feff10::pipeline::FeffPipeline::new(config)
-        .run()
-        .map_err(|error| FittingError::Feff10PipelineFailed {
+    let result = feff10::FeffPipeline::new(config).run().map_err(|error| {
+        FittingError::Feff10PipelineFailed {
             reason: error.to_string(),
-        })?;
+        }
+    })?;
 
     let resolved = FeffResolvedCommands {
         mode: request.mode,
@@ -213,6 +226,18 @@ fn run_feff10_pipeline(request: &FeffRunRequest) -> Result<FeffRunResult, Fittin
         logs,
         path_files,
     })
+}
+
+#[cfg(feature = "feff10-runner")]
+fn ensure_other_card_present(other_cards: &mut Vec<String>, keyword: &str) {
+    if other_cards.iter().any(|line| {
+        line.split_whitespace()
+            .next()
+            .is_some_and(|first| first.eq_ignore_ascii_case(keyword))
+    }) {
+        return;
+    }
+    other_cards.push(keyword.to_string());
 }
 
 #[cfg(not(feature = "feff10-runner"))]
@@ -749,6 +774,7 @@ mod tests {
             feffinp: None,
             mode: FeffExecutionMode::Feff85LModules,
             timeout_sec: Some(5),
+            use_sfconv: false,
         }
     }
 
@@ -779,6 +805,23 @@ mod tests {
         assert!(is_feff10_log_file_name(".feff.error"));
         assert!(!is_feff10_log_file_name("feff0001.dat"));
         assert!(!is_feff10_log_file_name("log.txt"));
+    }
+
+    #[cfg(feature = "feff10-runner")]
+    #[test]
+    fn test_ensure_other_card_present_adds_card_once() {
+        let mut cards = vec!["EXAFS 20".to_string()];
+        ensure_other_card_present(&mut cards, "SFCONV");
+        ensure_other_card_present(&mut cards, "sfconv");
+        let count = cards
+            .iter()
+            .filter(|line| {
+                line.split_whitespace()
+                    .next()
+                    .is_some_and(|first| first.eq_ignore_ascii_case("SFCONV"))
+            })
+            .count();
+        assert_eq!(count, 1);
     }
 
     #[cfg(unix)]
@@ -817,6 +860,7 @@ mod tests {
             feffinp: None,
             mode: FeffExecutionMode::Feff10Pipeline,
             timeout_sec: None,
+            use_sfconv: false,
         };
 
         let err = resolve_feff_commands(&request).unwrap_err();
@@ -839,6 +883,7 @@ mod tests {
             feffinp: None,
             mode: FeffExecutionMode::Feff10Pipeline,
             timeout_sec: None,
+            use_sfconv: false,
         };
 
         let err = run_feff(&request).unwrap_err();

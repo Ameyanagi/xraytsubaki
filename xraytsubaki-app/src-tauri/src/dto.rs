@@ -170,6 +170,8 @@ pub struct FeffRunConfig {
     pub workspace_dir: String,
     pub feffinp: Option<String>,
     pub timeout_sec: Option<u64>,
+    #[serde(default)]
+    pub use_sfconv: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

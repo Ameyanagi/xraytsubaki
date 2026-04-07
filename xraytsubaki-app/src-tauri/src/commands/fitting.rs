@@ -28,6 +28,23 @@ fn path_param(spec: &str, fallback: f64) -> PathParamSpec {
     PathParamSpec::Expression(trimmed.to_string())
 }
 
+fn resolve_feff_run_mode(
+    explicit_executable: Option<PathBuf>,
+    use_sfconv: bool,
+) -> Result<(FeffExecutionMode, PathBuf), String> {
+    if explicit_executable.is_some() && use_sfconv {
+        return Err(
+            "SFCONV is only available in FEFF10 pipeline mode. Clear the explicit executable path or disable SFCONV."
+                .to_string(),
+        );
+    }
+
+    Ok(match explicit_executable {
+        Some(path) => (FeffExecutionMode::Feff85LModules, path),
+        None => (FeffExecutionMode::Feff10Pipeline, PathBuf::new()),
+    })
+}
+
 fn feff_path_from_config(
     config: &FeffPathConfig,
 ) -> Result<xraytsubaki::prelude::FeffPathModel, String> {
@@ -154,15 +171,13 @@ pub fn run_feff_paths(config: FeffRunConfig) -> Result<FeffRunResultDto, String>
         .map(str::trim)
         .filter(|path| !path.is_empty())
         .map(PathBuf::from);
-    let (mode, executable_path) = match explicit_executable {
-        Some(path) => (FeffExecutionMode::Feff85LModules, path),
-        None => (FeffExecutionMode::Feff10Pipeline, PathBuf::new()),
-    };
 
     let workspace_dir = config.workspace_dir.trim();
     if workspace_dir.is_empty() {
         return Err("Workspace directory is required".to_string());
     }
+
+    let (mode, executable_path) = resolve_feff_run_mode(explicit_executable, config.use_sfconv)?;
 
     let request = FeffRunRequest {
         executable_path,
@@ -175,6 +190,7 @@ pub fn run_feff_paths(config: FeffRunConfig) -> Result<FeffRunResultDto, String>
             .map(PathBuf::from),
         mode,
         timeout_sec: config.timeout_sec,
+        use_sfconv: config.use_sfconv,
     };
 
     let run_result = run_feff(&request).map_err(|e| e.to_string())?;
@@ -401,5 +417,37 @@ pub fn plot_fit(
             "Unsupported fit plot panel '{}'. Expected 'k' or 'r'.",
             other
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_feff_run_mode;
+    use std::path::PathBuf;
+    use xraytsubaki::prelude::FeffExecutionMode;
+
+    #[test]
+    fn resolve_feff_run_mode_uses_feff10_without_explicit_executable() {
+        let (mode, executable) = resolve_feff_run_mode(None, true).expect("should resolve");
+        assert_eq!(mode, FeffExecutionMode::Feff10Pipeline);
+        assert!(executable.as_os_str().is_empty());
+    }
+
+    #[test]
+    fn resolve_feff_run_mode_uses_feff85l_with_explicit_executable() {
+        let executable = PathBuf::from("/tmp/feff85l");
+        let (mode, resolved) =
+            resolve_feff_run_mode(Some(executable.clone()), false).expect("should resolve");
+        assert_eq!(mode, FeffExecutionMode::Feff85LModules);
+        assert_eq!(resolved, executable);
+    }
+
+    #[test]
+    fn resolve_feff_run_mode_rejects_sfconv_with_explicit_executable() {
+        let error = resolve_feff_run_mode(Some(PathBuf::from("/tmp/feff85l")), true).unwrap_err();
+        assert!(
+            error.contains("SFCONV is only available in FEFF10 pipeline mode"),
+            "unexpected error: {error}"
+        );
     }
 }

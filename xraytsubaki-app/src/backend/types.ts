@@ -202,6 +202,7 @@ export interface FeffRunConfig {
   workspace_dir: string;
   feffinp?: string;
   timeout_sec?: number;
+  use_sfconv?: boolean;
 }
 
 export interface FeffResolvedModuleDto {

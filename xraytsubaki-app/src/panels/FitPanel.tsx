@@ -56,6 +56,7 @@ export function FitPanel() {
     workspace_dir: "",
     feffinp: "",
     timeout_sec: "180",
+    use_sfconv: false,
   });
 
   const [paths, setPaths] = useState<FeffPathConfig[]>([]);
@@ -138,6 +139,7 @@ export function FitPanel() {
         workspace_dir: runConfig.workspace_dir.trim(),
         feffinp: runConfig.feffinp.trim() || undefined,
         timeout_sec: parseOptionalNumber(runConfig.timeout_sec),
+        use_sfconv: runConfig.use_sfconv,
       });
 
       const generated = result.path_files.map((path) => ({
@@ -194,6 +196,17 @@ export function FitPanel() {
               onChange={(value) => setRunConfig((prev) => ({ ...prev, timeout_sec: value }))}
               placeholder="180"
             />
+            <label className="flex items-center gap-2 text-xs text-slate-300 py-1">
+              <input
+                type="checkbox"
+                checked={runConfig.use_sfconv}
+                onChange={(e) =>
+                  setRunConfig((prev) => ({ ...prev, use_sfconv: e.target.checked }))
+                }
+                className="w-3.5 h-3.5 accent-blue-500"
+              />
+              <span>Enable SFCONV (FEFF10 mode only)</span>
+            </label>
           </div>
           <button
             className="h-7 px-2.5 text-xs rounded bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50 disabled:cursor-not-allowed"

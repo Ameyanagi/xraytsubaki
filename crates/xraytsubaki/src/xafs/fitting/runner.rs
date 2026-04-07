@@ -151,7 +151,10 @@ fn run_feff10_pipeline(request: &FeffRunRequest) -> Result<FeffRunResult, Fittin
     let feffinp_path = resolve_feffinp_path(request, &workspace_dir)?;
     let mut input = feff10::FeffInput::from_file(&feffinp_path).map_err(|error| {
         let error_text = error.to_string();
-        let strict_hint = if error_text.to_ascii_lowercase().contains("unrecognized keyword") {
+        let strict_hint = if error_text
+            .to_ascii_lowercase()
+            .contains("unrecognized keyword")
+        {
             " (feff10 >= 0.2 uses strict card parsing; verify card keywords)"
         } else {
             ""
@@ -186,11 +189,11 @@ fn run_feff10_pipeline(request: &FeffRunRequest) -> Result<FeffRunResult, Fittin
             reason: format!("failed to build FEFF10 configuration: {error}"),
         })?;
 
-    let result = feff10::FeffPipeline::new(config)
-        .run()
-        .map_err(|error| FittingError::Feff10PipelineFailed {
+    let result = feff10::FeffPipeline::new(config).run().map_err(|error| {
+        FittingError::Feff10PipelineFailed {
             reason: error.to_string(),
-        })?;
+        }
+    })?;
 
     let resolved = FeffResolvedCommands {
         mode: request.mode,

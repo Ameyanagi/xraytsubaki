@@ -1060,7 +1060,6 @@ mod tests {
         assert_eq!(dataset_vary_count(&ds2, &vars, &varying).unwrap(), 1);
     }
 
-    #[cfg(feature = "trust-region")]
     #[test]
     fn test_batch_parallel_preserves_order() {
         let pathfile = format!("{TOP_DIR}/tests/testfiles/feffcu01.dat");
@@ -1092,7 +1091,7 @@ mod tests {
             &FeffBatchOptions {
                 strategy: FeffBatchExecutionStrategy::Sequential,
                 chunk_size: NonZeroUsize::new(2).expect("nonzero constant"),
-                solver_options: FeffFitOptions::trust_region(),
+                solver_options: FeffFitOptions::default(),
             },
         );
         let parallel = feffit_independent(

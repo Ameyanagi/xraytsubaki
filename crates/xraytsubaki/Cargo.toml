@@ -18,8 +18,10 @@ errorfunctions = { workspace = true }
 ndarray = { version = "0.15.6", features = ["approx", "serde"], optional = true }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
+apex-solver = { workspace = true }
 levenberg-marquardt = { workspace = true }
 nalgebra = { workspace = true }
+nalgebra-apex = { workspace = true }
 num-complex = { workspace = true }
 polyfit-rs = { workspace = true }
 rusty-fitpack = { workspace = true }

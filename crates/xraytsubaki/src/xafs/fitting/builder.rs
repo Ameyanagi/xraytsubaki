@@ -5,8 +5,8 @@ use nalgebra::DVector;
 use super::errors::FittingError;
 use super::solver;
 use super::types::{
-    FeffFitDataset, FeffFitResult, FeffFlavor, FeffPathModel, FitVariable, FitVariables,
-    FitWarning, Param, PathParamSpec,
+    FeffFitDataset, FeffFitJacobianMode, FeffFitOptions, FeffFitResult, FeffFitSolverMethod,
+    FeffFlavor, FeffPathModel, FitVariable, FitVariables, FitWarning, Param, PathParamSpec,
 };
 use super::variables::try_extract_symbols;
 use crate::xafs::xafsutils::FTWindow;
@@ -64,6 +64,7 @@ pub struct FeffFit {
     flavor: FeffFlavor,
     default_dataset: FeffFitDataset,
     has_default: bool,
+    options: FeffFitOptions,
 }
 
 impl Default for FeffFit {
@@ -74,6 +75,7 @@ impl Default for FeffFit {
             flavor: FeffFlavor::Feff85L,
             default_dataset: FeffFitDataset::default(),
             has_default: false,
+            options: FeffFitOptions::default(),
         }
     }
 }
@@ -231,6 +233,21 @@ impl FeffFit {
         self
     }
 
+    pub fn solver_method(mut self, solver_method: FeffFitSolverMethod) -> Self {
+        self.options.solver_method = solver_method;
+        self
+    }
+
+    pub fn jacobian_mode(mut self, jacobian_mode: FeffFitJacobianMode) -> Self {
+        self.options.jacobian_mode = jacobian_mode;
+        self
+    }
+
+    pub fn fit_options(mut self, options: FeffFitOptions) -> Self {
+        self.options = options;
+        self
+    }
+
     fn collect_default_dataset(&self, datasets: &mut Vec<FeffFitDataset>) {
         let has_data = !self.default_dataset.k.is_empty() || !self.default_dataset.chi.is_empty();
         let has_paths = !self.default_dataset.paths.is_empty();
@@ -349,7 +366,7 @@ impl FeffFit {
         let mut warnings = Vec::new();
         self.auto_discover_variables(&datasets, &mut vars, &mut warnings)?;
 
-        let mut result = solver::feffit_joint(&datasets, &vars)?;
+        let mut result = solver::feffit_joint_with_options(&datasets, &vars, &self.options)?;
         result.warnings.extend(warnings);
         Ok(result)
     }

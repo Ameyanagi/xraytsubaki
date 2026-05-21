@@ -6,9 +6,10 @@ pub use crate::xafs::fitting::{
     feffit_independent, feffit_joint, feffpath, ff2chi, parse_feff_path_file, path2chi,
     resolve_feff_commands, run_feff, run_feff_and_load_paths, DatasetResult,
     FeffBatchExecutionStrategy, FeffBatchOptions, FeffDat, FeffExecutionMode, FeffFit,
-    FeffFitDataset, FeffFitResult, FeffFitTransform, FeffFlavor, FeffModuleCommand, FeffPathModel,
-    FeffResolvedCommands, FeffRunRequest, FeffRunResult, FitSpace, FitVariable, FitVariables,
-    FitWarning, Param, PathContribution, PathParamSpec,
+    FeffFitDataset, FeffFitJacobianMode, FeffFitOptions, FeffFitResult, FeffFitSolverMethod,
+    FeffFitTransform, FeffFlavor, FeffModuleCommand, FeffPathModel, FeffResolvedCommands,
+    FeffRunRequest, FeffRunResult, FitSpace, FitVariable, FitVariables, FitWarning, Param,
+    PathContribution, PathParamSpec,
 };
 pub use crate::xafs::io;
 pub use crate::xafs::lmutils::LMParameters;

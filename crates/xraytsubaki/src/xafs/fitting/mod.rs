@@ -16,9 +16,10 @@ pub use errors::FittingError;
 pub use path_model::FF2ChiOutput;
 pub use types::{
     DatasetResult, FeffBatchExecutionStrategy, FeffBatchOptions, FeffDat, FeffExecutionMode,
-    FeffFitDataset, FeffFitResult, FeffFitTransform, FeffFlavor, FeffModuleCommand, FeffPathModel,
-    FeffResolvedCommands, FeffRunRequest, FeffRunResult, FitSpace, FitVariable, FitVariables,
-    FitWarning, Param, PathContribution, PathParamSpec,
+    FeffFitDataset, FeffFitJacobianMode, FeffFitOptions, FeffFitResult, FeffFitSolverMethod,
+    FeffFitTransform, FeffFlavor, FeffModuleCommand, FeffPathModel, FeffResolvedCommands,
+    FeffRunRequest, FeffRunResult, FitSpace, FitVariable, FitVariables, FitWarning, Param,
+    PathContribution, PathParamSpec,
 };
 
 use crate::xafs::{Result, XAFSError};
@@ -49,6 +50,14 @@ pub fn ff2chi(
 
 pub fn feffit_joint(datasets: &[FeffFitDataset], vars: &FitVariables) -> Result<FeffFitResult> {
     solver::feffit_joint(datasets, vars).map_err(XAFSError::from)
+}
+
+pub fn feffit_joint_with_options(
+    datasets: &[FeffFitDataset],
+    vars: &FitVariables,
+    options: &FeffFitOptions,
+) -> Result<FeffFitResult> {
+    solver::feffit_joint_with_options(datasets, vars, options).map_err(XAFSError::from)
 }
 
 pub fn feffit_independent(

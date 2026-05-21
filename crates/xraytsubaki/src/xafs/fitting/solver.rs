@@ -1,7 +1,13 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
+use apex_solver::core::problem::{Problem as ApexProblem, VariableEnum};
+use apex_solver::factors::Factor as ApexFactor;
+use apex_solver::linalg::{JacobianMode as ApexJacobianMode, LinearSolverType};
+use apex_solver::manifold::ManifoldType;
+use apex_solver::optimizer::dog_leg::{DogLeg, DogLegConfig};
 use levenberg_marquardt::{LeastSquaresProblem, LevenbergMarquardt};
 use nalgebra::{DMatrix, DVector, Dyn, Owned};
+use nalgebra_apex::{DMatrix as ApexDMatrix, DVector as ApexDVector};
 use rayon::prelude::*;
 
 use super::errors::FittingError;
@@ -11,16 +17,18 @@ use super::transform::{
     validate_transform, TransformOutput,
 };
 use super::types::{
-    DatasetResult, FeffBatchExecutionStrategy, FeffBatchOptions, FeffFitDataset, FeffFitResult,
-    FitVariables, PathContribution, PathParamSpec,
+    DatasetResult, FeffBatchExecutionStrategy, FeffBatchOptions, FeffFitDataset,
+    FeffFitJacobianMode, FeffFitOptions, FeffFitResult, FeffFitSolverMethod, FitVariables,
+    PathContribution, PathParamSpec,
 };
 use super::variables::try_extract_symbols;
 
 fn feffit(
     dataset: &FeffFitDataset,
     variables: &FitVariables,
+    options: &FeffFitOptions,
 ) -> Result<FeffFitResult, FittingError> {
-    feffit_joint(std::slice::from_ref(dataset), variables)
+    feffit_joint_with_options(std::slice::from_ref(dataset), variables, options)
 }
 
 fn matrix_to_nested(matrix: &DMatrix<f64>) -> Vec<Vec<f64>> {
@@ -34,6 +42,14 @@ fn matrix_to_nested(matrix: &DMatrix<f64>) -> Vec<Vec<f64>> {
 pub fn feffit_joint(
     datasets: &[FeffFitDataset],
     variables: &FitVariables,
+) -> Result<FeffFitResult, FittingError> {
+    feffit_joint_with_options(datasets, variables, &FeffFitOptions::default())
+}
+
+pub fn feffit_joint_with_options(
+    datasets: &[FeffFitDataset],
+    variables: &FitVariables,
+    options: &FeffFitOptions,
 ) -> Result<FeffFitResult, FittingError> {
     if datasets.is_empty() {
         return Err(FittingError::InvalidDataset {
@@ -50,7 +66,7 @@ pub fn feffit_joint(
     }
 
     let problem = FeffFitMultiProblem::new(datasets.to_vec(), variables.clone(), varying_names)?;
-    let (solved, _report) = LevenbergMarquardt::new().minimize(problem);
+    let solved = solve_fit_problem(problem, options)?;
     let residual = solved.current_residual()?;
 
     let mut solved_variables = solved.variables.clone();
@@ -107,7 +123,7 @@ pub fn feffit_joint(
         .datasets
         .iter()
         .zip(solved.data_transforms.iter())
-        .zip(model_evaluations.into_iter())
+        .zip(model_evaluations)
     {
         let ds_residual = residual_in_r_space(
             data_transform,
@@ -199,11 +215,32 @@ pub fn feffit_joint(
     Ok(out)
 }
 
+fn solve_fit_problem(
+    problem: FeffFitMultiProblem,
+    options: &FeffFitOptions,
+) -> Result<FeffFitMultiProblem, FittingError> {
+    match options.solver_method {
+        FeffFitSolverMethod::LevenbergMarquardt => {
+            let (solved, _report) = LevenbergMarquardt::new().minimize(problem);
+            Ok(solved)
+        }
+        FeffFitSolverMethod::TrustRegionDogLeg => solve_fit_problem_apex(problem, options),
+    }
+}
+
 fn dataset_vary_count(
     dataset: &FeffFitDataset,
     variables: &FitVariables,
     varying_names: &[String],
 ) -> Result<usize, FittingError> {
+    Ok(dataset_varying_names(dataset, variables, varying_names)?.len())
+}
+
+fn dataset_varying_names(
+    dataset: &FeffFitDataset,
+    variables: &FitVariables,
+    varying_names: &[String],
+) -> Result<Vec<String>, FittingError> {
     let varying = varying_names
         .iter()
         .map(String::as_str)
@@ -265,7 +302,11 @@ fn dataset_vary_count(
         walk_symbol(&symbol, &varying, variables, &mut active, &mut visiting)?;
     }
 
-    Ok(active.len())
+    Ok(varying_names
+        .iter()
+        .filter(|name| active.contains(*name))
+        .cloned()
+        .collect())
 }
 
 pub fn feffit_independent(
@@ -278,18 +319,19 @@ pub fn feffit_independent(
     }
 
     let chunk_size = options.chunk_size.get();
+    let solver_options = options.solver_options.clone();
     let run_parallel = || {
         (0..datasets.len())
             .into_par_iter()
             .with_max_len(chunk_size)
-            .map(|idx| feffit(&datasets[idx], variables))
+            .map(|idx| feffit(&datasets[idx], variables, &solver_options))
             .collect::<Vec<_>>()
     };
 
     match options.strategy {
         FeffBatchExecutionStrategy::Sequential => datasets
             .iter()
-            .map(|dataset| feffit(dataset, variables))
+            .map(|dataset| feffit(dataset, variables, &options.solver_options))
             .collect::<Vec<_>>(),
         FeffBatchExecutionStrategy::GlobalPool => run_parallel(),
         FeffBatchExecutionStrategy::DedicatedPool { threads } => {
@@ -411,7 +453,7 @@ impl FeffFitMultiProblem {
             .datasets
             .iter()
             .zip(self.data_transforms.iter())
-            .zip(models.into_iter())
+            .zip(models)
         {
             let ds_residual = residual_in_r_space(
                 data_transform,
@@ -444,7 +486,7 @@ impl FeffFitMultiProblem {
                 .datasets
                 .iter()
                 .zip(self.data_transforms.iter())
-                .zip(models.into_iter())
+                .zip(models)
             {
                 let ds_residual = residual_in_r_space(
                     data_transform,
@@ -470,6 +512,189 @@ impl FeffFitMultiProblem {
         let jtj = jac.transpose() * jac;
         jtj.try_inverse()
     }
+}
+
+#[derive(Clone)]
+struct FeffSpectrumFactor {
+    dataset: FeffFitDataset,
+    data_transform: TransformOutput,
+    variables: FitVariables,
+    variable_names: Vec<String>,
+    residual_len: usize,
+}
+
+impl FeffSpectrumFactor {
+    fn residual_for_values(&self, values: &[f64]) -> DVector<f64> {
+        let mut vars = self.variables.clone();
+        for (name, value) in self.variable_names.iter().zip(values.iter().copied()) {
+            if let Some(var) = vars.vars.get_mut(name) {
+                var.value = var.clamp(value);
+            }
+        }
+
+        match FeffFitMultiProblem::evaluate_dataset_model(&self.dataset, &vars).and_then(|model| {
+            residual_in_r_space(
+                &self.data_transform,
+                &model.model_transform,
+                &self.dataset.transform,
+                self.dataset.epsilon_k,
+            )
+        }) {
+            Ok(residual) => residual,
+            Err(_) => DVector::from_element(self.residual_len, 1.0e12),
+        }
+    }
+}
+
+impl ApexFactor for FeffSpectrumFactor {
+    fn linearize(
+        &self,
+        params: &[ApexDVector<f64>],
+        compute_jacobian: bool,
+    ) -> (ApexDVector<f64>, Option<ApexDMatrix<f64>>) {
+        let values = params
+            .iter()
+            .map(|param| param.get(0).copied().unwrap_or(0.0))
+            .collect::<Vec<_>>();
+        let base = self.residual_for_values(&values);
+        let residual = ApexDVector::from_vec(base.as_slice().to_vec());
+
+        if !compute_jacobian {
+            return (residual, None);
+        }
+
+        let epsilon = f64::EPSILON.sqrt();
+        let mut jacobian = ApexDMatrix::zeros(base.len(), values.len());
+
+        for column in 0..values.len() {
+            let step = (epsilon * values[column].abs().max(1.0)).max(epsilon);
+            if !step.is_finite() {
+                return (residual, None);
+            }
+
+            let mut shifted = values.clone();
+            shifted[column] += step;
+            let fx1 = self.residual_for_values(&shifted);
+            let diff = (fx1 - &base) / step;
+            for row in 0..diff.len() {
+                jacobian[(row, column)] = diff[row];
+            }
+        }
+
+        (residual, Some(jacobian))
+    }
+
+    fn get_dimension(&self) -> usize {
+        self.residual_len
+    }
+}
+
+fn apex_jacobian_mode(options: &FeffFitOptions, dataset_count: usize) -> ApexJacobianMode {
+    match options.jacobian_mode {
+        FeffFitJacobianMode::Dense => ApexJacobianMode::Dense,
+        FeffFitJacobianMode::Sparse => ApexJacobianMode::Sparse,
+        FeffFitJacobianMode::Auto => {
+            if dataset_count > 1 {
+                ApexJacobianMode::Sparse
+            } else {
+                ApexJacobianMode::Dense
+            }
+        }
+    }
+}
+
+fn solve_fit_problem_apex(
+    mut problem: FeffFitMultiProblem,
+    options: &FeffFitOptions,
+) -> Result<FeffFitMultiProblem, FittingError> {
+    let jacobian_mode = apex_jacobian_mode(options, problem.datasets.len());
+    let mut apex_problem = ApexProblem::new(jacobian_mode);
+    let mut initial_values = HashMap::<String, (ManifoldType, ApexDVector<f64>)>::new();
+
+    for name in &problem.variable_names {
+        let variable =
+            problem
+                .variables
+                .vars
+                .get(name)
+                .ok_or_else(|| FittingError::UndefinedSymbol {
+                    symbol: name.clone(),
+                })?;
+        initial_values.insert(
+            name.clone(),
+            (
+                ManifoldType::RN,
+                ApexDVector::from_vec(vec![variable.value]),
+            ),
+        );
+        if let (Some(min), Some(max)) = (variable.min, variable.max) {
+            apex_problem.set_variable_bounds(name, 0, min, max);
+        }
+    }
+
+    for (dataset, data_transform) in problem
+        .datasets
+        .iter()
+        .cloned()
+        .zip(problem.data_transforms.iter().cloned())
+    {
+        let mut factor_names =
+            dataset_varying_names(&dataset, &problem.variables, &problem.variable_names)?;
+        if factor_names.is_empty() {
+            factor_names = problem.variable_names.clone();
+        }
+        let residual_len = residual_in_r_space(
+            &data_transform,
+            &FeffFitMultiProblem::evaluate_dataset_model(&dataset, &problem.variables)?
+                .model_transform,
+            &dataset.transform,
+            dataset.epsilon_k,
+        )?
+        .len();
+        let factor = FeffSpectrumFactor {
+            dataset,
+            data_transform,
+            variables: problem.variables.clone(),
+            variable_names: factor_names.clone(),
+            residual_len,
+        };
+        let factor_name_refs = factor_names.iter().map(String::as_str).collect::<Vec<_>>();
+        apex_problem.add_residual_block(&factor_name_refs, Box::new(factor), None);
+    }
+
+    let linear_solver_type = match jacobian_mode {
+        ApexJacobianMode::Dense => LinearSolverType::DenseQR,
+        ApexJacobianMode::Sparse => LinearSolverType::SparseQR,
+    };
+    let config = DogLegConfig::new()
+        .with_linear_solver_type(linear_solver_type)
+        .with_max_iterations(100)
+        .with_cost_tolerance(1.0e-10)
+        .with_parameter_tolerance(1.0e-10)
+        .with_gradient_tolerance(1.0e-10);
+    let mut optimizer = DogLeg::with_config(config);
+    let result = optimizer
+        .optimize(&apex_problem, &initial_values)
+        .map_err(|err| FittingError::SolverFailed {
+            reason: format!("trust-region Dog Leg solver failed: {err}"),
+        })?;
+
+    let mut solved_params = DVector::zeros(problem.variable_names.len());
+    for (idx, name) in problem.variable_names.iter().enumerate() {
+        let value = result
+            .parameters
+            .get(name)
+            .map(VariableEnum::to_vector)
+            .and_then(|vector| vector.get(0).copied())
+            .ok_or_else(|| FittingError::SolverFailed {
+                reason: format!("trust-region result missing variable '{name}'"),
+            })?;
+        solved_params[idx] = value;
+    }
+    problem
+        .variables
+        .apply_parameter_vector(&problem.variable_names, &solved_params)?;
+    Ok(problem)
 }
 
 impl LeastSquaresProblem<f64, Dyn, Dyn> for FeffFitMultiProblem {
@@ -526,7 +751,8 @@ mod tests {
 
     use crate::xafs::fitting::path_model::feffpath;
     use crate::xafs::fitting::types::{
-        FeffBatchExecutionStrategy, FeffBatchOptions, FeffFlavor, FitVariable, PathParamSpec,
+        FeffBatchExecutionStrategy, FeffBatchOptions, FeffFitJacobianMode, FeffFitOptions,
+        FeffFlavor, FitVariable, PathParamSpec,
     };
     use crate::xafs::tests::TOP_DIR;
 
@@ -566,7 +792,7 @@ mod tests {
         );
         initial.insert("dr", FitVariable::new(0.0, true));
 
-        let result = feffit(&dataset, &initial).unwrap();
+        let result = feffit(&dataset, &initial, &FeffFitOptions::trust_region()).unwrap();
 
         let amp = result.variables.get("amp").unwrap().value;
         let de0 = result.variables.get("de0").unwrap().value;
@@ -643,6 +869,83 @@ mod tests {
     }
 
     #[test]
+    fn test_trust_region_matches_legacy_lm_for_single_dataset() {
+        let pathfile = format!("{TOP_DIR}/tests/testfiles/feffcu01.dat");
+        let mut path = feffpath(pathfile, FeffFlavor::Feff85L).unwrap();
+        path.s02 = PathParamSpec::Expression("amp".to_string());
+
+        let k = DVector::from_iterator(180, (0..180).map(|i| 0.05 * (i as f64 + 1.0)));
+        let mut truth = FitVariables::new();
+        truth.insert("amp", FitVariable::new(0.82, false));
+        let synthetic = ff2chi(&[path.clone()], &truth, &k).unwrap();
+
+        let dataset = FeffFitDataset::new()
+            .data(&k, &synthetic.chi)
+            .epsilon_k(1.0)
+            .add_path(path);
+        let mut initial = FitVariables::new();
+        initial.insert("amp", FitVariable::new(0.95, true));
+
+        let trust_region = feffit_joint_with_options(
+            std::slice::from_ref(&dataset),
+            &initial,
+            &FeffFitOptions::trust_region(),
+        )
+        .unwrap();
+        let lm =
+            feffit_joint_with_options(&[dataset], &initial, &FeffFitOptions::levenberg_marquardt())
+                .unwrap();
+
+        let tr_amp = trust_region.variables.get("amp").unwrap().value;
+        let lm_amp = lm.variables.get("amp").unwrap().value;
+        assert!((tr_amp - lm_amp).abs() < 1.0e-8);
+        assert!((trust_region.chi_square - lm.chi_square).abs() < 1.0e-12);
+    }
+
+    #[test]
+    fn test_sparse_trust_region_matches_legacy_lm_for_joint_dataset() {
+        let pathfile = format!("{TOP_DIR}/tests/testfiles/feffcu01.dat");
+        let base_path = feffpath(pathfile, FeffFlavor::Feff85L).unwrap();
+        let k = DVector::from_iterator(160, (0..160).map(|i| 0.05 * (i as f64 + 1.0)));
+
+        let datasets = [("amp_a", 0.78), ("amp_b", 0.91)]
+            .into_iter()
+            .map(|(name, value)| {
+                let mut path = base_path.clone();
+                path.s02 = PathParamSpec::Expression(name.to_string());
+                let mut truth = FitVariables::new();
+                truth.insert(name, FitVariable::new(value, false));
+                let synthetic = ff2chi(&[path.clone()], &truth, &k).unwrap();
+                FeffFitDataset::new()
+                    .data(&k, &synthetic.chi)
+                    .epsilon_k(1.0)
+                    .add_path(path)
+            })
+            .collect::<Vec<_>>();
+
+        let mut initial = FitVariables::new();
+        initial.insert("amp_a", FitVariable::new(0.95, true));
+        initial.insert("amp_b", FitVariable::new(0.95, true));
+
+        let trust_region = feffit_joint_with_options(
+            &datasets,
+            &initial,
+            &FeffFitOptions::trust_region().with_jacobian_mode(FeffFitJacobianMode::Sparse),
+        )
+        .unwrap();
+        let lm =
+            feffit_joint_with_options(&datasets, &initial, &FeffFitOptions::levenberg_marquardt())
+                .unwrap();
+
+        for name in ["amp_a", "amp_b"] {
+            let tr_value = trust_region.variables.get(name).unwrap().value;
+            let lm_value = lm.variables.get(name).unwrap().value;
+            assert!((tr_value - lm_value).abs() < 1.0e-8);
+        }
+        assert!((trust_region.chi_square - lm.chi_square).abs() < 1.0e-12);
+    }
+
+    #[test]
     fn test_dataset_vary_count_tracks_expression_dependencies() {
         let path1 = crate::xafs::fitting::types::FeffPathModel::default()
             .set_s02("amp")
@@ -697,6 +1000,7 @@ mod tests {
             &FeffBatchOptions {
                 strategy: FeffBatchExecutionStrategy::Sequential,
                 chunk_size: NonZeroUsize::new(2).expect("nonzero constant"),
+                solver_options: FeffFitOptions::trust_region(),
             },
         );
         let parallel = feffit_independent(
@@ -784,7 +1088,7 @@ mod tests {
         );
         initial.insert("dr", FitVariable::new(0.0, true));
 
-        let result = feffit(&dataset, &initial).unwrap();
+        let result = feffit(&dataset, &initial, &FeffFitOptions::trust_region()).unwrap();
         assert_eq!(result.varying_names.len(), result.n_vary);
         let cov = result.covariance.as_ref().expect("missing covariance");
         let corr = result.correlation.as_ref().expect("missing correlation");

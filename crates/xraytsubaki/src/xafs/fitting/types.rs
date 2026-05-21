@@ -35,11 +35,26 @@ pub enum FeffBatchExecutionStrategy {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FeffFitSolverMethod {
-    #[default]
     TrustRegionDogLeg,
     LevenbergMarquardt,
+}
+
+impl Default for FeffFitSolverMethod {
+    fn default() -> Self {
+        default_feff_fit_solver_method()
+    }
+}
+
+#[cfg(feature = "trust-region")]
+fn default_feff_fit_solver_method() -> FeffFitSolverMethod {
+    FeffFitSolverMethod::TrustRegionDogLeg
+}
+
+#[cfg(not(feature = "trust-region"))]
+fn default_feff_fit_solver_method() -> FeffFitSolverMethod {
+    FeffFitSolverMethod::LevenbergMarquardt
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -60,7 +75,7 @@ pub struct FeffFitOptions {
 impl Default for FeffFitOptions {
     fn default() -> Self {
         Self {
-            solver_method: FeffFitSolverMethod::TrustRegionDogLeg,
+            solver_method: FeffFitSolverMethod::default(),
             jacobian_mode: FeffFitJacobianMode::Auto,
         }
     }
@@ -79,7 +94,10 @@ impl FeffFitOptions {
     }
 
     pub fn trust_region() -> Self {
-        Self::default()
+        Self {
+            solver_method: FeffFitSolverMethod::TrustRegionDogLeg,
+            ..Self::default()
+        }
     }
 
     pub fn with_solver_method(mut self, solver_method: FeffFitSolverMethod) -> Self {

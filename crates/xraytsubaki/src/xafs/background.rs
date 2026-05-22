@@ -3,15 +3,29 @@
 #![allow(unused_variables)]
 
 // Import standard library dependencies
-use std::collections::hash_map::DefaultHasher;
+#[cfg(feature = "trust-region")]
+use std::collections::HashMap;
+use std::collections::{hash_map::DefaultHasher, VecDeque};
 use std::error::Error;
 use std::hash::Hasher;
 use std::ops::Deref;
 use std::sync::{Arc, Mutex, OnceLock};
 
 // Import external dependencies
+#[cfg(feature = "trust-region")]
+use apex_solver::core::problem::{Problem as ApexProblem, VariableEnum};
+#[cfg(feature = "trust-region")]
+use apex_solver::factors::Factor as ApexFactor;
+#[cfg(feature = "trust-region")]
+use apex_solver::linalg::{JacobianMode as ApexJacobianMode, LinearSolverType};
+#[cfg(feature = "trust-region")]
+use apex_solver::manifold::ManifoldType;
+#[cfg(feature = "trust-region")]
+use apex_solver::optimizer::dog_leg::{DogLeg, DogLegConfig};
 use levenberg_marquardt::{LeastSquaresProblem, LevenbergMarquardt};
 use nalgebra::{DMatrix, DVector, Dyn, Owned};
+#[cfg(feature = "trust-region")]
+use nalgebra_apex::{DMatrix as ApexDMatrix, DVector as ApexDVector};
 use rusty_fitpack;
 use serde::{Deserialize, Serialize};
 
@@ -27,11 +41,23 @@ use super::{xafsutils, xrayfft};
 const DEFAULT_LINEAR_REGULARIZATION: f64 = 1.0e-4;
 const DEFAULT_LINEAR_CONDITION_LIMIT: f64 = 1.0e8;
 const DEFAULT_LINEAR_RESIDUAL_RATIO_LIMIT: f64 = 1.05;
+const AUTOBK_WORKSPACE_CACHE_CAPACITY: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AUTOBKSolver {
+    TrustRegionDogLeg,
     LegacyLm,
     LinearDirect,
+}
+
+#[cfg(feature = "trust-region")]
+fn default_autobk_fallback_solver() -> AUTOBKSolver {
+    AUTOBKSolver::TrustRegionDogLeg
+}
+
+#[cfg(not(feature = "trust-region"))]
+fn default_autobk_fallback_solver() -> AUTOBKSolver {
+    AUTOBKSolver::LegacyLm
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -46,9 +72,9 @@ struct AutobkLinearWorkspace {
     design_matrix: Arc<DMatrix<f64>>,
 }
 
-fn autobk_workspace_cache() -> &'static Mutex<Option<AutobkLinearWorkspace>> {
-    static CACHE: OnceLock<Mutex<Option<AutobkLinearWorkspace>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(None))
+fn autobk_workspace_cache() -> &'static Mutex<VecDeque<AutobkLinearWorkspace>> {
+    static CACHE: OnceLock<Mutex<VecDeque<AutobkLinearWorkspace>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(VecDeque::new()))
 }
 
 /// Enum for background subtraction methods
@@ -160,8 +186,11 @@ pub struct AUTOBK {
     pub linear_condition_limit: Option<f64>,
     /// Maximum accepted solved/base residual norm ratio for direct solver.
     pub linear_residual_ratio_limit: Option<f64>,
-    /// If true, direct-solver failures fall back to legacy LM automatically.
+    /// Deprecated name: if true, direct-solver failures fall back to `linear_fallback_solver`.
     pub linear_fallback_to_lm: Option<bool>,
+    /// Nonlinear solver used when the direct linear solver is rejected. Default = TrustRegionDogLeg
+    /// when the `trust-region` feature is enabled, LegacyLm otherwise.
+    pub linear_fallback_solver: Option<AUTOBKSolver>,
     /// If true, cache direct-solver design matrices for compatible workloads.
     pub linear_workspace_cache: Option<bool>,
     /// Background of mu(E)
@@ -198,6 +227,7 @@ impl Default for AUTOBK {
             linear_condition_limit: Some(DEFAULT_LINEAR_CONDITION_LIMIT),
             linear_residual_ratio_limit: Some(DEFAULT_LINEAR_RESIDUAL_RATIO_LIMIT),
             linear_fallback_to_lm: Some(true),
+            linear_fallback_solver: Some(default_autobk_fallback_solver()),
             linear_workspace_cache: Some(true),
             bkg: None,
             chie: None,
@@ -269,6 +299,15 @@ impl AUTOBK {
 
         if self.linear_residual_ratio_limit.is_none() {
             self.linear_residual_ratio_limit = Some(DEFAULT_LINEAR_RESIDUAL_RATIO_LIMIT);
+        }
+
+        if self.linear_fallback_solver.is_none() {
+            let fallback_solver = if self.linear_fallback_to_lm != Some(false) {
+                AUTOBKSolver::LegacyLm
+            } else {
+                default_autobk_fallback_solver()
+            };
+            self.linear_fallback_solver = Some(fallback_solver);
         }
 
         if self.linear_fallback_to_lm.is_none() {
@@ -389,11 +428,89 @@ impl AUTOBK {
         Ok(fit_result)
     }
 
+    #[cfg(feature = "trust-region")]
+    fn solve_trust_region_problem(problem: AUTOBKSpline) -> Result<AUTOBKSpline, BackgroundError> {
+        let residual_len = problem.residual_vec(&problem.coefs).len();
+        let factor = AUTOBKSplineFactor {
+            spline: problem.clone(),
+            residual_len,
+        };
+
+        let mut apex_problem = ApexProblem::new(ApexJacobianMode::Dense);
+        apex_problem.add_residual_block(&["coefs"], Box::new(factor), None);
+
+        let mut initial_values = HashMap::<String, (ManifoldType, ApexDVector<f64>)>::new();
+        initial_values.insert(
+            "coefs".to_string(),
+            (
+                ManifoldType::RN,
+                ApexDVector::from_vec(problem.coefs.as_slice().to_vec()),
+            ),
+        );
+
+        let config = DogLegConfig::new()
+            .with_linear_solver_type(LinearSolverType::DenseQR)
+            .with_max_iterations(100)
+            .with_cost_tolerance(1.0e-10)
+            .with_parameter_tolerance(1.0e-10)
+            .with_gradient_tolerance(1.0e-10);
+        let mut optimizer = DogLeg::with_config(config);
+        let result = optimizer
+            .optimize(&apex_problem, &initial_values)
+            .map_err(|err| BackgroundError::OptimizationFailed {
+                reason: format!("trust-region DogLeg solver failed: {err}"),
+            })?;
+
+        let coefs = result
+            .parameters
+            .get("coefs")
+            .map(VariableEnum::to_vector)
+            .ok_or_else(|| BackgroundError::OptimizationFailed {
+                reason: "trust-region result missing spline coefficients".to_string(),
+            })?;
+
+        if coefs.len() != problem.coefs.len() {
+            return Err(BackgroundError::OptimizationFailed {
+                reason: format!(
+                    "trust-region returned {} coefficients, expected {}",
+                    coefs.len(),
+                    problem.coefs.len()
+                ),
+            });
+        }
+
+        let mut fit_result = problem;
+        fit_result.coefs = DVector::from_vec(coefs.as_slice().to_vec());
+        Ok(fit_result)
+    }
+
+    #[cfg(not(feature = "trust-region"))]
+    fn solve_trust_region_problem(_problem: AUTOBKSpline) -> Result<AUTOBKSpline, BackgroundError> {
+        Err(BackgroundError::OptimizationFailed {
+            reason: "trust-region DogLeg solver requires the trust-region feature".to_string(),
+        })
+    }
+
+    fn solve_nonlinear_problem(
+        problem: AUTOBKSpline,
+        solver: AUTOBKSolver,
+    ) -> Result<AUTOBKSpline, BackgroundError> {
+        match solver {
+            AUTOBKSolver::TrustRegionDogLeg => Self::solve_trust_region_problem(problem),
+            AUTOBKSolver::LegacyLm => Self::solve_lm_problem(problem),
+            AUTOBKSolver::LinearDirect => Err(BackgroundError::DirectSolverFailed {
+                reason: "LinearDirect cannot be used as the fallback solver for LinearDirect"
+                    .to_string(),
+            }),
+        }
+    }
+
     fn solve_spline_problem(
         &self,
         spline_opt: AUTOBKSpline,
     ) -> Result<AUTOBKSpline, BackgroundError> {
         match self.solver.unwrap_or(AUTOBKSolver::LinearDirect) {
+            AUTOBKSolver::TrustRegionDogLeg => Self::solve_trust_region_problem(spline_opt),
             AUTOBKSolver::LegacyLm => Self::solve_lm_problem(spline_opt),
             AUTOBKSolver::LinearDirect => {
                 let clamp_policy = self
@@ -412,7 +529,10 @@ impl AUTOBK {
                     .unwrap_or(DEFAULT_LINEAR_RESIDUAL_RATIO_LIMIT)
                     .max(1.0);
                 let use_workspace_cache = self.linear_workspace_cache.unwrap_or(true);
-                let fallback_to_lm = self.linear_fallback_to_lm.unwrap_or(true);
+                let fallback_enabled = self.linear_fallback_to_lm.unwrap_or(true);
+                let fallback_solver = self
+                    .linear_fallback_solver
+                    .unwrap_or_else(default_autobk_fallback_solver);
 
                 match spline_opt.solve_linear_direct(
                     clamp_policy,
@@ -427,8 +547,8 @@ impl AUTOBK {
                         Ok(fit_result)
                     }
                     Err(linear_err) => {
-                        if fallback_to_lm {
-                            Self::solve_lm_problem(spline_opt)
+                        if fallback_enabled {
+                            Self::solve_nonlinear_problem(spline_opt, fallback_solver)
                         } else {
                             Err(linear_err)
                         }
@@ -1074,10 +1194,12 @@ impl AUTOBKSpline {
         let signature = self.workspace_signature(clamp_scale);
 
         if use_workspace_cache {
-            if let Ok(cache) = autobk_workspace_cache().lock() {
-                if let Some(entry) = cache.as_ref() {
-                    if entry.signature == signature {
-                        return entry.design_matrix.clone();
+            if let Ok(mut cache) = autobk_workspace_cache().lock() {
+                if let Some(index) = cache.iter().position(|entry| entry.signature == signature) {
+                    if let Some(entry) = cache.remove(index) {
+                        let matrix = entry.design_matrix.clone();
+                        cache.push_front(entry);
+                        return matrix;
                     }
                 }
             }
@@ -1086,10 +1208,12 @@ impl AUTOBKSpline {
         let matrix = Arc::new(self.residual_jacobian_with_scale(&self.coefs, Some(clamp_scale)));
         if use_workspace_cache {
             if let Ok(mut cache) = autobk_workspace_cache().lock() {
-                *cache = Some(AutobkLinearWorkspace {
+                cache.retain(|entry| entry.signature != signature);
+                cache.push_front(AutobkLinearWorkspace {
                     signature,
                     design_matrix: matrix.clone(),
                 });
+                cache.truncate(AUTOBK_WORKSPACE_CACHE_CAPACITY);
             }
         }
 
@@ -1285,6 +1409,45 @@ impl AUTOBKSpline {
         }
 
         Ok(coefs)
+    }
+}
+
+#[cfg(feature = "trust-region")]
+#[derive(Clone)]
+struct AUTOBKSplineFactor {
+    spline: AUTOBKSpline,
+    residual_len: usize,
+}
+
+#[cfg(feature = "trust-region")]
+impl ApexFactor for AUTOBKSplineFactor {
+    fn linearize(
+        &self,
+        params: &[ApexDVector<f64>],
+        compute_jacobian: bool,
+    ) -> (ApexDVector<f64>, Option<ApexDMatrix<f64>>) {
+        let coefs = params
+            .first()
+            .filter(|param| param.len() == self.spline.coefs.len())
+            .map(|param| DVector::from_vec(param.as_slice().to_vec()))
+            .unwrap_or_else(|| self.spline.coefs.clone());
+        let base = self.spline.residual_vec(&coefs);
+        let residual = ApexDVector::from_vec(base.as_slice().to_vec());
+
+        if !compute_jacobian {
+            return (residual, None);
+        }
+
+        let jacobian = self.spline.residual_jacobian(&coefs);
+        let apex_jacobian = ApexDMatrix::from_fn(jacobian.nrows(), jacobian.ncols(), |row, col| {
+            jacobian[(row, col)]
+        });
+
+        (residual, Some(apex_jacobian))
+    }
+
+    fn get_dimension(&self) -> usize {
+        self.residual_len
     }
 }
 
@@ -1514,8 +1677,50 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(feature = "trust-region")]
     #[test]
-    fn test_autobk_direct_solver_fallback_to_lm() -> Result<(), Box<dyn Error>> {
+    fn test_autobk_trust_region_matches_legacy_lm() -> Result<(), Box<dyn Error>> {
+        let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
+        let mut spectrum = io::load_spectrum_QAS_trans(&path)?;
+
+        spectrum
+            .set_normalization_method(Some(normalization::NormalizationMethod::PrePostEdge(
+                PrePostEdge::new(),
+            )))?
+            .normalize()?;
+
+        let energy = spectrum.energy.clone().unwrap();
+        let mu = spectrum.mu.clone().unwrap();
+
+        let mut legacy_norm = spectrum.normalization.clone();
+        let mut trust_region_norm = spectrum.normalization.clone();
+
+        let mut legacy = AUTOBK::new();
+        legacy.solver = Some(AUTOBKSolver::LegacyLm);
+        legacy.calc_background(&energy, &mu, &mut legacy_norm)?;
+
+        let mut trust_region = AUTOBK::new();
+        trust_region.solver = Some(AUTOBKSolver::TrustRegionDogLeg);
+        trust_region.calc_background(&energy, &mu, &mut trust_region_norm)?;
+
+        let legacy_chi = legacy.get_chi().unwrap();
+        let trust_region_chi = trust_region.get_chi().unwrap();
+        assert_eq!(legacy_chi.len(), trust_region_chi.len());
+
+        let mse = legacy_chi
+            .iter()
+            .zip(trust_region_chi.iter())
+            .map(|(x, y)| (x - y).powi(2))
+            .sum::<f64>()
+            / legacy_chi.len() as f64;
+
+        assert!(mse < CHI_MSE_TOL);
+        Ok(())
+    }
+
+    #[cfg(feature = "trust-region")]
+    #[test]
+    fn test_autobk_direct_solver_fallback_to_trust_region() -> Result<(), Box<dyn Error>> {
         let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
         let mut spectrum = io::load_spectrum_QAS_trans(&path)?;
         spectrum
@@ -1537,6 +1742,42 @@ mod tests {
         let result = autobk.calc_background(&energy, &mu, &mut normalization)?;
         assert!(result.get_chi().is_some());
         Ok(())
+    }
+
+    #[test]
+    fn test_autobk_direct_solver_fallback_can_use_legacy_lm() -> Result<(), Box<dyn Error>> {
+        let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
+        let mut spectrum = io::load_spectrum_QAS_trans(&path)?;
+        spectrum
+            .set_normalization_method(Some(normalization::NormalizationMethod::PrePostEdge(
+                PrePostEdge::new(),
+            )))?
+            .normalize()?;
+
+        let energy = spectrum.energy.clone().unwrap();
+        let mu = spectrum.mu.clone().unwrap();
+        let mut normalization = spectrum.normalization.clone();
+
+        let mut autobk = AUTOBK::new();
+        autobk.solver = Some(AUTOBKSolver::LinearDirect);
+        autobk.linear_condition_limit = Some(1.0);
+        autobk.linear_fallback_to_lm = Some(true);
+        autobk.linear_fallback_solver = Some(AUTOBKSolver::LegacyLm);
+
+        let result = autobk.calc_background(&energy, &mu, &mut normalization)?;
+        assert!(result.get_chi().is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn test_autobk_deprecated_fallback_flag_preserves_legacy_lm_when_solver_missing() {
+        let mut autobk = AUTOBK::new();
+        autobk.linear_fallback_to_lm = Some(true);
+        autobk.linear_fallback_solver = None;
+
+        autobk.fill_parameter().unwrap();
+
+        assert_eq!(autobk.linear_fallback_solver, Some(AUTOBKSolver::LegacyLm));
     }
 
     #[test]

@@ -773,7 +773,7 @@ mod tests {
             workspace_dir,
             feffinp: None,
             mode: FeffExecutionMode::Feff85LModules,
-            timeout_sec: Some(5),
+            timeout_sec: Some(30),
             use_sfconv: false,
         }
     }

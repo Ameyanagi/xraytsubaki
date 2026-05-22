@@ -3,10 +3,11 @@ pub use crate::xafs::xasspectrum::XASSpectrum;
 
 pub use crate::xafs::background::{AUTOBKClampScalePolicy, AUTOBKSolver, BackgroundMethod, AUTOBK};
 pub use crate::xafs::fitting::{
-    feffit_independent, feffit_joint, feffpath, ff2chi, parse_feff_path_file, path2chi,
-    resolve_feff_commands, run_feff, run_feff_and_load_paths, DatasetResult,
-    FeffBatchExecutionStrategy, FeffBatchOptions, FeffDat, FeffExecutionMode, FeffFit,
-    FeffFitDataset, FeffFitResult, FeffFitTransform, FeffFlavor, FeffModuleCommand, FeffPathModel,
+    feffit_independent, feffit_joint, feffit_joint_with_options, feffpath, ff2chi,
+    parse_feff_path_file, path2chi, resolve_feff_commands, run_feff, run_feff_and_load_paths,
+    DatasetResult, FeffBatchExecutionStrategy, FeffBatchOptions, FeffDat, FeffExecutionMode,
+    FeffFit, FeffFitDataset, FeffFitJacobianMode, FeffFitOptions, FeffFitResult,
+    FeffFitSolverMethod, FeffFitTransform, FeffFlavor, FeffModuleCommand, FeffPathModel,
     FeffResolvedCommands, FeffRunRequest, FeffRunResult, FitSpace, FitVariable, FitVariables,
     FitWarning, Param, PathContribution, PathParamSpec,
 };

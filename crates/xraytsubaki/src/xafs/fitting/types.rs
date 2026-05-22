@@ -35,11 +35,88 @@ pub enum FeffBatchExecutionStrategy {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FeffFitSolverMethod {
+    TrustRegionDogLeg,
+    LevenbergMarquardt,
+}
+
+impl Default for FeffFitSolverMethod {
+    fn default() -> Self {
+        default_feff_fit_solver_method()
+    }
+}
+
+#[cfg(feature = "trust-region")]
+fn default_feff_fit_solver_method() -> FeffFitSolverMethod {
+    FeffFitSolverMethod::TrustRegionDogLeg
+}
+
+#[cfg(not(feature = "trust-region"))]
+fn default_feff_fit_solver_method() -> FeffFitSolverMethod {
+    FeffFitSolverMethod::LevenbergMarquardt
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum FeffFitJacobianMode {
+    #[default]
+    Auto,
+    Dense,
+    Sparse,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FeffFitOptions {
+    pub solver_method: FeffFitSolverMethod,
+    pub jacobian_mode: FeffFitJacobianMode,
+}
+
+impl Default for FeffFitOptions {
+    fn default() -> Self {
+        Self {
+            solver_method: FeffFitSolverMethod::default(),
+            jacobian_mode: FeffFitJacobianMode::Auto,
+        }
+    }
+}
+
+impl FeffFitOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn levenberg_marquardt() -> Self {
+        Self {
+            solver_method: FeffFitSolverMethod::LevenbergMarquardt,
+            ..Self::default()
+        }
+    }
+
+    pub fn trust_region() -> Self {
+        Self {
+            solver_method: FeffFitSolverMethod::TrustRegionDogLeg,
+            ..Self::default()
+        }
+    }
+
+    pub fn with_solver_method(mut self, solver_method: FeffFitSolverMethod) -> Self {
+        self.solver_method = solver_method;
+        self
+    }
+
+    pub fn with_jacobian_mode(mut self, jacobian_mode: FeffFitJacobianMode) -> Self {
+        self.jacobian_mode = jacobian_mode;
+        self
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct FeffBatchOptions {
     pub strategy: FeffBatchExecutionStrategy,
     pub chunk_size: NonZeroUsize,
+    pub solver_options: FeffFitOptions,
 }
 
 impl Default for FeffBatchOptions {
@@ -47,6 +124,7 @@ impl Default for FeffBatchOptions {
         Self {
             strategy: FeffBatchExecutionStrategy::GlobalPool,
             chunk_size: NonZeroUsize::new(256).expect("nonzero constant"),
+            solver_options: FeffFitOptions::default(),
         }
     }
 }
@@ -81,6 +159,11 @@ impl FeffBatchOptions {
 
     pub fn with_chunk_size(mut self, chunk_size: NonZeroUsize) -> Self {
         self.chunk_size = chunk_size;
+        self
+    }
+
+    pub fn with_solver_options(mut self, solver_options: FeffFitOptions) -> Self {
+        self.solver_options = solver_options;
         self
     }
 }

@@ -18,8 +18,10 @@ errorfunctions = { workspace = true }
 ndarray = { version = "0.15.6", features = ["approx", "serde"], optional = true }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
+apex-solver = { workspace = true, optional = true }
 levenberg-marquardt = { workspace = true }
 nalgebra = { workspace = true }
+nalgebra-apex = { workspace = true, optional = true }
 num-complex = { workspace = true }
 polyfit-rs = { workspace = true }
 rusty-fitpack = { workspace = true }
@@ -40,7 +42,8 @@ ruviz = { workspace = true, optional = true, features = ["nalgebra_support", "sv
 feff10 = { version = "0.2.0", features = ["prebuilt"], optional = true }
 
 [features]
-default = []
+default = ["trust-region"]
+trust-region = ["dep:apex-solver", "dep:nalgebra-apex"]
 ndarray-compat = ["ndarray"]
 plotting = ["ruviz"]
 feff10-runner = ["dep:feff10"]

@@ -4,6 +4,7 @@
 //! UX reference: doc/gui-ux-design.md.
 
 mod app;
+mod catalog;
 mod plotting;
 mod theme;
 

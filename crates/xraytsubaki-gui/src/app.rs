@@ -1,22 +1,32 @@
 //! Root view: workspace shell per doc/gui-ux-design.md.
 //!
-//! M0 scope: icon rail (Explore/Operando/Fit), data panel listing the loaded
-//! file, Explore 2x2 quadrant grid with maximize, context panel showing the
-//! default parameters, status bar with theme toggle. One spectrum is loaded
-//! and processed eagerly at startup; lazy catalogs arrive in M1.
+//! M1 scope: lazy catalog — "Open Folder" starts a background scan that
+//! streams batches into a virtualized file list; clicking an entry parses and
+//! processes it on the background executor (generation-counted so stale
+//! results are dropped) with an LRU cache of processed spectra. The Explore
+//! center is the 2x2 quadrant grid from M0.
 
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
+use std::sync::Arc;
 
+use futures::StreamExt;
 use gpui::{
-    ClickEvent, Context, Entity, IntoElement, ParentElement, Render, SharedString, Styled, Window,
-    div, prelude::*, px,
+    ClickEvent, Context, Entity, IntoElement, ParentElement, PathPromptOptions, Render,
+    SharedString, Styled, Window, div, prelude::*, px, uniform_list,
 };
+use lru::LruCache;
 use ruviz_gpui::{RuvizPlot, plot_builder};
 use xraytsubaki::prelude::XASSpectrum;
 use xraytsubaki::xafs::io;
 
+use crate::catalog::{Catalog, ScanEvent, start_scan};
 use crate::plotting::build_quadrants;
 use crate::theme::{Theme, ThemeMode};
+
+/// Processed spectra kept in RAM. ~100-300 KB each, so 1024 ≈ a few hundred MB
+/// worst case; browsing a million-file catalog stays bounded.
+const PROCESSED_CACHE_CAPACITY: usize = 1024;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Workspace {
@@ -28,7 +38,13 @@ pub enum Workspace {
 pub struct StudioApp {
     theme: Theme,
     workspace: Workspace,
-    spectrum: Option<XASSpectrum>,
+    catalog: Catalog,
+    selected: Option<usize>,
+    /// Bumped on every selection; async load results from older generations
+    /// are discarded.
+    generation: u64,
+    cache: LruCache<usize, Arc<XASSpectrum>>,
+    spectrum: Option<Arc<XASSpectrum>>,
     spectrum_label: SharedString,
     quadrants: Vec<(SharedString, Entity<RuvizPlot>)>,
     maximized: Option<usize>,
@@ -49,14 +65,27 @@ fn load_and_process(path: &PathBuf) -> Result<XASSpectrum, String> {
     Ok(sp)
 }
 
+fn spectrum_status(label: &SharedString, sp: &XASSpectrum) -> SharedString {
+    format!(
+        "{} · {} points · E0 {:.1} eV",
+        label,
+        sp.energy.as_ref().map(|e| e.len()).unwrap_or(0),
+        sp.get_e0().unwrap_or(f64::NAN),
+    )
+    .into()
+}
+
 impl StudioApp {
     pub fn new_with_open(
         initial_open: Option<PathBuf>,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let theme = Theme::dark();
-        let path = initial_open.unwrap_or_else(default_data_file);
+        let initial_dir = initial_open.as_ref().filter(|p| p.is_dir()).cloned();
+        let path = match initial_dir {
+            Some(_) => default_data_file(),
+            None => initial_open.unwrap_or_else(default_data_file),
+        };
         let label: SharedString = path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -64,8 +93,12 @@ impl StudioApp {
             .into();
 
         let mut app = Self {
-            theme,
+            theme: Theme::dark(),
             workspace: Workspace::Explore,
+            catalog: Catalog::default(),
+            selected: None,
+            generation: 0,
+            cache: LruCache::new(NonZeroUsize::new(PROCESSED_CACHE_CAPACITY).unwrap()),
             spectrum: None,
             spectrum_label: label.clone(),
             quadrants: Vec::new(),
@@ -75,19 +108,16 @@ impl StudioApp {
 
         match load_and_process(&path) {
             Ok(sp) => {
-                app.status = format!(
-                    "{} · {} points · E0 {:.1} eV",
-                    label,
-                    sp.energy.as_ref().map(|e| e.len()).unwrap_or(0),
-                    sp.get_e0().unwrap_or(f64::NAN),
-                )
-                .into();
-                app.spectrum = Some(sp);
+                app.status = spectrum_status(&label, &sp);
+                app.spectrum = Some(Arc::new(sp));
                 app.rebuild_plots(cx);
             }
             Err(e) => {
                 app.status = format!("failed to load {}: {e}", path.display()).into();
             }
+        }
+        if let Some(dir) = initial_dir {
+            app.scan_folder(dir, cx);
         }
         app
     }
@@ -123,6 +153,112 @@ impl StudioApp {
         self.rebuild_plots(cx);
         cx.notify();
     }
+
+    // ---- catalog -----------------------------------------------------------
+
+    fn open_folder(&mut self, cx: &mut Context<Self>) {
+        let rx = cx.prompt_for_paths(PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: None,
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = rx.await {
+                for root in paths {
+                    this.update(cx, |app, cx| app.scan_folder(root, cx)).ok();
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn scan_folder(&mut self, root: PathBuf, cx: &mut Context<Self>) {
+        self.catalog.scanning = true;
+        self.status = format!("scanning {} ...", root.display()).into();
+        let mut rx = start_scan(root);
+        cx.spawn(async move |this, cx| {
+            while let Some(event) = rx.next().await {
+                let done = matches!(event, ScanEvent::Done { .. } | ScanEvent::Error(_));
+                let update = this.update(cx, |app, cx| {
+                    match event {
+                        ScanEvent::Batch(batch) => {
+                            let first = app.catalog.is_empty();
+                            app.catalog.extend(batch);
+                            // Show something as soon as the index has anything.
+                            if first && app.selected.is_none() {
+                                app.select_entry(0, cx);
+                            }
+                        }
+                        ScanEvent::Done { total } => {
+                            app.catalog.scanning = false;
+                            app.status = format!("indexed {total} files").into();
+                        }
+                        ScanEvent::Error(e) => {
+                            app.catalog.scanning = false;
+                            app.status = format!("scan failed: {e}").into();
+                        }
+                    }
+                    cx.notify();
+                });
+                if done || update.is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn select_entry(&mut self, ix: usize, cx: &mut Context<Self>) {
+        if ix >= self.catalog.len() {
+            return;
+        }
+        self.selected = Some(ix);
+        self.generation += 1;
+        let generation = self.generation;
+        let label: SharedString = self.catalog.name(ix).to_string().into();
+        self.spectrum_label = label.clone();
+
+        if let Some(sp) = self.cache.get(&ix) {
+            self.spectrum = Some(sp.clone());
+            self.status = spectrum_status(&label, sp);
+            self.rebuild_plots(cx);
+            cx.notify();
+            return;
+        }
+
+        self.status = format!("loading {label} ...").into();
+        cx.notify();
+        let path = self.catalog.path(ix);
+        let load = cx
+            .background_executor()
+            .spawn(async move { load_and_process(&path) });
+        cx.spawn(async move |this, cx| {
+            let result = load.await;
+            this.update(cx, |app, cx| {
+                if app.generation != generation {
+                    return; // a newer selection superseded this load
+                }
+                match result {
+                    Ok(sp) => {
+                        let sp = Arc::new(sp);
+                        app.cache.put(ix, sp.clone());
+                        app.status = spectrum_status(&label, &sp);
+                        app.spectrum = Some(sp);
+                        app.rebuild_plots(cx);
+                    }
+                    Err(e) => {
+                        app.status = format!("failed to load {label}: {e}").into();
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    // ---- views -------------------------------------------------------------
 
     fn rail_button(
         &self,
@@ -171,8 +307,60 @@ impl StudioApp {
             .child(self.rail_button("ws-fit", "Ft", Workspace::Fit, cx))
     }
 
-    fn data_panel(&self) -> impl IntoElement + use<> {
+    fn file_list(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
+        let entity = cx.entity();
+        let selected = self.selected;
+        uniform_list(
+            "catalog-files",
+            self.catalog.len(),
+            move |range, _window, app| {
+                let mut rows = Vec::with_capacity(range.len());
+                for ix in range {
+                    let name: SharedString = entity.read(app).catalog.name(ix).to_string().into();
+                    let is_selected = selected == Some(ix);
+                    let entity = entity.clone();
+                    rows.push(
+                        div()
+                            .id(ix)
+                            .h(px(24.))
+                            .px_3()
+                            .flex()
+                            .items_center()
+                            .text_sm()
+                            .overflow_hidden()
+                            .when(is_selected, |d| d.bg(t.raised).text_color(t.accent))
+                            .when(!is_selected, |d| d.text_color(t.text))
+                            .hover(|d| d.bg(t.raised))
+                            .cursor_pointer()
+                            .on_click(move |_: &ClickEvent, _window, app| {
+                                entity.update(app, |this, cx| this.select_entry(ix, cx));
+                            })
+                            .child(name),
+                    );
+                }
+                rows
+            },
+        )
+        .flex_1()
+    }
+
+    fn data_panel(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let t = self.theme;
+        let footer: SharedString = if self.catalog.is_empty() && !self.catalog.scanning {
+            "no folder open".into()
+        } else {
+            format!(
+                "{} files{}",
+                self.catalog.len(),
+                if self.catalog.scanning {
+                    " · scanning..."
+                } else {
+                    ""
+                }
+            )
+            .into()
+        };
         div()
             .w(px(220.))
             .h_full()
@@ -185,29 +373,61 @@ impl StudioApp {
                 div()
                     .px_3()
                     .py_2()
-                    .text_xs()
-                    .text_color(t.text_muted)
-                    .child("DATA"),
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .child(div().text_xs().text_color(t.text_muted).child("DATA"))
+                    .child(
+                        div()
+                            .id("open-folder")
+                            .px_2()
+                            .rounded_sm()
+                            .text_xs()
+                            .text_color(t.accent)
+                            .cursor_pointer()
+                            .hover(|d| d.bg(t.raised))
+                            .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                                this.open_folder(cx);
+                            }))
+                            .child("Open Folder..."),
+                    ),
             )
-            .child(
+            .child(if self.catalog.is_empty() {
                 div()
-                    .px_3()
-                    .py_1()
-                    .text_sm()
-                    .text_color(t.accent)
-                    .bg(t.raised)
-                    .child(self.spectrum_label.clone()),
-            )
-            .child(div().flex_1())
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .child(
+                        div()
+                            .px_3()
+                            .py_1()
+                            .text_sm()
+                            .text_color(t.accent)
+                            .bg(t.raised)
+                            .child(self.spectrum_label.clone()),
+                    )
+                    .into_any_element()
+            } else {
+                div()
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .child(self.file_list(cx))
+                    .into_any_element()
+            })
             .child(
                 div()
                     .px_3()
                     .py_2()
                     .text_xs()
-                    .text_color(t.text_muted)
+                    .text_color(if self.catalog.scanning {
+                        t.warn
+                    } else {
+                        t.text_muted
+                    })
                     .border_t_1()
                     .border_color(t.border)
-                    .child("1 file · catalog in M1"),
+                    .child(footer),
             )
     }
 
@@ -414,7 +634,7 @@ impl Render for StudioApp {
                     .flex_1()
                     .flex()
                     .child(self.icon_rail(cx))
-                    .child(self.data_panel())
+                    .child(self.data_panel(cx))
                     .child(div().flex_1().flex().flex_col().child(center))
                     .child(self.context_panel()),
             )

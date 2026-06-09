@@ -31,6 +31,9 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "3060e417
 xraytsubaki = { path = "../xraytsubaki" }
 
 anyhow = "1.0"
+futures = "0.3"
+lru = "0.18"
+walkdir = "2.5"
 # Same nalgebra as the core crate (XASSpectrum exposes DVector<f64>).
 nalgebra = { workspace = true }
 serde = { workspace = true }

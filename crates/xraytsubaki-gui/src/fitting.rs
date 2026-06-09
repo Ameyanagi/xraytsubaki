@@ -24,6 +24,34 @@ pub struct FitVarSpec {
     pub name: String,
     pub value: f64,
     pub vary: bool,
+    /// When set, the variable is defined by this expression (derived, not
+    /// varied), e.g. `sig2_1 * 2`.
+    pub expr: Option<String>,
+}
+
+/// Identifiers referenced by an expression, excluding builtins/functions, in
+/// order of appearance. Used to auto-create variables.
+pub fn expr_identifiers(expr: &str) -> Vec<String> {
+    const RESERVED: &[&str] = &[
+        "reff", "degen", "pi", "e", "k", "sin", "cos", "tan", "asin", "acos", "atan", "exp",
+        "ln", "log", "log10", "sqrt", "abs", "min", "max", "pow",
+    ];
+    let mut out: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for c in expr.chars().chain(std::iter::once(' ')) {
+        if c.is_ascii_alphanumeric() || c == '_' {
+            current.push(c);
+        } else if !current.is_empty() {
+            let ident = std::mem::take(&mut current);
+            if !ident.chars().next().unwrap().is_ascii_digit()
+                && !RESERVED.contains(&ident.as_str())
+                && !out.contains(&ident)
+            {
+                out.push(ident);
+            }
+        }
+    }
+    out
 }
 
 #[derive(Clone, Copy)]
@@ -82,10 +110,10 @@ pub fn run_fit(
         return Err("no enabled paths".into());
     }
     for v in vars {
-        fit = if v.vary {
-            fit.set_init(&v.name, v.value)
-        } else {
-            fit.fix(&v.name, v.value)
+        fit = match &v.expr {
+            Some(expr) => fit.var_expr(&v.name, expr),
+            None if v.vary => fit.set_init(&v.name, v.value),
+            None => fit.fix(&v.name, v.value),
         };
     }
     fit.fit().map_err(|e| e.to_string())

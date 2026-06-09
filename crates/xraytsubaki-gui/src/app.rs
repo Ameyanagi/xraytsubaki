@@ -30,8 +30,10 @@ use crate::params::{PipelineParams, process_file, resample_chik};
 use crate::plotting::{
     build_fit_k, build_fit_r, build_frame_chik, build_heatmap, build_quadrants, build_trend,
 };
+use crate::fitting::expr_identifiers;
 use crate::theme::{Theme, ThemeMode};
 use crate::widgets::numeric_field::{FieldEvent, NumericField};
+use crate::widgets::text_input::{InputEvent, TextInput};
 
 /// Processed spectra kept in RAM. ~100-300 KB each, so 1024 ≈ a few hundred MB
 /// worst case; browsing a million-file catalog stays bounded.
@@ -102,10 +104,24 @@ enum RangeKey {
     Kweight,
 }
 
-/// A fit variable row: spec + its editable value field.
+/// A fit variable row: spec + its editable value/expression field.
 struct FitVar {
     spec: FitVarSpec,
-    field: Entity<NumericField>,
+    field: Entity<TextInput>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PathParam {
+    S02,
+    E0,
+    Sigma2,
+    DeltaR,
+}
+
+/// An imported FEFF path with editable parameter-expression cells.
+struct FitPathRow {
+    spec: FitPathSpec,
+    fields: Vec<(PathParam, Entity<TextInput>)>,
 }
 
 pub struct StudioApp {
@@ -134,7 +150,7 @@ pub struct StudioApp {
     operando_plots: Option<OperandoPlots>,
     operando_gen: u64,
     time_pos: usize,
-    fit_paths: Vec<FitPathSpec>,
+    fit_paths: Vec<FitPathRow>,
     fit_vars: Vec<FitVar>,
     fit_range_fields: Vec<(RangeKey, Entity<NumericField>)>,
     fit_ranges: FitRanges,
@@ -142,12 +158,24 @@ pub struct StudioApp {
     fit_plots: Option<(Entity<RuvizPlot>, Entity<RuvizPlot>)>,
     fit_gen: u64,
     fit_running: bool,
+    feff_workspace: Option<PathBuf>,
+    feff_running: bool,
+    feff_gen: u64,
     status: SharedString,
 }
 
 fn default_data_file() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../xraytsubaki/tests/testfiles/Ru_QAS.dat")
+}
+
+fn default_for(param: PathParam) -> f64 {
+    match param {
+        PathParam::S02 => 0.9,
+        PathParam::E0 => 0.0,
+        PathParam::Sigma2 => 0.003,
+        PathParam::DeltaR => 0.0,
+    }
 }
 
 fn spectrum_status(label: &SharedString, sp: &XASSpectrum) -> SharedString {
@@ -210,6 +238,9 @@ impl StudioApp {
             fit_plots: None,
             fit_gen: 0,
             fit_running: false,
+            feff_workspace: None,
+            feff_running: false,
+            feff_gen: 0,
             status: "loading...".into(),
         };
         app.fit_range_fields = Self::build_range_fields(theme, app.fit_ranges, cx);
@@ -558,6 +589,11 @@ impl StudioApp {
         for var in &self.fit_vars {
             var.field.update(cx, |f, cx| f.set_theme(theme, cx));
         }
+        for row in &self.fit_paths {
+            for (_, field) in &row.fields {
+                field.update(cx, |f, cx| f.set_theme(theme, cx));
+            }
+        }
         self.rebuild_plots(cx);
         self.rebuild_operando_plots(cx);
         self.rebuild_fit_plots(cx);
@@ -671,20 +707,16 @@ impl StudioApp {
     }
 
     fn ensure_fit_var(&mut self, name: &str, default: f64, cx: &mut Context<Self>) {
-        if self.fit_vars.iter().any(|v| v.spec.name == name) {
+        if name.is_empty() || self.fit_vars.iter().any(|v| v.spec.name == name) {
             return;
         }
         let theme = self.theme;
-        let field = cx.new(|cx| NumericField::new("", "", Some(default), theme, cx));
+        let field = cx.new(|cx| TextInput::new("value or expr", format!("{default}"), theme, cx));
         let var_name = name.to_string();
         cx.subscribe(&field, move |this: &mut Self, _field, event, cx| {
-            let FieldEvent::Changed(value) = event;
-            if let Some(v) = value
-                && let Some(var) = this.fit_vars.iter_mut().find(|x| x.spec.name == var_name)
-            {
-                var.spec.value = *v;
-                cx.notify();
-            }
+            let InputEvent::Committed(text) = event;
+            let text = text.trim().to_string();
+            this.set_var_text(&var_name.clone(), &text, cx);
         })
         .detach();
         self.fit_vars.push(FitVar {
@@ -692,9 +724,67 @@ impl StudioApp {
                 name: name.to_string(),
                 value: default,
                 vary: true,
+                expr: None,
             },
             field,
         });
+    }
+
+    /// A variable field committed: a number sets the value; anything else is
+    /// a derived expression. New identifiers become variables automatically.
+    fn set_var_text(&mut self, name: &str, text: &str, cx: &mut Context<Self>) {
+        if text.is_empty() {
+            return;
+        }
+        match text.parse::<f64>() {
+            Ok(v) if v.is_finite() => {
+                if let Some(var) = self.fit_vars.iter_mut().find(|x| x.spec.name == name) {
+                    var.spec.value = v;
+                    var.spec.expr = None;
+                }
+            }
+            _ => {
+                for ident in expr_identifiers(text) {
+                    if ident != name {
+                        self.ensure_fit_var(&ident, 0.0, cx);
+                    }
+                }
+                if let Some(var) = self.fit_vars.iter_mut().find(|x| x.spec.name == name) {
+                    var.spec.expr = Some(text.to_string());
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    /// A path parameter cell committed: store the expression and auto-create
+    /// any new variables it references.
+    fn set_path_param(
+        &mut self,
+        path_ix: usize,
+        param: PathParam,
+        text: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let text = text.trim().to_string();
+        if text.is_empty() {
+            return;
+        }
+        if text.parse::<f64>().is_err() {
+            for ident in expr_identifiers(&text) {
+                self.ensure_fit_var(&ident, default_for(param), cx);
+            }
+        }
+        if let Some(row) = self.fit_paths.get_mut(path_ix) {
+            let spec = &mut row.spec;
+            match param {
+                PathParam::S02 => spec.s02 = text,
+                PathParam::E0 => spec.e0 = text,
+                PathParam::Sigma2 => spec.sigma2 = text,
+                PathParam::DeltaR => spec.deltar = text,
+            }
+        }
+        cx.notify();
     }
 
     fn add_fit_path_dialog(&mut self, cx: &mut Context<Self>) {
@@ -719,6 +809,7 @@ impl StudioApp {
     }
 
     /// Standard parameterization: shared amp/de0, per-path sigma2/deltar.
+    /// Every parameter cell accepts a number or an expression.
     fn push_fit_path(&mut self, file: PathBuf, cx: &mut Context<Self>) {
         let i = self.fit_paths.len() + 1;
         let label = file
@@ -731,7 +822,7 @@ impl StudioApp {
         self.ensure_fit_var("de0", 0.0, cx);
         self.ensure_fit_var(&sigma2, 0.003, cx);
         self.ensure_fit_var(&deltar, 0.0, cx);
-        self.fit_paths.push(FitPathSpec {
+        let spec = FitPathSpec {
             file,
             label,
             s02: "amp".into(),
@@ -739,7 +830,27 @@ impl StudioApp {
             sigma2,
             deltar,
             enabled: true,
-        });
+        };
+        let theme = self.theme;
+        let path_ix = self.fit_paths.len();
+        let fields = [
+            (PathParam::S02, spec.s02.clone()),
+            (PathParam::E0, spec.e0.clone()),
+            (PathParam::Sigma2, spec.sigma2.clone()),
+            (PathParam::DeltaR, spec.deltar.clone()),
+        ]
+        .into_iter()
+        .map(|(param, initial)| {
+            let field = cx.new(|cx| TextInput::new("expr", initial, theme, cx));
+            cx.subscribe(&field, move |this: &mut Self, _field, event, cx| {
+                let InputEvent::Committed(text) = event;
+                this.set_path_param(path_ix, param, text, cx);
+            })
+            .detach();
+            (param, field)
+        })
+        .collect();
+        self.fit_paths.push(FitPathRow { spec, fields });
     }
 
     fn run_fit_now(&mut self, cx: &mut Context<Self>) {
@@ -761,7 +872,7 @@ impl StudioApp {
         self.fit_running = true;
         self.status = "fitting ...".into();
         cx.notify();
-        let paths = self.fit_paths.clone();
+        let paths: Vec<FitPathSpec> = self.fit_paths.iter().map(|r| r.spec.clone()).collect();
         let vars: Vec<FitVarSpec> = self.fit_vars.iter().map(|v| v.spec.clone()).collect();
         let ranges = self.fit_ranges;
         let job = cx
@@ -785,10 +896,14 @@ impl StudioApp {
                         app.fit_result = Some(result.clone());
                         app.rebuild_fit_plots(cx);
                         // Reflect fitted values back into the variable fields.
-                        for var in &app.fit_vars {
+                        for var in &mut app.fit_vars {
+                            if var.spec.expr.is_some() {
+                                continue;
+                            }
                             if let Some(fitted) = result.variables.get(&var.spec.name) {
+                                var.spec.value = fitted.value;
                                 let text = format!("{:.5}", fitted.value);
-                                var.field.update(cx, |f, cx| f.set_value_text(text, cx));
+                                var.field.update(cx, |f, cx| f.set_text(text, cx));
                             }
                         }
                     }
@@ -821,6 +936,94 @@ impl StudioApp {
                 ));
             }
         }
+    }
+
+    // ---- FEFF10 generation --------------------------------------------------
+
+    /// Create a template feff.inp workspace and open it in the system editor.
+    fn new_feff_inp(&mut self, cx: &mut Context<Self>) {
+        match crate::feffgen::new_workspace() {
+            Ok(dir) => {
+                let inp = dir.join("feff.inp");
+                let _ = std::process::Command::new("open").arg("-t").arg(&inp).spawn();
+                self.status = format!("feff.inp template at {} — edit, then Run FEFF10", inp.display()).into();
+                self.feff_workspace = Some(dir);
+            }
+            Err(e) => self.status = format!("failed to create feff workspace: {e}").into(),
+        }
+        cx.notify();
+    }
+
+    fn choose_feff_inp(&mut self, cx: &mut Context<Self>) {
+        let rx = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: None,
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = rx.await
+                && let Some(file) = paths.first()
+                && let Some(dir) = file.parent()
+            {
+                let dir = dir.to_path_buf();
+                this.update(cx, |app, cx| {
+                    app.status = format!("FEFF workspace: {}", dir.display()).into();
+                    app.feff_workspace = Some(dir);
+                    cx.notify();
+                })
+                .ok();
+            }
+        })
+        .detach();
+    }
+
+    /// Run FEFF10 on the workspace's feff.inp and import the generated paths.
+    fn run_feff10_now(&mut self, cx: &mut Context<Self>) {
+        if self.feff_running {
+            return;
+        }
+        let Some(workspace) = self.feff_workspace.clone() else {
+            self.status = "no FEFF workspace — New feff.inp... or Choose feff.inp...".into();
+            cx.notify();
+            return;
+        };
+        self.feff_gen += 1;
+        let generation = self.feff_gen;
+        self.feff_running = true;
+        self.status = "running FEFF10 ...".into();
+        cx.notify();
+        let job = cx
+            .background_executor()
+            .spawn(async move { crate::feffgen::run_feff10_subprocess(&workspace) });
+        cx.spawn(async move |this, cx| {
+            let result = job.await;
+            this.update(cx, |app, cx| {
+                if app.feff_gen != generation {
+                    return;
+                }
+                app.feff_running = false;
+                match result {
+                    Ok(paths) => {
+                        let n = paths.len();
+                        for (i, file) in paths.into_iter().enumerate() {
+                            app.push_fit_path(file, cx);
+                            // Long path lists: keep only the first few enabled.
+                            if i >= 3 && let Some(row) = app.fit_paths.last_mut() {
+                                row.spec.enabled = false;
+                            }
+                        }
+                        app.status = format!("FEFF10 done — imported {n} paths").into();
+                    }
+                    Err(e) => {
+                        app.status = format!("FEFF10 failed: {e}").into();
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     // ---- views -------------------------------------------------------------
@@ -1368,47 +1571,137 @@ impl StudioApp {
                     .child("no paths imported"),
             );
         }
-        for (i, path) in self.fit_paths.iter().enumerate() {
-            let detail: SharedString = format!(
-                "s02={} e0={} ss={} dr={}",
-                path.s02, path.e0, path.sigma2, path.deltar
-            )
-            .into();
-            let label: SharedString = path.label.clone().into();
-            let enabled = path.enabled;
-            panel = panel.child(
-                div()
-                    .id(("fit-path", i))
-                    .px_3()
-                    .py_1()
-                    .flex()
-                    .flex_col()
-                    .cursor_pointer()
-                    .hover(|d| d.bg(t.raised))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                        if let Some(p) = this.fit_paths.get_mut(i) {
-                            p.enabled = !p.enabled;
-                            cx.notify();
-                        }
-                    }))
-                    .child(
-                        div()
-                            .flex()
-                            .gap_2()
-                            .text_sm()
-                            .child(div().text_color(if enabled { t.success } else { t.text_muted }).child(if enabled { "✓" } else { "✗" }))
-                            .child(div().text_color(t.text).child(label)),
-                    )
-                    .child(div().text_xs().text_color(t.text_muted).child(detail)),
-            );
+        for (i, row) in self.fit_paths.iter().enumerate() {
+            let label: SharedString = row.spec.label.clone().into();
+            let enabled = row.spec.enabled;
+            let mut path_card = div()
+                .px_3()
+                .py_1()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(
+                    div()
+                        .id(("fit-path", i))
+                        .flex()
+                        .gap_2()
+                        .text_sm()
+                        .cursor_pointer()
+                        .hover(|d| d.bg(t.raised))
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                            if let Some(p) = this.fit_paths.get_mut(i) {
+                                p.spec.enabled = !p.spec.enabled;
+                                cx.notify();
+                            }
+                        }))
+                        .child(
+                            div()
+                                .text_color(if enabled { t.success } else { t.text_muted })
+                                .child(if enabled { "✓" } else { "✗" }),
+                        )
+                        .child(div().text_color(t.text).child(label)),
+                );
+            for (param, field) in &row.fields {
+                let cell_label = match param {
+                    PathParam::S02 => "s02",
+                    PathParam::E0 => "e0",
+                    PathParam::Sigma2 => "σ²",
+                    PathParam::DeltaR => "Δr",
+                };
+                path_card = path_card.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            div()
+                                .w(px(28.))
+                                .text_xs()
+                                .text_color(t.text_muted)
+                                .child(cell_label),
+                        )
+                        .child(div().flex_1().child(field.clone())),
+                );
+            }
+            panel = panel.child(path_card);
         }
+
+        // FEFF10 generation.
+        panel = panel.child(self.section_header("FEFF10"));
+        let feff_button = |id: &'static str, label: SharedString| {
+            div()
+                .id(id)
+                .px_2()
+                .py_0p5()
+                .rounded_sm()
+                .text_xs()
+                .text_color(t.accent)
+                .cursor_pointer()
+                .hover(|d| d.bg(t.raised))
+                .child(label)
+        };
+        panel = panel.child(
+            div()
+                .px_3()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .gap_2()
+                        .child(feff_button("feff-new", "New feff.inp...".into()).on_click(
+                            cx.listener(|this, _: &ClickEvent, _window, cx| {
+                                this.new_feff_inp(cx);
+                            }),
+                        ))
+                        .child(feff_button("feff-choose", "Choose feff.inp...".into()).on_click(
+                            cx.listener(|this, _: &ClickEvent, _window, cx| {
+                                this.choose_feff_inp(cx);
+                            }),
+                        ))
+                        .child(
+                            feff_button(
+                                "feff-run",
+                                if self.feff_running {
+                                    "running...".into()
+                                } else {
+                                    "Run FEFF10".into()
+                                },
+                            )
+                            .on_click(cx.listener(
+                                |this, _: &ClickEvent, _window, cx| {
+                                    this.run_feff10_now(cx);
+                                },
+                            )),
+                        ),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(t.text_muted)
+                        .child(SharedString::from(match &self.feff_workspace {
+                            Some(ws) => format!("workspace: {}", ws.display()),
+                            None => "no workspace".to_string(),
+                        })),
+                ),
+        );
 
         // Variables.
         panel = panel.child(self.section_header("Variables"));
         for var in &self.fit_vars {
             let name: SharedString = var.spec.name.clone().into();
             let vary = var.spec.vary;
+            let is_expr = var.spec.expr.is_some();
             let var_name = var.spec.name.clone();
+            let badge: &'static str = if is_expr {
+                "expr"
+            } else if vary {
+                "vary"
+            } else {
+                "fixed"
+            };
             panel = panel.child(
                 div()
                     .px_3()
@@ -1416,7 +1709,7 @@ impl StudioApp {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .child(div().w(px(64.)).text_sm().text_color(t.text_muted).child(name))
+                    .child(div().w(px(56.)).text_sm().text_color(t.text_muted).child(name))
                     .child(div().flex_1().child(var.field.clone()))
                     .child(
                         div()
@@ -1425,7 +1718,13 @@ impl StudioApp {
                             .rounded_sm()
                             .text_xs()
                             .cursor_pointer()
-                            .text_color(if vary { t.accent } else { t.text_muted })
+                            .text_color(if is_expr {
+                                t.warn
+                            } else if vary {
+                                t.accent
+                            } else {
+                                t.text_muted
+                            })
                             .hover(|d| d.bg(t.raised))
                             .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                                 if let Some(v) = this
@@ -1433,11 +1732,17 @@ impl StudioApp {
                                     .iter_mut()
                                     .find(|v| v.spec.name == var_name)
                                 {
-                                    v.spec.vary = !v.spec.vary;
+                                    if v.spec.expr.is_some() {
+                                        // expr -> back to a plain varying value
+                                        v.spec.expr = None;
+                                        v.spec.vary = true;
+                                    } else {
+                                        v.spec.vary = !v.spec.vary;
+                                    }
                                     cx.notify();
                                 }
                             }))
-                            .child(if vary { "vary" } else { "fixed" }),
+                            .child(badge),
                     ),
             );
         }

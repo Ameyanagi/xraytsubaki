@@ -5,6 +5,7 @@
 
 mod app;
 mod catalog;
+mod fitting;
 mod params;
 mod widgets;
 mod plotting;

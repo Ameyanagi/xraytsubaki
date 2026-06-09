@@ -101,6 +101,56 @@ pub fn build_frame_chik(grid: &[f64], row: &[f64], kw: f64, theme: &Theme) -> Pl
         .into()
 }
 
+/// k-space fit overlay: k-weighted data vs model.
+pub fn build_fit_k(result: &xraytsubaki::prelude::FeffFitResult, theme: &Theme) -> Plot {
+    let k = vecs(&result.k);
+    let kw = result.kweight;
+    let weight = |chi: &nalgebra::DVector<f64>| -> Vec<f64> {
+        chi.iter()
+            .zip(k.iter())
+            .map(|(c, kk)| c * kk.powf(kw))
+            .collect()
+    };
+    let data = weight(&result.data_chi);
+    let model = weight(&result.model_chi);
+    Plot::new()
+        .theme(theme.plot_theme())
+        .line(&k, &data)
+        .label("data")
+        .line(&k, &model)
+        .label("fit")
+        .legend(ruviz::core::position::Position::TopRight)
+        .xlabel("k (1/Angstrom)")
+        .ylabel(format!("k^{kw:.0} chi(k)"))
+        .into()
+}
+
+/// R-space fit overlay: |chi(R)| of data vs model.
+pub fn build_fit_r(result: &xraytsubaki::prelude::FeffFitResult, theme: &Theme) -> Plot {
+    let r = vecs(&result.r);
+    let data_mag: Vec<f64> = result
+        .data_chir_re
+        .iter()
+        .zip(result.data_chir_im.iter())
+        .map(|(re, im)| (re * re + im * im).sqrt())
+        .collect();
+    let model_mag = vecs(&result.model_chir_mag);
+    let n = r.len().min(data_mag.len()).min(model_mag.len());
+    let r = r[..n].to_vec();
+    let data_mag = data_mag[..n].to_vec();
+    let model_mag = model_mag[..n].to_vec();
+    Plot::new()
+        .theme(theme.plot_theme())
+        .line(&r, &data_mag)
+        .label("data")
+        .line(&r, &model_mag)
+        .label("fit")
+        .legend(ruviz::core::position::Position::TopRight)
+        .xlabel("R (Angstrom)")
+        .ylabel("|chi(R)|")
+        .into()
+}
+
 /// Parameter-vs-frame trend with a cursor marker.
 pub fn build_trend(values: &[f64], cursor: usize, ylabel: &str, theme: &Theme) -> Plot {
     let xs: Vec<f64> = (0..values.len()).map(|i| i as f64).collect();

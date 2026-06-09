@@ -6,12 +6,12 @@ resolver = "2"
 members = [
   "crates/*",
   "py-xraytsubaki",
-  "xraytsubaki-app/src-tauri",
   # "examples/*",
 ]
-default-members = ["crates/*"]
+# Keep plain `cargo build`/`cargo test` on the core crate; the GUI pulls the
+# large gpui dependency tree and is built explicitly with `-p xraytsubaki-gui`.
+default-members = ["crates/xraytsubaki"]
 exclude = [
-  "xraytsubaki-gui",
   # "examples/datasets",
 ]
 
@@ -59,9 +59,17 @@ flate2 = "1.0.28"
 pest = "2.7.7"
 pest_derive = "2.7.7"
 thiserror = "1.0.69"
-ruviz = { version = "0.1.4", default-features = false }
+ruviz = { version = "0.4.19", default-features = false }
+# GUI stack. `gpui = "0.2.2"` (latest on crates.io) is redirected by the
+# [patch.crates-io] below to the git-pinned gpui (zed rev 3060e417...) that
+# gpui_platform also resolves to, so the whole workspace shares exactly one gpui.
+gpui = "0.2.2"
+ruviz-gpui = "0.4.19"
 
 xraytsubaki = { version = "0.1.0", path = "crates/xraytsubaki" }
+
+[patch.crates-io]
+gpui = { git = "https://github.com/zed-industries/zed", rev = "3060e4170ea5ef0e6886b9ac1853aaead9ddd59f" }
 
 [workspace.dependencies.enterpolation]
 version = "0.2.1"

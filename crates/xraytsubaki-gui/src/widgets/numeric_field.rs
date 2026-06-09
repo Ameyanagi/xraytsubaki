@@ -78,6 +78,14 @@ impl NumericField {
             .update(cx, |i, cx| i.set_placeholder(placeholder, cx));
     }
 
+    /// Programmatically set value (None = auto/empty); does not emit.
+    pub fn set_value(&mut self, value: Option<f64>, cx: &mut Context<Self>) {
+        self.value = value;
+        self.input
+            .update(cx, |i, cx| i.set_text(format_value(value), cx));
+        cx.notify();
+    }
+
     /// Programmatically set the value (e.g. fitted result); does not emit.
     pub fn set_value_text(&mut self, text: String, cx: &mut Context<Self>) {
         if let Ok(v) = text.parse::<f64>() {

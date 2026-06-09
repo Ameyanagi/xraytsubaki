@@ -10,6 +10,7 @@ mod fitting;
 mod params;
 mod widgets;
 mod plotting;
+mod project;
 mod theme;
 
 use std::path::PathBuf;

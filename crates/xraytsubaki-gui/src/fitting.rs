@@ -8,7 +8,7 @@ use xraytsubaki::prelude::*;
 
 /// One imported FEFF path. Param fields hold either a number ("0.9") or a
 /// variable/expression name ("amp"), mirroring `PathParamSpec`.
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct FitPathSpec {
     pub file: PathBuf,
     pub label: String,
@@ -19,7 +19,7 @@ pub struct FitPathSpec {
     pub enabled: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct FitVarSpec {
     pub name: String,
     pub value: f64,
@@ -54,7 +54,8 @@ pub fn expr_identifiers(expr: &str) -> Vec<String> {
     out
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct FitRanges {
     pub kmin: f64,
     pub kmax: f64,

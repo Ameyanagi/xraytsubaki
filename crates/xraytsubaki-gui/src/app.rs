@@ -27,6 +27,7 @@ use xraytsubaki::prelude::FeffFitResult;
 use crate::catalog::{Catalog, ScanEvent, start_scan};
 use crate::fitting::{BatchFitRow, FitPathSpec, FitRanges, FitVarSpec, PathMeta, batch_csv, path_meta, result_summary, run_fit};
 use crate::params::{PipelineParams, process_file, resample_chik};
+use crate::project::{ProjectFile, PROJECT_VERSION};
 use crate::plotting::{
     build_fit_k, build_fit_r, build_frame_chik, build_heatmap, build_quadrants, build_trend,
 };
@@ -154,6 +155,7 @@ pub struct StudioApp {
     theme: Theme,
     workspace: Workspace,
     catalog: Catalog,
+    source_dir: Option<PathBuf>,
     selected: Option<usize>,
     /// Bumped on every selection; async load results from older generations
     /// are discarded.
@@ -245,6 +247,7 @@ impl StudioApp {
             theme,
             workspace: Workspace::Explore,
             catalog: Catalog::default(),
+            source_dir: None,
             selected: None,
             generation: 0,
             recompute_epoch: 0,
@@ -676,6 +679,7 @@ impl StudioApp {
     }
 
     fn scan_folder(&mut self, root: PathBuf, cx: &mut Context<Self>) {
+        self.source_dir = Some(root.clone());
         self.catalog.scanning = true;
         self.status = format!("scanning {} ...", root.display()).into();
         let mut rx = start_scan(root);
@@ -878,7 +882,6 @@ impl StudioApp {
         self.ensure_fit_var("de0", 0.0, cx);
         self.ensure_fit_var(&sigma2, 0.003, cx);
         self.ensure_fit_var(&deltar, 0.0, cx);
-        let meta = path_meta(&file);
         let spec = FitPathSpec {
             file,
             label,
@@ -888,6 +891,12 @@ impl StudioApp {
             deltar,
             enabled: true,
         };
+        self.add_path_row(spec, cx);
+    }
+
+    /// Materialize a path spec into a row with editable cells.
+    fn add_path_row(&mut self, spec: FitPathSpec, cx: &mut Context<Self>) {
+        let meta = path_meta(&spec.file);
         let theme = self.theme;
         let path_ix = self.fit_paths.len();
         let fields = [
@@ -1311,6 +1320,141 @@ impl StudioApp {
             .ok();
         })
         .detach();
+    }
+
+    // ---- project persistence -------------------------------------------------
+
+    fn project_file(&self) -> ProjectFile {
+        ProjectFile {
+            version: PROJECT_VERSION,
+            source_dir: self.source_dir.clone(),
+            params: self.params,
+            fit_paths: self.fit_paths.iter().map(|r| r.spec.clone()).collect(),
+            fit_vars: self.fit_vars.iter().map(|v| v.spec.clone()).collect(),
+            fit_ranges: self.fit_ranges,
+            feff_workspace: self.feff_workspace.clone(),
+        }
+    }
+
+    fn save_project(&mut self, cx: &mut Context<Self>) {
+        let project = self.project_file();
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+        let rx = cx.prompt_for_new_path(std::path::Path::new(&home), Some("project.xtproj"));
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(path))) = rx.await {
+                let message = match crate::project::save(&path, &project) {
+                    Ok(()) => format!("saved {}", path.display()),
+                    Err(e) => format!("save failed: {e}"),
+                };
+                this.update(cx, |app, cx| {
+                    app.status = message.into();
+                    cx.notify();
+                })
+                .ok();
+            }
+        })
+        .detach();
+    }
+
+    fn open_project(&mut self, cx: &mut Context<Self>) {
+        let rx = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: None,
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = rx.await
+                && let Some(path) = paths.first()
+            {
+                match crate::project::load(path) {
+                    Ok(project) => {
+                        this.update(cx, |app, cx| app.apply_project(project, cx)).ok();
+                    }
+                    Err(e) => {
+                        this.update(cx, |app, cx| {
+                            app.status = format!("open failed: {e}").into();
+                            cx.notify();
+                        })
+                        .ok();
+                    }
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn apply_project(&mut self, project: ProjectFile, cx: &mut Context<Self>) {
+        // Pipeline params + field texts.
+        self.params = project.params;
+        let value_of = |key: ParamKey, p: &PipelineParams| match key {
+            ParamKey::E0 => p.e0,
+            ParamKey::PreEdgeStart => p.pre_edge_start,
+            ParamKey::PreEdgeEnd => p.pre_edge_end,
+            ParamKey::NormStart => p.norm_start,
+            ParamKey::NormEnd => p.norm_end,
+            ParamKey::Rbkg => p.rbkg,
+            ParamKey::BkgKmin => p.bkg_kmin,
+            ParamKey::BkgKmax => p.bkg_kmax,
+            ParamKey::FftKmin => p.fft_kmin,
+            ParamKey::FftKmax => p.fft_kmax,
+            ParamKey::FftDk => p.fft_dk,
+            ParamKey::FftKweight => p.fft_kweight,
+        };
+        let params = self.params;
+        for (key, field) in &self.param_fields {
+            let value = value_of(*key, &params);
+            field.update(cx, |f, cx| f.set_value(value, cx));
+        }
+
+        // Fit model: rebuild rows, variables, ranges.
+        self.fit_paths.clear();
+        self.fit_vars.clear();
+        self.fit_result = None;
+        self.fit_plots = None;
+        self.batch_fit = None;
+        for spec in project.fit_paths {
+            self.add_path_row(spec, cx);
+        }
+        // add_path_row's expression scan creates vars with defaults; restore
+        // the saved values/flags on top.
+        for saved in project.fit_vars {
+            self.ensure_fit_var(&saved.name, saved.value, cx);
+            if let Some(var) = self.fit_vars.iter_mut().find(|v| v.spec.name == saved.name) {
+                var.spec = saved.clone();
+                let text = match &saved.expr {
+                    Some(expr) => expr.clone(),
+                    None => format!("{}", saved.value),
+                };
+                var.field.update(cx, |f, cx| f.set_text(text, cx));
+            }
+        }
+        self.fit_ranges = project.fit_ranges;
+        let ranges = self.fit_ranges;
+        for (key, field) in &self.fit_range_fields {
+            let value = match key {
+                RangeKey::Kmin => ranges.kmin,
+                RangeKey::Kmax => ranges.kmax,
+                RangeKey::Rmin => ranges.rmin,
+                RangeKey::Rmax => ranges.rmax,
+                RangeKey::Kweight => ranges.kweight,
+            };
+            field.update(cx, |f, cx| f.set_value(Some(value), cx));
+        }
+        self.feff_workspace = project.feff_workspace;
+
+        // Reopen the data source.
+        self.operando = None;
+        self.operando_plots = None;
+        self.active_scan = None;
+        if let Some(dir) = project.source_dir.clone() {
+            self.catalog = Catalog::default();
+            self.selected = None;
+            self.scan_folder(dir, cx);
+        }
+        self.status = "project loaded".into();
+        self.schedule_recompute(cx);
+        cx.notify();
     }
 
     // ---- views -------------------------------------------------------------
@@ -2350,6 +2494,30 @@ impl StudioApp {
             .text_xs()
             .text_color(t.text_muted)
             .child(div().flex_1().child(self.status.clone()))
+            .child(
+                div()
+                    .id("open-project")
+                    .px_2()
+                    .rounded_sm()
+                    .cursor_pointer()
+                    .hover(|d| d.bg(t.raised).text_color(t.text))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                        this.open_project(cx);
+                    }))
+                    .child("open project"),
+            )
+            .child(
+                div()
+                    .id("save-project")
+                    .px_2()
+                    .rounded_sm()
+                    .cursor_pointer()
+                    .hover(|d| d.bg(t.raised).text_color(t.text))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                        this.save_project(cx);
+                    }))
+                    .child("save project"),
+            )
             .child(
                 div()
                     .id("theme-toggle")

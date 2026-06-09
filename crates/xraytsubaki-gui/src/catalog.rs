@@ -106,11 +106,21 @@ pub struct EntryMeta {
     pub size: u64,
 }
 
+/// A scan = one directory of time-ordered spectra (entries are contiguous
+/// because the scanner walks sorted, depth-first).
+pub struct ScanGroup {
+    pub dir: u32,
+    pub label: String,
+    pub start: usize,
+    pub len: usize,
+}
+
 #[derive(Default)]
 pub struct Catalog {
     dirs: Vec<Arc<str>>,
     dir_ids: HashMap<Arc<str>, u32>,
     pub entries: Vec<EntryMeta>,
+    pub scans: Vec<ScanGroup>,
     pub scanning: bool,
 }
 
@@ -134,11 +144,28 @@ impl Catalog {
                     id
                 }
             };
+            let ix = self.entries.len();
             self.entries.push(EntryMeta {
                 dir: dir_id,
                 name: file.name,
                 size: file.size,
             });
+            match self.scans.last_mut() {
+                Some(scan) if scan.dir == dir_id => scan.len += 1,
+                _ => {
+                    let dir_path = &self.dirs[dir_id as usize];
+                    let label = std::path::Path::new(&**dir_path)
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| dir_path.to_string());
+                    self.scans.push(ScanGroup {
+                        dir: dir_id,
+                        label,
+                        start: ix,
+                        len: 1,
+                    });
+                }
+            }
         }
     }
 

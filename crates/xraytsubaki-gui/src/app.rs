@@ -20,9 +20,11 @@ use lru::LruCache;
 use ruviz_gpui::{RuvizPlot, plot_builder};
 use xraytsubaki::prelude::XASSpectrum;
 
+use rayon::prelude::*;
+
 use crate::catalog::{Catalog, ScanEvent, start_scan};
-use crate::params::{PipelineParams, process_file};
-use crate::plotting::build_quadrants;
+use crate::params::{PipelineParams, process_file, resample_chik};
+use crate::plotting::{build_frame_chik, build_heatmap, build_quadrants, build_trend};
 use crate::theme::{Theme, ThemeMode};
 use crate::widgets::numeric_field::{FieldEvent, NumericField};
 
@@ -57,6 +59,35 @@ enum ParamKey {
 /// Cache slot for the spectrum loaded outside the catalog (default file).
 const NO_ENTRY: usize = usize::MAX;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DataTab {
+    Files,
+    Scans,
+}
+
+/// Frames sampled for the operando overview (heatmap stays bounded no matter
+/// how large the scan is).
+const MAX_FRAMES: usize = 192;
+const K_GRID_BINS: usize = 256;
+const K_GRID_MAX: f64 = 15.0;
+
+/// Downsampled overview of one scan, valid for one params fingerprint.
+struct OperandoData {
+    scan: usize,
+    fingerprint: u64,
+    sample_ixs: Vec<usize>,
+    grid: Vec<f64>,
+    matrix: Vec<Vec<f64>>,
+    e0s: Vec<f64>,
+    kweight: f64,
+}
+
+struct OperandoPlots {
+    heatmap: Entity<RuvizPlot>,
+    chik: Entity<RuvizPlot>,
+    trend: Entity<RuvizPlot>,
+}
+
 pub struct StudioApp {
     theme: Theme,
     workspace: Workspace,
@@ -77,6 +108,12 @@ pub struct StudioApp {
     spectrum_label: SharedString,
     quadrants: Vec<(SharedString, Entity<RuvizPlot>)>,
     maximized: Option<usize>,
+    data_tab: DataTab,
+    active_scan: Option<usize>,
+    operando: Option<OperandoData>,
+    operando_plots: Option<OperandoPlots>,
+    operando_gen: u64,
+    time_pos: usize,
     status: SharedString,
 }
 
@@ -131,6 +168,12 @@ impl StudioApp {
             spectrum_label: label.clone(),
             quadrants: Vec::new(),
             maximized: None,
+            data_tab: DataTab::Files,
+            active_scan: None,
+            operando: None,
+            operando_plots: None,
+            operando_gen: 0,
+            time_pos: 0,
             status: "loading...".into(),
         };
 
@@ -224,6 +267,8 @@ impl StudioApp {
         let label = self.spectrum_label.clone();
         let path = self.current_path.clone();
         self.load_spectrum(ix, path, label, cx);
+        // Parameter edits also invalidate the operando overview.
+        self.ensure_operando(cx);
     }
 
     /// Common load path: serve from the (entry, params) cache or process on
@@ -292,6 +337,150 @@ impl StudioApp {
         }
         self.spectrum = Some(sp);
         self.rebuild_plots(cx);
+    }
+
+    // ---- operando ----------------------------------------------------------
+
+    fn open_scan(&mut self, scan_ix: usize, cx: &mut Context<Self>) {
+        self.active_scan = Some(scan_ix);
+        self.workspace = Workspace::Operando;
+        self.ensure_operando(cx);
+        cx.notify();
+    }
+
+    /// (Re)build the downsampled scan overview if the scan or parameters
+    /// changed. Frames are processed in parallel on rayon.
+    fn ensure_operando(&mut self, cx: &mut Context<Self>) {
+        let Some(scan_ix) = self.active_scan else {
+            return;
+        };
+        let fingerprint = self.params.fingerprint();
+        if self
+            .operando
+            .as_ref()
+            .is_some_and(|o| o.scan == scan_ix && o.fingerprint == fingerprint)
+        {
+            return;
+        }
+        let Some(scan) = self.catalog.scans.get(scan_ix) else {
+            return;
+        };
+
+        self.operando_gen += 1;
+        let generation = self.operando_gen;
+        // Even sampling across the scan; first and last frames included.
+        let sample_ixs: Vec<usize> = if scan.len <= MAX_FRAMES {
+            (scan.start..scan.start + scan.len).collect()
+        } else {
+            (0..MAX_FRAMES)
+                .map(|i| scan.start + i * (scan.len - 1) / (MAX_FRAMES - 1))
+                .collect()
+        };
+        let paths: Vec<PathBuf> = sample_ixs.iter().map(|&ix| self.catalog.path(ix)).collect();
+        let params = self.params;
+        let grid: Vec<f64> = (0..K_GRID_BINS)
+            .map(|i| i as f64 * K_GRID_MAX / (K_GRID_BINS - 1) as f64)
+            .collect();
+        self.status = format!(
+            "building scan overview ({} of {} frames) ...",
+            paths.len(),
+            scan.len
+        )
+        .into();
+
+        let job_grid = grid.clone();
+        let job = cx.background_executor().spawn(async move {
+            paths
+                .par_iter()
+                .map(|path| {
+                    process_file(path, &params)
+                        .ok()
+                        .and_then(|sp| {
+                            let row = resample_chik(&sp, &job_grid)?;
+                            Some((row, sp.get_e0().unwrap_or(f64::NAN)))
+                        })
+                        .unwrap_or_else(|| (vec![0.0; job_grid.len()], f64::NAN))
+                })
+                .collect::<Vec<(Vec<f64>, f64)>>()
+        });
+        cx.spawn(async move |this, cx| {
+            let rows = job.await;
+            this.update(cx, |app, cx| {
+                if app.operando_gen != generation {
+                    return;
+                }
+                let (matrix, e0s): (Vec<Vec<f64>>, Vec<f64>) = rows.into_iter().unzip();
+                let kweight = app.params.fft_kweight.unwrap_or(2.0);
+                app.operando = Some(OperandoData {
+                    scan: scan_ix,
+                    fingerprint,
+                    sample_ixs,
+                    grid,
+                    matrix,
+                    e0s,
+                    kweight,
+                });
+                app.time_pos = 0;
+                app.rebuild_operando_plots(cx);
+                app.status = "scan overview ready".into();
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn rebuild_operando_plots(&mut self, cx: &mut Context<Self>) {
+        let Some(data) = &self.operando else {
+            return;
+        };
+        let heatmap = build_heatmap(&data.matrix, K_GRID_MAX, &self.theme);
+        let row = data.matrix.get(self.time_pos).cloned().unwrap_or_default();
+        let chik = build_frame_chik(&data.grid, &row, data.kweight, &self.theme);
+        let trend = build_trend(&data.e0s, self.time_pos, "E0 (eV)", &self.theme);
+        match &self.operando_plots {
+            Some(plots) => {
+                plots.heatmap.update(cx, |rp, cx| rp.set_plot(heatmap, cx));
+                plots.chik.update(cx, |rp, cx| rp.set_plot(chik, cx));
+                plots.trend.update(cx, |rp, cx| rp.set_plot(trend, cx));
+            }
+            None => {
+                self.operando_plots = Some(OperandoPlots {
+                    heatmap: plot_builder(heatmap).interactive().build(cx),
+                    chik: plot_builder(chik).interactive().build(cx),
+                    trend: plot_builder(trend).interactive().build(cx),
+                });
+            }
+        }
+    }
+
+    fn set_time_pos(&mut self, pos: usize, cx: &mut Context<Self>) {
+        let Some(data) = &self.operando else {
+            return;
+        };
+        let pos = pos.min(data.matrix.len().saturating_sub(1));
+        if pos == self.time_pos {
+            return;
+        }
+        self.time_pos = pos;
+        let ix = data.sample_ixs.get(pos).copied();
+        let row = data.matrix.get(pos).cloned().unwrap_or_default();
+        let chik = build_frame_chik(&data.grid, &row, data.kweight, &self.theme);
+        let trend = build_trend(&data.e0s, pos, "E0 (eV)", &self.theme);
+        if let Some(plots) = &self.operando_plots {
+            plots.chik.update(cx, |rp, cx| rp.set_plot(chik, cx));
+            plots.trend.update(cx, |rp, cx| rp.set_plot(trend, cx));
+        }
+        if let Some(ix) = ix {
+            self.status = format!(
+                "frame {}/{} · {}",
+                pos + 1,
+                data.matrix.len(),
+                self.catalog.name(ix)
+            )
+            .into();
+        }
+        cx.notify();
     }
 
     fn rebuild_plots(&mut self, cx: &mut Context<Self>) {
@@ -484,6 +673,77 @@ impl StudioApp {
         .flex_1()
     }
 
+    fn scan_list(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let t = self.theme;
+        let entity = cx.entity();
+        let active = self.active_scan;
+        uniform_list(
+            "catalog-scans",
+            self.catalog.scans.len(),
+            move |range, _window, app| {
+                let mut rows = Vec::with_capacity(range.len());
+                for ix in range {
+                    let (label, count): (SharedString, usize) = {
+                        let scan = &entity.read(app).catalog.scans[ix];
+                        (format!("{} · {}", scan.label, scan.len).into(), scan.len)
+                    };
+                    let _ = count;
+                    let is_active = active == Some(ix);
+                    let entity = entity.clone();
+                    rows.push(
+                        div()
+                            .id(ix)
+                            .h(px(24.))
+                            .px_3()
+                            .flex()
+                            .items_center()
+                            .text_sm()
+                            .overflow_hidden()
+                            .when(is_active, |d| d.bg(t.raised).text_color(t.accent))
+                            .when(!is_active, |d| d.text_color(t.text))
+                            .hover(|d| d.bg(t.raised))
+                            .cursor_pointer()
+                            .on_click(move |_: &ClickEvent, _window, app| {
+                                entity.update(app, |this, cx| this.open_scan(ix, cx));
+                            })
+                            .child(label),
+                    );
+                }
+                rows
+            },
+        )
+        .flex_1()
+    }
+
+    fn data_tab_button(
+        &self,
+        id: &'static str,
+        label: &'static str,
+        tab: DataTab,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let t = self.theme;
+        let active = self.data_tab == tab;
+        div()
+            .id(id)
+            .flex_1()
+            .py_1()
+            .flex()
+            .justify_center()
+            .text_xs()
+            .cursor_pointer()
+            .when(active, |d| {
+                d.text_color(t.accent).border_b_2().border_color(t.accent)
+            })
+            .when(!active, |d| d.text_color(t.text_muted))
+            .hover(|d| d.bg(t.raised))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                this.data_tab = tab;
+                cx.notify();
+            }))
+            .child(label)
+    }
+
     fn data_panel(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
         let footer: SharedString = if self.catalog.is_empty() && !self.catalog.scanning {
@@ -531,6 +791,14 @@ impl StudioApp {
                             .child("Open Folder..."),
                     ),
             )
+            .child(
+                div()
+                    .flex()
+                    .border_b_1()
+                    .border_color(t.border)
+                    .child(self.data_tab_button("tab-files", "Files", DataTab::Files, cx))
+                    .child(self.data_tab_button("tab-scans", "Scans", DataTab::Scans, cx)),
+            )
             .child(if self.catalog.is_empty() {
                 div()
                     .flex_1()
@@ -547,11 +815,15 @@ impl StudioApp {
                     )
                     .into_any_element()
             } else {
+                let list = match self.data_tab {
+                    DataTab::Files => self.file_list(cx).into_any_element(),
+                    DataTab::Scans => self.scan_list(cx).into_any_element(),
+                };
                 div()
                     .flex_1()
                     .flex()
                     .flex_col()
-                    .child(self.file_list(cx))
+                    .child(list)
                     .into_any_element()
             })
             .child(
@@ -637,6 +909,134 @@ impl StudioApp {
                     .child(self.quadrant(2, cx))
                     .child(self.quadrant(3, cx)),
             )
+    }
+
+    /// Scrub strip: clickable segments mapping linearly onto frames — the
+    /// "heatmap is the scrollbar" control until plot-click navigation lands.
+    fn time_scrubber(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        const SEGMENTS: usize = 96;
+        let t = self.theme;
+        let frames = self
+            .operando
+            .as_ref()
+            .map(|d| d.matrix.len())
+            .unwrap_or(0)
+            .max(1);
+        let active_seg = if frames > 1 {
+            self.time_pos * (SEGMENTS - 1) / (frames - 1)
+        } else {
+            0
+        };
+        let mut strip = div().flex().w_full().h(px(16.)).gap(px(1.)).px_1();
+        for seg in 0..SEGMENTS {
+            let frame = if SEGMENTS > 1 {
+                seg * (frames - 1) / (SEGMENTS - 1)
+            } else {
+                0
+            };
+            strip = strip.child(
+                div()
+                    .id(("scrub", seg))
+                    .flex_1()
+                    .h_full()
+                    .rounded_xs()
+                    .bg(if seg == active_seg { t.accent } else { t.raised })
+                    .hover(|d| d.bg(t.text_muted))
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                        this.set_time_pos(frame, cx);
+                    })),
+            );
+        }
+        strip
+    }
+
+    fn operando_center(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let t = self.theme;
+        let Some(plots) = &self.operando_plots else {
+            let hint: SharedString = if self.active_scan.is_some() {
+                self.status.clone()
+            } else if self.catalog.scans.is_empty() {
+                "Open a folder, then pick a scan in the Scans tab".into()
+            } else {
+                "Pick a scan in the Scans tab".into()
+            };
+            return div()
+                .flex_1()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(t.text_muted)
+                .child(hint)
+                .into_any_element();
+        };
+        let frames = self.operando.as_ref().map(|d| d.matrix.len()).unwrap_or(0);
+        let frame_label: SharedString = format!("frame {} / {frames}", self.time_pos + 1).into();
+        div()
+            .flex_1()
+            .flex()
+            .child(
+                // Left: heatmap overview + scrubber.
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .m_1()
+                    .flex()
+                    .flex_col()
+                    .rounded_md()
+                    .bg(t.raised)
+                    .border_1()
+                    .border_color(t.border)
+                    .child(
+                        div()
+                            .px_2()
+                            .py_1()
+                            .text_xs()
+                            .text_color(t.text_muted)
+                            .child("scan overview · k²χ(k) vs time"),
+                    )
+                    .child(div().flex_1().p_1().child(plots.heatmap.clone()))
+                    .child(self.time_scrubber(cx))
+                    .child(
+                        div()
+                            .px_2()
+                            .py_1()
+                            .text_xs()
+                            .text_color(t.text_muted)
+                            .child(frame_label),
+                    ),
+            )
+            .child(
+                // Right: frame chi(k) + E0 trend.
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .child(
+                        div()
+                            .flex_1()
+                            .m_1()
+                            .rounded_md()
+                            .bg(t.raised)
+                            .border_1()
+                            .border_color(t.border)
+                            .p_1()
+                            .child(plots.chik.clone()),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .m_1()
+                            .rounded_md()
+                            .bg(t.raised)
+                            .border_1()
+                            .border_color(t.border)
+                            .p_1()
+                            .child(plots.trend.clone()),
+                    ),
+            )
+            .into_any_element()
     }
 
     fn placeholder_center(&self, label: &'static str) -> impl IntoElement + use<> {
@@ -769,9 +1169,7 @@ impl Render for StudioApp {
         let t = self.theme;
         let center = match self.workspace {
             Workspace::Explore => self.explore_center(cx).into_any_element(),
-            Workspace::Operando => self
-                .placeholder_center("Operando workspace — heatmap + time scrubbing land in M3")
-                .into_any_element(),
+            Workspace::Operando => self.operando_center(cx).into_any_element(),
             Workspace::Fit => self
                 .placeholder_center("Fit workspace — FEFF model + batch fitting land in M4/M5")
                 .into_any_element(),

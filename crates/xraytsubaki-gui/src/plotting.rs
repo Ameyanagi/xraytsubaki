@@ -1,6 +1,7 @@
 //! Builders turning a processed `XASSpectrum` into ruviz `Plot`s for the four
 //! Explore quadrants: mu(E), normalized mu(E), k-weighted chi(k), |chi(R)|.
 
+use ruviz::plots::heatmap::HeatmapConfig;
 use ruviz::prelude::Plot;
 use xraytsubaki::prelude::XASSpectrum;
 
@@ -74,5 +75,47 @@ pub fn build_quadrants(sp: &XASSpectrum, theme: &Theme) -> QuadrantPlots {
         norm,
         chi_k,
         chi_r,
+    }
+}
+
+/// Operando heatmap: rows = frames (time), cols = k-grid bins.
+pub fn build_heatmap(matrix: &Vec<Vec<f64>>, kmax: f64, theme: &Theme) -> Plot {
+    let _ = kmax;
+    Plot::new()
+        .theme(theme.plot_theme())
+        .xlabel("k bin")
+        .ylabel("frame")
+        .heatmap(matrix, Some(HeatmapConfig::new().colorbar(true)))
+        .into()
+}
+
+/// chi(k) of a single operando frame from the resampled grid row.
+pub fn build_frame_chik(grid: &[f64], row: &[f64], kw: f64, theme: &Theme) -> Plot {
+    let grid: Vec<f64> = grid.to_vec();
+    let row: Vec<f64> = row.to_vec();
+    Plot::new()
+        .theme(theme.plot_theme())
+        .line(&grid, &row)
+        .xlabel("k (1/Angstrom)")
+        .ylabel(format!("k^{kw:.0} chi(k)"))
+        .into()
+}
+
+/// Parameter-vs-frame trend with a cursor marker.
+pub fn build_trend(values: &[f64], cursor: usize, ylabel: &str, theme: &Theme) -> Plot {
+    let xs: Vec<f64> = (0..values.len()).map(|i| i as f64).collect();
+    let ys: Vec<f64> = values.to_vec();
+    let base = Plot::new()
+        .theme(theme.plot_theme())
+        .line(&xs, &ys)
+        .xlabel("frame")
+        .ylabel(ylabel);
+    match values.get(cursor) {
+        Some(&cy) if cy.is_finite() => {
+            let cx = vec![cursor as f64];
+            let cyv = vec![cy];
+            base.scatter(&cx, &cyv).into()
+        }
+        _ => base.into(),
     }
 }

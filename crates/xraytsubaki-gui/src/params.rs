@@ -112,3 +112,28 @@ pub fn process_file(path: &PathBuf, params: &PipelineParams) -> Result<XASSpectr
 
     Ok(sp)
 }
+
+/// Linearly resample the k-weighted chi(k) onto a fixed grid (0 outside the
+/// data range), so operando frames share one heatmap axis.
+pub fn resample_chik(sp: &XASSpectrum, grid: &[f64]) -> Option<Vec<f64>> {
+    let k = sp.get_k()?;
+    let chi = sp.get_chi_kweighted()?;
+    if k.len() < 2 || k.len() != chi.len() {
+        return None;
+    }
+    let mut out = Vec::with_capacity(grid.len());
+    let mut j = 0usize;
+    for &g in grid {
+        if g < k[0] || g > k[k.len() - 1] {
+            out.push(0.0);
+            continue;
+        }
+        while j + 2 < k.len() && k[j + 1] < g {
+            j += 1;
+        }
+        let (k0, k1) = (k[j], k[j + 1]);
+        let t = if k1 > k0 { (g - k0) / (k1 - k0) } else { 0.0 };
+        out.push(chi[j] + t * (chi[j + 1] - chi[j]));
+    }
+    Some(out)
+}

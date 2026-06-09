@@ -32,6 +32,7 @@ xraytsubaki = { path = "../xraytsubaki" }
 
 anyhow = "1.0"
 futures = "0.3"
+rayon = { workspace = true }
 lru = "0.18"
 walkdir = "2.5"
 unicode-segmentation = "1"

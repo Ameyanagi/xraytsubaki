@@ -10775,6 +10775,7 @@ dependencies = [
  "gpui_platform",
  "lru",
  "nalgebra 0.32.6",
+ "rayon",
  "ruviz",
  "ruviz-gpui",
  "serde",

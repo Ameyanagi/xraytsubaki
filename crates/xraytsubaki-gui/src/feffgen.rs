@@ -312,9 +312,88 @@ pub fn worker_main(workspace: &Path) -> i32 {
     }
 }
 
-/// Run FEFF10 in a helper subprocess. Blocking — call on the background
-/// executor.
+/// Locate the standalone `feff10-rs` CLI (github.com/Ameyanagi/feff10-rs;
+/// prebuilt macOS/Linux/Windows release binaries exist). Preferred over the
+/// embedded pipeline: it exec's a clean process, so the fork-based stages
+/// are safe regardless of the GUI runtime. Override with `XTS_FEFF10_BIN`.
+fn find_feff10_cli() -> Option<PathBuf> {
+    if let Ok(path) = std::env::var("XTS_FEFF10_BIN") {
+        let p = PathBuf::from(path);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    for name in ["feff10-rs", "feff10"] {
+        if let Ok(out) = std::process::Command::new("which").arg(name).output()
+            && out.status.success()
+        {
+            let p = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim().to_string());
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+        if let Ok(home) = std::env::var("HOME") {
+            let p = PathBuf::from(home).join(".cargo/bin").join(name);
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+    }
+    None
+}
+
+/// feffNNNN.dat files in a workspace, sorted.
+fn discover_path_files(workspace: &Path) -> Vec<PathBuf> {
+    let mut paths: Vec<PathBuf> = std::fs::read_dir(workspace)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| {
+                    n.len() == 12
+                        && n.starts_with("feff")
+                        && n.ends_with(".dat")
+                        && n[4..8].chars().all(|c| c.is_ascii_digit())
+                })
+        })
+        .collect();
+    paths.sort();
+    paths
+}
+
+/// Run FEFF10 in a subprocess: the standalone `feff10-rs` CLI when
+/// installed, else this binary's own fork-safe worker mode. Blocking — call
+/// on the background executor.
 pub fn run_feff10_subprocess(workspace: &Path) -> Result<Vec<PathBuf>, String> {
+    if let Some(cli) = find_feff10_cli() {
+        let output = std::process::Command::new(&cli)
+            .arg("run")
+            .arg("--quiet")
+            .arg("--timeout")
+            .arg("600")
+            .arg(workspace)
+            .output()
+            .map_err(|e| format!("failed to launch {}: {e}", cli.display()))?;
+        if !output.status.success() {
+            let err = String::from_utf8_lossy(&output.stderr);
+            return Err(format!(
+                "feff10-rs failed: {}",
+                err.trim().lines().last().unwrap_or("unknown error")
+            ));
+        }
+        let paths = discover_path_files(workspace);
+        if paths.is_empty() {
+            return Err(
+                "feff10-rs produced no feffNNNN.dat path files (check the PRINT card)".into(),
+            );
+        }
+        return Ok(paths);
+    }
+
+    // Fallback: embedded pipeline in our own fork-safe worker process.
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let output = std::process::Command::new(exe)
         .arg(FEFF10_WORKER_FLAG)
@@ -396,6 +475,22 @@ mod tests {
         let inp = generate_inp(&spec).expect("inp");
         assert!(inp.contains("POTENTIALS"));
         assert!(inp.contains(" 2   8   O"));
+    }
+
+    /// The subprocess route (external feff10-rs CLI when present, else the
+    /// embedded worker) must produce path files.
+    #[test]
+    fn subprocess_route_runs() {
+        let ws = new_workspace().expect("workspace");
+        let paths = run_feff10_subprocess(&ws).expect("subprocess run");
+        assert!(!paths.is_empty());
+        println!(
+            "subprocess route ({}): {} path files",
+            find_feff10_cli()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "embedded worker".into()),
+            paths.len()
+        );
     }
 
     /// Template must parse and produce path files via the FEFF10 pipeline.

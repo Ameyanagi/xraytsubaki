@@ -9,6 +9,7 @@
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures::StreamExt;
 use gpui::{
@@ -18,11 +19,12 @@ use gpui::{
 use lru::LruCache;
 use ruviz_gpui::{RuvizPlot, plot_builder};
 use xraytsubaki::prelude::XASSpectrum;
-use xraytsubaki::xafs::io;
 
 use crate::catalog::{Catalog, ScanEvent, start_scan};
+use crate::params::{PipelineParams, process_file};
 use crate::plotting::build_quadrants;
 use crate::theme::{Theme, ThemeMode};
+use crate::widgets::numeric_field::{FieldEvent, NumericField};
 
 /// Processed spectra kept in RAM. ~100-300 KB each, so 1024 ≈ a few hundred MB
 /// worst case; browsing a million-file catalog stays bounded.
@@ -35,6 +37,26 @@ pub enum Workspace {
     Fit,
 }
 
+/// Which pipeline parameter a context-panel field edits.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ParamKey {
+    E0,
+    PreEdgeStart,
+    PreEdgeEnd,
+    NormStart,
+    NormEnd,
+    Rbkg,
+    BkgKmin,
+    BkgKmax,
+    FftKmin,
+    FftKmax,
+    FftDk,
+    FftKweight,
+}
+
+/// Cache slot for the spectrum loaded outside the catalog (default file).
+const NO_ENTRY: usize = usize::MAX;
+
 pub struct StudioApp {
     theme: Theme,
     workspace: Workspace,
@@ -43,7 +65,14 @@ pub struct StudioApp {
     /// Bumped on every selection; async load results from older generations
     /// are discarded.
     generation: u64,
-    cache: LruCache<usize, Arc<XASSpectrum>>,
+    /// Bumped on every parameter edit; the debounced recompute only fires for
+    /// the latest epoch.
+    recompute_epoch: u64,
+    params: PipelineParams,
+    param_fields: Vec<(ParamKey, Entity<NumericField>)>,
+    /// Keyed by (catalog index, params fingerprint).
+    cache: LruCache<(usize, u64), Arc<XASSpectrum>>,
+    current_path: PathBuf,
     spectrum: Option<Arc<XASSpectrum>>,
     spectrum_label: SharedString,
     quadrants: Vec<(SharedString, Entity<RuvizPlot>)>,
@@ -54,15 +83,6 @@ pub struct StudioApp {
 fn default_data_file() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../xraytsubaki/tests/testfiles/Ru_QAS.dat")
-}
-
-fn load_and_process(path: &PathBuf) -> Result<XASSpectrum, String> {
-    let mut sp = io::load_spectrum_QAS_trans(path).map_err(|e| e.to_string())?;
-    sp.find_e0().map_err(|e| e.to_string())?;
-    sp.normalize().map_err(|e| e.to_string())?;
-    sp.calc_background().map_err(|e| e.to_string())?;
-    sp.fft().map_err(|e| e.to_string())?;
-    Ok(sp)
 }
 
 fn spectrum_status(label: &SharedString, sp: &XASSpectrum) -> SharedString {
@@ -92,13 +112,21 @@ impl StudioApp {
             .unwrap_or_else(|| path.display().to_string())
             .into();
 
+        let theme = Theme::dark();
+        let params = PipelineParams::default();
+        let param_fields = Self::build_param_fields(theme, cx);
+
         let mut app = Self {
-            theme: Theme::dark(),
+            theme,
             workspace: Workspace::Explore,
             catalog: Catalog::default(),
             selected: None,
             generation: 0,
+            recompute_epoch: 0,
+            params,
+            param_fields,
             cache: LruCache::new(NonZeroUsize::new(PROCESSED_CACHE_CAPACITY).unwrap()),
+            current_path: path.clone(),
             spectrum: None,
             spectrum_label: label.clone(),
             quadrants: Vec::new(),
@@ -106,11 +134,9 @@ impl StudioApp {
             status: "loading...".into(),
         };
 
-        match load_and_process(&path) {
+        match process_file(&path, &app.params) {
             Ok(sp) => {
-                app.status = spectrum_status(&label, &sp);
-                app.spectrum = Some(Arc::new(sp));
-                app.rebuild_plots(cx);
+                app.set_processed(label, Arc::new(sp), cx);
             }
             Err(e) => {
                 app.status = format!("failed to load {}: {e}", path.display()).into();
@@ -120,6 +146,152 @@ impl StudioApp {
             app.scan_folder(dir, cx);
         }
         app
+    }
+
+    /// Context-panel fields, in pipeline order. Placeholders show the value
+    /// used when the field is on "auto".
+    fn build_param_fields(
+        theme: Theme,
+        cx: &mut Context<Self>,
+    ) -> Vec<(ParamKey, Entity<NumericField>)> {
+        let specs: [(ParamKey, &str, &str); 12] = [
+            (ParamKey::E0, "E0 (eV)", "auto"),
+            (ParamKey::PreEdgeStart, "pre-edge start", "auto (-200)"),
+            (ParamKey::PreEdgeEnd, "pre-edge end", "auto (-30)"),
+            (ParamKey::NormStart, "norm start", "auto (150)"),
+            (ParamKey::NormEnd, "norm end", "auto (2000)"),
+            (ParamKey::Rbkg, "rbkg (Å)", "auto (1.0)"),
+            (ParamKey::BkgKmin, "k min", "auto (0)"),
+            (ParamKey::BkgKmax, "k max", "auto (full)"),
+            (ParamKey::FftKmin, "k min", "auto (0)"),
+            (ParamKey::FftKmax, "k max", "auto (20)"),
+            (ParamKey::FftDk, "dk", "auto (1)"),
+            (ParamKey::FftKweight, "k-weight", "auto (2)"),
+        ];
+        specs
+            .into_iter()
+            .map(|(key, label, placeholder)| {
+                let field = cx.new(|cx| NumericField::new(label, placeholder, None, theme, cx));
+                cx.subscribe(&field, move |this: &mut Self, _field, event, cx| {
+                    let FieldEvent::Changed(value) = event;
+                    this.apply_param(key, *value, cx);
+                })
+                .detach();
+                (key, field)
+            })
+            .collect()
+    }
+
+    fn apply_param(&mut self, key: ParamKey, value: Option<f64>, cx: &mut Context<Self>) {
+        let p = &mut self.params;
+        match key {
+            ParamKey::E0 => p.e0 = value,
+            ParamKey::PreEdgeStart => p.pre_edge_start = value,
+            ParamKey::PreEdgeEnd => p.pre_edge_end = value,
+            ParamKey::NormStart => p.norm_start = value,
+            ParamKey::NormEnd => p.norm_end = value,
+            ParamKey::Rbkg => p.rbkg = value,
+            ParamKey::BkgKmin => p.bkg_kmin = value,
+            ParamKey::BkgKmax => p.bkg_kmax = value,
+            ParamKey::FftKmin => p.fft_kmin = value,
+            ParamKey::FftKmax => p.fft_kmax = value,
+            ParamKey::FftDk => p.fft_dk = value,
+            ParamKey::FftKweight => p.fft_kweight = value,
+        }
+        self.schedule_recompute(cx);
+    }
+
+    /// Debounced (~200 ms) recompute of the current spectrum after parameter
+    /// edits; only the latest epoch fires.
+    fn schedule_recompute(&mut self, cx: &mut Context<Self>) {
+        self.recompute_epoch += 1;
+        let epoch = self.recompute_epoch;
+        let timer = cx.background_executor().timer(Duration::from_millis(200));
+        cx.spawn(async move |this, cx| {
+            timer.await;
+            this.update(cx, |app, cx| {
+                if app.recompute_epoch == epoch {
+                    app.reprocess_current(cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn reprocess_current(&mut self, cx: &mut Context<Self>) {
+        let ix = self.selected.unwrap_or(NO_ENTRY);
+        let label = self.spectrum_label.clone();
+        let path = self.current_path.clone();
+        self.load_spectrum(ix, path, label, cx);
+    }
+
+    /// Common load path: serve from the (entry, params) cache or process on
+    /// the background executor; stale generations are dropped.
+    fn load_spectrum(
+        &mut self,
+        ix: usize,
+        path: PathBuf,
+        label: SharedString,
+        cx: &mut Context<Self>,
+    ) {
+        self.generation += 1;
+        let generation = self.generation;
+        let key = (ix, self.params.fingerprint());
+
+        if let Some(sp) = self.cache.get(&key) {
+            let sp = sp.clone();
+            self.set_processed(label, sp, cx);
+            cx.notify();
+            return;
+        }
+
+        self.status = format!("processing {label} ...").into();
+        cx.notify();
+        let params = self.params;
+        let load = cx
+            .background_executor()
+            .spawn(async move { process_file(&path, &params) });
+        cx.spawn(async move |this, cx| {
+            let result = load.await;
+            this.update(cx, |app, cx| {
+                if app.generation != generation {
+                    return; // a newer selection/edit superseded this load
+                }
+                match result {
+                    Ok(sp) => {
+                        let sp = Arc::new(sp);
+                        app.cache.put(key, sp.clone());
+                        app.set_processed(label, sp, cx);
+                    }
+                    Err(e) => {
+                        app.status = format!("failed to process {label}: {e}").into();
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn set_processed(&mut self, label: SharedString, sp: Arc<XASSpectrum>, cx: &mut Context<Self>) {
+        self.status = spectrum_status(&label, &sp);
+        self.spectrum_label = label;
+        // Surface the auto-determined E0 in the field placeholder.
+        if self.params.e0.is_none()
+            && let Some(e0) = sp.get_e0()
+            && let Some((_, field)) = self
+                .param_fields
+                .iter()
+                .find(|(key, _)| *key == ParamKey::E0)
+        {
+            field.update(cx, |f, cx| {
+                f.set_placeholder(format!("auto ({e0:.1})"), cx)
+            });
+        }
+        self.spectrum = Some(sp);
+        self.rebuild_plots(cx);
     }
 
     fn rebuild_plots(&mut self, cx: &mut Context<Self>) {
@@ -150,6 +322,10 @@ impl StudioApp {
 
     fn toggle_theme(&mut self, cx: &mut Context<Self>) {
         self.theme = self.theme.toggled();
+        let theme = self.theme;
+        for (_, field) in &self.param_fields {
+            field.update(cx, |f, cx| f.set_theme(theme, cx));
+        }
         self.rebuild_plots(cx);
         cx.notify();
     }
@@ -214,48 +390,11 @@ impl StudioApp {
             return;
         }
         self.selected = Some(ix);
-        self.generation += 1;
-        let generation = self.generation;
         let label: SharedString = self.catalog.name(ix).to_string().into();
         self.spectrum_label = label.clone();
-
-        if let Some(sp) = self.cache.get(&ix) {
-            self.spectrum = Some(sp.clone());
-            self.status = spectrum_status(&label, sp);
-            self.rebuild_plots(cx);
-            cx.notify();
-            return;
-        }
-
-        self.status = format!("loading {label} ...").into();
-        cx.notify();
         let path = self.catalog.path(ix);
-        let load = cx
-            .background_executor()
-            .spawn(async move { load_and_process(&path) });
-        cx.spawn(async move |this, cx| {
-            let result = load.await;
-            this.update(cx, |app, cx| {
-                if app.generation != generation {
-                    return; // a newer selection superseded this load
-                }
-                match result {
-                    Ok(sp) => {
-                        let sp = Arc::new(sp);
-                        app.cache.put(ix, sp.clone());
-                        app.status = spectrum_status(&label, &sp);
-                        app.spectrum = Some(sp);
-                        app.rebuild_plots(cx);
-                    }
-                    Err(e) => {
-                        app.status = format!("failed to load {label}: {e}").into();
-                    }
-                }
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
+        self.current_path = path.clone();
+        self.load_spectrum(ix, path, label, cx);
     }
 
     // ---- views -------------------------------------------------------------
@@ -510,18 +649,6 @@ impl StudioApp {
             .child(label)
     }
 
-    fn param_row(&self, name: &'static str, value: String) -> impl IntoElement + use<> {
-        let t = self.theme;
-        div()
-            .px_3()
-            .py_1()
-            .flex()
-            .justify_between()
-            .text_sm()
-            .child(div().text_color(t.text_muted).child(name))
-            .child(div().text_color(t.text).child(value))
-    }
-
     fn section_header(&self, label: &'static str) -> impl IntoElement + use<> {
         div()
             .px_3()
@@ -534,12 +661,56 @@ impl StudioApp {
 
     fn context_panel(&self) -> impl IntoElement + use<> {
         let t = self.theme;
-        let e0 = self
-            .spectrum
-            .as_ref()
-            .and_then(|s| s.get_e0())
-            .map(|v| format!("{v:.1}"))
-            .unwrap_or_else(|| "—".into());
+        let field = |key: ParamKey| {
+            self.param_fields
+                .iter()
+                .find(|(k, _)| *k == key)
+                .map(|(_, f)| f.clone())
+        };
+        let mut sections = div()
+            .id("params-scroll")
+            .flex_1()
+            .flex()
+            .flex_col()
+            .overflow_y_scroll();
+        sections = sections.child(self.section_header("Normalization"));
+        for key in [
+            ParamKey::E0,
+            ParamKey::PreEdgeStart,
+            ParamKey::PreEdgeEnd,
+            ParamKey::NormStart,
+            ParamKey::NormEnd,
+        ] {
+            if let Some(f) = field(key) {
+                sections = sections.child(f);
+            }
+        }
+        sections = sections.child(self.section_header("Background (AUTOBK)"));
+        for key in [ParamKey::Rbkg, ParamKey::BkgKmin, ParamKey::BkgKmax] {
+            if let Some(f) = field(key) {
+                sections = sections.child(f);
+            }
+        }
+        sections = sections.child(self.section_header("FFT"));
+        for key in [
+            ParamKey::FftKmin,
+            ParamKey::FftKmax,
+            ParamKey::FftDk,
+            ParamKey::FftKweight,
+        ] {
+            if let Some(f) = field(key) {
+                sections = sections.child(f);
+            }
+        }
+        sections = sections.child(
+            div()
+                .px_3()
+                .py_2()
+                .text_xs()
+                .text_color(t.text_muted)
+                .child("Enter commits · empty = auto"),
+        );
+
         div()
             .w(px(260.))
             .h_full()
@@ -556,25 +727,7 @@ impl StudioApp {
                     .text_color(t.text_muted)
                     .child("PARAMETERS"),
             )
-            .child(self.section_header("Normalization"))
-            .child(self.param_row("E0 (eV)", e0))
-            .child(self.param_row("pre-edge", "auto".into()))
-            .child(self.param_row("norm range", "auto".into()))
-            .child(self.section_header("Background (AUTOBK)"))
-            .child(self.param_row("rbkg", "1.0".into()))
-            .child(self.param_row("k range", "auto".into()))
-            .child(self.param_row("solver", "LinearDirect".into()))
-            .child(self.section_header("FFT"))
-            .child(self.param_row("k-weight", "2".into()))
-            .child(self.param_row("window", "KaiserBessel".into()))
-            .child(
-                div()
-                    .px_3()
-                    .py_2()
-                    .text_xs()
-                    .text_color(t.text_muted)
-                    .child("editing arrives in M2"),
-            )
+            .child(sections)
     }
 
     fn status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {

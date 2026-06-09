@@ -5,6 +5,8 @@
 
 mod app;
 mod catalog;
+mod params;
+mod widgets;
 mod plotting;
 mod theme;
 
@@ -23,6 +25,7 @@ fn main() {
     // gpui 0.2.2 has no zero-arg `Application::new()`; the public entry point
     // is `gpui_platform::application()`.
     gpui_platform::application().run(move |cx: &mut App| {
+        cx.bind_keys(widgets::text_input::text_input_keybindings());
         let window_size = Size {
             width: px(1440.0),
             height: px(900.0),

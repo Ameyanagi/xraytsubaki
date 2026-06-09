@@ -10779,6 +10779,7 @@ dependencies = [
  "ruviz-gpui",
  "serde",
  "serde_json",
+ "unicode-segmentation",
  "walkdir",
  "xraytsubaki",
 ]

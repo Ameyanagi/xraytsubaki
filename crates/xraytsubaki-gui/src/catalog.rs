@@ -26,8 +26,10 @@ pub struct FileMeta {
 }
 
 pub enum ScanEvent {
+    // Error is reserved for scanner-side failures (e.g. root vanishes mid-scan).
     Batch(Vec<FileMeta>),
     Done { total: usize },
+    #[allow(dead_code)]
     Error(String),
 }
 

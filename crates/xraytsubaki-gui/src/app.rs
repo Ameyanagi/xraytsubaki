@@ -25,7 +25,7 @@ use rayon::prelude::*;
 use xraytsubaki::prelude::FeffFitResult;
 
 use crate::catalog::{Catalog, ScanEvent, start_scan};
-use crate::fitting::{FitPathSpec, FitRanges, FitVarSpec, result_summary, run_fit};
+use crate::fitting::{BatchFitRow, FitPathSpec, FitRanges, FitVarSpec, PathMeta, batch_csv, path_meta, result_summary, run_fit};
 use crate::params::{PipelineParams, process_file, resample_chik};
 use crate::plotting::{
     build_fit_k, build_fit_r, build_frame_chik, build_heatmap, build_quadrants, build_trend,
@@ -104,6 +104,16 @@ enum RangeKey {
     Kweight,
 }
 
+/// Completed batch fit over the operando frame sample.
+struct BatchFitData {
+    scan: usize,
+    fingerprint: u64,
+    rows: Vec<BatchFitRow>,
+    varying_names: Vec<String>,
+    /// Index into varying_names selected for the operando trend plot.
+    trend_param: usize,
+}
+
 /// A fit variable row: spec + its editable value/expression field.
 struct FitVar {
     spec: FitVarSpec,
@@ -121,7 +131,23 @@ enum PathParam {
 /// An imported FEFF path with editable parameter-expression cells.
 struct FitPathRow {
     spec: FitPathSpec,
+    meta: Option<PathMeta>,
     fields: Vec<(PathParam, Entity<TextInput>)>,
+    /// Collapsed rows show one metadata line; expanding reveals the
+    /// parameter-expression cells.
+    expanded: bool,
+}
+
+/// Crystal-form fields for Atoms-lite feff.inp generation.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FeffFormKey {
+    Element,
+    Element2,
+    Structure,
+    LatticeA,
+    LatticeC,
+    Edge,
+    Rmax,
 }
 
 pub struct StudioApp {
@@ -161,6 +187,12 @@ pub struct StudioApp {
     feff_workspace: Option<PathBuf>,
     feff_running: bool,
     feff_gen: u64,
+    feff_form: Vec<(FeffFormKey, Entity<TextInput>)>,
+    /// Batch-fit rows for (scan, params fingerprint) + progress counter.
+    batch_fit: Option<BatchFitData>,
+    batch_running: bool,
+    batch_progress: (usize, usize),
+    batch_gen: u64,
     status: SharedString,
 }
 
@@ -241,9 +273,28 @@ impl StudioApp {
             feff_workspace: None,
             feff_running: false,
             feff_gen: 0,
+            feff_form: Vec::new(),
+            batch_fit: None,
+            batch_running: false,
+            batch_progress: (0, 0),
+            batch_gen: 0,
             status: "loading...".into(),
         };
         app.fit_range_fields = Self::build_range_fields(theme, app.fit_ranges, cx);
+        app.feff_form = [
+            (FeffFormKey::Element, "element", "Cu"),
+            (FeffFormKey::Element2, "element 2", ""),
+            (FeffFormKey::Structure, "fcc/bcc/hcp/...", "fcc"),
+            (FeffFormKey::LatticeA, "a (Å)", "3.615"),
+            (FeffFormKey::LatticeC, "c (Å, hcp)", ""),
+            (FeffFormKey::Edge, "edge", "K"),
+            (FeffFormKey::Rmax, "rmax (Å)", "5.0"),
+        ]
+        .into_iter()
+        .map(|(key, placeholder, initial)| {
+            (key, cx.new(|cx| TextInput::new(placeholder, initial, theme, cx)))
+        })
+        .collect();
 
         match process_file(&path, &app.params) {
             Ok(sp) => {
@@ -505,7 +556,8 @@ impl StudioApp {
         let heatmap = build_heatmap(&data.matrix, K_GRID_MAX, &self.theme);
         let row = data.matrix.get(self.time_pos).cloned().unwrap_or_default();
         let chik = build_frame_chik(&data.grid, &row, data.kweight, &self.theme);
-        let trend = build_trend(&data.e0s, self.time_pos, "E0 (eV)", &self.theme);
+        let (trend_values, trend_label) = self.trend_series();
+        let trend = build_trend(&trend_values, self.time_pos, &trend_label, &self.theme);
         match &self.operando_plots {
             Some(plots) => {
                 plots.heatmap.update(cx, |rp, cx| rp.set_plot(heatmap, cx));
@@ -534,7 +586,8 @@ impl StudioApp {
         let ix = data.sample_ixs.get(pos).copied();
         let row = data.matrix.get(pos).cloned().unwrap_or_default();
         let chik = build_frame_chik(&data.grid, &row, data.kweight, &self.theme);
-        let trend = build_trend(&data.e0s, pos, "E0 (eV)", &self.theme);
+        let (trend_values, trend_label) = self.trend_series();
+        let trend = build_trend(&trend_values, pos, &trend_label, &self.theme);
         if let Some(plots) = &self.operando_plots {
             plots.chik.update(cx, |rp, cx| rp.set_plot(chik, cx));
             plots.trend.update(cx, |rp, cx| rp.set_plot(trend, cx));
@@ -593,6 +646,9 @@ impl StudioApp {
             for (_, field) in &row.fields {
                 field.update(cx, |f, cx| f.set_theme(theme, cx));
             }
+        }
+        for (_, field) in &self.feff_form {
+            field.update(cx, |f, cx| f.set_theme(theme, cx));
         }
         self.rebuild_plots(cx);
         self.rebuild_operando_plots(cx);
@@ -822,6 +878,7 @@ impl StudioApp {
         self.ensure_fit_var("de0", 0.0, cx);
         self.ensure_fit_var(&sigma2, 0.003, cx);
         self.ensure_fit_var(&deltar, 0.0, cx);
+        let meta = path_meta(&file);
         let spec = FitPathSpec {
             file,
             label,
@@ -850,7 +907,7 @@ impl StudioApp {
             (param, field)
         })
         .collect();
-        self.fit_paths.push(FitPathRow { spec, fields });
+        self.fit_paths.push(FitPathRow { spec, meta, fields, expanded: false });
     }
 
     fn run_fit_now(&mut self, cx: &mut Context<Self>) {
@@ -938,7 +995,231 @@ impl StudioApp {
         }
     }
 
+    // ---- batch fitting -------------------------------------------------------
+
+    /// Fit every sampled frame of the active scan with the current model, in
+    /// parallel on rayon, streaming progress to the status bar.
+    fn run_batch_fit(&mut self, cx: &mut Context<Self>) {
+        if self.batch_running {
+            return;
+        }
+        let Some(data) = &self.operando else {
+            self.status = "open a scan in Operando first".into();
+            cx.notify();
+            return;
+        };
+        if self.fit_paths.is_empty() {
+            self.status = "no FEFF paths in the model".into();
+            cx.notify();
+            return;
+        }
+        let scan = data.scan;
+        let fingerprint = data.fingerprint;
+        let frames: Vec<(usize, usize, PathBuf)> = data
+            .sample_ixs
+            .iter()
+            .enumerate()
+            .map(|(pos, &ix)| (pos, ix, self.catalog.path(ix)))
+            .collect();
+        let total = frames.len();
+        self.batch_gen += 1;
+        let generation = self.batch_gen;
+        self.batch_running = true;
+        self.batch_progress = (0, total);
+        self.status = format!("batch fit 0/{total} ...").into();
+        cx.notify();
+
+        let params = self.params;
+        let paths: Vec<FitPathSpec> = self.fit_paths.iter().map(|r| r.spec.clone()).collect();
+        let vars: Vec<FitVarSpec> = self.fit_vars.iter().map(|v| v.spec.clone()).collect();
+        let ranges = self.fit_ranges;
+        let (tx, mut rx) = futures::channel::mpsc::unbounded::<()>();
+
+        let job = cx.background_executor().spawn(async move {
+            let rows: Vec<Option<BatchFitRow>> = frames
+                .par_iter()
+                .map(|(pos, ix, path)| {
+                    let row = (|| {
+                        let sp = process_file(path, &params).ok()?;
+                        let (k, chi) = (sp.get_k()?, sp.get_chi()?);
+                        let result = run_fit(k, chi, &paths, &vars, ranges).ok()?;
+                        Some(BatchFitRow::from_result(*pos, *ix, &result))
+                    })();
+                    let _ = tx.unbounded_send(());
+                    row
+                })
+                .collect();
+            rows
+        });
+
+        // Progress drain: one tick per completed frame.
+        cx.spawn(async move |this, cx| {
+            while rx.next().await.is_some() {
+                let stop = this
+                    .update(cx, |app, cx| {
+                        if app.batch_gen != generation {
+                            return true;
+                        }
+                        app.batch_progress.0 += 1;
+                        let (done, total) = app.batch_progress;
+                        app.status = format!("batch fit {done}/{total} ...").into();
+                        cx.notify();
+                        false
+                    })
+                    .unwrap_or(true);
+                if stop {
+                    break;
+                }
+            }
+        })
+        .detach();
+
+        cx.spawn(async move |this, cx| {
+            let rows = job.await;
+            this.update(cx, |app, cx| {
+                if app.batch_gen != generation {
+                    return;
+                }
+                app.batch_running = false;
+                let ok_rows: Vec<BatchFitRow> = rows.into_iter().flatten().collect();
+                let failed = total - ok_rows.len();
+                let varying_names: Vec<String> = ok_rows
+                    .first()
+                    .map(|r| r.values.iter().map(|(n, _, _)| n.clone()).collect())
+                    .unwrap_or_default();
+                app.status = format!(
+                    "batch fit done · {} ok · {failed} failed",
+                    ok_rows.len()
+                )
+                .into();
+                app.batch_fit = Some(BatchFitData {
+                    scan,
+                    fingerprint,
+                    rows: ok_rows,
+                    varying_names,
+                    trend_param: 0,
+                });
+                app.rebuild_operando_plots(cx);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// The operando trend series: fitted parameter when a batch fit exists
+    /// for the current scan/params, otherwise E0.
+    fn trend_series(&self) -> (Vec<f64>, String) {
+        if let (Some(bf), Some(data)) = (&self.batch_fit, &self.operando)
+            && bf.scan == data.scan
+            && bf.fingerprint == data.fingerprint
+            && let Some(name) = bf.varying_names.get(bf.trend_param)
+        {
+            let mut values = vec![f64::NAN; data.matrix.len()];
+            for row in &bf.rows {
+                if let (Some(slot), Some(v)) = (values.get_mut(row.frame), row.value_of(name)) {
+                    *slot = v;
+                }
+            }
+            // Fill gaps so the line stays drawable.
+            let mut last = values.iter().copied().find(|v| v.is_finite()).unwrap_or(0.0);
+            for v in values.iter_mut() {
+                if v.is_finite() {
+                    last = *v;
+                } else {
+                    *v = last;
+                }
+            }
+            return (values, name.clone());
+        }
+        let values = self
+            .operando
+            .as_ref()
+            .map(|d| d.e0s.clone())
+            .unwrap_or_default();
+        (values, "E0 (eV)".to_string())
+    }
+
+    fn cycle_trend_param(&mut self, cx: &mut Context<Self>) {
+        if let Some(bf) = &mut self.batch_fit
+            && !bf.varying_names.is_empty()
+        {
+            bf.trend_param = (bf.trend_param + 1) % bf.varying_names.len();
+            self.rebuild_operando_plots(cx);
+            cx.notify();
+        }
+    }
+
+    fn export_batch_csv(&mut self, cx: &mut Context<Self>) {
+        let Some(bf) = &self.batch_fit else {
+            return;
+        };
+        let files: Vec<String> = self
+            .operando
+            .as_ref()
+            .map(|d| {
+                d.sample_ixs
+                    .iter()
+                    .map(|&ix| self.catalog.name(ix).to_string())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let csv = batch_csv(&bf.rows, &bf.varying_names, &files);
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+        let rx = cx.prompt_for_new_path(std::path::Path::new(&home), Some("batch_fit.csv"));
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(path))) = rx.await {
+                let message = match std::fs::write(&path, csv) {
+                    Ok(()) => format!("exported {}", path.display()),
+                    Err(e) => format!("export failed: {e}"),
+                };
+                this.update(cx, |app, cx| {
+                    app.status = message.into();
+                    cx.notify();
+                })
+                .ok();
+            }
+        })
+        .detach();
+    }
+
     // ---- FEFF10 generation --------------------------------------------------
+
+    /// Read the crystal form and generate a feff.inp workspace (Atoms-lite).
+    fn generate_feff_inp(&mut self, cx: &mut Context<Self>) {
+        let text = |key: FeffFormKey| -> String {
+            self.feff_form
+                .iter()
+                .find(|(k, _)| *k == key)
+                .map(|(_, f)| f.read(cx).text().trim().to_string())
+                .unwrap_or_default()
+        };
+        let opt = |s: String| if s.is_empty() { None } else { Some(s) };
+        let spec = crate::feffgen::CrystalSpec {
+            element: text(FeffFormKey::Element),
+            element2: opt(text(FeffFormKey::Element2)),
+            structure: text(FeffFormKey::Structure),
+            a: text(FeffFormKey::LatticeA).parse().unwrap_or(0.0),
+            c: text(FeffFormKey::LatticeC).parse().ok(),
+            edge: {
+                let e = text(FeffFormKey::Edge);
+                if e.is_empty() { "K".into() } else { e }
+            },
+            rmax: text(FeffFormKey::Rmax).parse().unwrap_or(5.0),
+        };
+        match crate::feffgen::new_workspace_from_spec(&spec) {
+            Ok(dir) => {
+                self.status = format!(
+                    "generated {}/feff.inp — Run FEFF10 (or edit it first)",
+                    dir.display()
+                )
+                .into();
+                self.feff_workspace = Some(dir);
+            }
+            Err(e) => self.status = format!("feff.inp generation failed: {e}").into(),
+        }
+        cx.notify();
+    }
 
     /// Create a template feff.inp workspace and open it in the system editor.
     fn new_feff_inp(&mut self, cx: &mut Context<Self>) {
@@ -1004,7 +1285,13 @@ impl StudioApp {
                 }
                 app.feff_running = false;
                 match result {
-                    Ok(paths) => {
+                    Ok(mut paths) => {
+                        // Athena-style ordering: nearest shells first.
+                        paths.sort_by(|a, b| {
+                            let ra = path_meta(a).map(|m| m.reff).unwrap_or(f64::MAX);
+                            let rb = path_meta(b).map(|m| m.reff).unwrap_or(f64::MAX);
+                            ra.total_cmp(&rb)
+                        });
                         let n = paths.len();
                         for (i, file) in paths.into_iter().enumerate() {
                             app.push_fit_path(file, cx);
@@ -1574,54 +1861,85 @@ impl StudioApp {
         for (i, row) in self.fit_paths.iter().enumerate() {
             let label: SharedString = row.spec.label.clone().into();
             let enabled = row.spec.enabled;
-            let mut path_card = div()
-                .px_3()
-                .py_1()
-                .flex()
-                .flex_col()
-                .gap_1()
-                .child(
-                    div()
-                        .id(("fit-path", i))
-                        .flex()
-                        .gap_2()
-                        .text_sm()
-                        .cursor_pointer()
-                        .hover(|d| d.bg(t.raised))
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                            if let Some(p) = this.fit_paths.get_mut(i) {
-                                p.spec.enabled = !p.spec.enabled;
-                                cx.notify();
-                            }
-                        }))
-                        .child(
-                            div()
-                                .text_color(if enabled { t.success } else { t.text_muted })
-                                .child(if enabled { "✓" } else { "✗" }),
-                        )
-                        .child(div().text_color(t.text).child(label)),
-                );
-            for (param, field) in &row.fields {
-                let cell_label = match param {
-                    PathParam::S02 => "s02",
-                    PathParam::E0 => "e0",
-                    PathParam::Sigma2 => "σ²",
-                    PathParam::DeltaR => "Δr",
-                };
-                path_card = path_card.child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .child(
-                            div()
-                                .w(px(28.))
-                                .text_xs()
-                                .text_color(t.text_muted)
-                                .child(cell_label),
-                        )
-                        .child(div().flex_1().child(field.clone())),
-                );
+            let expanded = row.expanded;
+            let meta_line: SharedString = match &row.meta {
+                Some(m) => format!("R {:.3} Å · deg {:.0} · {} legs", m.reff, m.degen, m.nleg).into(),
+                None => "".into(),
+            };
+            let mut path_card = div().px_2().flex().flex_col().child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .child(
+                        // enable/disable toggle
+                        div()
+                            .id(("fit-path-en", i))
+                            .px_1()
+                            .text_sm()
+                            .cursor_pointer()
+                            .text_color(if enabled { t.success } else { t.text_muted })
+                            .hover(|d| d.bg(t.raised))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                                if let Some(p) = this.fit_paths.get_mut(i) {
+                                    p.spec.enabled = !p.spec.enabled;
+                                    cx.notify();
+                                }
+                            }))
+                            .child(if enabled { "✓" } else { "✗" }),
+                    )
+                    .child(
+                        // header: click to expand/collapse the editor
+                        div()
+                            .id(("fit-path", i))
+                            .flex_1()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .overflow_hidden()
+                            .cursor_pointer()
+                            .hover(|d| d.bg(t.raised))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                                if let Some(p) = this.fit_paths.get_mut(i) {
+                                    p.expanded = !p.expanded;
+                                    cx.notify();
+                                }
+                            }))
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(if enabled { t.text } else { t.text_muted })
+                                    .child(label),
+                            )
+                            .child(div().flex_1())
+                            .child(div().text_xs().text_color(t.text_muted).child(meta_line)),
+                    ),
+            );
+            if expanded {
+                for (param, field) in &row.fields {
+                    let cell_label = match param {
+                        PathParam::S02 => "s02",
+                        PathParam::E0 => "e0",
+                        PathParam::Sigma2 => "σ²",
+                        PathParam::DeltaR => "Δr",
+                    };
+                    path_card = path_card.child(
+                        div()
+                            .pl_4()
+                            .py_0p5()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .w(px(28.))
+                                    .text_xs()
+                                    .text_color(t.text_muted)
+                                    .child(cell_label),
+                            )
+                            .child(div().flex_1().child(field.clone())),
+                    );
+                }
             }
             panel = panel.child(path_card);
         }
@@ -1640,6 +1958,48 @@ impl StudioApp {
                 .hover(|d| d.bg(t.raised))
                 .child(label)
         };
+        // Crystal form (Atoms-lite).
+        for (key, field) in &self.feff_form {
+            let label = match key {
+                FeffFormKey::Element => "element",
+                FeffFormKey::Element2 => "element 2",
+                FeffFormKey::Structure => "structure",
+                FeffFormKey::LatticeA => "a (Å)",
+                FeffFormKey::LatticeC => "c (Å)",
+                FeffFormKey::Edge => "edge",
+                FeffFormKey::Rmax => "rmax (Å)",
+            };
+            panel = panel.child(
+                div()
+                    .px_3()
+                    .py_0p5()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(div().w(px(72.)).text_xs().text_color(t.text_muted).child(label))
+                    .child(div().flex_1().child(field.clone())),
+            );
+        }
+        panel = panel.child(
+            div().px_3().py_1().child(
+                div()
+                    .id("feff-generate")
+                    .w_full()
+                    .py_1()
+                    .rounded_md()
+                    .flex()
+                    .justify_center()
+                    .text_xs()
+                    .bg(t.raised)
+                    .text_color(t.accent)
+                    .cursor_pointer()
+                    .hover(|d| d.bg(t.border))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                        this.generate_feff_inp(cx);
+                    }))
+                    .child("Generate feff.inp from structure"),
+            ),
+        );
         panel = panel.child(
             div()
                 .px_3()
@@ -1772,6 +2132,79 @@ impl StudioApp {
                     .child(if self.fit_running { "fitting ..." } else { "Run Fit" }),
             ),
         );
+
+        // Batch over the active scan.
+        panel = panel.child(self.section_header("Batch"));
+        let batch_label: SharedString = if self.batch_running {
+            let (done, total) = self.batch_progress;
+            format!("fitting {done}/{total} ...").into()
+        } else if let Some(data) = &self.operando {
+            format!("Batch fit scan ({} frames)", data.sample_ixs.len()).into()
+        } else {
+            "Batch fit scan (open a scan first)".into()
+        };
+        panel = panel.child(
+            div().px_3().pb_1().flex().flex_col().gap_1().child(
+                div()
+                    .id("batch-fit")
+                    .w_full()
+                    .py_1()
+                    .rounded_md()
+                    .flex()
+                    .justify_center()
+                    .text_xs()
+                    .bg(t.raised)
+                    .text_color(t.accent)
+                    .cursor_pointer()
+                    .hover(|d| d.bg(t.border))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                        this.run_batch_fit(cx);
+                    }))
+                    .child(batch_label),
+            ),
+        );
+        if let Some(bf) = &self.batch_fit {
+            let summary: SharedString =
+                format!("{} frames fitted · trend: {}", bf.rows.len(),
+                    bf.varying_names.get(bf.trend_param).cloned().unwrap_or_default()).into();
+            panel = panel.child(
+                div()
+                    .px_3()
+                    .pb_1()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(div().flex_1().text_xs().text_color(t.text_muted).child(summary))
+                    .child(
+                        div()
+                            .id("trend-cycle")
+                            .px_1()
+                            .rounded_sm()
+                            .text_xs()
+                            .text_color(t.accent)
+                            .cursor_pointer()
+                            .hover(|d| d.bg(t.raised))
+                            .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                                this.cycle_trend_param(cx);
+                            }))
+                            .child("next param"),
+                    )
+                    .child(
+                        div()
+                            .id("batch-csv")
+                            .px_1()
+                            .rounded_sm()
+                            .text_xs()
+                            .text_color(t.accent)
+                            .cursor_pointer()
+                            .hover(|d| d.bg(t.raised))
+                            .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                                this.export_batch_csv(cx);
+                            }))
+                            .child("CSV..."),
+                    ),
+            );
+        }
 
         // Results.
         if let Some(result) = &self.fit_result {

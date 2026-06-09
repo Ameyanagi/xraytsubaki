@@ -119,6 +119,86 @@ pub fn run_fit(
     fit.fit().map_err(|e| e.to_string())
 }
 
+/// Athena-style path metadata for the selector list.
+#[derive(Clone, Copy)]
+pub struct PathMeta {
+    pub reff: f64,
+    pub degen: f64,
+    pub nleg: usize,
+}
+
+pub fn path_meta(file: &std::path::Path) -> Option<PathMeta> {
+    let model = feffpath(file.to_string_lossy().as_ref(), FeffFlavor::Feff85L).ok()?;
+    Some(PathMeta {
+        reff: model.feff.reff,
+        degen: model.feff.degen,
+        nleg: model.feff.nleg,
+    })
+}
+
+/// One frame's result in a batch fit over a scan.
+#[derive(Clone)]
+pub struct BatchFitRow {
+    /// Position within the sampled frame sequence.
+    pub frame: usize,
+    /// Catalog entry index (for file names).
+    pub entry_ix: usize,
+    pub r_factor: f64,
+    /// (name, value, stderr) for each varying parameter.
+    pub values: Vec<(String, f64, Option<f64>)>,
+}
+
+impl BatchFitRow {
+    pub fn from_result(frame: usize, entry_ix: usize, result: &FeffFitResult) -> Self {
+        let values = result
+            .varying_names
+            .iter()
+            .filter_map(|name| {
+                result
+                    .variables
+                    .get(name)
+                    .map(|v| (name.clone(), v.value, v.stderr))
+            })
+            .collect();
+        Self {
+            frame,
+            entry_ix,
+            r_factor: result.r_factor,
+            values,
+        }
+    }
+
+    pub fn value_of(&self, name: &str) -> Option<f64> {
+        self.values
+            .iter()
+            .find(|(n, _, _)| n == name)
+            .map(|(_, v, _)| *v)
+    }
+}
+
+/// CSV for a batch-fit result set: frame, file, r_factor, then one
+/// value/stderr column pair per varying parameter.
+pub fn batch_csv(rows: &[BatchFitRow], names: &[String], files: &[String]) -> String {
+    let mut out = String::from("frame,file,r_factor");
+    for name in names {
+        out.push_str(&format!(",{name},{name}_stderr"));
+    }
+    out.push('\n');
+    for row in rows {
+        let file = files.get(row.frame).map(String::as_str).unwrap_or("");
+        out.push_str(&format!("{},{file},{:.6}", row.frame, row.r_factor));
+        for name in names {
+            match row.values.iter().find(|(n, _, _)| n == name) {
+                Some((_, v, Some(err))) => out.push_str(&format!(",{v:.6},{err:.6}")),
+                Some((_, v, None)) => out.push_str(&format!(",{v:.6},")),
+                None => out.push_str(",,"),
+            }
+        }
+        out.push('\n');
+    }
+    out
+}
+
 /// "value ± stderr" lines for the varying parameters, plus fit statistics.
 pub fn result_summary(result: &FeffFitResult) -> Vec<String> {
     let mut lines = vec![

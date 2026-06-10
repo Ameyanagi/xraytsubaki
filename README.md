@@ -4,35 +4,11 @@ xraytsubaki is a Rust-based program that implements the core functionalities of 
 
 Currently the main source code is placed under `./crates/xraytsubaki/`.
 
-## Tauri App Dev (Bun Default)
-
-The desktop app lives in `xraytsubaki-app/`.
-
-Recommended dev flow:
-
-```bash
-cd xraytsubaki-app
-bun install
-bun run tauri:dev
-```
-
-Notes:
-- The Tauri/Vite dev server uses `http://localhost:1420` with strict port binding.
-- If port `1420` is already used, stop the previous dev process before rerunning.
-
-npm fallback (if Bun is unavailable):
-
-```bash
-cd xraytsubaki-app
-npm install
-npm run tauri -- dev
-```
-
 ## Project Genesis and Objectives
 
 The inception of this project was triggered when I needed to process over 1000 spectra from in-situ measurements. The data loading and processing in xraylarch were too time-consuming, not to mention also for demeter. The goal was to develop a tool capable of processing data within a reasonable timeframe. While this project does not seek to replace xraylarch, it does aim to provide a phenomenally fast core API for xraylarch's backend to augment its capacity.
 
-Additionally, this project seeks to leverage Rust's ecosystem to create a generalized library compatible with other languages such as Python and Javascript. This will facilitate a shift away from exclusive Python-based analysis. Essentially, this library can be integrated into native GUI applications using modern frameworks like [tauri](https://tauri.studio/en/).
+Additionally, this project seeks to leverage Rust's ecosystem to create a generalized library compatible with other languages such as Python and Javascript. This will facilitate a shift away from exclusive Python-based analysis.
 
 ## Key Features
 
@@ -44,7 +20,6 @@ Additionally, this project seeks to leverage Rust's ecosystem to create a genera
 
 - [ ] EXAFS helper funtions (rebinning and more)
 - [ ] Develop a Python wrapper for the library. (TODO: py-xraytsubaki)
-- [ ] Create a GUI application using Dioxus. (TODO: xraytsubaki-gui)
 - [ ] Develop a web assembly version of the library for web application usage.
 
 ## Licensing

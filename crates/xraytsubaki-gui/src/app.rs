@@ -14,8 +14,9 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use gpui::{
-    ClickEvent, Context, Entity, IntoElement, ParentElement, PathPromptOptions, Render,
-    SharedString, Styled, Window, div, prelude::*, px, uniform_list,
+    ClickEvent, Context, Entity, FocusHandle, Focusable, IntoElement, KeyBinding, ParentElement,
+    PathPromptOptions, Render, SharedString, Styled, Window, actions, div, prelude::*, px,
+    uniform_list,
 };
 use lru::LruCache;
 use ruviz_gpui::{RuvizPlot, plot_builder};
@@ -64,6 +65,37 @@ enum ParamKey {
     FftKmax,
     FftDk,
     FftKweight,
+}
+
+actions!(
+    studio,
+    [
+        NavUp,
+        NavDown,
+        NavExtendUp,
+        NavExtendDown,
+        ClearCompare,
+        FramePrev,
+        FrameNext,
+        FrameJumpBack,
+        FrameJumpFwd,
+    ]
+);
+
+/// Key bindings for list navigation and operando scrubbing; register at
+/// startup alongside the text-input bindings.
+pub fn studio_keybindings() -> Vec<KeyBinding> {
+    vec![
+        KeyBinding::new("up", NavUp, Some("DataPanel")),
+        KeyBinding::new("down", NavDown, Some("DataPanel")),
+        KeyBinding::new("shift-up", NavExtendUp, Some("DataPanel")),
+        KeyBinding::new("shift-down", NavExtendDown, Some("DataPanel")),
+        KeyBinding::new("escape", ClearCompare, Some("DataPanel")),
+        KeyBinding::new("left", FramePrev, Some("Operando")),
+        KeyBinding::new("right", FrameNext, Some("Operando")),
+        KeyBinding::new("shift-left", FrameJumpBack, Some("Operando")),
+        KeyBinding::new("shift-right", FrameJumpFwd, Some("Operando")),
+    ]
 }
 
 /// Overlays beyond this many traces are unreadable; larger selections are
@@ -171,6 +203,8 @@ pub struct StudioApp {
     view_offset_field: Option<Entity<NumericField>>,
     filter_input: Option<Entity<TextInput>>,
     filter_text: String,
+    data_focus: FocusHandle,
+    operando_focus: FocusHandle,
     /// Catalog indices passing the filter (ascending); None = no filter.
     filtered: Option<Arc<Vec<usize>>>,
     /// Bumped on every selection; async load results from older generations
@@ -375,6 +409,8 @@ impl StudioApp {
             filter_input: None,
             filter_text: String::new(),
             filtered: None,
+            data_focus: cx.focus_handle(),
+            operando_focus: cx.focus_handle(),
             generation: 0,
             recompute_epoch: 0,
             params,
@@ -725,6 +761,11 @@ impl StudioApp {
         }
     }
 
+    fn step_time(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let next = self.time_pos as isize + delta;
+        self.set_time_pos(next.max(0) as usize, cx);
+    }
+
     fn set_time_pos(&mut self, pos: usize, cx: &mut Context<Self>) {
         let Some(data) = &self.operando else {
             return;
@@ -999,6 +1040,40 @@ impl StudioApp {
         } else {
             self.selection.clear();
             self.select_entry(ix, cx);
+        }
+        cx.notify();
+    }
+
+    /// Neighbor of the active row within the visible (filtered) list.
+    fn visible_neighbor(&self, delta: isize) -> Option<usize> {
+        let active = self.selected?;
+        match &self.filtered {
+            None => {
+                let next = active as isize + delta;
+                (next >= 0 && (next as usize) < self.catalog.len()).then_some(next as usize)
+            }
+            Some(filtered) => {
+                let pos = filtered.binary_search(&active).ok()? as isize + delta;
+                (pos >= 0).then(|| filtered.get(pos as usize).copied())?
+            }
+        }
+    }
+
+    fn nav_move(&mut self, delta: isize, extend: bool, cx: &mut Context<Self>) {
+        let Some(next) = self.visible_neighbor(delta) else {
+            return;
+        };
+        if extend {
+            if let Some(active) = self.selected {
+                self.selection.insert(active);
+            }
+            self.selection.insert(next);
+        } else {
+            self.selection.clear();
+        }
+        self.select_entry(next, cx);
+        if extend {
+            self.ensure_compare_loaded(cx);
         }
         cx.notify();
     }
@@ -1902,8 +1977,10 @@ impl StudioApp {
                             .when(!is_active && !in_set, |d| d.text_color(t.text))
                             .hover(|d| d.bg(t.raised))
                             .cursor_pointer()
-                            .on_click(move |ev: &ClickEvent, _window, app| {
+                            .on_click(move |ev: &ClickEvent, window, app| {
                                 let modifiers = ev.modifiers();
+                                let focus = entity.read(app).data_focus.clone();
+                                window.focus(&focus, app);
                                 entity.update(app, |this, cx| {
                                     this.click_entry(ix, modifiers, cx)
                                 });
@@ -2014,6 +2091,24 @@ impl StudioApp {
             .into()
         };
         div()
+            .id("data-panel")
+            .key_context("DataPanel")
+            .track_focus(&self.data_focus)
+            .on_action(cx.listener(|this: &mut Self, _: &NavUp, _window, cx| {
+                this.nav_move(-1, false, cx);
+            }))
+            .on_action(cx.listener(|this: &mut Self, _: &NavDown, _window, cx| {
+                this.nav_move(1, false, cx);
+            }))
+            .on_action(cx.listener(|this: &mut Self, _: &NavExtendUp, _window, cx| {
+                this.nav_move(-1, true, cx);
+            }))
+            .on_action(cx.listener(|this: &mut Self, _: &NavExtendDown, _window, cx| {
+                this.nav_move(1, true, cx);
+            }))
+            .on_action(cx.listener(|this: &mut Self, _: &ClearCompare, _window, cx| {
+                this.clear_selection(cx);
+            }))
             .w(px(220.))
             .h_full()
             .flex()
@@ -2361,6 +2456,28 @@ impl StudioApp {
         let frames = self.operando.as_ref().map(|d| d.matrix.len()).unwrap_or(0);
         let frame_label: SharedString = format!("frame {} / {frames}", self.time_pos + 1).into();
         div()
+            .id("operando-center")
+            .key_context("Operando")
+            .track_focus(&self.operando_focus)
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _ev, window, cx| {
+                    let handle = this.operando_focus.clone();
+                    window.focus(&handle, cx);
+                }),
+            )
+            .on_action(cx.listener(|this: &mut Self, _: &FramePrev, _window, cx| {
+                this.step_time(-1, cx);
+            }))
+            .on_action(cx.listener(|this: &mut Self, _: &FrameNext, _window, cx| {
+                this.step_time(1, cx);
+            }))
+            .on_action(cx.listener(|this: &mut Self, _: &FrameJumpBack, _window, cx| {
+                this.step_time(-10, cx);
+            }))
+            .on_action(cx.listener(|this: &mut Self, _: &FrameJumpFwd, _window, cx| {
+                this.step_time(10, cx);
+            }))
             .flex_1()
             .flex()
             .child(
@@ -2481,6 +2598,7 @@ impl StudioApp {
         let mut panel = div()
             .id("fit-scroll")
             .flex_1()
+            .min_h_0()
             .flex()
             .flex_col()
             .overflow_y_scroll();
@@ -2932,6 +3050,7 @@ impl StudioApp {
         let mut sections = div()
             .id("params-scroll")
             .flex_1()
+            .min_h_0()
             .flex()
             .flex_col()
             .overflow_y_scroll();

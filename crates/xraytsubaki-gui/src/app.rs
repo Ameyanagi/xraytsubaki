@@ -6,6 +6,7 @@
 //! results are dropped) with an LRU cache of processed spectra. The Explore
 //! center is the 2x2 quadrant grid from M0.
 
+use std::collections::BTreeSet;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -29,7 +30,8 @@ use crate::fitting::{BatchFitRow, FitPathSpec, FitRanges, FitVarSpec, PathMeta, 
 use crate::params::{PipelineParams, process_file, resample_chik};
 use crate::project::{ProjectFile, PROJECT_VERSION};
 use crate::plotting::{
-    build_fit_k, build_fit_r, build_frame_chik, build_heatmap, build_quadrants, build_trend,
+    QuadTrace, ViewOptions, build_fit_k, build_fit_r, build_frame_chik, build_heatmap,
+    build_quadrants_multi, build_trend,
 };
 use crate::fitting::expr_identifiers;
 use crate::theme::{Theme, ThemeMode};
@@ -63,6 +65,10 @@ enum ParamKey {
     FftDk,
     FftKweight,
 }
+
+/// Overlays beyond this many traces are unreadable; larger selections are
+/// thinned evenly (the Operando heatmap is the full-set view).
+const MAX_OVERLAY: usize = 12;
 
 /// Cache slot for the spectrum loaded outside the catalog (default file).
 const NO_ENTRY: usize = usize::MAX;
@@ -156,7 +162,12 @@ pub struct StudioApp {
     workspace: Workspace,
     catalog: Catalog,
     source_dir: Option<PathBuf>,
+    /// Active spectrum (drives params/fit/status).
     selected: Option<usize>,
+    /// Compare set; the active spectrum is implicitly included.
+    selection: BTreeSet<usize>,
+    compare_gen: u64,
+    view: ViewOptions,
     /// Bumped on every selection; async load results from older generations
     /// are discarded.
     generation: u64,
@@ -196,6 +207,46 @@ pub struct StudioApp {
     batch_progress: (usize, usize),
     batch_gen: u64,
     status: SharedString,
+}
+
+/// Evenly sample `all` (sorted) down to `cap`, always keeping first, last,
+/// and `keep` when present.
+fn thin_even(all: &[usize], cap: usize, keep: Option<usize>) -> Vec<usize> {
+    if all.len() <= cap {
+        return all.to_vec();
+    }
+    let total = all.len();
+    let mut thinned: Vec<usize> = (0..cap).map(|i| all[i * (total - 1) / (cap - 1)]).collect();
+    if let Some(keep) = keep
+        && all.contains(&keep)
+        && !thinned.contains(&keep)
+    {
+        thinned[cap / 2] = keep;
+        thinned.sort_unstable();
+    }
+    thinned.dedup();
+    thinned
+}
+
+#[cfg(test)]
+mod thin_tests {
+    use super::thin_even;
+
+    #[test]
+    fn small_sets_pass_through() {
+        assert_eq!(thin_even(&[1, 5, 9], 12, Some(5)), vec![1, 5, 9]);
+    }
+
+    #[test]
+    fn large_sets_sample_evenly_and_keep_ends_and_active() {
+        let all: Vec<usize> = (0..200).collect();
+        let out = thin_even(&all, 12, Some(7));
+        assert_eq!(out.len(), 12);
+        assert_eq!(*out.first().unwrap(), 0);
+        assert_eq!(*out.last().unwrap(), 199);
+        assert!(out.contains(&7));
+        assert!(out.windows(2).all(|w| w[0] < w[1]));
+    }
 }
 
 fn default_data_file() -> PathBuf {
@@ -249,6 +300,9 @@ impl StudioApp {
             catalog: Catalog::default(),
             source_dir: None,
             selected: None,
+            selection: BTreeSet::new(),
+            compare_gen: 0,
+            view: ViewOptions::default(),
             generation: 0,
             recompute_epoch: 0,
             params,
@@ -389,8 +443,9 @@ impl StudioApp {
         let label = self.spectrum_label.clone();
         let path = self.current_path.clone();
         self.load_spectrum(ix, path, label, cx);
-        // Parameter edits also invalidate the operando overview.
+        // Parameter edits also invalidate the operando overview + overlay.
         self.ensure_operando(cx);
+        self.ensure_compare_loaded(cx);
     }
 
     /// Common load path: serve from the (entry, params) cache or process on
@@ -607,11 +662,109 @@ impl StudioApp {
         cx.notify();
     }
 
-    fn rebuild_plots(&mut self, cx: &mut Context<Self>) {
-        let Some(sp) = &self.spectrum else {
+    /// Selection (plus active) thinned evenly to MAX_OVERLAY, active always
+    /// kept. Returns (indices, total_before_thinning).
+    fn compare_indices(&self) -> (Vec<usize>, usize) {
+        let mut set: BTreeSet<usize> = self.selection.clone();
+        if let Some(active) = self.selected {
+            set.insert(active);
+        }
+        let all: Vec<usize> = set.into_iter().collect();
+        let total = all.len();
+        (thin_even(&all, MAX_OVERLAY, self.selected), total)
+    }
+
+    /// Process any compare-set members missing from the cache (rayon batch),
+    /// then rebuild the overlay.
+    fn ensure_compare_loaded(&mut self, cx: &mut Context<Self>) {
+        let fingerprint = self.params.fingerprint();
+        let (indices, _) = self.compare_indices();
+        let missing: Vec<(usize, PathBuf)> = indices
+            .iter()
+            .filter(|&&ix| ix != NO_ENTRY && !self.cache.contains(&(ix, fingerprint)))
+            .map(|&ix| (ix, self.catalog.path(ix)))
+            .collect();
+        if missing.is_empty() {
+            self.rebuild_plots(cx);
+            cx.notify();
             return;
-        };
-        let plots = build_quadrants(sp, &self.theme);
+        }
+        self.compare_gen += 1;
+        let generation = self.compare_gen;
+        self.status = format!("processing {} spectra for overlay ...", missing.len()).into();
+        cx.notify();
+        let params = self.params;
+        let job = cx.background_executor().spawn(async move {
+            missing
+                .par_iter()
+                .map(|(ix, path)| (*ix, process_file(path, &params)))
+                .collect::<Vec<_>>()
+        });
+        cx.spawn(async move |this, cx| {
+            let results = job.await;
+            this.update(cx, |app, cx| {
+                if app.compare_gen != generation {
+                    return;
+                }
+                let mut failed = 0usize;
+                for (ix, result) in results {
+                    match result {
+                        Ok(sp) => {
+                            app.cache.put((ix, fingerprint), Arc::new(sp));
+                        }
+                        Err(_) => failed += 1,
+                    }
+                }
+                let (_, total) = app.compare_indices();
+                app.status = if failed > 0 {
+                    format!("overlay ready · {failed} failed").into()
+                } else {
+                    format!("overlay of {total} spectra ready").into()
+                };
+                app.rebuild_plots(cx);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn rebuild_plots(&mut self, cx: &mut Context<Self>) {
+        let fingerprint = self.params.fingerprint();
+        let (indices, total) = self.compare_indices();
+        let mut traces: Vec<QuadTrace> = Vec::new();
+        for ix in indices {
+            if ix == NO_ENTRY {
+                continue;
+            }
+            if let Some(sp) = self.cache.get(&(ix, fingerprint)) {
+                traces.push(QuadTrace {
+                    label: self.catalog.name(ix).to_string(),
+                    sp: sp.clone(),
+                    active: Some(ix) == self.selected,
+                });
+            }
+        }
+        // No catalog selection (default file) or nothing cached yet: fall
+        // back to the active spectrum object.
+        if traces.is_empty() {
+            let Some(sp) = &self.spectrum else {
+                return;
+            };
+            traces.push(QuadTrace {
+                label: self.spectrum_label.to_string(),
+                sp: sp.clone(),
+                active: true,
+            });
+        }
+        if total > MAX_OVERLAY {
+            self.status = format!(
+                "showing {} of {total} selected — the Operando heatmap shows the full set",
+                traces.len()
+            )
+            .into();
+        }
+        let plots = build_quadrants_multi(&traces, &self.view, &self.theme);
         let titled = [
             ("mu(E)", plots.mu_e),
             ("normalized", plots.norm),
@@ -713,6 +866,44 @@ impl StudioApp {
             }
         })
         .detach();
+    }
+
+    /// Modifier-aware list click: plain = activate (clears compare set),
+    /// shift = extend range from the active row, cmd = toggle membership.
+    fn click_entry(&mut self, ix: usize, modifiers: gpui::Modifiers, cx: &mut Context<Self>) {
+        if modifiers.shift
+            && let Some(anchor) = self.selected
+        {
+            let (lo, hi) = (anchor.min(ix), anchor.max(ix));
+            self.selection.extend(lo..=hi);
+            self.ensure_compare_loaded(cx);
+        } else if modifiers.platform {
+            if !self.selection.remove(&ix) {
+                self.selection.insert(ix);
+            }
+            self.ensure_compare_loaded(cx);
+        } else {
+            self.selection.clear();
+            self.select_entry(ix, cx);
+        }
+        cx.notify();
+    }
+
+    /// Add a whole scan to the compare set (shift/cmd-click on a scan row).
+    fn select_scan_range(&mut self, scan_ix: usize, cx: &mut Context<Self>) {
+        if let Some(scan) = self.catalog.scans.get(scan_ix) {
+            self.selection.extend(scan.start..scan.start + scan.len);
+            self.ensure_compare_loaded(cx);
+            cx.notify();
+        }
+    }
+
+    fn clear_selection(&mut self, cx: &mut Context<Self>) {
+        if !self.selection.is_empty() {
+            self.selection.clear();
+            self.rebuild_plots(cx);
+            cx.notify();
+        }
     }
 
     fn select_entry(&mut self, ix: usize, cx: &mut Context<Self>) {
@@ -1509,7 +1700,8 @@ impl StudioApp {
     fn file_list(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
         let entity = cx.entity();
-        let selected = self.selected;
+        let active = self.selected;
+        let selection = self.selection.clone();
         uniform_list(
             "catalog-files",
             self.catalog.len(),
@@ -1517,7 +1709,8 @@ impl StudioApp {
                 let mut rows = Vec::with_capacity(range.len());
                 for ix in range {
                     let name: SharedString = entity.read(app).catalog.name(ix).to_string().into();
-                    let is_selected = selected == Some(ix);
+                    let is_active = active == Some(ix);
+                    let in_set = selection.contains(&ix);
                     let entity = entity.clone();
                     rows.push(
                         div()
@@ -1528,12 +1721,16 @@ impl StudioApp {
                             .items_center()
                             .text_sm()
                             .overflow_hidden()
-                            .when(is_selected, |d| d.bg(t.raised).text_color(t.accent))
-                            .when(!is_selected, |d| d.text_color(t.text))
+                            .when(is_active, |d| d.bg(t.raised).text_color(t.accent))
+                            .when(!is_active && in_set, |d| d.bg(t.raised).text_color(t.text))
+                            .when(!is_active && !in_set, |d| d.text_color(t.text))
                             .hover(|d| d.bg(t.raised))
                             .cursor_pointer()
-                            .on_click(move |_: &ClickEvent, _window, app| {
-                                entity.update(app, |this, cx| this.select_entry(ix, cx));
+                            .on_click(move |ev: &ClickEvent, _window, app| {
+                                let modifiers = ev.modifiers();
+                                entity.update(app, |this, cx| {
+                                    this.click_entry(ix, modifiers, cx)
+                                });
                             })
                             .child(name),
                     );
@@ -1574,8 +1771,15 @@ impl StudioApp {
                             .when(!is_active, |d| d.text_color(t.text))
                             .hover(|d| d.bg(t.raised))
                             .cursor_pointer()
-                            .on_click(move |_: &ClickEvent, _window, app| {
-                                entity.update(app, |this, cx| this.open_scan(ix, cx));
+                            .on_click(move |ev: &ClickEvent, _window, app| {
+                                let modifiers = ev.modifiers();
+                                entity.update(app, |this, cx| {
+                                    if modifiers.shift || modifiers.platform {
+                                        this.select_scan_range(ix, cx);
+                                    } else {
+                                        this.open_scan(ix, cx);
+                                    }
+                                });
                             })
                             .child(label),
                     );
@@ -1670,6 +1874,43 @@ impl StudioApp {
                     .child(self.data_tab_button("tab-files", "Files", DataTab::Files, cx))
                     .child(self.data_tab_button("tab-scans", "Scans", DataTab::Scans, cx)),
             )
+            .child(if self.selection.is_empty() {
+                div().into_any_element()
+            } else {
+                div()
+                    .px_3()
+                    .py_1()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .border_b_1()
+                    .border_color(t.border)
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(t.accent)
+                            .child(SharedString::from(format!(
+                                "{} selected",
+                                self.selection.len()
+                            ))),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .id("sel-clear")
+                            .px_1()
+                            .rounded_sm()
+                            .text_xs()
+                            .text_color(t.text_muted)
+                            .cursor_pointer()
+                            .hover(|d| d.bg(t.raised).text_color(t.text))
+                            .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                                this.clear_selection(cx);
+                            }))
+                            .child("clear"),
+                    )
+                    .into_any_element()
+            })
             .child(if self.catalog.is_empty() {
                 div()
                     .flex_1()

@@ -18,57 +18,168 @@ pub struct QuadrantPlots {
     pub chi_r: Plot,
 }
 
-pub fn build_quadrants(sp: &XASSpectrum, theme: &Theme) -> QuadrantPlots {
-    let energy = sp
-        .energy
-        .as_ref()
-        .map(vecs)
-        .unwrap_or_default();
-    let mu = sp.mu.as_ref().map(vecs).unwrap_or_default();
+/// One spectrum in a comparison overlay.
+pub struct QuadTrace {
+    pub label: String,
+    pub sp: std::sync::Arc<XASSpectrum>,
+    pub active: bool,
+}
 
-    let mu_e: Plot = Plot::new()
-        .theme(theme.plot_theme())
-        .line(&energy, &mu)
-        .xlabel("Energy (eV)")
-        .ylabel("mu(E)")
-        .into();
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum TraceLayout {
+    Overlay,
+    Waterfall,
+}
 
-    let flat = sp
-        .get_flat()
-        .or_else(|| sp.get_norm())
-        .map(|v| vecs(&v))
-        .unwrap_or_default();
-    let norm: Plot = Plot::new()
-        .theme(theme.plot_theme())
-        .line(&energy, &flat)
-        .xlabel("Energy (eV)")
-        .ylabel("normalized mu(E)")
-        .into();
+/// Explore-view display options (see doc/gui-ux-design.md).
+#[derive(Clone, Copy)]
+pub struct ViewOptions {
+    pub layout: TraceLayout,
+    /// Waterfall offset as a fraction of the first trace's peak-to-peak.
+    pub offset_frac: f64,
+    pub legend: bool,
+    pub grid: bool,
+}
 
-    let k = sp.get_k().map(|v| vecs(&v)).unwrap_or_default();
-    let kw = sp.get_kweight().copied().unwrap_or(2.0);
-    let chik = sp
-        .get_chi_kweighted()
-        .map(|v| vecs(&v))
-        .unwrap_or_default();
-    let chi_k: Plot = Plot::new()
-        .theme(theme.plot_theme())
-        .line(&k, &chik)
-        .xlabel("k (1/Angstrom)")
-        .ylabel(format!("k^{kw:.0} chi(k)"))
-        .into();
+impl Default for ViewOptions {
+    fn default() -> Self {
+        Self {
+            layout: TraceLayout::Overlay,
+            offset_frac: 0.6,
+            legend: true,
+            grid: true,
+        }
+    }
+}
 
-    let mut r = sp.get_r().map(|v| vecs(&v)).unwrap_or_default();
-    let mut chir_mag = sp.get_chir_mag().map(|v| vecs(&v)).unwrap_or_default();
-    let n = r.len().min(chir_mag.len());
-    r.truncate(n);
-    chir_mag.truncate(n);
-    let chi_r: Plot = Plot::new()
+/// Legends beyond this many traces are clutter.
+const MAX_LEGEND_TRACES: usize = 8;
+
+/// Build one quadrant from per-trace (x, y) extractions. Inactive traces
+/// draw first (thin), the active trace last (thick, on top). Waterfall mode
+/// offsets successive traces by `offset_frac` x the first trace's range.
+fn build_multi(
+    traces: &[QuadTrace],
+    view: &ViewOptions,
+    theme: &Theme,
+    xlabel: &str,
+    ylabel: &str,
+    extract: impl Fn(&XASSpectrum) -> Option<(Vec<f64>, Vec<f64>)>,
+) -> Plot {
+    let mut series: Vec<(usize, &QuadTrace, Vec<f64>, Vec<f64>)> = traces
+        .iter()
+        .enumerate()
+        .filter_map(|(i, t)| extract(&t.sp).map(|(x, y)| (i, t, x, y)))
+        .collect();
+
+    let offset = if view.layout == TraceLayout::Waterfall {
+        let span = series
+            .first()
+            .map(|(_, _, _, y)| {
+                let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+                for v in y {
+                    lo = lo.min(*v);
+                    hi = hi.max(*v);
+                }
+                (hi - lo).abs()
+            })
+            .filter(|s| s.is_finite() && *s > 0.0)
+            .unwrap_or(1.0);
+        span * view.offset_frac
+    } else {
+        0.0
+    };
+    if offset != 0.0 {
+        for (i, _, _, y) in series.iter_mut() {
+            let shift = *i as f64 * offset;
+            for v in y.iter_mut() {
+                *v += shift;
+            }
+        }
+    }
+    // Active trace drawn last so it sits on top.
+    series.sort_by_key(|(_, t, _, _)| t.active);
+
+    let n = series.len();
+    let mut builder = Plot::new()
         .theme(theme.plot_theme())
-        .line(&r, &chir_mag)
-        .xlabel("R (Angstrom)")
-        .ylabel("|chi(R)|")
-        .into();
+        .grid(view.grid)
+        .xlabel(xlabel)
+        .ylabel(ylabel);
+    let with_legend = view.legend && n > 1 && n <= MAX_LEGEND_TRACES;
+    let mut plot: Option<Plot> = None;
+    for (_, trace, x, y) in &series {
+        let width = if trace.active && n > 1 { 2.2 } else { 1.4 };
+        let sb = match plot.take() {
+            None => builder.line(x, y),
+            Some(p) => p.line(x, y),
+        }
+        .line_width(width);
+        let sb = if with_legend {
+            sb.label(&trace.label)
+        } else {
+            sb
+        };
+        plot = Some(sb.into());
+        builder = Plot::new(); // unused after first; keeps the borrow checker simple
+    }
+    let plot = plot.unwrap_or_else(|| builder.into());
+    if with_legend {
+        let p: Plot = plot;
+        // Plot -> builder chain for legend placement
+        return p.legend(ruviz::core::Position::TopRight).into();
+    }
+    plot
+}
+
+/// All four Explore quadrants for a set of traces.
+pub fn build_quadrants_multi(
+    traces: &[QuadTrace],
+    view: &ViewOptions,
+    theme: &Theme,
+) -> QuadrantPlots {
+    let kw = traces
+        .iter()
+        .find(|t| t.active)
+        .or_else(|| traces.first())
+        .and_then(|t| t.sp.get_kweight().copied())
+        .unwrap_or(2.0);
+
+    let mu_e = build_multi(traces, view, theme, "Energy (eV)", "mu(E)", |sp| {
+        Some((sp.energy.as_ref().map(vecs)?, sp.mu.as_ref().map(vecs)?))
+    });
+    let norm = build_multi(
+        traces,
+        view,
+        theme,
+        "Energy (eV)",
+        "normalized mu(E)",
+        |sp| {
+            Some((
+                sp.energy.as_ref().map(vecs)?,
+                sp.get_flat().or_else(|| sp.get_norm()).map(|v| vecs(&v))?,
+            ))
+        },
+    );
+    let chi_k = build_multi(
+        traces,
+        view,
+        theme,
+        "k (1/Angstrom)",
+        &format!("k^{kw:.0} chi(k)"),
+        |sp| {
+            Some((
+                sp.get_k().map(|v| vecs(&v))?,
+                sp.get_chi_kweighted().map(|v| vecs(&v))?,
+            ))
+        },
+    );
+    let chi_r = build_multi(traces, view, theme, "R (Angstrom)", "|chi(R)|", |sp| {
+        let r = sp.get_r().map(|v| vecs(&v))?;
+        let m = sp.get_chir_mag().map(|v| vecs(&v))?;
+        let n = r.len().min(m.len());
+        Some((r[..n].to_vec(), m[..n].to_vec()))
+    });
 
     QuadrantPlots {
         mu_e,

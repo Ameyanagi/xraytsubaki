@@ -48,6 +48,9 @@ pub struct ViewOptions {
     pub show_ranges: bool,
     /// Normalized quadrant shows flattened (true) or plain normalized mu(E).
     pub flat: bool,
+    /// chi(k) quadrant: FFT k-range lines and the FT window curve.
+    pub show_krange: bool,
+    pub show_kwin: bool,
 }
 
 impl Default for ViewOptions {
@@ -62,6 +65,8 @@ impl Default for ViewOptions {
             show_e0: false,
             show_ranges: false,
             flat: true,
+            show_krange: false,
+            show_kwin: false,
         }
     }
 }
@@ -238,15 +243,7 @@ pub fn build_quadrants_multi(
             Some((sp.energy.as_ref().map(vecs)?, y.map(|v| vecs(&v))?))
         },
     );
-    if let Some(active) = traces.iter().find(|t| t.active).or_else(|| traces.first()) {
-        mu_e = add_mu_diagnostics(mu_e, &active.sp, view);
-        if view.show_e0
-            && let Some(e0) = active.sp.get_e0()
-        {
-            norm = norm.vline_styled(e0, Color::ORANGE, 1.2, LineStyle::Dashed);
-        }
-    }
-    let chi_k = build_multi(
+    let mut chi_k = build_multi(
         traces,
         view,
         theme,
@@ -266,6 +263,44 @@ pub fn build_quadrants_multi(
         Some((r[..n].to_vec(), m[..n].to_vec()))
     });
 
+    if let Some(active) = traces.iter().find(|t| t.active).or_else(|| traces.first()) {
+        mu_e = add_mu_diagnostics(mu_e, &active.sp, view);
+        if view.show_e0
+            && let Some(e0) = active.sp.get_e0()
+        {
+            norm = norm.vline_styled(e0, Color::ORANGE, 1.2, LineStyle::Dashed);
+        }
+        // FT window diagnostics on chi(k), scaled to the data amplitude.
+        if view.show_kwin
+            && let (Some(k), Some(kwin), Some(chi)) = (
+                active.sp.get_k(),
+                active.sp.get_kwin(),
+                active.sp.get_chi_kweighted(),
+            )
+        {
+            let peak = chi.iter().fold(0.0f64, |m, v| m.max(v.abs())).max(1e-12);
+            let x = vecs(&k);
+            let n = x.len().min(kwin.len());
+            let y: Vec<f64> = kwin.iter().take(n).map(|w| w * peak).collect();
+            let x = x[..n].to_vec();
+            chi_k = chi_k
+                .line(&x, &y)
+                .line_width(1.0)
+                .line_style(LineStyle::Dashed)
+                .color(Color::from_gray(150))
+                .label("window")
+                .into();
+        }
+        if view.show_krange
+            && let Some(xftf) = active.sp.xftf.as_ref()
+        {
+            for value in [xftf.kmin, xftf.kmax] {
+                if let Some(v) = value {
+                    chi_k = chi_k.vline_styled(v, Color::new(90, 140, 200), 1.0, LineStyle::Dashed);
+                }
+            }
+        }
+    }
     QuadrantPlots {
         mu_e,
         norm,

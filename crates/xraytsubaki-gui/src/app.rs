@@ -2303,25 +2303,118 @@ impl StudioApp {
             .bg(t.raised)
             .border_1()
             .border_color(t.border)
-            .child(
-                div()
-                    .id(SharedString::from(format!("quad-{index}")))
-                    .px_2()
-                    .py_1()
-                    .text_xs()
-                    .text_color(if maximized { t.accent } else { t.text_muted })
-                    .cursor_pointer()
-                    .hover(|d| d.text_color(t.text))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                        this.maximized = if this.maximized == Some(index) {
-                            None
-                        } else {
-                            Some(index)
-                        };
-                        cx.notify();
-                    }))
-                    .child(title.clone()),
-            )
+            .child({
+                let mut header = div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .pr_2()
+                    .child(
+                        div()
+                            .id(SharedString::from(format!("quad-{index}")))
+                            .flex_1()
+                            .px_2()
+                            .py_1()
+                            .text_xs()
+                            .text_color(if maximized { t.accent } else { t.text_muted })
+                            .cursor_pointer()
+                            .hover(|d| d.text_color(t.text))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                                this.maximized = if this.maximized == Some(index) {
+                                    None
+                                } else {
+                                    Some(index)
+                                };
+                                cx.notify();
+                            }))
+                            .child(title.clone()),
+                    );
+                // Per-plot diagnostics live on the quadrant they affect.
+                if index == 0 {
+                    header = header
+                        .child(self.view_chip("view-pre", "pre", self.view.show_pre, cx, |this, cx| {
+                            this.view.show_pre = !this.view.show_pre;
+                            this.rebuild_plots(cx);
+                            cx.notify();
+                        }))
+                        .child(self.view_chip(
+                            "view-post",
+                            "post",
+                            self.view.show_post,
+                            cx,
+                            |this, cx| {
+                                this.view.show_post = !this.view.show_post;
+                                this.rebuild_plots(cx);
+                                cx.notify();
+                            },
+                        ))
+                        .child(self.view_chip("view-e0", "E0", self.view.show_e0, cx, |this, cx| {
+                            this.view.show_e0 = !this.view.show_e0;
+                            this.rebuild_plots(cx);
+                            cx.notify();
+                        }))
+                        .child(self.view_chip(
+                            "view-ranges",
+                            "ranges",
+                            self.view.show_ranges,
+                            cx,
+                            |this, cx| {
+                                this.view.show_ranges = !this.view.show_ranges;
+                                this.rebuild_plots(cx);
+                                cx.notify();
+                            },
+                        ));
+                } else if index == 2 {
+                    header = header
+                        .child(self.view_chip(
+                            "view-krange",
+                            "k-range",
+                            self.view.show_krange,
+                            cx,
+                            |this, cx| {
+                                this.view.show_krange = !this.view.show_krange;
+                                this.rebuild_plots(cx);
+                                cx.notify();
+                            },
+                        ))
+                        .child(self.view_chip(
+                            "view-kwin",
+                            "window",
+                            self.view.show_kwin,
+                            cx,
+                            |this, cx| {
+                                this.view.show_kwin = !this.view.show_kwin;
+                                this.rebuild_plots(cx);
+                                cx.notify();
+                            },
+                        ));
+                } else if index == 1 {
+                    header = header
+                        .child(self.view_chip(
+                            "view-flat",
+                            if self.view.flat { "flat" } else { "norm" },
+                            !self.view.flat,
+                            cx,
+                            |this, cx| {
+                                this.view.flat = !this.view.flat;
+                                this.rebuild_plots(cx);
+                                cx.notify();
+                            },
+                        ))
+                        .child(self.view_chip(
+                            "view-e0-norm",
+                            "E0",
+                            self.view.show_e0,
+                            cx,
+                            |this, cx| {
+                                this.view.show_e0 = !this.view.show_e0;
+                                this.rebuild_plots(cx);
+                                cx.notify();
+                            },
+                        ));
+                }
+                header
+            })
             .child(div().flex_1().p_1().child(plot.clone()))
     }
 
@@ -2377,43 +2470,6 @@ impl StudioApp {
             row = row.child(div().w(px(72.)).child(field.clone()));
         }
         row = row
-            .child(self.view_chip("view-pre", "pre", self.view.show_pre, cx, |this, cx| {
-                this.view.show_pre = !this.view.show_pre;
-                this.rebuild_plots(cx);
-                cx.notify();
-            }))
-            .child(self.view_chip("view-post", "post", self.view.show_post, cx, |this, cx| {
-                this.view.show_post = !this.view.show_post;
-                this.rebuild_plots(cx);
-                cx.notify();
-            }))
-            .child(self.view_chip("view-e0", "E0", self.view.show_e0, cx, |this, cx| {
-                this.view.show_e0 = !this.view.show_e0;
-                this.rebuild_plots(cx);
-                cx.notify();
-            }))
-            .child(self.view_chip(
-                "view-ranges",
-                "ranges",
-                self.view.show_ranges,
-                cx,
-                |this, cx| {
-                    this.view.show_ranges = !this.view.show_ranges;
-                    this.rebuild_plots(cx);
-                    cx.notify();
-                },
-            ))
-            .child(self.view_chip(
-                "view-flat",
-                if self.view.flat { "flat" } else { "norm" },
-                !self.view.flat,
-                cx,
-                |this, cx| {
-                    this.view.flat = !this.view.flat;
-                    this.rebuild_plots(cx);
-                    cx.notify();
-                },
-            ))
             .child(self.view_chip("view-legend", "legend", self.view.legend, cx, |this, cx| {
                 this.view.legend = !this.view.legend;
                 this.rebuild_plots(cx);

@@ -58,13 +58,21 @@ enum ParamKey {
     PreEdgeEnd,
     NormStart,
     NormEnd,
+    NormPolyorder,
     Rbkg,
     BkgKmin,
     BkgKmax,
+    BkgKstep,
+    BkgNknots,
+    BkgKweight,
+    BkgClampLo,
+    BkgClampHi,
     FftKmin,
     FftKmax,
     FftDk,
     FftKweight,
+    FftDk2,
+    FftRmax,
 }
 
 actions!(
@@ -205,6 +213,8 @@ pub struct StudioApp {
     filter_text: String,
     data_focus: FocusHandle,
     operando_focus: FocusHandle,
+    /// Per-section "advanced parameters" fold state (Norm, Bkg, FFT).
+    adv_open: [bool; 3],
     /// Catalog indices passing the filter (ascending); None = no filter.
     filtered: Option<Arc<Vec<usize>>>,
     /// Bumped on every selection; async load results from older generations
@@ -411,6 +421,7 @@ impl StudioApp {
             filtered: None,
             data_focus: cx.focus_handle(),
             operando_focus: cx.focus_handle(),
+            adv_open: [false; 3],
             generation: 0,
             recompute_epoch: 0,
             params,
@@ -502,19 +513,27 @@ impl StudioApp {
         theme: Theme,
         cx: &mut Context<Self>,
     ) -> Vec<(ParamKey, Entity<NumericField>)> {
-        let specs: [(ParamKey, &str, &str); 12] = [
+        let specs: [(ParamKey, &str, &str); 20] = [
             (ParamKey::E0, "E0 (eV)", "auto"),
             (ParamKey::PreEdgeStart, "pre-edge start", "auto (-200)"),
             (ParamKey::PreEdgeEnd, "pre-edge end", "auto (-30)"),
             (ParamKey::NormStart, "norm start", "auto (150)"),
             (ParamKey::NormEnd, "norm end", "auto (2000)"),
+            (ParamKey::NormPolyorder, "poly order", "auto (2)"),
             (ParamKey::Rbkg, "rbkg (Å)", "auto (1.0)"),
             (ParamKey::BkgKmin, "k min", "auto (0)"),
             (ParamKey::BkgKmax, "k max", "auto (full)"),
+            (ParamKey::BkgKstep, "k step", "auto (0.05)"),
+            (ParamKey::BkgNknots, "spline knots", "auto"),
+            (ParamKey::BkgKweight, "bkg k-weight", "auto (1)"),
+            (ParamKey::BkgClampLo, "clamp lo", "auto (0)"),
+            (ParamKey::BkgClampHi, "clamp hi", "auto (1)"),
             (ParamKey::FftKmin, "k min", "auto (0)"),
             (ParamKey::FftKmax, "k max", "auto (20)"),
             (ParamKey::FftDk, "dk", "auto (1)"),
             (ParamKey::FftKweight, "k-weight", "auto (2)"),
+            (ParamKey::FftDk2, "dk2", "auto"),
+            (ParamKey::FftRmax, "R max out", "auto (10)"),
         ];
         specs
             .into_iter()
@@ -532,19 +551,28 @@ impl StudioApp {
 
     fn apply_param(&mut self, key: ParamKey, value: Option<f64>, cx: &mut Context<Self>) {
         let p = &mut self.params;
+        let int = value.map(|v| v.round() as i32);
         match key {
             ParamKey::E0 => p.e0 = value,
             ParamKey::PreEdgeStart => p.pre_edge_start = value,
             ParamKey::PreEdgeEnd => p.pre_edge_end = value,
             ParamKey::NormStart => p.norm_start = value,
             ParamKey::NormEnd => p.norm_end = value,
+            ParamKey::NormPolyorder => p.norm_polyorder = int,
             ParamKey::Rbkg => p.rbkg = value,
             ParamKey::BkgKmin => p.bkg_kmin = value,
             ParamKey::BkgKmax => p.bkg_kmax = value,
+            ParamKey::BkgKstep => p.bkg_kstep = value,
+            ParamKey::BkgNknots => p.bkg_nknots = int,
+            ParamKey::BkgKweight => p.bkg_kweight = int,
+            ParamKey::BkgClampLo => p.bkg_clamp_lo = int,
+            ParamKey::BkgClampHi => p.bkg_clamp_hi = int,
             ParamKey::FftKmin => p.fft_kmin = value,
             ParamKey::FftKmax => p.fft_kmax = value,
             ParamKey::FftDk => p.fft_dk = value,
             ParamKey::FftKweight => p.fft_kweight = value,
+            ParamKey::FftDk2 => p.fft_dk2 = value,
+            ParamKey::FftRmax => p.fft_rmax = value,
         }
         self.schedule_recompute(cx);
     }
@@ -1826,13 +1854,21 @@ impl StudioApp {
             ParamKey::PreEdgeEnd => p.pre_edge_end,
             ParamKey::NormStart => p.norm_start,
             ParamKey::NormEnd => p.norm_end,
+            ParamKey::NormPolyorder => p.norm_polyorder.map(|v| v as f64),
             ParamKey::Rbkg => p.rbkg,
             ParamKey::BkgKmin => p.bkg_kmin,
             ParamKey::BkgKmax => p.bkg_kmax,
+            ParamKey::BkgKstep => p.bkg_kstep,
+            ParamKey::BkgNknots => p.bkg_nknots.map(|v| v as f64),
+            ParamKey::BkgKweight => p.bkg_kweight.map(|v| v as f64),
+            ParamKey::BkgClampLo => p.bkg_clamp_lo.map(|v| v as f64),
+            ParamKey::BkgClampHi => p.bkg_clamp_hi.map(|v| v as f64),
             ParamKey::FftKmin => p.fft_kmin,
             ParamKey::FftKmax => p.fft_kmax,
             ParamKey::FftDk => p.fft_dk,
             ParamKey::FftKweight => p.fft_kweight,
+            ParamKey::FftDk2 => p.fft_dk2,
+            ParamKey::FftRmax => p.fft_rmax,
         };
         let params = self.params;
         for (key, field) in &self.param_fields {
@@ -2341,6 +2377,43 @@ impl StudioApp {
             row = row.child(div().w(px(72.)).child(field.clone()));
         }
         row = row
+            .child(self.view_chip("view-pre", "pre", self.view.show_pre, cx, |this, cx| {
+                this.view.show_pre = !this.view.show_pre;
+                this.rebuild_plots(cx);
+                cx.notify();
+            }))
+            .child(self.view_chip("view-post", "post", self.view.show_post, cx, |this, cx| {
+                this.view.show_post = !this.view.show_post;
+                this.rebuild_plots(cx);
+                cx.notify();
+            }))
+            .child(self.view_chip("view-e0", "E0", self.view.show_e0, cx, |this, cx| {
+                this.view.show_e0 = !this.view.show_e0;
+                this.rebuild_plots(cx);
+                cx.notify();
+            }))
+            .child(self.view_chip(
+                "view-ranges",
+                "ranges",
+                self.view.show_ranges,
+                cx,
+                |this, cx| {
+                    this.view.show_ranges = !this.view.show_ranges;
+                    this.rebuild_plots(cx);
+                    cx.notify();
+                },
+            ))
+            .child(self.view_chip(
+                "view-flat",
+                if self.view.flat { "flat" } else { "norm" },
+                !self.view.flat,
+                cx,
+                |this, cx| {
+                    this.view.flat = !this.view.flat;
+                    this.rebuild_plots(cx);
+                    cx.notify();
+                },
+            ))
             .child(self.view_chip("view-legend", "legend", self.view.legend, cx, |this, cx| {
                 this.view.legend = !this.view.legend;
                 this.rebuild_plots(cx);
@@ -3039,7 +3112,7 @@ impl StudioApp {
             .child(label)
     }
 
-    fn context_panel(&self) -> impl IntoElement + use<> {
+    fn context_panel(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
         let field = |key: ParamKey| {
             self.param_fields
@@ -3054,33 +3127,83 @@ impl StudioApp {
             .flex()
             .flex_col()
             .overflow_y_scroll();
-        sections = sections.child(self.section_header("Normalization"));
-        for key in [
-            ParamKey::E0,
-            ParamKey::PreEdgeStart,
-            ParamKey::PreEdgeEnd,
-            ParamKey::NormStart,
-            ParamKey::NormEnd,
-        ] {
-            if let Some(f) = field(key) {
-                sections = sections.child(f);
+
+        // (title, basic keys, advanced keys, fold index)
+        let groups: [(&'static str, &[ParamKey], &[ParamKey], usize); 3] = [
+            (
+                "Normalization",
+                &[
+                    ParamKey::E0,
+                    ParamKey::PreEdgeStart,
+                    ParamKey::PreEdgeEnd,
+                    ParamKey::NormStart,
+                    ParamKey::NormEnd,
+                ],
+                &[ParamKey::NormPolyorder],
+                0,
+            ),
+            (
+                "Background (AUTOBK)",
+                &[ParamKey::Rbkg, ParamKey::BkgKmin, ParamKey::BkgKmax],
+                &[
+                    ParamKey::BkgKstep,
+                    ParamKey::BkgNknots,
+                    ParamKey::BkgKweight,
+                    ParamKey::BkgClampLo,
+                    ParamKey::BkgClampHi,
+                ],
+                1,
+            ),
+            (
+                "FFT",
+                &[
+                    ParamKey::FftKmin,
+                    ParamKey::FftKmax,
+                    ParamKey::FftDk,
+                    ParamKey::FftKweight,
+                ],
+                &[ParamKey::FftDk2, ParamKey::FftRmax],
+                2,
+            ),
+        ];
+        for (title, basics, advanced, fold) in groups {
+            let open = self.adv_open[fold];
+            sections = sections.child(
+                div()
+                    .px_3()
+                    .pt_3()
+                    .pb_1()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .child(div().text_xs().text_color(t.accent).child(title))
+                    .child(
+                        div()
+                            .id(SharedString::from(format!("adv-{fold}")))
+                            .px_1()
+                            .rounded_sm()
+                            .text_xs()
+                            .text_color(if open { t.accent } else { t.text_muted })
+                            .cursor_pointer()
+                            .hover(|d| d.bg(t.raised))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                                this.adv_open[fold] = !this.adv_open[fold];
+                                cx.notify();
+                            }))
+                            .child(if open { "▾ less" } else { "▸ more" }),
+                    ),
+            );
+            for &key in basics {
+                if let Some(f) = field(key) {
+                    sections = sections.child(f);
+                }
             }
-        }
-        sections = sections.child(self.section_header("Background (AUTOBK)"));
-        for key in [ParamKey::Rbkg, ParamKey::BkgKmin, ParamKey::BkgKmax] {
-            if let Some(f) = field(key) {
-                sections = sections.child(f);
-            }
-        }
-        sections = sections.child(self.section_header("FFT"));
-        for key in [
-            ParamKey::FftKmin,
-            ParamKey::FftKmax,
-            ParamKey::FftDk,
-            ParamKey::FftKweight,
-        ] {
-            if let Some(f) = field(key) {
-                sections = sections.child(f);
+            if open {
+                for &key in advanced {
+                    if let Some(f) = field(key) {
+                        sections = sections.child(f);
+                    }
+                }
             }
         }
         sections = sections.child(
@@ -3179,7 +3302,7 @@ impl Render for StudioApp {
         };
         let context_panel = match self.workspace {
             Workspace::Fit => self.fit_panel(cx).into_any_element(),
-            _ => self.context_panel().into_any_element(),
+            _ => self.context_panel(cx).into_any_element(),
         };
         div()
             .size_full()

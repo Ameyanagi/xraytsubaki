@@ -3,6 +3,8 @@
 
 use ruviz::plots::heatmap::HeatmapConfig;
 use ruviz::prelude::Plot;
+use ruviz::render::{Color, LineStyle};
+use xraytsubaki::prelude::NormalizationMethod;
 use xraytsubaki::prelude::XASSpectrum;
 
 use crate::theme::Theme;
@@ -39,6 +41,13 @@ pub struct ViewOptions {
     pub offset_frac: f64,
     pub legend: bool,
     pub grid: bool,
+    /// Diagnostics on the mu(E) quadrant (drawn for the active trace only).
+    pub show_pre: bool,
+    pub show_post: bool,
+    pub show_e0: bool,
+    pub show_ranges: bool,
+    /// Normalized quadrant shows flattened (true) or plain normalized mu(E).
+    pub flat: bool,
 }
 
 impl Default for ViewOptions {
@@ -48,6 +57,11 @@ impl Default for ViewOptions {
             offset_frac: 0.6,
             legend: true,
             grid: true,
+            show_pre: false,
+            show_post: false,
+            show_e0: false,
+            show_ranges: false,
+            flat: true,
         }
     }
 }
@@ -132,6 +146,66 @@ fn build_multi(
     plot
 }
 
+/// Normalization-check overlays for the active trace on the mu(E) plot:
+/// dashed pre/post-edge trendlines, the E0 line, and the fit-window lines
+/// (pre-edge range muted, norm range in a second hue; values are stored
+/// relative to E0).
+fn add_mu_diagnostics(mut plot: Plot, sp: &XASSpectrum, view: &ViewOptions) -> Plot {
+    let trend = Color::from_gray(150);
+    let e0_color = Color::ORANGE;
+    let pre_color = Color::new(90, 140, 200);
+    let norm_color = Color::new(90, 180, 120);
+
+    if view.show_pre
+        && let (Some(energy), Some(pre)) = (sp.energy.as_ref(), sp.get_pre_edge())
+    {
+        let x = vecs(energy);
+        let y = vecs(&pre);
+        plot = plot
+            .line(&x, &y)
+            .line_width(1.0)
+            .line_style(LineStyle::Dashed)
+            .color(trend)
+            .label("pre-edge")
+            .into();
+    }
+    if view.show_post
+        && let (Some(energy), Some(post)) = (sp.energy.as_ref(), sp.get_post_edge())
+    {
+        let x = vecs(energy);
+        let y = vecs(&post);
+        plot = plot
+            .line(&x, &y)
+            .line_width(1.0)
+            .line_style(LineStyle::Dashed)
+            .color(trend)
+            .label("post-edge")
+            .into();
+    }
+    let e0 = sp.get_e0();
+    if view.show_e0
+        && let Some(e0) = e0
+    {
+        plot = plot.vline_styled(e0, e0_color, 1.2, LineStyle::Dashed);
+    }
+    if view.show_ranges
+        && let (Some(e0), Some(NormalizationMethod::PrePostEdge(ppe))) =
+            (e0, sp.normalization.as_ref())
+    {
+        for (value, color) in [
+            (ppe.get_pre_edge_start(), pre_color),
+            (ppe.get_pre_edge_end(), pre_color),
+            (ppe.get_norm_start(), norm_color),
+            (ppe.get_norm_end(), norm_color),
+        ] {
+            if let Some(rel) = value {
+                plot = plot.vline_styled(e0 + rel, color, 1.0, LineStyle::Dashed);
+            }
+        }
+    }
+    plot
+}
+
 /// All four Explore quadrants for a set of traces.
 pub fn build_quadrants_multi(
     traces: &[QuadTrace],
@@ -145,22 +219,33 @@ pub fn build_quadrants_multi(
         .and_then(|t| t.sp.get_kweight().copied())
         .unwrap_or(2.0);
 
-    let mu_e = build_multi(traces, view, theme, "Energy (eV)", "mu(E)", |sp| {
+    let mut mu_e = build_multi(traces, view, theme, "Energy (eV)", "mu(E)", |sp| {
         Some((sp.energy.as_ref().map(vecs)?, sp.mu.as_ref().map(vecs)?))
     });
-    let norm = build_multi(
+    let flat = view.flat;
+    let mut norm = build_multi(
         traces,
         view,
         theme,
         "Energy (eV)",
-        "normalized mu(E)",
-        |sp| {
-            Some((
-                sp.energy.as_ref().map(vecs)?,
-                sp.get_flat().or_else(|| sp.get_norm()).map(|v| vecs(&v))?,
-            ))
+        if flat { "flattened mu(E)" } else { "normalized mu(E)" },
+        move |sp| {
+            let y = if flat {
+                sp.get_flat().or_else(|| sp.get_norm())
+            } else {
+                sp.get_norm().or_else(|| sp.get_flat())
+            };
+            Some((sp.energy.as_ref().map(vecs)?, y.map(|v| vecs(&v))?))
         },
     );
+    if let Some(active) = traces.iter().find(|t| t.active).or_else(|| traces.first()) {
+        mu_e = add_mu_diagnostics(mu_e, &active.sp, view);
+        if view.show_e0
+            && let Some(e0) = active.sp.get_e0()
+        {
+            norm = norm.vline_styled(e0, Color::ORANGE, 1.2, LineStyle::Dashed);
+        }
+    }
     let chi_k = build_multi(
         traces,
         view,

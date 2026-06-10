@@ -169,6 +169,10 @@ pub struct StudioApp {
     compare_gen: u64,
     view: ViewOptions,
     view_offset_field: Option<Entity<NumericField>>,
+    filter_input: Option<Entity<TextInput>>,
+    filter_text: String,
+    /// Catalog indices passing the filter (ascending); None = no filter.
+    filtered: Option<Arc<Vec<usize>>>,
     /// Bumped on every selection; async load results from older generations
     /// are discarded.
     generation: u64,
@@ -250,6 +254,69 @@ mod thin_tests {
     }
 }
 
+/// Case-insensitive name filter with `*` wildcards; without `*` it is a
+/// substring match. Segments must appear in order; ends anchor unless the
+/// pattern starts/ends with `*`.
+fn filter_match(name: &str, pattern: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    let pattern = pattern.to_ascii_lowercase();
+    if pattern.is_empty() {
+        return true;
+    }
+    if !pattern.contains('*') {
+        return name.contains(&pattern);
+    }
+    let anchored_start = !pattern.starts_with('*');
+    let anchored_end = !pattern.ends_with('*');
+    let segments: Vec<&str> = pattern.split('*').filter(|s| !s.is_empty()).collect();
+    let Some((&last, head)) = segments.split_last() else {
+        return true; // pattern was only '*'s
+    };
+    let in_order = if anchored_end { head } else { &segments[..] };
+
+    let mut pos = 0usize;
+    for (i, seg) in in_order.iter().enumerate() {
+        if i == 0 && anchored_start {
+            if !name.starts_with(seg) {
+                return false;
+            }
+            pos = seg.len();
+        } else if let Some(found) = name[pos..].find(seg) {
+            pos += found + seg.len();
+        } else {
+            return false;
+        }
+    }
+    if anchored_end {
+        if !name.ends_with(last) {
+            return false;
+        }
+        // the suffix segment must not overlap text consumed by earlier segments
+        if name.len() - last.len() < pos {
+            return false;
+        }
+    }
+    true
+}
+
+#[cfg(test)]
+mod filter_tests {
+    use super::filter_match;
+
+    #[test]
+    fn substring_and_globs() {
+        assert!(filter_match("frame_0042.dat", "0042"));
+        assert!(filter_match("frame_0042.dat", "FRAME"));
+        assert!(!filter_match("frame_0042.dat", "0043"));
+        assert!(filter_match("frame_0042.dat", "frame*.dat"));
+        assert!(filter_match("frame_0042.dat", "*42.dat"));
+        assert!(!filter_match("frame_0042.dat", "*43.dat"));
+        assert!(filter_match("frame_0042.dat", "fr*00*dat"));
+        assert!(!filter_match("frame_0042.dat", "x*"));
+        assert!(filter_match("anything", ""));
+    }
+}
+
 fn default_data_file() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../xraytsubaki/tests/testfiles/Ru_QAS.dat")
@@ -305,6 +372,9 @@ impl StudioApp {
             compare_gen: 0,
             view: ViewOptions::default(),
             view_offset_field: None,
+            filter_input: None,
+            filter_text: String::new(),
+            filtered: None,
             generation: 0,
             recompute_epoch: 0,
             params,
@@ -353,6 +423,14 @@ impl StudioApp {
         })
         .detach();
         app.view_offset_field = Some(offset_field);
+        let filter_input = cx.new(|cx| TextInput::new("filter… (* glob)", "", theme, cx));
+        cx.subscribe(&filter_input, |this: &mut Self, _f, event, cx| {
+            let InputEvent::Committed(text) = event;
+            this.filter_text = text.trim().to_string();
+            this.apply_filter(cx);
+        })
+        .detach();
+        app.filter_input = Some(filter_input);
         app.feff_form = [
             (FeffFormKey::Element, "element", "Cu"),
             (FeffFormKey::Element2, "element 2", ""),
@@ -870,6 +948,9 @@ impl StudioApp {
                         ScanEvent::Done { total } => {
                             app.catalog.scanning = false;
                             app.status = format!("indexed {total} files").into();
+                            if !app.filter_text.is_empty() {
+                                app.apply_filter(cx);
+                            }
                         }
                         ScanEvent::Error(e) => {
                             app.catalog.scanning = false;
@@ -892,8 +973,23 @@ impl StudioApp {
         if modifiers.shift
             && let Some(anchor) = self.selected
         {
-            let (lo, hi) = (anchor.min(ix), anchor.max(ix));
-            self.selection.extend(lo..=hi);
+            match &self.filtered {
+                None => {
+                    let (lo, hi) = (anchor.min(ix), anchor.max(ix));
+                    self.selection.extend(lo..=hi);
+                }
+                Some(filtered) => {
+                    // range over the *visible* rows
+                    if let (Ok(a), Ok(b)) =
+                        (filtered.binary_search(&anchor), filtered.binary_search(&ix))
+                    {
+                        let (lo, hi) = (a.min(b), a.max(b));
+                        self.selection.extend(filtered[lo..=hi].iter().copied());
+                    } else {
+                        self.selection.insert(ix);
+                    }
+                }
+            }
             self.ensure_compare_loaded(cx);
         } else if modifiers.platform {
             if !self.selection.remove(&ix) {
@@ -920,6 +1016,59 @@ impl StudioApp {
         if !self.selection.is_empty() {
             self.selection.clear();
             self.rebuild_plots(cx);
+            cx.notify();
+        }
+    }
+
+    fn apply_filter(&mut self, cx: &mut Context<Self>) {
+        if self.filter_text.is_empty() {
+            self.filtered = None;
+        } else {
+            let pattern = self.filter_text.clone();
+            let matches: Vec<usize> = (0..self.catalog.len())
+                .filter(|&ix| filter_match(self.catalog.name(ix), &pattern))
+                .collect();
+            self.filtered = Some(Arc::new(matches));
+        }
+        cx.notify();
+    }
+
+    /// Add the scan containing the active spectrum to the compare set.
+    fn select_active_scan(&mut self, cx: &mut Context<Self>) {
+        let Some(active) = self.selected else {
+            return;
+        };
+        if let Some(scan_ix) = self
+            .catalog
+            .scans
+            .iter()
+            .position(|s| (s.start..s.start + s.len).contains(&active))
+        {
+            self.select_scan_range(scan_ix, cx);
+        }
+    }
+
+    /// Keep every 10th member of the current selection.
+    fn thin_selection(&mut self, cx: &mut Context<Self>) {
+        if self.selection.len() <= 1 {
+            return;
+        }
+        let kept: BTreeSet<usize> = self
+            .selection
+            .iter()
+            .copied()
+            .step_by(10)
+            .collect();
+        self.selection = kept;
+        self.ensure_compare_loaded(cx);
+        cx.notify();
+    }
+
+    /// Add all filter results to the compare set.
+    fn select_filter_results(&mut self, cx: &mut Context<Self>) {
+        if let Some(filtered) = &self.filtered {
+            self.selection.extend(filtered.iter().copied());
+            self.ensure_compare_loaded(cx);
             cx.notify();
         }
     }
@@ -1720,12 +1869,21 @@ impl StudioApp {
         let entity = cx.entity();
         let active = self.selected;
         let selection = self.selection.clone();
+        let filtered = self.filtered.clone();
+        let count = filtered
+            .as_ref()
+            .map(|f| f.len())
+            .unwrap_or(self.catalog.len());
         uniform_list(
             "catalog-files",
-            self.catalog.len(),
+            count,
             move |range, _window, app| {
                 let mut rows = Vec::with_capacity(range.len());
-                for ix in range {
+                for row in range {
+                    let ix = match &filtered {
+                        Some(f) => f[row],
+                        None => row,
+                    };
                     let name: SharedString = entity.read(app).catalog.name(ix).to_string().into();
                     let is_active = active == Some(ix);
                     let in_set = selection.contains(&ix);
@@ -1841,6 +1999,8 @@ impl StudioApp {
         let t = self.theme;
         let footer: SharedString = if self.catalog.is_empty() && !self.catalog.scanning {
             "no folder open".into()
+        } else if let Some(filtered) = &self.filtered {
+            format!("{} of {} files", filtered.len(), self.catalog.len()).into()
         } else {
             format!(
                 "{} files{}",
@@ -1885,6 +2045,9 @@ impl StudioApp {
                     ),
             )
             .child(
+                div().px_2().pb_1().children(self.filter_input.clone()),
+            )
+            .child(
                 div()
                     .flex()
                     .border_b_1()
@@ -1892,41 +2055,65 @@ impl StudioApp {
                     .child(self.data_tab_button("tab-files", "Files", DataTab::Files, cx))
                     .child(self.data_tab_button("tab-scans", "Scans", DataTab::Scans, cx)),
             )
-            .child(if self.selection.is_empty() {
+            .child(if self.catalog.is_empty() {
                 div().into_any_element()
             } else {
+                let cmd = |id: &'static str,
+                           label: &'static str,
+                           enabled: bool,
+                           action: fn(&mut Self, &mut Context<Self>)| {
+                    div()
+                        .id(id)
+                        .px_1()
+                        .rounded_sm()
+                        .text_xs()
+                        .text_color(if enabled { t.accent } else { t.text_muted })
+                        .when(enabled, |d| d.cursor_pointer().hover(|d| d.bg(t.raised)))
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                            action(this, cx);
+                        }))
+                        .child(label)
+                };
                 div()
-                    .px_3()
+                    .px_2()
                     .py_1()
                     .flex()
                     .items_center()
-                    .gap_2()
+                    .gap_1()
                     .border_b_1()
                     .border_color(t.border)
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(t.accent)
-                            .child(SharedString::from(format!(
-                                "{} selected",
-                                self.selection.len()
-                            ))),
-                    )
+                    .child(cmd("sel-scan", "scan", self.selected.is_some(), |this, cx| {
+                        this.select_active_scan(cx)
+                    }))
+                    .child(cmd(
+                        "sel-tenth",
+                        "1/10th",
+                        self.selection.len() > 1,
+                        |this, cx| this.thin_selection(cx),
+                    ))
+                    .child(cmd(
+                        "sel-filter",
+                        "filter→sel",
+                        self.filtered.is_some(),
+                        |this, cx| this.select_filter_results(cx),
+                    ))
                     .child(div().flex_1())
                     .child(
                         div()
-                            .id("sel-clear")
-                            .px_1()
-                            .rounded_sm()
                             .text_xs()
-                            .text_color(t.text_muted)
-                            .cursor_pointer()
-                            .hover(|d| d.bg(t.raised).text_color(t.text))
-                            .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                                this.clear_selection(cx);
-                            }))
-                            .child("clear"),
+                            .text_color(if self.selection.is_empty() {
+                                t.text_muted
+                            } else {
+                                t.accent
+                            })
+                            .child(SharedString::from(format!("{}", self.selection.len()))),
                     )
+                    .child(cmd(
+                        "sel-clear",
+                        "clear",
+                        !self.selection.is_empty(),
+                        |this, cx| this.clear_selection(cx),
+                    ))
                     .into_any_element()
             })
             .child(if self.catalog.is_empty() {

@@ -30,8 +30,8 @@ use crate::fitting::{BatchFitRow, FitPathSpec, FitRanges, FitVarSpec, PathMeta, 
 use crate::params::{PipelineParams, process_file, resample_chik};
 use crate::project::{ProjectFile, PROJECT_VERSION};
 use crate::plotting::{
-    QuadTrace, ViewOptions, build_fit_k, build_fit_r, build_frame_chik, build_heatmap,
-    build_quadrants_multi, build_trend,
+    QuadTrace, TraceLayout, ViewOptions, build_fit_k, build_fit_r, build_frame_chik,
+    build_heatmap, build_quadrants_multi, build_trend,
 };
 use crate::fitting::expr_identifiers;
 use crate::theme::{Theme, ThemeMode};
@@ -168,6 +168,7 @@ pub struct StudioApp {
     selection: BTreeSet<usize>,
     compare_gen: u64,
     view: ViewOptions,
+    view_offset_field: Option<Entity<NumericField>>,
     /// Bumped on every selection; async load results from older generations
     /// are discarded.
     generation: u64,
@@ -303,6 +304,7 @@ impl StudioApp {
             selection: BTreeSet::new(),
             compare_gen: 0,
             view: ViewOptions::default(),
+            view_offset_field: None,
             generation: 0,
             recompute_epoch: 0,
             params,
@@ -338,6 +340,19 @@ impl StudioApp {
             status: "loading...".into(),
         };
         app.fit_range_fields = Self::build_range_fields(theme, app.fit_ranges, cx);
+        let offset_field = cx.new(|cx| {
+            NumericField::new("offset", "", Some(app.view.offset_frac), theme, cx)
+        });
+        cx.subscribe(&offset_field, |this: &mut Self, _f, event, cx| {
+            let FieldEvent::Changed(value) = event;
+            if let Some(v) = value {
+                this.view.offset_frac = v.clamp(0.05, 5.0);
+                this.rebuild_plots(cx);
+                cx.notify();
+            }
+        })
+        .detach();
+        app.view_offset_field = Some(offset_field);
         app.feff_form = [
             (FeffFormKey::Element, "element", "Cu"),
             (FeffFormKey::Element2, "element 2", ""),
@@ -804,6 +819,9 @@ impl StudioApp {
             }
         }
         for (_, field) in &self.feff_form {
+            field.update(cx, |f, cx| f.set_theme(theme, cx));
+        }
+        if let Some(field) = &self.view_offset_field {
             field.update(cx, |f, cx| f.set_theme(theme, cx));
         }
         self.rebuild_plots(cx);
@@ -1989,6 +2007,71 @@ impl StudioApp {
             .child(div().flex_1().p_1().child(plot.clone()))
     }
 
+    fn view_chip(
+        &self,
+        id: &'static str,
+        label: &'static str,
+        on: bool,
+        cx: &mut Context<Self>,
+        action: fn(&mut Self, &mut Context<Self>),
+    ) -> impl IntoElement + use<> {
+        let t = self.theme;
+        div()
+            .id(id)
+            .px_2()
+            .rounded_sm()
+            .text_xs()
+            .cursor_pointer()
+            .text_color(if on { t.accent } else { t.text_muted })
+            .hover(|d| d.bg(t.raised))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                action(this, cx);
+            }))
+            .child(label)
+    }
+
+    fn view_options_row(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let t = self.theme;
+        let waterfall = self.view.layout == TraceLayout::Waterfall;
+        let mut row = div()
+            .px_2()
+            .py_1()
+            .flex()
+            .items_center()
+            .gap_2()
+            .text_xs()
+            .text_color(t.text_muted)
+            .child(self.view_chip(
+                "view-layout",
+                if waterfall { "waterfall" } else { "overlay" },
+                waterfall,
+                cx,
+                |this, cx| {
+                    this.view.layout = match this.view.layout {
+                        TraceLayout::Overlay => TraceLayout::Waterfall,
+                        TraceLayout::Waterfall => TraceLayout::Overlay,
+                    };
+                    this.rebuild_plots(cx);
+                    cx.notify();
+                },
+            ));
+        if waterfall && let Some(field) = &self.view_offset_field {
+            row = row.child(div().w(px(72.)).child(field.clone()));
+        }
+        row = row
+            .child(self.view_chip("view-legend", "legend", self.view.legend, cx, |this, cx| {
+                this.view.legend = !this.view.legend;
+                this.rebuild_plots(cx);
+                cx.notify();
+            }))
+            .child(self.view_chip("view-grid", "grid", self.view.grid, cx, |this, cx| {
+                this.view.grid = !this.view.grid;
+                this.rebuild_plots(cx);
+                cx.notify();
+            }));
+        row
+    }
+
     fn explore_center(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
         if self.quadrants.len() != 4 {
@@ -2001,12 +2084,18 @@ impl StudioApp {
                 .child(self.status.clone());
         }
         if let Some(index) = self.maximized {
-            return div().flex_1().flex().child(self.quadrant(index, cx));
+            return div()
+                .flex_1()
+                .flex()
+                .flex_col()
+                .child(self.view_options_row(cx))
+                .child(div().flex_1().flex().child(self.quadrant(index, cx)));
         }
         div()
             .flex_1()
             .flex()
             .flex_col()
+            .child(self.view_options_row(cx))
             .child(
                 div()
                     .flex_1()

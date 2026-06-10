@@ -220,3 +220,75 @@ pub fn result_summary(result: &FeffFitResult) -> Vec<String> {
     }
     lines
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::feffgen::{CrystalSpec, new_workspace_from_spec, run_feff10};
+    use crate::params::{PipelineParams, process_file};
+
+    /// End-to-end check of the GUI fit flow (Generate -> Run FEFF10 -> Run
+    /// Fit) on real data: first Ru-Ru shell vs the Ru K-edge test spectrum.
+    /// Note: Ru_QAS.dat is not clean bulk Ru metal (large de0/dr when forced
+    /// onto hcp Ru paths), so amp is held fixed and the R-factor bound is
+    /// loose — this validates plumbing and convergence, not a publication
+    /// fit.
+    #[test]
+    fn ru_hcp_paths_fit_ru_spectrum() {
+        let spec = CrystalSpec {
+            element: "Ru".into(),
+            element2: None,
+            structure: "hcp".into(),
+            a: 2.706,
+            c: Some(4.282),
+            edge: "K".into(),
+            rmax: 5.0,
+        };
+        let ws = new_workspace_from_spec(&spec).expect("workspace");
+        let mut files = run_feff10(&ws).expect("feff10");
+        files.truncate(1); // first Ru-Ru shell only
+
+        let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../xraytsubaki/tests/testfiles/Ru_QAS.dat");
+        let sp = process_file(&data, &PipelineParams::default()).expect("pipeline");
+        let (k, chi) = (sp.get_k().unwrap(), sp.get_chi().unwrap());
+
+        let mut paths = Vec::new();
+        let mut vars = vec![
+            FitVarSpec { name: "amp".into(), value: 0.9, vary: false, expr: None },
+            FitVarSpec { name: "de0".into(), value: 0.0, vary: true, expr: None },
+        ];
+        for (i, file) in files.iter().enumerate() {
+            let n = i + 1;
+            paths.push(FitPathSpec {
+                file: file.clone(),
+                label: format!("path{n}"),
+                s02: "amp".into(),
+                e0: "de0".into(),
+                sigma2: format!("sig2_{n}"),
+                deltar: format!("dr_{n}"),
+                enabled: true,
+            });
+            vars.push(FitVarSpec { name: format!("sig2_{n}"), value: 0.003, vary: true, expr: None });
+            vars.push(FitVarSpec { name: format!("dr_{n}"), value: 0.0, vary: true, expr: None });
+        }
+
+        let ranges = FitRanges {
+            kmin: 3.0,
+            kmax: 12.0,
+            rmin: 1.8,
+            rmax: 3.0,
+            kweight: 2.0,
+        };
+        let result = run_fit(k, chi, &paths, &vars, ranges).expect("fit");
+        println!("Ru hcp fit: R-factor {:.4}", result.r_factor);
+        for line in result_summary(&result) {
+            println!("  {line}");
+        }
+        assert!(
+            result.r_factor < 0.35,
+            "first-shell fit should describe the metal shell (R-factor {})",
+            result.r_factor
+        );
+    }
+}

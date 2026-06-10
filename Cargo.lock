@@ -2661,9 +2661,9 @@ dependencies = [
 
 [[package]]
 name = "feff10"
-version = "0.2.0"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7a9300f99aa51a39c79858082b289b05e6c627970a1ea134d9f7bcade2bef76"
+checksum = "58d8149e3cb1652db0b43f44742ef2ea8c18ddf1218405eca0be9fa4047309e0"
 dependencies = [
  "feff10-sys",
  "libc",
@@ -2673,9 +2673,9 @@ dependencies = [
 
 [[package]]
 name = "feff10-sys"
-version = "0.2.0"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "340df8da5c57e0639bd72c794e7633a612bfa23a9ab9ac62ddc216a945e54f27"
+checksum = "37b21209b064bc693321e55d23b31378eb5c397dc2a5beb87529ec09d7a06983"
 dependencies = [
  "sha2",
  "which 7.0.3",
@@ -10770,6 +10770,7 @@ name = "xraytsubaki-gui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "feff10",
  "futures",
  "gpui",
  "gpui_platform",

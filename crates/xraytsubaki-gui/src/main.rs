@@ -20,16 +20,10 @@ use gpui::{App, AppContext, Bounds, Size, WindowBounds, WindowOptions, px};
 use crate::app::StudioApp;
 
 fn main() {
-    // FEFF10 worker mode: run the (fork-based) FEFF pipeline in this clean
-    // process and exit before any GUI machinery starts.
-    let args: Vec<String> = std::env::args().collect();
-    if args.get(1).map(String::as_str) == Some(feffgen::FEFF10_WORKER_FLAG) {
-        let Some(workspace) = args.get(2) else {
-            eprintln!("usage: xraytsubaki-gui {} <workspace>", feffgen::FEFF10_WORKER_FLAG);
-            std::process::exit(2);
-        };
-        std::process::exit(feffgen::worker_main(std::path::Path::new(workspace)));
-    }
+    // FEFF10 fork-safety hook: stages run in re-exec'd single-stage worker
+    // processes (this call never returns in worker invocations). Must come
+    // before any GUI initialization.
+    feff10::worker::init();
 
     // Optional positional arg: a data file to auto-load on launch. Enables
     // "open with", scripted launches, and screenshot testing without driving

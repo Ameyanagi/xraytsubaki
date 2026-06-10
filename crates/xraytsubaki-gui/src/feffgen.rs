@@ -288,35 +288,14 @@ pub fn new_workspace() -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-/// Worker-process flag: `xraytsubaki-gui --feff10-worker <workspace>`.
-///
-/// feff10 0.2 executes each Fortran stage in a `fork()`ed child without
-/// `exec`; inside a Cocoa/Metal GUI process that child dies with SIGILL.
-/// The GUI therefore re-invokes its own binary (pre-GUI, fork-safe) to run
-/// the pipeline, and parses the generated path list from stdout.
-pub const FEFF10_WORKER_FLAG: &str = "--feff10-worker";
-
-/// Entry point for the worker process; prints one path file per line.
-pub fn worker_main(workspace: &Path) -> i32 {
-    match run_feff10(workspace) {
-        Ok(paths) => {
-            for p in paths {
-                println!("{}", p.display());
-            }
-            0
-        }
-        Err(e) => {
-            eprintln!("{e}");
-            1
-        }
-    }
-}
-
 /// Locate the standalone `feff10-rs` CLI (github.com/Ameyanagi/feff10-rs;
 /// prebuilt macOS/Linux/Windows release binaries exist). Preferred over the
 /// embedded pipeline: it exec's a clean process, so the fork-based stages
 /// are safe regardless of the GUI runtime. Override with `XTS_FEFF10_BIN`.
 fn find_feff10_cli() -> Option<PathBuf> {
+    if std::env::var_os("XTS_FEFF10_DISABLE_CLI").is_some() {
+        return None;
+    }
     if let Ok(path) = std::env::var("XTS_FEFF10_BIN") {
         let p = PathBuf::from(path);
         if p.is_file() {
@@ -364,9 +343,10 @@ fn discover_path_files(workspace: &Path) -> Vec<PathBuf> {
     paths
 }
 
-/// Run FEFF10 in a subprocess: the standalone `feff10-rs` CLI when
-/// installed, else this binary's own fork-safe worker mode. Blocking — call
-/// on the background executor.
+/// Run FEFF10: the standalone `feff10-rs` CLI when installed, else the
+/// embedded pipeline (fork-safe in this GUI since feff10 0.2.1: main()
+/// installs `feff10::worker::init()`, so stages run in re-exec'd worker
+/// processes). Blocking — call on the background executor.
 pub fn run_feff10_subprocess(workspace: &Path) -> Result<Vec<PathBuf>, String> {
     if let Some(cli) = find_feff10_cli() {
         let output = std::process::Command::new(&cli)
@@ -393,36 +373,13 @@ pub fn run_feff10_subprocess(workspace: &Path) -> Result<Vec<PathBuf>, String> {
         return Ok(paths);
     }
 
-    // Fallback: embedded pipeline in our own fork-safe worker process.
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let output = std::process::Command::new(exe)
-        .arg(FEFF10_WORKER_FLAG)
-        .arg(workspace)
-        .output()
-        .map_err(|e| format!("failed to launch FEFF10 worker: {e}"))?;
-    if !output.status.success() {
-        let err = String::from_utf8_lossy(&output.stderr);
-        let err = err.trim();
-        return Err(if err.is_empty() {
-            format!("FEFF10 worker exited with {}", output.status)
-        } else {
-            err.to_string()
-        });
-    }
-    let paths: Vec<PathBuf> = String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .map(|l| PathBuf::from(l.trim()))
-        .filter(|p| p.exists())
-        .collect();
-    if paths.is_empty() {
-        return Err("FEFF10 produced no path files".into());
-    }
-    Ok(paths)
+    // Fallback: embedded pipeline (StageIsolation::Auto picks worker
+    // processes here because main() installed the feff10 worker hook).
+    run_feff10(workspace)
 }
 
-/// Run the FEFF10 pipeline on `workspace/feff.inp`; returns generated
-/// feffNNNN.dat files. Only safe in a non-GUI process (see
-/// [`FEFF10_WORKER_FLAG`]).
+/// Run the embedded FEFF10 pipeline on `workspace/feff.inp`; returns the
+/// generated feffNNNN.dat files.
 pub fn run_feff10(workspace: &Path) -> Result<Vec<PathBuf>, String> {
     let request = FeffRunRequest {
         executable_path: PathBuf::new(),
@@ -441,10 +398,22 @@ pub fn run_feff10(workspace: &Path) -> Result<Vec<PathBuf>, String> {
 mod tests {
     use super::*;
 
+    /// FEFF stages inherit the spawning process's cwd and use fixed-name
+    /// scratch files, so concurrent runs interfere; serialize the tests
+    /// (the GUI itself runs one FEFF calculation at a time).
+    static FEFF_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn feff_lock() -> std::sync::MutexGuard<'static, ()> {
+        FEFF_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     /// Generated hcp Ru input must run through FEFF10 (matches the user's
     /// Ru K-edge test data).
     #[test]
     fn generated_ru_hcp_runs_feff10() {
+        let _guard = feff_lock();
         let spec = CrystalSpec {
             element: "Ru".into(),
             element2: None,
@@ -481,6 +450,7 @@ mod tests {
     /// embedded worker) must produce path files.
     #[test]
     fn subprocess_route_runs() {
+        let _guard = feff_lock();
         let ws = new_workspace().expect("workspace");
         let paths = run_feff10_subprocess(&ws).expect("subprocess run");
         assert!(!paths.is_empty());
@@ -496,6 +466,7 @@ mod tests {
     /// Template must parse and produce path files via the FEFF10 pipeline.
     #[test]
     fn template_runs_feff10() {
+        let _guard = feff_lock();
         let ws = new_workspace().expect("workspace");
         let paths = run_feff10(&ws).expect("feff10 run");
         assert!(!paths.is_empty());

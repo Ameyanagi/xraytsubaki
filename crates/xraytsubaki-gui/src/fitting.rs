@@ -235,6 +235,7 @@ mod tests {
     /// fit.
     #[test]
     fn ru_hcp_paths_fit_ru_spectrum() {
+        let _guard = crate::feffgen::feff_test_lock();
         let spec = CrystalSpec {
             element: "Ru".into(),
             element2: None,

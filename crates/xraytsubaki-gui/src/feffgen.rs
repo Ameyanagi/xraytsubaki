@@ -394,20 +394,24 @@ pub fn run_feff10(workspace: &Path) -> Result<Vec<PathBuf>, String> {
         .map_err(|e| e.to_string())
 }
 
+/// FEFF stages inherit the spawning process's cwd and use fixed-name
+/// scratch files, so concurrent runs interfere; tests that invoke FEFF
+/// serialize on this lock (the GUI itself runs one calculation at a time).
+#[cfg(test)]
+pub(crate) static FEFF_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(test)]
+pub(crate) fn feff_test_lock() -> std::sync::MutexGuard<'static, ()> {
+    FEFF_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// FEFF stages inherit the spawning process's cwd and use fixed-name
-    /// scratch files, so concurrent runs interfere; serialize the tests
-    /// (the GUI itself runs one FEFF calculation at a time).
-    static FEFF_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    fn feff_lock() -> std::sync::MutexGuard<'static, ()> {
-        FEFF_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
+    use super::feff_test_lock as feff_lock;
 
     /// Generated hcp Ru input must run through FEFF10 (matches the user's
     /// Ru K-edge test data).

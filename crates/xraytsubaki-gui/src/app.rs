@@ -2432,7 +2432,7 @@ impl StudioApp {
                     header = header
                         .child(self.view_chip(
                             "view-krange",
-                            "k-range",
+                            "FT range",
                             self.view.show_krange,
                             cx,
                             |this, cx| {
@@ -2443,7 +2443,7 @@ impl StudioApp {
                         ))
                         .child(self.view_chip(
                             "view-kwin",
-                            "window",
+                            "FT window",
                             self.view.show_kwin,
                             cx,
                             |this, cx| {

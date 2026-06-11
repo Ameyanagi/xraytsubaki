@@ -279,6 +279,16 @@ impl PipelineParams {
 /// Load a file and run the full pipeline with the given parameters.
 /// Runs on the background executor.
 pub fn process_file(path: &PathBuf, params: &PipelineParams) -> Result<XASSpectrum, String> {
+    let (energy, mu) = load_raw(path, params)?;
+    process_arrays(energy, mu, params)
+}
+
+/// Raw (energy, mu) after import math and optional reference alignment —
+/// the inputs both processing and merging start from.
+pub fn load_raw(
+    path: &std::path::Path,
+    params: &PipelineParams,
+) -> Result<(Vec<f64>, Vec<f64>), String> {
     let (mut energy, mu) = load_mu(path, &params.import)?;
     if params.align_to_ref
         && let Some(target) = params.align_target
@@ -288,7 +298,59 @@ pub fn process_file(path: &PathBuf, params: &PipelineParams) -> Result<XASSpectr
             *e += shift;
         }
     }
-    process_arrays(energy, mu, params)
+    Ok((energy, mu))
+}
+
+/// A spectrum created in the app (e.g. the average of a selection) rather
+/// than loaded from a file.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct DerivedSpectrum {
+    pub label: String,
+    pub energy: Vec<f64>,
+    pub mu: Vec<f64>,
+}
+
+/// Average spectra on the first input's energy grid, restricted to the
+/// overlap region; the others are linearly interpolated onto it.
+pub fn average_spectra(inputs: &[(Vec<f64>, Vec<f64>)]) -> Result<(Vec<f64>, Vec<f64>), String> {
+    if inputs.len() < 2 {
+        return Err("need at least 2 spectra to merge".into());
+    }
+    let lo = inputs
+        .iter()
+        .map(|(e, _)| *e.first().unwrap_or(&f64::MAX))
+        .fold(f64::MIN, f64::max);
+    let hi = inputs
+        .iter()
+        .map(|(e, _)| *e.last().unwrap_or(&f64::MIN))
+        .fold(f64::MAX, f64::min);
+    if hi <= lo {
+        return Err("selected spectra have no overlapping energy range".into());
+    }
+    let grid: Vec<f64> = inputs[0]
+        .0
+        .iter()
+        .copied()
+        .filter(|&e| e >= lo && e <= hi)
+        .collect();
+    if grid.len() < 2 {
+        return Err("overlap region too small to merge".into());
+    }
+    let mut sum = vec![0.0f64; grid.len()];
+    for (e, mu) in inputs {
+        let mut j = 0usize;
+        for (gi, &g) in grid.iter().enumerate() {
+            while j + 2 < e.len() && e[j + 1] < g {
+                j += 1;
+            }
+            let (e0v, e1v) = (e[j], e[j + 1]);
+            let t = if e1v > e0v { ((g - e0v) / (e1v - e0v)).clamp(0.0, 1.0) } else { 0.0 };
+            sum[gi] += mu[j] + t * (mu[j + 1] - mu[j]);
+        }
+    }
+    let n = inputs.len() as f64;
+    let avg: Vec<f64> = sum.into_iter().map(|v| v / n).collect();
+    Ok((grid, avg))
 }
 
 /// E0 of the reference channel ln(It/Ir) of this file.
@@ -526,6 +588,21 @@ mod tests {
         let shifted0 = energy[0] + shift;
         assert!((shifted0 - (0.0 + shift)).abs() < 1e-9);
         assert!(shift < 0.0 && shift > -10.0);
+    }
+
+    #[test]
+    fn average_of_two_known_spectra() {
+        let a = ((0..10).map(|i| i as f64).collect::<Vec<_>>(),
+                 (0..10).map(|i| i as f64).collect::<Vec<_>>());
+        let b = ((0..10).map(|i| i as f64 + 0.5).collect::<Vec<_>>(),
+                 (0..10).map(|_| 1.0).collect::<Vec<_>>());
+        let (grid, avg) = average_spectra(&[a, b]).unwrap();
+        // overlap region [0.5, 9.0]; grid from first input
+        assert!(*grid.first().unwrap() >= 0.5 && *grid.last().unwrap() <= 9.0);
+        // avg = (g + 1.0)/2 at every grid point
+        for (g, v) in grid.iter().zip(avg.iter()) {
+            assert!((v - (g + 1.0) / 2.0).abs() < 1e-9, "g={g} v={v}");
+        }
     }
 
     /// Transmission via the generic loader must match the legacy QAS loader.

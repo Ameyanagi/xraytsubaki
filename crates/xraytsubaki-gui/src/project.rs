@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::fitting::{FitPathSpec, FitRanges, FitVarSpec};
+use crate::params::DerivedSpectrum;
 use crate::params::PipelineParams;
 
 #[derive(Default, Serialize, Deserialize)]
@@ -21,6 +22,7 @@ pub struct ProjectFile {
     pub fit_vars: Vec<FitVarSpec>,
     pub fit_ranges: FitRanges,
     pub feff_workspace: Option<PathBuf>,
+    pub derived: Vec<DerivedSpectrum>,
 }
 
 pub const PROJECT_VERSION: u32 = 1;
@@ -67,6 +69,7 @@ mod tests {
             }],
             fit_ranges: FitRanges::default(),
             feff_workspace: None,
+            derived: Vec::new(),
         };
         let path = std::env::temp_dir().join("xts-test.xtproj");
         save(&path, &project).unwrap();

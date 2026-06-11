@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use gpui::{
-    ClickEvent, Context, Entity, FocusHandle, Focusable, IntoElement, KeyBinding, ParentElement,
+    ClickEvent, Context, Entity, FocusHandle, IntoElement, KeyBinding, ParentElement,
     PathPromptOptions, Render, SharedString, Styled, Window, actions, div, prelude::*, px,
     uniform_list,
 };
@@ -28,7 +28,7 @@ use xraytsubaki::prelude::FeffFitResult;
 
 use crate::catalog::{Catalog, ScanEvent, start_scan};
 use crate::fitting::{BatchFitRow, FitPathSpec, FitRanges, FitVarSpec, PathMeta, batch_csv, path_meta, result_summary, run_fit};
-use crate::params::{AUTOBK_SOLVERS, DetectionMode, FT_WINDOWS, PipelineParams, parse_cols, process_file, read_columns, resample_chik};
+use crate::params::{AUTOBK_SOLVERS, DerivedSpectrum, DetectionMode, FT_WINDOWS, PipelineParams, average_spectra, load_raw, parse_cols, process_arrays, process_file, read_columns, resample_chik};
 use crate::project::{ProjectFile, PROJECT_VERSION};
 use crate::plotting::{
     QuadTrace, TraceLayout, ViewOptions, build_fit_k, build_fit_r, build_frame_chik,
@@ -138,6 +138,10 @@ const MAX_OVERLAY: usize = 12;
 /// Cache slot for the spectrum loaded outside the catalog (default file).
 const NO_ENTRY: usize = usize::MAX;
 
+/// Derived (merged) spectra get virtual indices above this base so the
+/// selection/cache/compare machinery treats them like catalog entries.
+const DERIVED_BASE: usize = usize::MAX / 2;
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum DataTab {
     Files,
@@ -231,6 +235,8 @@ pub struct StudioApp {
     selected: Option<usize>,
     /// Compare set; the active spectrum is implicitly included.
     selection: BTreeSet<usize>,
+    /// Merged/averaged spectra (virtual indices DERIVED_BASE + i).
+    derived: Vec<DerivedSpectrum>,
     compare_gen: u64,
     view: ViewOptions,
     view_offset_field: Option<Entity<NumericField>>,
@@ -442,6 +448,7 @@ impl StudioApp {
             source_dir: None,
             selected: None,
             selection: BTreeSet::new(),
+            derived: Vec::new(),
             compare_gen: 0,
             view: ViewOptions::default(),
             view_offset_field: None,
@@ -782,9 +789,15 @@ impl StudioApp {
         self.status = format!("processing {label} ...").into();
         cx.notify();
         let params = self.params.clone();
-        let load = cx
-            .background_executor()
-            .spawn(async move { process_file(&path, &params) });
+        let derived = (ix >= DERIVED_BASE)
+            .then(|| self.derived.get(ix - DERIVED_BASE).cloned())
+            .flatten();
+        let load = cx.background_executor().spawn(async move {
+            match derived {
+                Some(d) => process_arrays(d.energy, d.mu, &params),
+                None => process_file(&path, &params),
+            }
+        });
         cx.spawn(async move |this, cx| {
             let result = load.await;
             this.update(cx, |app, cx| {
@@ -995,10 +1008,18 @@ impl StudioApp {
     fn ensure_compare_loaded(&mut self, cx: &mut Context<Self>) {
         let fingerprint = self.params.fingerprint();
         let (indices, _) = self.compare_indices();
-        let missing: Vec<(usize, PathBuf)> = indices
+        let missing: Vec<(usize, Result<PathBuf, DerivedSpectrum>)> = indices
             .iter()
             .filter(|&&ix| ix != NO_ENTRY && !self.cache.contains(&(ix, fingerprint)))
-            .map(|&ix| (ix, self.catalog.path(ix)))
+            .filter_map(|&ix| {
+                if ix >= DERIVED_BASE {
+                    self.derived
+                        .get(ix - DERIVED_BASE)
+                        .map(|d| (ix, Err(d.clone())))
+                } else {
+                    Some((ix, Ok(self.catalog.path(ix))))
+                }
+            })
             .collect();
         if missing.is_empty() {
             self.rebuild_plots(cx);
@@ -1013,7 +1034,13 @@ impl StudioApp {
         let job = cx.background_executor().spawn(async move {
             missing
                 .par_iter()
-                .map(|(ix, path)| (*ix, process_file(path, &params)))
+                .map(|(ix, source)| {
+                    let result = match source {
+                        Ok(path) => process_file(path, &params),
+                        Err(d) => process_arrays(d.energy.clone(), d.mu.clone(), &params),
+                    };
+                    (*ix, result)
+                })
                 .collect::<Vec<_>>()
         });
         cx.spawn(async move |this, cx| {
@@ -1053,9 +1080,10 @@ impl StudioApp {
             if ix == NO_ENTRY {
                 continue;
             }
+            let label = self.entry_label(ix);
             if let Some(sp) = self.cache.get(&(ix, fingerprint)) {
                 traces.push(QuadTrace {
-                    label: self.catalog.name(ix).to_string(),
+                    label,
                     sp: sp.clone(),
                     active: Some(ix) == self.selected,
                 });
@@ -1198,6 +1226,8 @@ impl StudioApp {
     fn click_entry(&mut self, ix: usize, modifiers: gpui::Modifiers, cx: &mut Context<Self>) {
         if modifiers.shift
             && let Some(anchor) = self.selected
+            && anchor < DERIVED_BASE
+            && ix < DERIVED_BASE
         {
             match &self.filtered {
                 None => {
@@ -1324,6 +1354,75 @@ impl StudioApp {
         cx.notify();
     }
 
+    /// Average the selected catalog spectra into a derived spectrum.
+    fn merge_selection(&mut self, cx: &mut Context<Self>) {
+        let files: Vec<usize> = self
+            .selection
+            .iter()
+            .copied()
+            .filter(|&ix| ix < DERIVED_BASE)
+            .collect();
+        if files.len() < 2 {
+            self.status = "select at least 2 spectra to merge".into();
+            cx.notify();
+            return;
+        }
+        let label = format!(
+            "avg of {} ({}..{})",
+            files.len(),
+            self.catalog.name(files[0]),
+            self.catalog.name(*files.last().unwrap())
+        );
+        let paths: Vec<PathBuf> = files.iter().map(|&ix| self.catalog.path(ix)).collect();
+        let params = self.params.clone();
+        self.status = format!("merging {} spectra ...", files.len()).into();
+        cx.notify();
+        let job = cx.background_executor().spawn(async move {
+            let inputs: Result<Vec<(Vec<f64>, Vec<f64>)>, String> =
+                paths.par_iter().map(|p| load_raw(p, &params)).collect();
+            inputs.and_then(|inputs| average_spectra(&inputs))
+        });
+        cx.spawn(async move |this, cx| {
+            let result = job.await;
+            this.update(cx, |app, cx| {
+                match result {
+                    Ok((energy, mu)) => {
+                        app.derived.push(DerivedSpectrum {
+                            label: label.clone(),
+                            energy,
+                            mu,
+                        });
+                        let ix = DERIVED_BASE + app.derived.len() - 1;
+                        app.status = format!("merged → {label}").into();
+                        app.selection.clear();
+                        app.select_entry(ix, cx);
+                    }
+                    Err(e) => {
+                        app.status = format!("merge failed: {e}").into();
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn remove_derived(&mut self, i: usize, cx: &mut Context<Self>) {
+        if i >= self.derived.len() {
+            return;
+        }
+        self.derived.remove(i);
+        // Virtual indices shift; drop selections/cache touching derived.
+        self.selection.retain(|&ix| ix < DERIVED_BASE);
+        if self.selected.is_some_and(|ix| ix >= DERIVED_BASE) {
+            self.selected = None;
+        }
+        self.cache.clear();
+        self.rebuild_plots(cx);
+        cx.notify();
+    }
+
     /// Add all filter results to the compare set.
     fn select_filter_results(&mut self, cx: &mut Context<Self>) {
         if let Some(filtered) = &self.filtered {
@@ -1333,7 +1432,28 @@ impl StudioApp {
         }
     }
 
+    fn entry_label(&self, ix: usize) -> String {
+        if ix >= DERIVED_BASE {
+            self.derived
+                .get(ix - DERIVED_BASE)
+                .map(|d| d.label.clone())
+                .unwrap_or_else(|| "merged".into())
+        } else {
+            self.catalog.name(ix).to_string()
+        }
+    }
+
     fn select_entry(&mut self, ix: usize, cx: &mut Context<Self>) {
+        if ix >= DERIVED_BASE {
+            if ix - DERIVED_BASE >= self.derived.len() {
+                return;
+            }
+            self.selected = Some(ix);
+            let label: SharedString = self.entry_label(ix).into();
+            self.spectrum_label = label.clone();
+            self.load_spectrum(ix, PathBuf::new(), label, cx);
+            return;
+        }
         if ix >= self.catalog.len() {
             return;
         }
@@ -1967,6 +2087,7 @@ impl StudioApp {
             fit_vars: self.fit_vars.iter().map(|v| v.spec.clone()).collect(),
             fit_ranges: self.fit_ranges,
             feff_workspace: self.feff_workspace.clone(),
+            derived: self.derived.clone(),
         }
     }
 
@@ -2094,6 +2215,7 @@ impl StudioApp {
             field.update(cx, |f, cx| f.set_value(Some(value), cx));
         }
         self.feff_workspace = project.feff_workspace;
+        self.derived = project.derived;
 
         // Reopen the data source.
         self.operando = None;
@@ -2406,6 +2528,12 @@ impl StudioApp {
                         |this, cx| this.thin_selection(cx),
                     ))
                     .child(cmd(
+                        "sel-merge",
+                        "merge",
+                        self.selection.iter().filter(|&&ix| ix < DERIVED_BASE).count() >= 2,
+                        |this, cx| this.merge_selection(cx),
+                    ))
+                    .child(cmd(
                         "sel-filter",
                         "filter→sel",
                         self.filtered.is_some(),
@@ -2450,12 +2578,64 @@ impl StudioApp {
                     DataTab::Files => self.file_list(cx).into_any_element(),
                     DataTab::Scans => self.scan_list(cx).into_any_element(),
                 };
-                div()
-                    .flex_1()
-                    .flex()
-                    .flex_col()
-                    .child(list)
-                    .into_any_element()
+                let mut column = div().flex_1().min_h_0().flex().flex_col();
+                if !self.derived.is_empty() {
+                    let mut block = div().flex().flex_col().border_b_1().border_color(t.border);
+                    for (i, d) in self.derived.iter().enumerate() {
+                        let ix = DERIVED_BASE + i;
+                        let is_active = self.selected == Some(ix);
+                        let in_set = self.selection.contains(&ix);
+                        let label: SharedString = d.label.clone().into();
+                        block = block.child(
+                            div()
+                                .h(px(24.))
+                                .px_3()
+                                .flex()
+                                .items_center()
+                                .gap_1()
+                                .when(is_active, |d| d.bg(t.raised))
+                                .hover(|d| d.bg(t.raised))
+                                .child(
+                                    div()
+                                        .id(("derived", i))
+                                        .flex_1()
+                                        .overflow_hidden()
+                                        .text_sm()
+                                        .text_color(if is_active {
+                                            t.accent
+                                        } else if in_set {
+                                            t.text
+                                        } else {
+                                            t.warn
+                                        })
+                                        .cursor_pointer()
+                                        .on_click(cx.listener(
+                                            move |this, ev: &ClickEvent, _window, cx| {
+                                                this.click_entry(ix, ev.modifiers(), cx);
+                                            },
+                                        ))
+                                        .child(label),
+                                )
+                                .child(
+                                    div()
+                                        .id(("derived-x", i))
+                                        .px_1()
+                                        .text_xs()
+                                        .text_color(t.text_muted)
+                                        .cursor_pointer()
+                                        .hover(|d| d.text_color(t.error))
+                                        .on_click(cx.listener(
+                                            move |this, _: &ClickEvent, _window, cx| {
+                                                this.remove_derived(i, cx);
+                                            },
+                                        ))
+                                        .child("✕"),
+                                ),
+                        );
+                    }
+                    column = column.child(block);
+                }
+                column.child(list).into_any_element()
             })
             .child(
                 div()

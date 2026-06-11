@@ -68,16 +68,7 @@ pub const AUTOBK_SOLVERS: [AUTOBKSolver; 3] = [
     AUTOBKSolver::LegacyLm,
 ];
 
-/// None -> first -> ... -> last -> None ("auto").
-pub fn cycle_option<T: Copy + PartialEq>(current: Option<T>, all: &[T]) -> Option<T> {
-    match current {
-        None => all.first().copied(),
-        Some(c) => all
-            .iter()
-            .position(|x| *x == c)
-            .and_then(|i| all.get(i + 1).copied()),
-    }
-}
+
 
 impl PipelineParams {
     pub fn fingerprint(&self) -> u64 {

@@ -28,7 +28,7 @@ use xraytsubaki::prelude::FeffFitResult;
 
 use crate::catalog::{Catalog, ScanEvent, start_scan};
 use crate::fitting::{BatchFitRow, FitPathSpec, FitRanges, FitVarSpec, PathMeta, batch_csv, path_meta, result_summary, run_fit};
-use crate::params::{AUTOBK_SOLVERS, FT_WINDOWS, PipelineParams, cycle_option, process_file, resample_chik};
+use crate::params::{AUTOBK_SOLVERS, FT_WINDOWS, PipelineParams, process_file, resample_chik};
 use crate::project::{ProjectFile, PROJECT_VERSION};
 use crate::plotting::{
     QuadTrace, TraceLayout, ViewOptions, build_fit_k, build_fit_r, build_frame_chik,
@@ -228,6 +228,8 @@ pub struct StudioApp {
     operando_focus: FocusHandle,
     /// Per-section "advanced parameters" fold state (Norm, Bkg, FFT).
     adv_open: [bool; 3],
+    /// Which enum parameter's option list is expanded.
+    open_enum: Option<EnumParam>,
     /// Catalog indices passing the filter (ascending); None = no filter.
     filtered: Option<Arc<Vec<usize>>>,
     /// Bumped on every selection; async load results from older generations
@@ -435,6 +437,7 @@ impl StudioApp {
             data_focus: cx.focus_handle(),
             operando_focus: cx.focus_handle(),
             adv_open: [false; 3],
+            open_enum: None,
             generation: 0,
             recompute_epoch: 0,
             params,
@@ -600,39 +603,66 @@ impl StudioApp {
         self.schedule_recompute(cx);
     }
 
-    fn cycle_enum_param(&mut self, which: EnumParam, cx: &mut Context<Self>) {
+    /// Option labels for an enum parameter: index 0 = auto, then variants.
+    fn enum_options(which: EnumParam) -> Vec<String> {
+        let (auto_label, variants): (&str, Vec<String>) = match which {
+            EnumParam::BkgWindow => (
+                "auto (Hanning)",
+                FT_WINDOWS.iter().map(|w| format!("{w:?}")).collect(),
+            ),
+            EnumParam::BkgSolver => (
+                "auto (LinearDirect)",
+                AUTOBK_SOLVERS.iter().map(|v| format!("{v:?}")).collect(),
+            ),
+            EnumParam::FftWindow => (
+                "auto (KaiserBessel)",
+                FT_WINDOWS.iter().map(|w| format!("{w:?}")).collect(),
+            ),
+        };
+        let mut out = vec![auto_label.to_string()];
+        out.extend(variants);
+        out
+    }
+
+    /// Apply a selection from the option list (0 = auto).
+    fn set_enum_param(&mut self, which: EnumParam, index: usize, cx: &mut Context<Self>) {
+        let variant = index.checked_sub(1);
         match which {
             EnumParam::BkgWindow => {
-                self.params.bkg_window = cycle_option(self.params.bkg_window, &FT_WINDOWS);
+                self.params.bkg_window = variant.map(|i| FT_WINDOWS[i]);
             }
             EnumParam::BkgSolver => {
-                self.params.bkg_solver = cycle_option(self.params.bkg_solver, &AUTOBK_SOLVERS);
+                self.params.bkg_solver = variant.map(|i| AUTOBK_SOLVERS[i]);
             }
             EnumParam::FftWindow => {
-                self.params.fft_window = cycle_option(self.params.fft_window, &FT_WINDOWS);
+                self.params.fft_window = variant.map(|i| FT_WINDOWS[i]);
             }
         }
+        self.open_enum = None;
         self.schedule_recompute(cx);
         cx.notify();
     }
 
-    fn enum_param_label(&self, which: EnumParam) -> String {
+    fn enum_selected_index(&self, which: EnumParam) -> usize {
         match which {
             EnumParam::BkgWindow => self
                 .params
                 .bkg_window
-                .map(|w| format!("{w:?}"))
-                .unwrap_or_else(|| "auto (Hanning)".into()),
+                .and_then(|w| FT_WINDOWS.iter().position(|x| *x == w))
+                .map(|i| i + 1)
+                .unwrap_or(0),
             EnumParam::BkgSolver => self
                 .params
                 .bkg_solver
-                .map(|v| format!("{v:?}"))
-                .unwrap_or_else(|| "auto (LinearDirect)".into()),
+                .and_then(|v| AUTOBK_SOLVERS.iter().position(|x| *x == v))
+                .map(|i| i + 1)
+                .unwrap_or(0),
             EnumParam::FftWindow => self
                 .params
                 .fft_window
-                .map(|w| format!("{w:?}"))
-                .unwrap_or_else(|| "auto (KaiserBessel)".into()),
+                .and_then(|w| FT_WINDOWS.iter().position(|x| *x == w))
+                .map(|i| i + 1)
+                .unwrap_or(0),
         }
     }
 
@@ -3335,7 +3365,10 @@ impl StudioApp {
                     _ => &[],
                 };
                 for &(label, which) in enum_rows {
-                    let value: SharedString = self.enum_param_label(which).into();
+                    let options = Self::enum_options(which);
+                    let selected = self.enum_selected_index(which);
+                    let expanded = self.open_enum == Some(which);
+                    let current: SharedString = options[selected].clone().into();
                     sections = sections.child(
                         div()
                             .px_3()
@@ -3359,18 +3392,56 @@ impl StudioApp {
                                     .text_xs()
                                     .bg(t.bg)
                                     .border_1()
-                                    .border_color(t.border)
+                                    .border_color(if expanded { t.accent } else { t.border })
                                     .text_color(t.text)
                                     .cursor_pointer()
                                     .hover(|d| d.border_color(t.accent))
                                     .on_click(cx.listener(
                                         move |this, _: &ClickEvent, _window, cx| {
-                                            this.cycle_enum_param(which, cx);
+                                            this.open_enum = if this.open_enum == Some(which) {
+                                                None
+                                            } else {
+                                                Some(which)
+                                            };
+                                            cx.notify();
                                         },
                                     ))
-                                    .child(value),
+                                    .child(format!("{current} ▾")),
                             ),
                     );
+                    if expanded {
+                        let mut list = div()
+                            .mx_3()
+                            .mb_1()
+                            .rounded_sm()
+                            .border_1()
+                            .border_color(t.border)
+                            .bg(t.bg)
+                            .flex()
+                            .flex_col();
+                        for (i, option) in options.iter().enumerate() {
+                            let option: SharedString = option.clone().into();
+                            let is_sel = i == selected;
+                            list = list.child(
+                                div()
+                                    .id(SharedString::from(format!("enum-opt-{fold}-{label}-{i}")))
+                                    .px_2()
+                                    .py_0p5()
+                                    .text_xs()
+                                    .cursor_pointer()
+                                    .when(is_sel, |d| d.bg(t.raised).text_color(t.accent))
+                                    .when(!is_sel, |d| d.text_color(t.text))
+                                    .hover(|d| d.bg(t.raised))
+                                    .on_click(cx.listener(
+                                        move |this, _: &ClickEvent, _window, cx| {
+                                            this.set_enum_param(which, i, cx);
+                                        },
+                                    ))
+                                    .child(option),
+                            );
+                        }
+                        sections = sections.child(list);
+                    }
                 }
             }
         }

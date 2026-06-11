@@ -1367,11 +1367,12 @@ impl StudioApp {
             cx.notify();
             return;
         }
+        let trim = |name: &str| name.trim_end_matches(".dat").to_string();
         let label = format!(
-            "avg of {} ({}..{})",
+            "avg{} {}..{}",
             files.len(),
-            self.catalog.name(files[0]),
-            self.catalog.name(*files.last().unwrap())
+            trim(self.catalog.name(files[0])),
+            trim(self.catalog.name(*files.last().unwrap()))
         );
         let paths: Vec<PathBuf> = files.iter().map(|&ix| self.catalog.path(ix)).collect();
         let params = self.params.clone();
@@ -2600,6 +2601,7 @@ impl StudioApp {
                                         .id(("derived", i))
                                         .flex_1()
                                         .overflow_hidden()
+                                        .whitespace_nowrap()
                                         .text_sm()
                                         .text_color(if is_active {
                                             t.accent

@@ -28,7 +28,7 @@ use xraytsubaki::prelude::FeffFitResult;
 
 use crate::catalog::{Catalog, ScanEvent, start_scan};
 use crate::fitting::{BatchFitRow, FitPathSpec, FitRanges, FitVarSpec, PathMeta, batch_csv, path_meta, result_summary, run_fit};
-use crate::params::{AUTOBK_SOLVERS, FT_WINDOWS, PipelineParams, process_file, resample_chik};
+use crate::params::{AUTOBK_SOLVERS, DetectionMode, FT_WINDOWS, PipelineParams, parse_cols, process_file, read_columns, resample_chik};
 use crate::project::{ProjectFile, PROJECT_VERSION};
 use crate::plotting::{
     QuadTrace, TraceLayout, ViewOptions, build_fit_k, build_fit_r, build_frame_chik,
@@ -53,6 +53,10 @@ pub enum Workspace {
 /// Which pipeline parameter a context-panel field edits.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ParamKey {
+    ImpEnergyCol,
+    ImpI0Col,
+    ImpItCol,
+    ImpIrCol,
     E0,
     PreEdgeStart,
     PreEdgeEnd,
@@ -83,10 +87,17 @@ enum ParamKey {
 /// Enum-valued parameters edited with cycling chips.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum EnumParam {
+    ImportMode,
     BkgWindow,
     BkgSolver,
     FftWindow,
 }
+
+const DETECTION_MODES: [DetectionMode; 3] = [
+    DetectionMode::Transmission,
+    DetectionMode::Fluorescence,
+    DetectionMode::Reference,
+];
 
 actions!(
     studio,
@@ -226,8 +237,10 @@ pub struct StudioApp {
     filter_text: String,
     data_focus: FocusHandle,
     operando_focus: FocusHandle,
-    /// Per-section "advanced parameters" fold state (Norm, Bkg, FFT).
-    adv_open: [bool; 3],
+    /// Per-section "advanced parameters" fold state (Norm, Bkg, FFT, Import).
+    adv_open: [bool; 4],
+    roi_input: Option<Entity<TextInput>>,
+    import_preview: SharedString,
     /// Which enum parameter's option list is expanded.
     open_enum: Option<EnumParam>,
     /// Catalog indices passing the filter (ascending); None = no filter.
@@ -436,7 +449,9 @@ impl StudioApp {
             filtered: None,
             data_focus: cx.focus_handle(),
             operando_focus: cx.focus_handle(),
-            adv_open: [false; 3],
+            adv_open: [false; 4],
+            roi_input: None,
+            import_preview: "".into(),
             open_enum: None,
             generation: 0,
             recompute_epoch: 0,
@@ -494,6 +509,33 @@ impl StudioApp {
         })
         .detach();
         app.filter_input = Some(filter_input);
+        let roi_input = cx.new(|cx| TextInput::new("e.g. 4 or 4-7", "4", theme, cx));
+        cx.subscribe(&roi_input, |this: &mut Self, input, event, cx| {
+            let InputEvent::Committed(text) = event;
+            match parse_cols(text) {
+                Some(cols) => {
+                    if this.params.import.fluor_cols != cols {
+                        this.params.import.fluor_cols = cols;
+                        this.schedule_recompute(cx);
+                    }
+                }
+                None => {
+                    // revert to current value
+                    let text = this
+                        .params
+                        .import
+                        .fluor_cols
+                        .iter()
+                        .map(|c| c.to_string())
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    input.update(cx, |i, cx| i.set_text(text, cx));
+                }
+            }
+            cx.notify();
+        })
+        .detach();
+        app.roi_input = Some(roi_input);
         app.feff_form = [
             (FeffFormKey::Element, "element", "Cu"),
             (FeffFormKey::Element2, "element 2", ""),
@@ -509,6 +551,7 @@ impl StudioApp {
         })
         .collect();
 
+        app.update_import_preview();
         match process_file(&path, &app.params) {
             Ok(sp) => {
                 app.set_processed(label, Arc::new(sp), cx);
@@ -529,7 +572,11 @@ impl StudioApp {
         theme: Theme,
         cx: &mut Context<Self>,
     ) -> Vec<(ParamKey, Entity<NumericField>)> {
-        let specs: [(ParamKey, &str, &str); 25] = [
+        let specs: [(ParamKey, &str, &str); 29] = [
+            (ParamKey::ImpEnergyCol, "energy col", "0"),
+            (ParamKey::ImpI0Col, "I0 col", "1"),
+            (ParamKey::ImpItCol, "It col", "2"),
+            (ParamKey::ImpIrCol, "Ir col", "3"),
             (ParamKey::E0, "E0 (eV)", "auto"),
             (ParamKey::PreEdgeStart, "pre-edge start", "auto (-200)"),
             (ParamKey::PreEdgeEnd, "pre-edge end", "auto (-30)"),
@@ -573,7 +620,12 @@ impl StudioApp {
     fn apply_param(&mut self, key: ParamKey, value: Option<f64>, cx: &mut Context<Self>) {
         let p = &mut self.params;
         let int = value.map(|v| v.round() as i32);
+        let col = value.map(|v| v.round().max(0.0) as usize);
         match key {
+            ParamKey::ImpEnergyCol => p.import.energy_col = col.unwrap_or(0),
+            ParamKey::ImpI0Col => p.import.i0_col = col.unwrap_or(1),
+            ParamKey::ImpItCol => p.import.it_col = col.unwrap_or(2),
+            ParamKey::ImpIrCol => p.import.ir_col = col.unwrap_or(3),
             ParamKey::E0 => p.e0 = value,
             ParamKey::PreEdgeStart => p.pre_edge_start = value,
             ParamKey::PreEdgeEnd => p.pre_edge_end = value,
@@ -606,6 +658,9 @@ impl StudioApp {
     /// Option labels for an enum parameter: index 0 = auto, then variants.
     fn enum_options(which: EnumParam) -> Vec<String> {
         let (auto_label, variants): (&str, Vec<String>) = match which {
+            EnumParam::ImportMode => {
+                return DETECTION_MODES.iter().map(|m| format!("{m:?}")).collect();
+            }
             EnumParam::BkgWindow => (
                 "auto (Hanning)",
                 FT_WINDOWS.iter().map(|w| format!("{w:?}")).collect(),
@@ -628,6 +683,9 @@ impl StudioApp {
     fn set_enum_param(&mut self, which: EnumParam, index: usize, cx: &mut Context<Self>) {
         let variant = index.checked_sub(1);
         match which {
+            EnumParam::ImportMode => {
+                self.params.import.mode = DETECTION_MODES[index.min(2)];
+            }
             EnumParam::BkgWindow => {
                 self.params.bkg_window = variant.map(|i| FT_WINDOWS[i]);
             }
@@ -645,6 +703,10 @@ impl StudioApp {
 
     fn enum_selected_index(&self, which: EnumParam) -> usize {
         match which {
+            EnumParam::ImportMode => DETECTION_MODES
+                .iter()
+                .position(|m| *m == self.params.import.mode)
+                .unwrap_or(0),
             EnumParam::BkgWindow => self
                 .params
                 .bkg_window
@@ -716,7 +778,7 @@ impl StudioApp {
 
         self.status = format!("processing {label} ...").into();
         cx.notify();
-        let params = self.params;
+        let params = self.params.clone();
         let load = cx
             .background_executor()
             .spawn(async move { process_file(&path, &params) });
@@ -800,7 +862,7 @@ impl StudioApp {
                 .collect()
         };
         let paths: Vec<PathBuf> = sample_ixs.iter().map(|&ix| self.catalog.path(ix)).collect();
-        let params = self.params;
+        let params = self.params.clone();
         let grid: Vec<f64> = (0..K_GRID_BINS)
             .map(|i| i as f64 * K_GRID_MAX / (K_GRID_BINS - 1) as f64)
             .collect();
@@ -944,7 +1006,7 @@ impl StudioApp {
         let generation = self.compare_gen;
         self.status = format!("processing {} spectra for overlay ...", missing.len()).into();
         cx.notify();
-        let params = self.params;
+        let params = self.params.clone();
         let job = cx.background_executor().spawn(async move {
             missing
                 .par_iter()
@@ -1059,6 +1121,9 @@ impl StudioApp {
         }
         if let Some(field) = &self.view_offset_field {
             field.update(cx, |f, cx| f.set_theme(theme, cx));
+        }
+        if let Some(input) = &self.roi_input {
+            input.update(cx, |f, cx| f.set_theme(theme, cx));
         }
         self.rebuild_plots(cx);
         self.rebuild_operando_plots(cx);
@@ -1274,7 +1339,23 @@ impl StudioApp {
         self.spectrum_label = label.clone();
         let path = self.catalog.path(ix);
         self.current_path = path.clone();
+        self.update_import_preview();
         self.load_spectrum(ix, path, label, cx);
+    }
+
+    fn update_import_preview(&mut self) {
+        self.import_preview = match read_columns(&self.current_path) {
+            Ok(rows) => {
+                let first = rows[0]
+                    .iter()
+                    .take(6)
+                    .map(|v| format!("{v:.4}"))
+                    .collect::<Vec<_>>()
+                    .join("  ");
+                format!("{} columns · row 0: {first}", rows[0].len()).into()
+            }
+            Err(_) => "no preview".into(),
+        };
     }
 
     // ---- fitting -----------------------------------------------------------
@@ -1588,7 +1669,7 @@ impl StudioApp {
         self.status = format!("batch fit 0/{total} ...").into();
         cx.notify();
 
-        let params = self.params;
+        let params = self.params.clone();
         let paths: Vec<FitPathSpec> = self.fit_paths.iter().map(|r| r.spec.clone()).collect();
         let vars: Vec<FitVarSpec> = self.fit_vars.iter().map(|v| v.spec.clone()).collect();
         let ranges = self.fit_ranges;
@@ -1878,7 +1959,7 @@ impl StudioApp {
         ProjectFile {
             version: PROJECT_VERSION,
             source_dir: self.source_dir.clone(),
-            params: self.params,
+            params: self.params.clone(),
             fit_paths: self.fit_paths.iter().map(|r| r.spec.clone()).collect(),
             fit_vars: self.fit_vars.iter().map(|v| v.spec.clone()).collect(),
             fit_ranges: self.fit_ranges,
@@ -1938,6 +2019,10 @@ impl StudioApp {
         // Pipeline params + field texts.
         self.params = project.params;
         let value_of = |key: ParamKey, p: &PipelineParams| match key {
+            ParamKey::ImpEnergyCol => Some(p.import.energy_col as f64),
+            ParamKey::ImpI0Col => Some(p.import.i0_col as f64),
+            ParamKey::ImpItCol => Some(p.import.it_col as f64),
+            ParamKey::ImpIrCol => Some(p.import.ir_col as f64),
             ParamKey::E0 => p.e0,
             ParamKey::PreEdgeStart => p.pre_edge_start,
             ParamKey::PreEdgeEnd => p.pre_edge_end,
@@ -1964,7 +2049,7 @@ impl StudioApp {
             ParamKey::FftKstep => p.fft_kstep,
             ParamKey::FftNfft => p.fft_nfft.map(|v| v as f64),
         };
-        let params = self.params;
+        let params = self.params.clone();
         for (key, field) in &self.param_fields {
             let value = value_of(*key, &params);
             field.update(cx, |f, cx| f.set_value(value, cx));
@@ -2820,6 +2905,9 @@ impl StudioApp {
         let t = self.theme;
         let mut panel = div()
             .id("fit-scroll")
+            .on_scroll_wheel(cx.listener(|_t, ev: &gpui::ScrollWheelEvent, _w, _cx| {
+                eprintln!("[scroll-dbg] fit-scroll got wheel: {:?}", ev.delta);
+            }))
             .flex_1()
             .min_h_0()
             .flex()
@@ -3278,6 +3366,143 @@ impl StudioApp {
             .flex_col()
             .overflow_y_scroll();
 
+        // ---- Import (configure once, applies to the whole catalog) ----
+        {
+            let open = self.adv_open[3];
+            sections = sections.child(
+                div()
+                    .px_3()
+                    .pt_3()
+                    .pb_1()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .child(div().text_xs().text_color(t.accent).child("Import"))
+                    .child(
+                        div()
+                            .id("adv-import")
+                            .px_1()
+                            .rounded_sm()
+                            .text_xs()
+                            .text_color(if open { t.accent } else { t.text_muted })
+                            .cursor_pointer()
+                            .hover(|d| d.bg(t.raised))
+                            .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                                this.adv_open[3] = !this.adv_open[3];
+                                cx.notify();
+                            }))
+                            .child(if open { "▾ less" } else { "▸ columns" }),
+                    ),
+            );
+            // mode selector (always visible)
+            let options = Self::enum_options(EnumParam::ImportMode);
+            let selected = self.enum_selected_index(EnumParam::ImportMode);
+            let expanded = self.open_enum == Some(EnumParam::ImportMode);
+            let current: SharedString = options[selected].clone().into();
+            sections = sections.child(
+                div()
+                    .px_3()
+                    .py_0p5()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(div().flex_1().text_sm().text_color(t.text_muted).child("mode"))
+                    .child(
+                        div()
+                            .id("enum-import-mode")
+                            .px_2()
+                            .py_0p5()
+                            .rounded_sm()
+                            .text_xs()
+                            .bg(t.bg)
+                            .border_1()
+                            .border_color(if expanded { t.accent } else { t.border })
+                            .text_color(t.text)
+                            .cursor_pointer()
+                            .hover(|d| d.border_color(t.accent))
+                            .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                                this.open_enum = if this.open_enum == Some(EnumParam::ImportMode) {
+                                    None
+                                } else {
+                                    Some(EnumParam::ImportMode)
+                                };
+                                cx.notify();
+                            }))
+                            .child(format!("{current} ▾")),
+                    ),
+            );
+            if expanded {
+                let mut list = div()
+                    .mx_3()
+                    .mb_1()
+                    .rounded_sm()
+                    .border_1()
+                    .border_color(t.border)
+                    .bg(t.bg)
+                    .flex()
+                    .flex_col();
+                for (i, option) in options.iter().enumerate() {
+                    let option: SharedString = option.clone().into();
+                    let is_sel = i == selected;
+                    list = list.child(
+                        div()
+                            .id(SharedString::from(format!("enum-opt-import-{i}")))
+                            .px_2()
+                            .py_0p5()
+                            .text_xs()
+                            .cursor_pointer()
+                            .when(is_sel, |d| d.bg(t.raised).text_color(t.accent))
+                            .when(!is_sel, |d| d.text_color(t.text))
+                            .hover(|d| d.bg(t.raised))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                                this.set_enum_param(EnumParam::ImportMode, i, cx);
+                            }))
+                            .child(option),
+                    );
+                }
+                sections = sections.child(list);
+            }
+            // preview line (always visible)
+            sections = sections.child(
+                div()
+                    .px_3()
+                    .pb_1()
+                    .text_xs()
+                    .text_color(t.text_muted)
+                    .child(self.import_preview.clone()),
+            );
+            if open {
+                for key in [
+                    ParamKey::ImpEnergyCol,
+                    ParamKey::ImpI0Col,
+                    ParamKey::ImpItCol,
+                    ParamKey::ImpIrCol,
+                ] {
+                    if let Some(f) = field(key) {
+                        sections = sections.child(f);
+                    }
+                }
+                if let Some(roi) = &self.roi_input {
+                    sections = sections.child(
+                        div()
+                            .px_3()
+                            .py_0p5()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_sm()
+                                    .text_color(t.text_muted)
+                                    .child("ROI cols"),
+                            )
+                            .child(div().w(px(96.)).child(roi.clone())),
+                    );
+                }
+            }
+        }
+
         // (title, basic keys, advanced keys, fold index)
         let groups: [(&'static str, &[ParamKey], &[ParamKey], usize); 3] = [
             (
@@ -3544,6 +3769,10 @@ impl Render for StudioApp {
             _ => self.context_panel(cx).into_any_element(),
         };
         div()
+            .id("root")
+            .on_scroll_wheel(cx.listener(|_t, ev: &gpui::ScrollWheelEvent, _w, _cx| {
+                eprintln!("[scroll-dbg] window got wheel: {:?}", ev.delta);
+            }))
             .size_full()
             .flex()
             .flex_col()

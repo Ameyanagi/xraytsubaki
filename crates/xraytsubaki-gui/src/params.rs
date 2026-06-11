@@ -8,12 +8,161 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use xraytsubaki::prelude::*;
 use xraytsubaki::xafs::background::AUTOBK;
-use xraytsubaki::xafs::io;
 use xraytsubaki::xafs::normalization::PrePostEdge;
 
-#[derive(Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+/// How the measured intensities turn into mu(E).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub enum DetectionMode {
+    /// mu = ln(I0/It)
+    #[default]
+    Transmission,
+    /// mu = sum(ROI columns)/I0
+    Fluorescence,
+    /// mu = ln(It/Ir) — the reference foil between It and Ir.
+    Reference,
+}
+
+/// Configure-once import applied to every file in the catalog. Defaults
+/// match the QAS transmission layout (energy, I0, It, Ir, If).
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ImportConfig {
+    pub mode: DetectionMode,
+    pub energy_col: usize,
+    pub i0_col: usize,
+    pub it_col: usize,
+    pub ir_col: usize,
+    /// Fluorescence ROI columns (e.g. SDD elements); their sum is If.
+    pub fluor_cols: Vec<usize>,
+}
+
+impl Default for ImportConfig {
+    fn default() -> Self {
+        Self {
+            mode: DetectionMode::Transmission,
+            energy_col: 0,
+            i0_col: 1,
+            it_col: 2,
+            ir_col: 3,
+            fluor_cols: vec![4],
+        }
+    }
+}
+
+/// Parse a column list like "4, 6-8" (commas/spaces, inclusive ranges).
+pub fn parse_cols(text: &str) -> Option<Vec<usize>> {
+    let mut out = Vec::new();
+    for token in text.split([',', ' ']).filter(|t| !t.is_empty()) {
+        match token.split_once('-') {
+            Some((a, b)) => {
+                let (a, b) = (a.trim().parse::<usize>().ok()?, b.trim().parse::<usize>().ok()?);
+                if a > b {
+                    return None;
+                }
+                out.extend(a..=b);
+            }
+            None => out.push(token.trim().parse::<usize>().ok()?),
+        }
+    }
+    (!out.is_empty()).then_some(out)
+}
+
+/// Whitespace-delimited numeric rows; '#', '*' and non-numeric lines are
+/// skipped. Rows shorter than the first data row are dropped.
+pub fn read_columns(path: &std::path::Path) -> Result<Vec<Vec<f64>>, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut rows: Vec<Vec<f64>> = Vec::new();
+    let mut width = 0usize;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') || line.starts_with('*') {
+            continue;
+        }
+        let values: Option<Vec<f64>> = line
+            .split_whitespace()
+            .map(|t| t.parse::<f64>().ok())
+            .collect();
+        let Some(values) = values else { continue };
+        if rows.is_empty() {
+            width = values.len();
+        }
+        if values.len() >= width && width > 0 {
+            rows.push(values);
+        }
+    }
+    if rows.len() < 2 {
+        return Err(format!("{}: no numeric data rows", path.display()));
+    }
+    Ok(rows)
+}
+
+/// Energy and mu(E) for one file under the import configuration. Rows whose
+/// math is non-finite (e.g. log of a non-positive ratio) are dropped.
+pub fn load_mu(path: &std::path::Path, import: &ImportConfig) -> Result<(Vec<f64>, Vec<f64>), String> {
+    let rows = read_columns(path)?;
+    let width = rows[0].len();
+    let need = |col: usize, name: &str| -> Result<usize, String> {
+        if col < width {
+            Ok(col)
+        } else {
+            Err(format!(
+                "{}: {name} column {col} out of range (file has {width} columns)",
+                path.display()
+            ))
+        }
+    };
+    let e = need(import.energy_col, "energy")?;
+    let mut energy = Vec::with_capacity(rows.len());
+    let mut mu = Vec::with_capacity(rows.len());
+    match import.mode {
+        DetectionMode::Transmission => {
+            let (i0, it) = (need(import.i0_col, "I0")?, need(import.it_col, "It")?);
+            for row in &rows {
+                let m = (row[i0] / row[it]).ln();
+                if m.is_finite() && row[e].is_finite() {
+                    energy.push(row[e]);
+                    mu.push(m);
+                }
+            }
+        }
+        DetectionMode::Fluorescence => {
+            let i0 = need(import.i0_col, "I0")?;
+            let mut cols = Vec::new();
+            for &c in &import.fluor_cols {
+                cols.push(need(c, "ROI")?);
+            }
+            if cols.is_empty() {
+                return Err("no fluorescence ROI columns configured".into());
+            }
+            for row in &rows {
+                let m = cols.iter().map(|&c| row[c]).sum::<f64>() / row[i0];
+                if m.is_finite() && row[e].is_finite() {
+                    energy.push(row[e]);
+                    mu.push(m);
+                }
+            }
+        }
+        DetectionMode::Reference => {
+            let (it, ir) = (need(import.it_col, "It")?, need(import.ir_col, "Ir")?);
+            for row in &rows {
+                let m = (row[it] / row[ir]).ln();
+                if m.is_finite() && row[e].is_finite() {
+                    energy.push(row[e]);
+                    mu.push(m);
+                }
+            }
+        }
+    }
+    if energy.len() < 2 {
+        return Err(format!("{}: fewer than 2 finite data points", path.display()));
+    }
+    Ok((energy, mu))
+}
+
+#[derive(Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PipelineParams {
+    pub import: ImportConfig,
     // Normalization (pre/post-edge); energies relative to E0.
     pub e0: Option<f64>,
     pub pre_edge_start: Option<f64>,
@@ -73,6 +222,12 @@ pub const AUTOBK_SOLVERS: [AUTOBKSolver; 3] = [
 impl PipelineParams {
     pub fn fingerprint(&self) -> u64 {
         let mut hasher = std::hash::DefaultHasher::new();
+        format!("{:?}", self.import.mode).hash(&mut hasher);
+        self.import.energy_col.hash(&mut hasher);
+        self.import.i0_col.hash(&mut hasher);
+        self.import.it_col.hash(&mut hasher);
+        self.import.ir_col.hash(&mut hasher);
+        self.import.fluor_cols.hash(&mut hasher);
         for v in [
             self.e0,
             self.pre_edge_start,
@@ -118,7 +273,19 @@ impl PipelineParams {
 /// Load a file and run the full pipeline with the given parameters.
 /// Runs on the background executor.
 pub fn process_file(path: &PathBuf, params: &PipelineParams) -> Result<XASSpectrum, String> {
-    let mut sp = io::load_spectrum_QAS_trans(path).map_err(|e| e.to_string())?;
+    let (energy, mu) = load_mu(path, &params.import)?;
+    process_arrays(energy, mu, params)
+}
+
+/// Normalize/AUTOBK/FFT chain on raw arrays (shared by file loads and
+/// derived/merged spectra).
+pub fn process_arrays(
+    energy: Vec<f64>,
+    mu: Vec<f64>,
+    params: &PipelineParams,
+) -> Result<XASSpectrum, String> {
+    let mut sp = XASSpectrum::new();
+    sp.set_spectrum(energy, mu);
 
     match params.e0 {
         Some(e0) => {
@@ -239,4 +406,80 @@ pub fn resample_chik(sp: &XASSpectrum, grid: &[f64]) -> Option<Vec<f64>> {
         out.push(chi[j] + t * (chi[j + 1] - chi[j]));
     }
     Some(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_cols_lists_and_ranges() {
+        assert_eq!(parse_cols("4, 6-8"), Some(vec![4, 6, 7, 8]));
+        assert_eq!(parse_cols("3"), Some(vec![3]));
+        assert_eq!(parse_cols("1 2 5-6"), Some(vec![1, 2, 5, 6]));
+        assert_eq!(parse_cols(""), None);
+        assert_eq!(parse_cols("8-4"), None);
+        assert_eq!(parse_cols("a"), None);
+    }
+
+    fn fixture(dir: &std::path::Path) -> std::path::PathBuf {
+        let path = dir.join("import_fixture.dat");
+        std::fs::write(
+            &path,
+            "# energy i0 it ir if1 if2\n\
+             100.0 10.0 5.0 2.5 1.0 2.0\n\
+             101.0 10.0 4.0 2.0 1.5 2.5\n\
+             102.0 10.0 2.0 1.0 2.0 3.0\n",
+        )
+        .unwrap();
+        path
+    }
+
+    #[test]
+    fn detection_modes_compute_expected_mu() {
+        let dir = std::env::temp_dir();
+        let path = fixture(&dir);
+        let mut import = ImportConfig::default();
+
+        let (e, mu) = load_mu(&path, &import).unwrap();
+        assert_eq!(e, vec![100.0, 101.0, 102.0]);
+        assert!((mu[0] - (10.0f64 / 5.0).ln()).abs() < 1e-12);
+        assert!((mu[2] - (10.0f64 / 2.0).ln()).abs() < 1e-12);
+
+        import.mode = DetectionMode::Fluorescence;
+        import.fluor_cols = vec![4, 5];
+        let (_, mu) = load_mu(&path, &import).unwrap();
+        assert!((mu[0] - (1.0 + 2.0) / 10.0).abs() < 1e-12);
+        assert!((mu[1] - (1.5 + 2.5) / 10.0).abs() < 1e-12);
+
+        import.mode = DetectionMode::Reference;
+        let (_, mu) = load_mu(&path, &import).unwrap();
+        assert!((mu[0] - (5.0f64 / 2.5).ln()).abs() < 1e-12);
+    }
+
+    #[test]
+    fn bad_column_is_reported() {
+        let dir = std::env::temp_dir();
+        let path = fixture(&dir);
+        let mut import = ImportConfig::default();
+        import.i0_col = 9;
+        let err = load_mu(&path, &import).unwrap_err();
+        assert!(err.contains("I0 column 9"), "{err}");
+    }
+
+    /// Transmission via the generic loader must match the legacy QAS loader.
+    #[test]
+    fn transmission_matches_legacy_qas_loader() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../xraytsubaki/tests/testfiles/Ru_QAS.dat");
+        let (e, mu) = load_mu(&path, &ImportConfig::default()).unwrap();
+        let legacy = xraytsubaki::xafs::io::load_spectrum_QAS_trans(&path).unwrap();
+        let le = legacy.raw_energy.as_ref().unwrap();
+        let lm = legacy.raw_mu.as_ref().unwrap();
+        assert_eq!(e.len(), le.len());
+        for i in [0, 100, e.len() - 1] {
+            assert!((e[i] - le[i]).abs() < 1e-9);
+            assert!((mu[i] - lm[i]).abs() < 1e-9);
+        }
+    }
 }

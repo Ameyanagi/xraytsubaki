@@ -57,6 +57,7 @@ enum ParamKey {
     ImpI0Col,
     ImpItCol,
     ImpIrCol,
+    AlignTarget,
     E0,
     PreEdgeStart,
     PreEdgeEnd,
@@ -572,11 +573,12 @@ impl StudioApp {
         theme: Theme,
         cx: &mut Context<Self>,
     ) -> Vec<(ParamKey, Entity<NumericField>)> {
-        let specs: [(ParamKey, &str, &str); 29] = [
+        let specs: [(ParamKey, &str, &str); 30] = [
             (ParamKey::ImpEnergyCol, "energy col", "0"),
             (ParamKey::ImpI0Col, "I0 col", "1"),
             (ParamKey::ImpItCol, "It col", "2"),
             (ParamKey::ImpIrCol, "Ir col", "3"),
+            (ParamKey::AlignTarget, "ref E0 target", "e.g. 22117"),
             (ParamKey::E0, "E0 (eV)", "auto"),
             (ParamKey::PreEdgeStart, "pre-edge start", "auto (-200)"),
             (ParamKey::PreEdgeEnd, "pre-edge end", "auto (-30)"),
@@ -626,6 +628,7 @@ impl StudioApp {
             ParamKey::ImpI0Col => p.import.i0_col = col.unwrap_or(1),
             ParamKey::ImpItCol => p.import.it_col = col.unwrap_or(2),
             ParamKey::ImpIrCol => p.import.ir_col = col.unwrap_or(3),
+            ParamKey::AlignTarget => p.align_target = value,
             ParamKey::E0 => p.e0 = value,
             ParamKey::PreEdgeStart => p.pre_edge_start = value,
             ParamKey::PreEdgeEnd => p.pre_edge_end = value,
@@ -2023,6 +2026,7 @@ impl StudioApp {
             ParamKey::ImpI0Col => Some(p.import.i0_col as f64),
             ParamKey::ImpItCol => Some(p.import.it_col as f64),
             ParamKey::ImpIrCol => Some(p.import.ir_col as f64),
+            ParamKey::AlignTarget => p.align_target,
             ParamKey::E0 => p.e0,
             ParamKey::PreEdgeStart => p.pre_edge_start,
             ParamKey::PreEdgeEnd => p.pre_edge_end,
@@ -3499,6 +3503,35 @@ impl StudioApp {
                             )
                             .child(div().w(px(96.)).child(roi.clone())),
                     );
+                }
+                let align_on = self.params.align_to_ref;
+                sections = sections.child(
+                    div()
+                        .px_3()
+                        .py_0p5()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            div()
+                                .id("align-toggle")
+                                .px_1()
+                                .rounded_sm()
+                                .text_xs()
+                                .cursor_pointer()
+                                .text_color(if align_on { t.accent } else { t.text_muted })
+                                .hover(|d| d.bg(t.raised))
+                                .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                                    this.params.align_to_ref = !this.params.align_to_ref;
+                                    this.schedule_recompute(cx);
+                                    cx.notify();
+                                }))
+                                .child(if align_on { "✓ align to ref" } else { "align to ref" }),
+                        )
+                        .child(div().flex_1()),
+                );
+                if let Some(f) = field(ParamKey::AlignTarget) {
+                    sections = sections.child(f);
                 }
             }
         }

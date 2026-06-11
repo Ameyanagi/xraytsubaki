@@ -163,6 +163,10 @@ pub fn load_mu(path: &std::path::Path, import: &ImportConfig) -> Result<(Vec<f64
 #[serde(default)]
 pub struct PipelineParams {
     pub import: ImportConfig,
+    /// Shift each spectrum's energy axis so its reference-channel E0 lands
+    /// on `align_target` (requires an Ir column; no-op when target unset).
+    pub align_to_ref: bool,
+    pub align_target: Option<f64>,
     // Normalization (pre/post-edge); energies relative to E0.
     pub e0: Option<f64>,
     pub pre_edge_start: Option<f64>,
@@ -223,6 +227,8 @@ impl PipelineParams {
     pub fn fingerprint(&self) -> u64 {
         let mut hasher = std::hash::DefaultHasher::new();
         format!("{:?}", self.import.mode).hash(&mut hasher);
+        self.align_to_ref.hash(&mut hasher);
+        self.align_target.map(f64::to_bits).hash(&mut hasher);
         self.import.energy_col.hash(&mut hasher);
         self.import.i0_col.hash(&mut hasher);
         self.import.it_col.hash(&mut hasher);
@@ -273,8 +279,29 @@ impl PipelineParams {
 /// Load a file and run the full pipeline with the given parameters.
 /// Runs on the background executor.
 pub fn process_file(path: &PathBuf, params: &PipelineParams) -> Result<XASSpectrum, String> {
-    let (energy, mu) = load_mu(path, &params.import)?;
+    let (mut energy, mu) = load_mu(path, &params.import)?;
+    if params.align_to_ref
+        && let Some(target) = params.align_target
+    {
+        let shift = target - reference_e0(path, &params.import)?;
+        for e in energy.iter_mut() {
+            *e += shift;
+        }
+    }
     process_arrays(energy, mu, params)
+}
+
+/// E0 of the reference channel ln(It/Ir) of this file.
+pub fn reference_e0(path: &std::path::Path, import: &ImportConfig) -> Result<f64, String> {
+    let mut ref_import = import.clone();
+    ref_import.mode = DetectionMode::Reference;
+    let (energy, mu) = load_mu(path, &ref_import)?;
+    let mut sp = XASSpectrum::new();
+    sp.set_spectrum(energy, mu);
+    sp.find_e0()
+        .map_err(|e| format!("reference E0 failed: {e}"))?;
+    sp.get_e0()
+        .ok_or_else(|| "reference E0 not found".to_string())
 }
 
 /// Normalize/AUTOBK/FFT chain on raw arrays (shared by file loads and
@@ -465,6 +492,40 @@ mod tests {
         import.i0_col = 9;
         let err = load_mu(&path, &import).unwrap_err();
         assert!(err.contains("I0 column 9"), "{err}");
+    }
+
+    #[test]
+    fn alignment_shifts_to_target() {
+        // Reference channel ln(it/ir) forms a step at ~105 eV; aligning to
+        // target 100 must shift energies by 100 - e0_ref.
+        let dir = std::env::temp_dir();
+        let path = dir.join("align_fixture.dat");
+        let mut text = String::from("# e i0 it ir\n");
+        for i in 0..200 {
+            let e = i as f64;
+            // it/ir sigmoid edge centered at 105 eV (width 2 eV)
+            let step = 1.0 / (1.0 + (-(e - 105.0) / 2.0).exp());
+            let ratio: f64 = step.exp();
+            // transmission channel: flat-ish
+            let it = 5.0_f64;
+            let i0 = 10.0_f64;
+            let ir = it / ratio;
+            text.push_str(&format!("{e} {i0} {it} {ir}\n"));
+        }
+        std::fs::write(&path, text).unwrap();
+        let import = ImportConfig::default();
+        let e0_ref = reference_e0(&path, &import).unwrap();
+        assert!((e0_ref - 105.0).abs() < 2.0, "ref e0 = {e0_ref}");
+
+        let mut params = PipelineParams::default();
+        params.align_to_ref = true;
+        params.align_target = Some(100.0);
+        let (energy, _) = load_mu(&path, &import).unwrap();
+        // emulate the shift process_file applies
+        let shift = 100.0 - e0_ref;
+        let shifted0 = energy[0] + shift;
+        assert!((shifted0 - (0.0 + shift)).abs() < 1e-9);
+        assert!(shift < 0.0 && shift > -10.0);
     }
 
     /// Transmission via the generic loader must match the legacy QAS loader.

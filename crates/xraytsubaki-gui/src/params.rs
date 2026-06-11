@@ -22,6 +22,8 @@ pub struct PipelineParams {
     pub norm_end: Option<f64>,
     /// Advanced: polynomial order of the post-edge fit.
     pub norm_polyorder: Option<i32>,
+    /// Advanced: Victoreen exponent for the pre-edge fit.
+    pub n_victoreen: Option<i32>,
     // AUTOBK background.
     pub rbkg: Option<f64>,
     pub bkg_kmin: Option<f64>,
@@ -32,6 +34,10 @@ pub struct PipelineParams {
     pub bkg_kweight: Option<i32>,
     pub bkg_clamp_lo: Option<i32>,
     pub bkg_clamp_hi: Option<i32>,
+    pub bkg_window: Option<FTWindow>,
+    pub bkg_dk: Option<f64>,
+    pub bkg_solver: Option<AUTOBKSolver>,
+    pub bkg_nfft: Option<i32>,
     // Forward FFT.
     pub fft_kmin: Option<f64>,
     pub fft_kmax: Option<f64>,
@@ -40,6 +46,37 @@ pub struct PipelineParams {
     // Advanced FFT.
     pub fft_dk2: Option<f64>,
     pub fft_rmax: Option<f64>,
+    pub fft_window: Option<FTWindow>,
+    pub fft_kstep: Option<f64>,
+    pub fft_nfft: Option<i32>,
+}
+
+/// Cycle order for the window selector chips.
+pub const FT_WINDOWS: [FTWindow; 7] = [
+    FTWindow::Hanning,
+    FTWindow::Parzen,
+    FTWindow::Welch,
+    FTWindow::Gaussian,
+    FTWindow::Sine,
+    FTWindow::KaiserBessel,
+    FTWindow::FHanning,
+];
+
+pub const AUTOBK_SOLVERS: [AUTOBKSolver; 3] = [
+    AUTOBKSolver::LinearDirect,
+    AUTOBKSolver::TrustRegionDogLeg,
+    AUTOBKSolver::LegacyLm,
+];
+
+/// None -> first -> ... -> last -> None ("auto").
+pub fn cycle_option<T: Copy + PartialEq>(current: Option<T>, all: &[T]) -> Option<T> {
+    match current {
+        None => all.first().copied(),
+        Some(c) => all
+            .iter()
+            .position(|x| *x == c)
+            .and_then(|i| all.get(i + 1).copied()),
+    }
 }
 
 impl PipelineParams {
@@ -55,24 +92,34 @@ impl PipelineParams {
             self.bkg_kmin,
             self.bkg_kmax,
             self.bkg_kstep,
+            self.bkg_dk,
             self.fft_kmin,
             self.fft_kmax,
             self.fft_dk,
             self.fft_kweight,
             self.fft_dk2,
             self.fft_rmax,
+            self.fft_kstep,
         ] {
             v.map(f64::to_bits).hash(&mut hasher);
         }
         for v in [
             self.norm_polyorder,
+            self.n_victoreen,
             self.bkg_nknots,
             self.bkg_kweight,
             self.bkg_clamp_lo,
             self.bkg_clamp_hi,
+            self.bkg_nfft,
+            self.fft_nfft,
         ] {
             v.hash(&mut hasher);
         }
+        format!(
+            "{:?}|{:?}|{:?}",
+            self.bkg_window, self.bkg_solver, self.fft_window
+        )
+        .hash(&mut hasher);
         hasher.finish()
     }
 }
@@ -98,7 +145,7 @@ pub fn process_file(path: &PathBuf, params: &PipelineParams) -> Result<XASSpectr
     ppe.norm_start = params.norm_start.or(defaults.norm_start);
     ppe.norm_end = params.norm_end.or(defaults.norm_end);
     ppe.norm_polyorder = params.norm_polyorder.or(defaults.norm_polyorder);
-    ppe.n_victoreen = defaults.n_victoreen;
+    ppe.n_victoreen = params.n_victoreen.or(defaults.n_victoreen);
     sp.set_normalization_method(Some(NormalizationMethod::PrePostEdge(ppe)))
         .map_err(|e| e.to_string())?;
     sp.normalize().map_err(|e| e.to_string())?;
@@ -128,6 +175,18 @@ pub fn process_file(path: &PathBuf, params: &PipelineParams) -> Result<XASSpectr
     if params.bkg_clamp_hi.is_some() {
         autobk.clamp_hi = params.bkg_clamp_hi;
     }
+    if let Some(window) = params.bkg_window {
+        autobk.window = window;
+    }
+    if params.bkg_dk.is_some() {
+        autobk.dk = params.bkg_dk;
+    }
+    if params.bkg_solver.is_some() {
+        autobk.solver = params.bkg_solver;
+    }
+    if let Some(nfft) = params.bkg_nfft {
+        autobk.nfft = Some(nfft);
+    }
     sp.set_background_method(Some(BackgroundMethod::AUTOBK(autobk)))
         .map_err(|e| e.to_string())?;
     sp.calc_background().map_err(|e| e.to_string())?;
@@ -150,6 +209,15 @@ pub fn process_file(path: &PathBuf, params: &PipelineParams) -> Result<XASSpectr
     }
     if params.fft_rmax.is_some() {
         xftf.rmax_out = params.fft_rmax;
+    }
+    if params.fft_window.is_some() {
+        xftf.window = params.fft_window;
+    }
+    if params.fft_kstep.is_some() {
+        xftf.kstep = params.fft_kstep;
+    }
+    if let Some(nfft) = params.fft_nfft {
+        xftf.nfft = Some(nfft.max(64) as usize);
     }
     sp.xftf = Some(xftf);
     sp.fft().map_err(|e| e.to_string())?;

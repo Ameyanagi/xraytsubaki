@@ -28,7 +28,7 @@ use xraytsubaki::prelude::FeffFitResult;
 
 use crate::catalog::{Catalog, ScanEvent, start_scan};
 use crate::fitting::{BatchFitRow, FitPathSpec, FitRanges, FitVarSpec, PathMeta, batch_csv, path_meta, result_summary, run_fit};
-use crate::params::{PipelineParams, process_file, resample_chik};
+use crate::params::{AUTOBK_SOLVERS, FT_WINDOWS, PipelineParams, cycle_option, process_file, resample_chik};
 use crate::project::{ProjectFile, PROJECT_VERSION};
 use crate::plotting::{
     QuadTrace, TraceLayout, ViewOptions, build_fit_k, build_fit_r, build_frame_chik,
@@ -59,6 +59,7 @@ enum ParamKey {
     NormStart,
     NormEnd,
     NormPolyorder,
+    NVictoreen,
     Rbkg,
     BkgKmin,
     BkgKmax,
@@ -67,12 +68,24 @@ enum ParamKey {
     BkgKweight,
     BkgClampLo,
     BkgClampHi,
+    BkgDk,
+    BkgNfft,
     FftKmin,
     FftKmax,
     FftDk,
     FftKweight,
     FftDk2,
     FftRmax,
+    FftKstep,
+    FftNfft,
+}
+
+/// Enum-valued parameters edited with cycling chips.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EnumParam {
+    BkgWindow,
+    BkgSolver,
+    FftWindow,
 }
 
 actions!(
@@ -513,13 +526,14 @@ impl StudioApp {
         theme: Theme,
         cx: &mut Context<Self>,
     ) -> Vec<(ParamKey, Entity<NumericField>)> {
-        let specs: [(ParamKey, &str, &str); 20] = [
+        let specs: [(ParamKey, &str, &str); 25] = [
             (ParamKey::E0, "E0 (eV)", "auto"),
             (ParamKey::PreEdgeStart, "pre-edge start", "auto (-200)"),
             (ParamKey::PreEdgeEnd, "pre-edge end", "auto (-30)"),
             (ParamKey::NormStart, "norm start", "auto (150)"),
             (ParamKey::NormEnd, "norm end", "auto (2000)"),
             (ParamKey::NormPolyorder, "poly order", "auto (2)"),
+            (ParamKey::NVictoreen, "victoreen n", "auto (0)"),
             (ParamKey::Rbkg, "rbkg (Å)", "auto (1.0)"),
             (ParamKey::BkgKmin, "k min", "auto (0)"),
             (ParamKey::BkgKmax, "k max", "auto (full)"),
@@ -528,12 +542,16 @@ impl StudioApp {
             (ParamKey::BkgKweight, "bkg k-weight", "auto (1)"),
             (ParamKey::BkgClampLo, "clamp lo", "auto (0)"),
             (ParamKey::BkgClampHi, "clamp hi", "auto (1)"),
-            (ParamKey::FftKmin, "k min", "auto (0)"),
-            (ParamKey::FftKmax, "k max", "auto (20)"),
+            (ParamKey::BkgDk, "window dk", "auto (0.1)"),
+            (ParamKey::BkgNfft, "nfft", "auto (2048)"),
+            (ParamKey::FftKmin, "k min", "auto (2)"),
+            (ParamKey::FftKmax, "k max", "auto (15)"),
             (ParamKey::FftDk, "dk", "auto (1)"),
             (ParamKey::FftKweight, "k-weight", "auto (2)"),
             (ParamKey::FftDk2, "dk2", "auto"),
             (ParamKey::FftRmax, "R max out", "auto (10)"),
+            (ParamKey::FftKstep, "k step", "auto"),
+            (ParamKey::FftNfft, "nfft", "auto (2048)"),
         ];
         specs
             .into_iter()
@@ -559,6 +577,7 @@ impl StudioApp {
             ParamKey::NormStart => p.norm_start = value,
             ParamKey::NormEnd => p.norm_end = value,
             ParamKey::NormPolyorder => p.norm_polyorder = int,
+            ParamKey::NVictoreen => p.n_victoreen = int,
             ParamKey::Rbkg => p.rbkg = value,
             ParamKey::BkgKmin => p.bkg_kmin = value,
             ParamKey::BkgKmax => p.bkg_kmax = value,
@@ -567,14 +586,54 @@ impl StudioApp {
             ParamKey::BkgKweight => p.bkg_kweight = int,
             ParamKey::BkgClampLo => p.bkg_clamp_lo = int,
             ParamKey::BkgClampHi => p.bkg_clamp_hi = int,
+            ParamKey::BkgDk => p.bkg_dk = value,
+            ParamKey::BkgNfft => p.bkg_nfft = int,
             ParamKey::FftKmin => p.fft_kmin = value,
             ParamKey::FftKmax => p.fft_kmax = value,
             ParamKey::FftDk => p.fft_dk = value,
             ParamKey::FftKweight => p.fft_kweight = value,
             ParamKey::FftDk2 => p.fft_dk2 = value,
             ParamKey::FftRmax => p.fft_rmax = value,
+            ParamKey::FftKstep => p.fft_kstep = value,
+            ParamKey::FftNfft => p.fft_nfft = int,
         }
         self.schedule_recompute(cx);
+    }
+
+    fn cycle_enum_param(&mut self, which: EnumParam, cx: &mut Context<Self>) {
+        match which {
+            EnumParam::BkgWindow => {
+                self.params.bkg_window = cycle_option(self.params.bkg_window, &FT_WINDOWS);
+            }
+            EnumParam::BkgSolver => {
+                self.params.bkg_solver = cycle_option(self.params.bkg_solver, &AUTOBK_SOLVERS);
+            }
+            EnumParam::FftWindow => {
+                self.params.fft_window = cycle_option(self.params.fft_window, &FT_WINDOWS);
+            }
+        }
+        self.schedule_recompute(cx);
+        cx.notify();
+    }
+
+    fn enum_param_label(&self, which: EnumParam) -> String {
+        match which {
+            EnumParam::BkgWindow => self
+                .params
+                .bkg_window
+                .map(|w| format!("{w:?}"))
+                .unwrap_or_else(|| "auto (Hanning)".into()),
+            EnumParam::BkgSolver => self
+                .params
+                .bkg_solver
+                .map(|v| format!("{v:?}"))
+                .unwrap_or_else(|| "auto (LinearDirect)".into()),
+            EnumParam::FftWindow => self
+                .params
+                .fft_window
+                .map(|w| format!("{w:?}"))
+                .unwrap_or_else(|| "auto (KaiserBessel)".into()),
+        }
     }
 
     /// Debounced (~200 ms) recompute of the current spectrum after parameter
@@ -1855,6 +1914,7 @@ impl StudioApp {
             ParamKey::NormStart => p.norm_start,
             ParamKey::NormEnd => p.norm_end,
             ParamKey::NormPolyorder => p.norm_polyorder.map(|v| v as f64),
+            ParamKey::NVictoreen => p.n_victoreen.map(|v| v as f64),
             ParamKey::Rbkg => p.rbkg,
             ParamKey::BkgKmin => p.bkg_kmin,
             ParamKey::BkgKmax => p.bkg_kmax,
@@ -1863,12 +1923,16 @@ impl StudioApp {
             ParamKey::BkgKweight => p.bkg_kweight.map(|v| v as f64),
             ParamKey::BkgClampLo => p.bkg_clamp_lo.map(|v| v as f64),
             ParamKey::BkgClampHi => p.bkg_clamp_hi.map(|v| v as f64),
+            ParamKey::BkgDk => p.bkg_dk,
+            ParamKey::BkgNfft => p.bkg_nfft.map(|v| v as f64),
             ParamKey::FftKmin => p.fft_kmin,
             ParamKey::FftKmax => p.fft_kmax,
             ParamKey::FftDk => p.fft_dk,
             ParamKey::FftKweight => p.fft_kweight,
             ParamKey::FftDk2 => p.fft_dk2,
             ParamKey::FftRmax => p.fft_rmax,
+            ParamKey::FftKstep => p.fft_kstep,
+            ParamKey::FftNfft => p.fft_nfft.map(|v| v as f64),
         };
         let params = self.params;
         for (key, field) in &self.param_fields {
@@ -3195,7 +3259,7 @@ impl StudioApp {
                     ParamKey::NormStart,
                     ParamKey::NormEnd,
                 ],
-                &[ParamKey::NormPolyorder],
+                &[ParamKey::NormPolyorder, ParamKey::NVictoreen],
                 0,
             ),
             (
@@ -3207,6 +3271,8 @@ impl StudioApp {
                     ParamKey::BkgKweight,
                     ParamKey::BkgClampLo,
                     ParamKey::BkgClampHi,
+                    ParamKey::BkgDk,
+                    ParamKey::BkgNfft,
                 ],
                 1,
             ),
@@ -3218,7 +3284,7 @@ impl StudioApp {
                     ParamKey::FftDk,
                     ParamKey::FftKweight,
                 ],
-                &[ParamKey::FftDk2, ParamKey::FftRmax],
+                &[ParamKey::FftDk2, ParamKey::FftRmax, ParamKey::FftKstep, ParamKey::FftNfft],
                 2,
             ),
         ];
@@ -3259,6 +3325,52 @@ impl StudioApp {
                     if let Some(f) = field(key) {
                         sections = sections.child(f);
                     }
+                }
+                let enum_rows: &[(&'static str, EnumParam)] = match fold {
+                    1 => &[
+                        ("window", EnumParam::BkgWindow),
+                        ("solver", EnumParam::BkgSolver),
+                    ],
+                    2 => &[("window", EnumParam::FftWindow)],
+                    _ => &[],
+                };
+                for &(label, which) in enum_rows {
+                    let value: SharedString = self.enum_param_label(which).into();
+                    sections = sections.child(
+                        div()
+                            .px_3()
+                            .py_0p5()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_sm()
+                                    .text_color(t.text_muted)
+                                    .child(label),
+                            )
+                            .child(
+                                div()
+                                    .id(SharedString::from(format!("enum-{fold}-{label}")))
+                                    .px_2()
+                                    .py_0p5()
+                                    .rounded_sm()
+                                    .text_xs()
+                                    .bg(t.bg)
+                                    .border_1()
+                                    .border_color(t.border)
+                                    .text_color(t.text)
+                                    .cursor_pointer()
+                                    .hover(|d| d.border_color(t.accent))
+                                    .on_click(cx.listener(
+                                        move |this, _: &ClickEvent, _window, cx| {
+                                            this.cycle_enum_param(which, cx);
+                                        },
+                                    ))
+                                    .child(value),
+                            ),
+                    );
                 }
             }
         }

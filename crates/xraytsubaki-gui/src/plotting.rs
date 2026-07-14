@@ -233,7 +233,11 @@ pub fn build_quadrants_multi(
         view,
         theme,
         "Energy (eV)",
-        if flat { "flattened mu(E)" } else { "normalized mu(E)" },
+        if flat {
+            "flattened mu(E)"
+        } else {
+            "normalized mu(E)"
+        },
         move |sp| {
             let y = if flat {
                 sp.get_flat().or_else(|| sp.get_norm())
@@ -384,19 +388,40 @@ pub fn build_fit_r(result: &xraytsubaki::prelude::FeffFitResult, theme: &Theme) 
 
 /// Parameter-vs-frame trend with a cursor marker.
 pub fn build_trend(values: &[f64], cursor: usize, ylabel: &str, theme: &Theme) -> Plot {
-    let xs: Vec<f64> = (0..values.len()).map(|i| i as f64).collect();
-    let ys: Vec<f64> = values.to_vec();
-    let base = Plot::new()
+    let mut plot = Plot::new()
         .theme(theme.plot_theme())
-        .line(&xs, &ys)
         .xlabel("frame")
         .ylabel(ylabel);
+    // Missing/failed frames remain real gaps: each contiguous finite run is
+    // its own series, located at the true full-scan frame index.
+    let mut start = 0;
+    while start < values.len() {
+        while start < values.len() && !values[start].is_finite() {
+            start += 1;
+        }
+        let mut end = start;
+        while end < values.len() && values[end].is_finite() {
+            end += 1;
+        }
+        if start < end {
+            let xs: Vec<f64> = (start..end).map(|index| index as f64).collect();
+            let ys = values[start..end].to_vec();
+            plot = if end - start == 1 {
+                plot.scatter(&xs, &ys)
+                    .color(Color::new(31, 119, 180))
+                    .into()
+            } else {
+                plot.line(&xs, &ys).color(Color::new(31, 119, 180)).into()
+            };
+        }
+        start = end.saturating_add(1);
+    }
     match values.get(cursor) {
         Some(&cy) if cy.is_finite() => {
             let cx = vec![cursor as f64];
             let cyv = vec![cy];
-            base.scatter(&cx, &cyv).into()
+            plot.scatter(&cx, &cyv).into()
         }
-        _ => base.into(),
+        _ => plot,
     }
 }

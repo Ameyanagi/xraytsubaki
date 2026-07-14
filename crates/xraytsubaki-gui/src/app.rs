@@ -6,11 +6,12 @@
 //! results are dropped) with an LRU cache of processed spectra. The Explore
 //! center is the 2x2 quadrant grid from M0.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 use futures::StreamExt;
 use gpui::{
@@ -28,14 +29,20 @@ use rayon::prelude::*;
 use xraytsubaki::prelude::FeffFitResult;
 
 use crate::catalog::{Catalog, ScanEvent, start_scan};
-use crate::fitting::{BatchFitRow, FitPathSpec, FitRanges, FitVarSpec, PathMeta, batch_csv, path_meta, result_summary, run_fit};
-use crate::params::{AUTOBK_SOLVERS, DerivedSpectrum, DetectionMode, FT_WINDOWS, PipelineParams, average_spectra, load_raw, parse_cols, process_arrays, process_file, read_columns, resample_chik};
-use crate::project::{ProjectFile, PROJECT_VERSION};
-use crate::plotting::{
-    QuadTrace, TraceLayout, ViewOptions, build_fit_k, build_fit_r, build_frame_chik,
-    build_heatmap, build_quadrants_multi, build_trend,
-};
 use crate::fitting::expr_identifiers;
+use crate::fitting::{
+    BatchFitRow, FitPathSpec, FitRanges, FitVarSpec, PathMeta, batch_csv, path_meta,
+    result_summary, run_fit,
+};
+use crate::params::{
+    AUTOBK_SOLVERS, DerivedSpectrum, DetectionMode, FT_WINDOWS, PipelineParams, average_spectra,
+    load_raw, parse_cols, process_arrays, process_file, read_columns, resample_chik,
+};
+use crate::plotting::{
+    QuadTrace, TraceLayout, ViewOptions, build_fit_k, build_fit_r, build_frame_chik, build_heatmap,
+    build_quadrants_multi, build_trend,
+};
+use crate::project::{PROJECT_VERSION, ProjectFile};
 use crate::theme::{Theme, ThemeMode};
 use crate::widgets::numeric_field::{FieldEvent, NumericField};
 use crate::widgets::text_input::{InputEvent, TextInput};
@@ -172,7 +179,6 @@ const HEATMAP_RIGHT_WITH_COLORBAR: f32 = 0.20;
 struct OperandoData {
     scan: usize,
     fingerprint: u64,
-    sample_ixs: Vec<usize>,
     grid: Vec<f64>,
     matrix: Vec<Vec<f64>>,
     e0s: Vec<f64>,
@@ -194,11 +200,32 @@ enum RangeKey {
     Kweight,
 }
 
-/// Completed batch fit over the operando frame sample.
+#[derive(Clone)]
+struct BatchFitProblem {
+    frame: usize,
+    label: String,
+    error: String,
+}
+
+#[derive(Clone)]
+enum BatchFitEvent {
+    Row(BatchFitRow),
+    Problem(BatchFitProblem),
+}
+
+/// Completed or in-progress batch fit over an active scan.
 struct BatchFitData {
     scan: usize,
     fingerprint: u64,
     rows: Vec<BatchFitRow>,
+    /// File labels captured when the batch scope was created, keyed by the
+    /// true frame offset within the scan. Export never consults a later scan.
+    frame_labels: BTreeMap<usize, String>,
+    problems: Vec<BatchFitProblem>,
+    problems_open: bool,
+    preview: bool,
+    total: usize,
+    cancelled: bool,
     varying_names: Vec<String>,
     /// Index into varying_names selected for the operando trend plot.
     trend_param: usize,
@@ -208,6 +235,8 @@ struct BatchFitData {
 struct FitVar {
     spec: FitVarSpec,
     field: Entity<TextInput>,
+    min_field: Entity<TextInput>,
+    max_field: Entity<TextInput>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -292,6 +321,9 @@ pub struct StudioApp {
     operando_plots: Option<OperandoPlots>,
     operando_gen: u64,
     time_pos: usize,
+    /// Requested cursor used when a batch-table row opens a scan overview in
+    /// the background while the Fit workspace stays visible.
+    pending_time_pos: Option<usize>,
     fit_paths: Vec<FitPathRow>,
     fit_vars: Vec<FitVar>,
     fit_range_fields: Vec<(RangeKey, Entity<NumericField>)>,
@@ -300,15 +332,20 @@ pub struct StudioApp {
     fit_plots: Option<(Entity<RuvizPlot>, Entity<RuvizPlot>)>,
     fit_gen: u64,
     fit_running: bool,
+    last_fit_duration: Option<Duration>,
     feff_workspace: Option<PathBuf>,
     feff_running: bool,
     feff_gen: u64,
     feff_form: Vec<(FeffFormKey, Entity<TextInput>)>,
     /// Batch-fit rows for (scan, params fingerprint) + progress counter.
     batch_fit: Option<BatchFitData>,
+    /// False is the default full-scan scope; true opts into the overview sample.
+    batch_preview: bool,
     batch_running: bool,
     batch_progress: (usize, usize),
     batch_gen: u64,
+    batch_cancel: Option<Arc<AtomicBool>>,
+    batch_started: Option<Instant>,
     status: SharedString,
 }
 
@@ -329,6 +366,29 @@ fn thin_even(all: &[usize], cap: usize, keep: Option<usize>) -> Vec<usize> {
     }
     thinned.dedup();
     thinned
+}
+
+fn sample_scan_indices(start: usize, len: usize, cap: usize) -> Vec<usize> {
+    if len <= cap {
+        (start..start + len).collect()
+    } else {
+        (0..cap)
+            .map(|i| start + i * (len - 1) / (cap - 1))
+            .collect()
+    }
+}
+
+fn short_duration(duration: Duration) -> String {
+    let seconds = duration.as_secs_f64();
+    if seconds < 1.0 {
+        format!("{:.0} ms", seconds * 1000.0)
+    } else if seconds < 60.0 {
+        format!("{seconds:.1} s")
+    } else if seconds < 3600.0 {
+        format!("{:.1} min", seconds / 60.0)
+    } else {
+        format!("{:.1} h", seconds / 3600.0)
+    }
 }
 
 /// Map a full-scan cursor coordinate to the nearest sampled overview row.
@@ -483,8 +543,7 @@ mod filter_tests {
 }
 
 fn default_data_file() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../xraytsubaki/tests/testfiles/Ru_QAS.dat")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../xraytsubaki/tests/testfiles/Ru_QAS.dat")
 }
 
 fn default_for(param: PathParam) -> f64 {
@@ -566,6 +625,7 @@ impl StudioApp {
             operando_plots: None,
             operando_gen: 0,
             time_pos: 0,
+            pending_time_pos: None,
             fit_paths: Vec::new(),
             fit_vars: Vec::new(),
             fit_range_fields: Vec::new(),
@@ -574,20 +634,23 @@ impl StudioApp {
             fit_plots: None,
             fit_gen: 0,
             fit_running: false,
+            last_fit_duration: None,
             feff_workspace: None,
             feff_running: false,
             feff_gen: 0,
             feff_form: Vec::new(),
             batch_fit: None,
+            batch_preview: false,
             batch_running: false,
             batch_progress: (0, 0),
             batch_gen: 0,
+            batch_cancel: None,
+            batch_started: None,
             status: "loading...".into(),
         };
         app.fit_range_fields = Self::build_range_fields(theme, app.fit_ranges, cx);
-        let offset_field = cx.new(|cx| {
-            NumericField::new("offset", "", Some(app.view.offset_frac), theme, cx)
-        });
+        let offset_field =
+            cx.new(|cx| NumericField::new("offset", "", Some(app.view.offset_frac), theme, cx));
         cx.subscribe(&offset_field, |this: &mut Self, _f, event, cx| {
             let FieldEvent::Changed(value) = event;
             if let Some(v) = value {
@@ -644,7 +707,10 @@ impl StudioApp {
         ]
         .into_iter()
         .map(|(key, placeholder, initial)| {
-            (key, cx.new(|cx| TextInput::new(placeholder, initial, theme, cx)))
+            (
+                key,
+                cx.new(|cx| TextInput::new(placeholder, initial, theme, cx)),
+            )
         })
         .collect();
 
@@ -967,13 +1033,7 @@ impl StudioApp {
         self.operando_gen += 1;
         let generation = self.operando_gen;
         // Even sampling across the scan; first and last frames included.
-        let sample_ixs: Vec<usize> = if scan_len <= MAX_FRAMES {
-            (scan.start..scan.start + scan_len).collect()
-        } else {
-            (0..MAX_FRAMES)
-                .map(|i| scan.start + i * (scan_len - 1) / (MAX_FRAMES - 1))
-                .collect()
-        };
+        let sample_ixs = sample_scan_indices(scan.start, scan_len, MAX_FRAMES);
         let paths: Vec<PathBuf> = sample_ixs.iter().map(|&ix| self.catalog.path(ix)).collect();
         let params = self.params.clone();
         let grid: Vec<f64> = (0..K_GRID_BINS)
@@ -1012,7 +1072,6 @@ impl StudioApp {
                 app.operando = Some(OperandoData {
                     scan: scan_ix,
                     fingerprint,
-                    sample_ixs,
                     grid,
                     matrix,
                     e0s,
@@ -1020,11 +1079,17 @@ impl StudioApp {
                 });
                 // Parameter-only rebuilds preserve the full-scan cursor;
                 // opening a different scan starts at its first frame.
-                app.time_pos = if preserve_time_pos {
-                    app.time_pos.min(scan_len.saturating_sub(1))
-                } else {
-                    0
-                };
+                app.time_pos = app
+                    .pending_time_pos
+                    .take()
+                    .map(|pos| pos.min(scan_len.saturating_sub(1)))
+                    .unwrap_or_else(|| {
+                        if preserve_time_pos {
+                            app.time_pos.min(scan_len.saturating_sub(1))
+                        } else {
+                            0
+                        }
+                    });
                 app.rebuild_operando_plots(cx);
                 app.status = "scan overview ready".into();
                 app.sync_time_selection(scan_ix, cx);
@@ -1055,8 +1120,8 @@ impl StudioApp {
             .unwrap_or(sampled_row);
         let heatmap = build_heatmap(&data.matrix, K_GRID_MAX, &self.theme);
         let chik = build_frame_chik(&grid, &row, kweight, &self.theme);
-        let (trend_values, trend_label) = self.trend_series();
-        let trend = build_trend(&trend_values, sample_pos, &trend_label, &self.theme);
+        let (trend_values, trend_label, trend_cursor) = self.trend_series();
+        let trend = build_trend(&trend_values, trend_cursor, &trend_label, &self.theme);
         match &self.operando_plots {
             Some(plots) => {
                 plots.heatmap.update(cx, |rp, cx| rp.set_plot(heatmap, cx));
@@ -1119,8 +1184,8 @@ impl StudioApp {
             .and_then(|sp| resample_chik(sp, &grid))
             .unwrap_or(sampled_row);
         let chik = build_frame_chik(&grid, &row, data.kweight, &self.theme);
-        let (trend_values, trend_label) = self.trend_series();
-        let trend = build_trend(&trend_values, sample_pos, &trend_label, &self.theme);
+        let (trend_values, trend_label, trend_cursor) = self.trend_series();
+        let trend = build_trend(&trend_values, trend_cursor, &trend_label, &self.theme);
         if let Some(plots) = &self.operando_plots {
             plots.chik.update(cx, |rp, cx| rp.set_plot(chik, cx));
             plots.trend.update(cx, |rp, cx| rp.set_plot(trend, cx));
@@ -1344,6 +1409,8 @@ impl StudioApp {
         }
         for var in &self.fit_vars {
             var.field.update(cx, |f, cx| f.set_theme(theme, cx));
+            var.min_field.update(cx, |f, cx| f.set_theme(theme, cx));
+            var.max_field.update(cx, |f, cx| f.set_theme(theme, cx));
         }
         for row in &self.fit_paths {
             for (_, field) in &row.fields {
@@ -1546,12 +1613,7 @@ impl StudioApp {
         if self.selection.len() <= 1 {
             return;
         }
-        let kept: BTreeSet<usize> = self
-            .selection
-            .iter()
-            .copied()
-            .step_by(10)
-            .collect();
+        let kept: BTreeSet<usize> = self.selection.iter().copied().step_by(10).collect();
         self.selection = kept;
         self.ensure_compare_loaded(cx);
         cx.notify();
@@ -1702,8 +1764,7 @@ impl StudioApp {
         specs
             .into_iter()
             .map(|(key, label, value)| {
-                let field =
-                    cx.new(|cx| NumericField::new(label, "", Some(value), theme, cx));
+                let field = cx.new(|cx| NumericField::new(label, "", Some(value), theme, cx));
                 cx.subscribe(&field, move |this: &mut Self, _field, event, cx| {
                     let FieldEvent::Changed(value) = event;
                     if let Some(v) = value {
@@ -1730,6 +1791,8 @@ impl StudioApp {
         }
         let theme = self.theme;
         let field = cx.new(|cx| TextInput::new("value or expr", format!("{default}"), theme, cx));
+        let min_field = cx.new(|cx| TextInput::new("min", "", theme, cx));
+        let max_field = cx.new(|cx| TextInput::new("max", "", theme, cx));
         let var_name = name.to_string();
         cx.subscribe(&field, move |this: &mut Self, _field, event, cx| {
             let InputEvent::Committed(text) = event;
@@ -1737,15 +1800,59 @@ impl StudioApp {
             this.set_var_text(&var_name.clone(), &text, cx);
         })
         .detach();
+        let var_name = name.to_string();
+        cx.subscribe(&min_field, move |this: &mut Self, _field, event, cx| {
+            let InputEvent::Committed(text) = event;
+            this.set_var_bound(&var_name, true, text, cx);
+        })
+        .detach();
+        let var_name = name.to_string();
+        cx.subscribe(&max_field, move |this: &mut Self, _field, event, cx| {
+            let InputEvent::Committed(text) = event;
+            this.set_var_bound(&var_name, false, text, cx);
+        })
+        .detach();
         self.fit_vars.push(FitVar {
             spec: FitVarSpec {
                 name: name.to_string(),
                 value: default,
                 vary: true,
+                min: None,
+                max: None,
                 expr: None,
             },
             field,
+            min_field,
+            max_field,
         });
+    }
+
+    fn set_var_bound(&mut self, name: &str, is_min: bool, text: &str, cx: &mut Context<Self>) {
+        let text = text.trim();
+        let value = if text.is_empty() {
+            None
+        } else {
+            match text.parse::<f64>() {
+                Ok(value) if value.is_finite() => Some(value),
+                _ => {
+                    self.status = format!(
+                        "invalid {} bound for {name}",
+                        if is_min { "min" } else { "max" }
+                    )
+                    .into();
+                    cx.notify();
+                    return;
+                }
+            }
+        };
+        if let Some(var) = self.fit_vars.iter_mut().find(|var| var.spec.name == name) {
+            if is_min {
+                var.spec.min = value;
+            } else {
+                var.spec.max = value;
+            }
+        }
+        cx.notify();
     }
 
     /// A variable field committed: a number sets the value; anything else is
@@ -1874,7 +1981,12 @@ impl StudioApp {
             (param, field)
         })
         .collect();
-        self.fit_paths.push(FitPathRow { spec, meta, fields, expanded: false });
+        self.fit_paths.push(FitPathRow {
+            spec,
+            meta,
+            fields,
+            expanded: false,
+        });
     }
 
     fn run_fit_now(&mut self, cx: &mut Context<Self>) {
@@ -1899,6 +2011,7 @@ impl StudioApp {
         let paths: Vec<FitPathSpec> = self.fit_paths.iter().map(|r| r.spec.clone()).collect();
         let vars: Vec<FitVarSpec> = self.fit_vars.iter().map(|v| v.spec.clone()).collect();
         let ranges = self.fit_ranges;
+        let started = Instant::now();
         let job = cx
             .background_executor()
             .spawn(async move { run_fit(k, chi, &paths, &vars, ranges) });
@@ -1909,6 +2022,7 @@ impl StudioApp {
                     return;
                 }
                 app.fit_running = false;
+                app.last_fit_duration = Some(started.elapsed());
                 match result {
                     Ok(result) => {
                         app.status = format!(
@@ -1964,14 +2078,56 @@ impl StudioApp {
 
     // ---- batch fitting -------------------------------------------------------
 
-    /// Fit every sampled frame of the active scan with the current model, in
-    /// parallel on rayon, streaming progress to the status bar.
+    fn batch_scope_line(&self) -> SharedString {
+        let Some(scan_ix) = self.active_scan else {
+            return "select a scan in the data panel first".into();
+        };
+        let Some(scan) = self.catalog.scans.get(scan_ix) else {
+            return "selected scan is unavailable".into();
+        };
+        let count = if self.batch_preview {
+            scan.len.min(MAX_FRAMES)
+        } else {
+            scan.len
+        };
+        let threads = rayon::current_num_threads().max(1);
+        let waves = count.div_ceil(threads);
+        let (per_fit, basis) = self
+            .last_fit_duration
+            .map(|duration| (duration, "last fit"))
+            .unwrap_or((Duration::from_secs(1), "1 fit/s baseline"));
+        let estimate = per_fit.mul_f64(waves as f64);
+        if self.batch_preview {
+            format!(
+                "preview: {count} sampled frames · rough est. ~{} ({basis})",
+                short_duration(estimate)
+            )
+            .into()
+        } else {
+            format!(
+                "full scan · {count} frames · rough est. ~{} ({basis})",
+                short_duration(estimate)
+            )
+            .into()
+        }
+    }
+
+    fn toggle_batch_preview(&mut self, cx: &mut Context<Self>) {
+        if !self.batch_running {
+            self.batch_preview = !self.batch_preview;
+            cx.notify();
+        }
+    }
+
+    /// Fit the active scan with the current model in parallel on rayon. Full
+    /// scan is the default; the overview sample is an explicit preview mode.
+    /// Row/error events stream into retained state so cancellation is partial.
     fn run_batch_fit(&mut self, cx: &mut Context<Self>) {
         if self.batch_running {
             return;
         }
-        let Some(data) = &self.operando else {
-            self.status = "open a scan in Operando first".into();
+        let Some(scan_ix) = self.active_scan else {
+            self.status = "select a scan in the data panel first".into();
             cx.notify();
             return;
         };
@@ -1980,19 +2136,56 @@ impl StudioApp {
             cx.notify();
             return;
         }
-        let scan = data.scan;
-        let fingerprint = data.fingerprint;
-        let frames: Vec<(usize, usize, PathBuf)> = data
-            .sample_ixs
-            .iter()
-            .enumerate()
-            .map(|(pos, &ix)| (pos, ix, self.catalog.path(ix)))
+        let Some(scan) = self.catalog.scans.get(scan_ix) else {
+            self.status = "selected scan is unavailable".into();
+            cx.notify();
+            return;
+        };
+        let scan_start = scan.start;
+        let scan_len = scan.len;
+        let fingerprint = self.params.fingerprint();
+        let preview = self.batch_preview;
+        let indices = if preview {
+            sample_scan_indices(scan_start, scan_len, MAX_FRAMES)
+        } else {
+            (scan_start..scan_start + scan_len).collect()
+        };
+        let frames: Vec<(usize, usize, PathBuf, String)> = indices
+            .into_iter()
+            .map(|ix| {
+                (
+                    ix - scan_start,
+                    ix,
+                    self.catalog.path(ix),
+                    self.catalog.name(ix).to_string(),
+                )
+            })
             .collect();
         let total = frames.len();
+        let frame_labels = frames
+            .iter()
+            .map(|(frame, _, _, label)| (*frame, label.clone()))
+            .collect();
         self.batch_gen += 1;
         let generation = self.batch_gen;
+        let cancel = Arc::new(AtomicBool::new(false));
         self.batch_running = true;
         self.batch_progress = (0, total);
+        self.batch_cancel = Some(cancel.clone());
+        self.batch_started = Some(Instant::now());
+        self.batch_fit = Some(BatchFitData {
+            scan: scan_ix,
+            fingerprint,
+            rows: Vec::new(),
+            frame_labels,
+            problems: Vec::new(),
+            problems_open: false,
+            preview,
+            total,
+            cancelled: false,
+            varying_names: Vec::new(),
+            trend_param: 0,
+        });
         self.status = format!("batch fit 0/{total} ...").into();
         cx.notify();
 
@@ -2000,36 +2193,91 @@ impl StudioApp {
         let paths: Vec<FitPathSpec> = self.fit_paths.iter().map(|r| r.spec.clone()).collect();
         let vars: Vec<FitVarSpec> = self.fit_vars.iter().map(|v| v.spec.clone()).collect();
         let ranges = self.fit_ranges;
-        let (tx, mut rx) = futures::channel::mpsc::unbounded::<()>();
+        let (tx, mut rx) = futures::channel::mpsc::unbounded::<BatchFitEvent>();
 
+        let job_cancel = cancel.clone();
         let job = cx.background_executor().spawn(async move {
-            let rows: Vec<Option<BatchFitRow>> = frames
+            frames
                 .par_iter()
-                .map(|(pos, ix, path)| {
-                    let row = (|| {
-                        let sp = process_file(path, &params).ok()?;
-                        let (k, chi) = (sp.get_k()?, sp.get_chi()?);
-                        let result = run_fit(k, chi, &paths, &vars, ranges).ok()?;
-                        Some(BatchFitRow::from_result(*pos, *ix, &result))
+                .filter_map(|(frame, ix, path, label)| {
+                    if job_cancel.load(Ordering::Relaxed) {
+                        return None;
+                    }
+                    let result = (|| -> Result<BatchFitRow, String> {
+                        let sp = process_file(path, &params).map_err(|error| error.to_string())?;
+                        if job_cancel.load(Ordering::Relaxed) {
+                            return Err("batch cancelled".into());
+                        }
+                        let k = sp
+                            .get_k()
+                            .ok_or_else(|| "processed spectrum has no k grid".to_string())?;
+                        let chi = sp
+                            .get_chi()
+                            .ok_or_else(|| "processed spectrum has no chi(k)".to_string())?;
+                        let result = run_fit(k, chi, &paths, &vars, ranges)?;
+                        Ok(BatchFitRow::from_result(*frame, *ix, &result))
                     })();
-                    let _ = tx.unbounded_send(());
-                    row
+                    if job_cancel.load(Ordering::Relaxed)
+                        && result
+                            .as_ref()
+                            .is_err_and(|error| error == "batch cancelled")
+                    {
+                        return None;
+                    }
+                    let event = match result {
+                        Ok(row) => BatchFitEvent::Row(row),
+                        Err(error) => BatchFitEvent::Problem(BatchFitProblem {
+                            frame: *frame,
+                            label: label.clone(),
+                            error,
+                        }),
+                    };
+                    let _ = tx.unbounded_send(event.clone());
+                    Some(event)
                 })
-                .collect();
-            rows
+                .collect::<Vec<_>>()
         });
 
-        // Progress drain: one tick per completed frame.
+        // Stream each completed row/problem into the visible retained result.
         cx.spawn(async move |this, cx| {
-            while rx.next().await.is_some() {
+            while let Some(event) = rx.next().await {
                 let stop = this
                     .update(cx, |app, cx| {
                         if app.batch_gen != generation {
                             return true;
                         }
+                        if let Some(batch) = &mut app.batch_fit {
+                            match event {
+                                BatchFitEvent::Row(row) => {
+                                    if batch.varying_names.is_empty() {
+                                        batch.varying_names = row
+                                            .values
+                                            .iter()
+                                            .map(|(name, _, _)| name.clone())
+                                            .collect();
+                                    }
+                                    batch.rows.push(row);
+                                }
+                                BatchFitEvent::Problem(problem) => {
+                                    batch.problems.push(problem);
+                                }
+                            }
+                        }
                         app.batch_progress.0 += 1;
                         let (done, total) = app.batch_progress;
-                        app.status = format!("batch fit {done}/{total} ...").into();
+                        let elapsed = app
+                            .batch_started
+                            .map(|started| started.elapsed())
+                            .unwrap_or_default();
+                        let rate = done as f64 / elapsed.as_secs_f64().max(0.001);
+                        let eta = Duration::from_secs_f64(
+                            total.saturating_sub(done) as f64 / rate.max(0.001),
+                        );
+                        app.status = format!(
+                            "batch fit {done}/{total} · {rate:.1} frames/s · ETA {}",
+                            short_duration(eta)
+                        )
+                        .into();
                         cx.notify();
                         false
                     })
@@ -2042,30 +2290,56 @@ impl StudioApp {
         .detach();
 
         cx.spawn(async move |this, cx| {
-            let rows = job.await;
+            let events = job.await;
             this.update(cx, |app, cx| {
                 if app.batch_gen != generation {
                     return;
                 }
+                // Close the streaming consumer before replacing its partial
+                // vectors with the final, sorted outcome set.
+                app.batch_gen += 1;
                 app.batch_running = false;
-                let ok_rows: Vec<BatchFitRow> = rows.into_iter().flatten().collect();
-                let failed = total - ok_rows.len();
-                let varying_names: Vec<String> = ok_rows
-                    .first()
-                    .map(|r| r.values.iter().map(|(n, _, _)| n.clone()).collect())
-                    .unwrap_or_default();
-                app.status = format!(
-                    "batch fit done · {} ok · {failed} failed",
-                    ok_rows.len()
-                )
-                .into();
-                app.batch_fit = Some(BatchFitData {
-                    scan,
-                    fingerprint,
-                    rows: ok_rows,
-                    varying_names,
-                    trend_param: 0,
-                });
+                app.batch_cancel = None;
+                app.batch_started = None;
+                let cancelled = cancel.load(Ordering::Relaxed);
+                let mut rows = Vec::new();
+                let mut problems = Vec::new();
+                for event in events {
+                    match event {
+                        BatchFitEvent::Row(row) => rows.push(row),
+                        BatchFitEvent::Problem(problem) => problems.push(problem),
+                    }
+                }
+                rows.sort_by_key(|row| row.frame);
+                problems.sort_by_key(|problem| problem.frame);
+                let completed = rows.len() + problems.len();
+                app.batch_progress = (completed, total);
+                if let Some(batch) = &mut app.batch_fit {
+                    batch.varying_names = rows
+                        .first()
+                        .map(|row| row.values.iter().map(|(name, _, _)| name.clone()).collect())
+                        .unwrap_or_default();
+                    batch.rows = rows;
+                    batch.problems = problems;
+                    batch.cancelled = cancelled;
+                }
+                let batch = app.batch_fit.as_ref().expect("batch state exists");
+                let skipped = total.saturating_sub(completed);
+                app.status = if cancelled {
+                    format!(
+                        "batch fit cancelled · {} fitted · {} failed · {skipped} skipped",
+                        batch.rows.len(),
+                        batch.problems.len()
+                    )
+                    .into()
+                } else {
+                    format!(
+                        "batch fit done · {} fitted · {} failed",
+                        batch.rows.len(),
+                        batch.problems.len()
+                    )
+                    .into()
+                };
                 app.rebuild_operando_plots(cx);
                 cx.notify();
             })
@@ -2074,37 +2348,48 @@ impl StudioApp {
         .detach();
     }
 
+    fn cancel_batch_fit(&mut self, cx: &mut Context<Self>) {
+        if self.batch_running
+            && let Some(cancel) = &self.batch_cancel
+        {
+            cancel.store(true, Ordering::Relaxed);
+            self.status = "cancelling batch fit — completed rows will be kept ...".into();
+            cx.notify();
+        }
+    }
+
     /// The operando trend series: fitted parameter when a batch fit exists
     /// for the current scan/params, otherwise E0.
-    fn trend_series(&self) -> (Vec<f64>, String) {
+    fn trend_series(&self) -> (Vec<f64>, String, usize) {
         if let (Some(bf), Some(data)) = (&self.batch_fit, &self.operando)
             && bf.scan == data.scan
             && bf.fingerprint == data.fingerprint
             && let Some(name) = bf.varying_names.get(bf.trend_param)
         {
-            let mut values = vec![f64::NAN; data.matrix.len()];
+            let scan_len = self
+                .catalog
+                .scans
+                .get(bf.scan)
+                .map(|scan| scan.len)
+                .unwrap_or_default();
+            let mut values = vec![f64::NAN; scan_len];
             for row in &bf.rows {
                 if let (Some(slot), Some(v)) = (values.get_mut(row.frame), row.value_of(name)) {
                     *slot = v;
                 }
             }
-            // Fill gaps so the line stays drawable.
-            let mut last = values.iter().copied().find(|v| v.is_finite()).unwrap_or(0.0);
-            for v in values.iter_mut() {
-                if v.is_finite() {
-                    last = *v;
-                } else {
-                    *v = last;
-                }
-            }
-            return (values, name.clone());
+            return (values, name.clone(), self.time_pos);
         }
         let values = self
             .operando
             .as_ref()
             .map(|d| d.e0s.clone())
             .unwrap_or_default();
-        (values, "E0 (eV)".to_string())
+        let cursor = self
+            .operando_scan_len()
+            .map(|len| nearest_sample_pos(self.time_pos, len, values.len()))
+            .unwrap_or_default();
+        (values, "E0 (eV)".to_string(), cursor)
     }
 
     fn cycle_trend_param(&mut self, cx: &mut Context<Self>) {
@@ -2117,21 +2402,43 @@ impl StudioApp {
         }
     }
 
+    fn toggle_batch_problems(&mut self, cx: &mut Context<Self>) {
+        if let Some(batch) = &mut self.batch_fit {
+            batch.problems_open = !batch.problems_open;
+            cx.notify();
+        }
+    }
+
+    fn navigate_batch_row(
+        &mut self,
+        scan_ix: usize,
+        frame: usize,
+        entry_ix: usize,
+        cx: &mut Context<Self>,
+    ) {
+        if self
+            .operando
+            .as_ref()
+            .is_some_and(|data| data.scan == scan_ix)
+        {
+            self.set_time_pos(frame, cx);
+            return;
+        }
+        self.active_scan = Some(scan_ix);
+        self.pending_time_pos = Some(frame);
+        self.time_pos = frame;
+        self.ensure_operando(cx);
+        self.selection.clear();
+        self.select_entry(entry_ix, cx);
+        self.status = format!("selected batch frame {}", frame + 1).into();
+        cx.notify();
+    }
+
     fn export_batch_csv(&mut self, cx: &mut Context<Self>) {
         let Some(bf) = &self.batch_fit else {
             return;
         };
-        let files: Vec<String> = self
-            .operando
-            .as_ref()
-            .map(|d| {
-                d.sample_ixs
-                    .iter()
-                    .map(|&ix| self.catalog.name(ix).to_string())
-                    .collect()
-            })
-            .unwrap_or_default();
-        let csv = batch_csv(&bf.rows, &bf.varying_names, &files);
+        let csv = batch_csv(&bf.rows, &bf.varying_names, &bf.frame_labels);
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
         let rx = cx.prompt_for_new_path(std::path::Path::new(&home), Some("batch_fit.csv"));
         cx.spawn(async move |this, cx| {
@@ -2193,8 +2500,15 @@ impl StudioApp {
         match crate::feffgen::new_workspace() {
             Ok(dir) => {
                 let inp = dir.join("feff.inp");
-                let _ = std::process::Command::new("open").arg("-t").arg(&inp).spawn();
-                self.status = format!("feff.inp template at {} — edit, then Run FEFF10", inp.display()).into();
+                let _ = std::process::Command::new("open")
+                    .arg("-t")
+                    .arg(&inp)
+                    .spawn();
+                self.status = format!(
+                    "feff.inp template at {} — edit, then Run FEFF10",
+                    inp.display()
+                )
+                .into();
                 self.feff_workspace = Some(dir);
             }
             Err(e) => self.status = format!("failed to create feff workspace: {e}").into(),
@@ -2263,7 +2577,9 @@ impl StudioApp {
                         for (i, file) in paths.into_iter().enumerate() {
                             app.push_fit_path(file, cx);
                             // Long path lists: keep only the first few enabled.
-                            if i >= 3 && let Some(row) = app.fit_paths.last_mut() {
+                            if i >= 3
+                                && let Some(row) = app.fit_paths.last_mut()
+                            {
                                 row.spec.enabled = false;
                             }
                         }
@@ -2328,7 +2644,8 @@ impl StudioApp {
             {
                 match crate::project::load(path) {
                     Ok(project) => {
-                        this.update(cx, |app, cx| app.apply_project(project, cx)).ok();
+                        this.update(cx, |app, cx| app.apply_project(project, cx))
+                            .ok();
                     }
                     Err(e) => {
                         this.update(cx, |app, cx| {
@@ -2404,6 +2721,18 @@ impl StudioApp {
                     None => format!("{}", saved.value),
                 };
                 var.field.update(cx, |f, cx| f.set_text(text, cx));
+                var.min_field.update(cx, |f, cx| {
+                    f.set_text(
+                        saved.min.map(|value| value.to_string()).unwrap_or_default(),
+                        cx,
+                    )
+                });
+                var.max_field.update(cx, |f, cx| {
+                    f.set_text(
+                        saved.max.map(|value| value.to_string()).unwrap_or_default(),
+                        cx,
+                    )
+                });
             }
         }
         self.fit_ranges = project.fit_ranges;
@@ -2498,48 +2827,42 @@ impl StudioApp {
             .as_ref()
             .map(|f| f.len())
             .unwrap_or(self.catalog.len());
-        uniform_list(
-            "catalog-files",
-            count,
-            move |range, _window, app| {
-                let mut rows = Vec::with_capacity(range.len());
-                for row in range {
-                    let ix = match &filtered {
-                        Some(f) => f[row],
-                        None => row,
-                    };
-                    let name: SharedString = entity.read(app).catalog.name(ix).to_string().into();
-                    let is_active = active == Some(ix);
-                    let in_set = selection.contains(&ix);
-                    let entity = entity.clone();
-                    rows.push(
-                        div()
-                            .id(ix)
-                            .h(px(24.))
-                            .px_3()
-                            .flex()
-                            .items_center()
-                            .text_sm()
-                            .overflow_hidden()
-                            .when(is_active, |d| d.bg(t.raised).text_color(t.accent))
-                            .when(!is_active && in_set, |d| d.bg(t.raised).text_color(t.text))
-                            .when(!is_active && !in_set, |d| d.text_color(t.text))
-                            .hover(|d| d.bg(t.raised))
-                            .cursor_pointer()
-                            .on_click(move |ev: &ClickEvent, window, app| {
-                                let modifiers = ev.modifiers();
-                                let focus = entity.read(app).data_focus.clone();
-                                window.focus(&focus, app);
-                                entity.update(app, |this, cx| {
-                                    this.click_entry(ix, modifiers, cx)
-                                });
-                            })
-                            .child(name),
-                    );
-                }
-                rows
-            },
-        )
+        uniform_list("catalog-files", count, move |range, _window, app| {
+            let mut rows = Vec::with_capacity(range.len());
+            for row in range {
+                let ix = match &filtered {
+                    Some(f) => f[row],
+                    None => row,
+                };
+                let name: SharedString = entity.read(app).catalog.name(ix).to_string().into();
+                let is_active = active == Some(ix);
+                let in_set = selection.contains(&ix);
+                let entity = entity.clone();
+                rows.push(
+                    div()
+                        .id(ix)
+                        .h(px(24.))
+                        .px_3()
+                        .flex()
+                        .items_center()
+                        .text_sm()
+                        .overflow_hidden()
+                        .when(is_active, |d| d.bg(t.raised).text_color(t.accent))
+                        .when(!is_active && in_set, |d| d.bg(t.raised).text_color(t.text))
+                        .when(!is_active && !in_set, |d| d.text_color(t.text))
+                        .hover(|d| d.bg(t.raised))
+                        .cursor_pointer()
+                        .on_click(move |ev: &ClickEvent, window, app| {
+                            let modifiers = ev.modifiers();
+                            let focus = entity.read(app).data_focus.clone();
+                            window.focus(&focus, app);
+                            entity.update(app, |this, cx| this.click_entry(ix, modifiers, cx));
+                        })
+                        .child(name),
+                );
+            }
+            rows
+        })
         .track_scroll(&self.file_scroll)
         .flex_1()
     }
@@ -2725,15 +3048,21 @@ impl StudioApp {
             .on_action(cx.listener(|this: &mut Self, _: &NavDown, _window, cx| {
                 this.nav_move(1, false, cx);
             }))
-            .on_action(cx.listener(|this: &mut Self, _: &NavExtendUp, _window, cx| {
-                this.nav_move(-1, true, cx);
-            }))
-            .on_action(cx.listener(|this: &mut Self, _: &NavExtendDown, _window, cx| {
-                this.nav_move(1, true, cx);
-            }))
-            .on_action(cx.listener(|this: &mut Self, _: &ClearCompare, _window, cx| {
-                this.clear_selection(cx);
-            }))
+            .on_action(
+                cx.listener(|this: &mut Self, _: &NavExtendUp, _window, cx| {
+                    this.nav_move(-1, true, cx);
+                }),
+            )
+            .on_action(
+                cx.listener(|this: &mut Self, _: &NavExtendDown, _window, cx| {
+                    this.nav_move(1, true, cx);
+                }),
+            )
+            .on_action(
+                cx.listener(|this: &mut Self, _: &ClearCompare, _window, cx| {
+                    this.clear_selection(cx);
+                }),
+            )
             .w(px(220.))
             .h_full()
             .flex()
@@ -2764,9 +3093,7 @@ impl StudioApp {
                             .child("Open Folder..."),
                     ),
             )
-            .child(
-                div().px_2().pb_1().children(self.filter_input.clone()),
-            )
+            .child(div().px_2().pb_1().children(self.filter_input.clone()))
             .child(
                 div()
                     .flex()
@@ -2802,9 +3129,12 @@ impl StudioApp {
                     .gap_1()
                     .border_b_1()
                     .border_color(t.border)
-                    .child(cmd("sel-scan", "scan", self.selected.is_some(), |this, cx| {
-                        this.select_active_scan(cx)
-                    }))
+                    .child(cmd(
+                        "sel-scan",
+                        "scan",
+                        self.selected.is_some(),
+                        |this, cx| this.select_active_scan(cx),
+                    ))
                     .child(cmd(
                         "sel-tenth",
                         "1/10th",
@@ -2814,7 +3144,11 @@ impl StudioApp {
                     .child(cmd(
                         "sel-merge",
                         "merge",
-                        self.selection.iter().filter(|&&ix| ix < DERIVED_BASE).count() >= 2,
+                        self.selection
+                            .iter()
+                            .filter(|&&ix| ix < DERIVED_BASE)
+                            .count()
+                            >= 2,
                         |this, cx| this.merge_selection(cx),
                     ))
                     .child(cmd(
@@ -2952,39 +3286,40 @@ impl StudioApp {
             .border_1()
             .border_color(t.border)
             .child({
-                let mut header = div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .pr_2()
-                    .child(
-                        div()
-                            .id(SharedString::from(format!("quad-{index}")))
-                            .flex_1()
-                            .px_2()
-                            .py_1()
-                            .text_xs()
-                            .text_color(if maximized { t.accent } else { t.text_muted })
-                            .cursor_pointer()
-                            .hover(|d| d.text_color(t.text))
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                                this.maximized = if this.maximized == Some(index) {
-                                    None
-                                } else {
-                                    Some(index)
-                                };
-                                cx.notify();
-                            }))
-                            .child(title.clone()),
-                    );
+                let mut header = div().flex().items_center().gap_2().pr_2().child(
+                    div()
+                        .id(SharedString::from(format!("quad-{index}")))
+                        .flex_1()
+                        .px_2()
+                        .py_1()
+                        .text_xs()
+                        .text_color(if maximized { t.accent } else { t.text_muted })
+                        .cursor_pointer()
+                        .hover(|d| d.text_color(t.text))
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                            this.maximized = if this.maximized == Some(index) {
+                                None
+                            } else {
+                                Some(index)
+                            };
+                            cx.notify();
+                        }))
+                        .child(title.clone()),
+                );
                 // Per-plot diagnostics live on the quadrant they affect.
                 if index == 0 {
                     header = header
-                        .child(self.view_chip("view-pre", "pre", self.view.show_pre, cx, |this, cx| {
-                            this.view.show_pre = !this.view.show_pre;
-                            this.rebuild_plots(cx);
-                            cx.notify();
-                        }))
+                        .child(self.view_chip(
+                            "view-pre",
+                            "pre",
+                            self.view.show_pre,
+                            cx,
+                            |this, cx| {
+                                this.view.show_pre = !this.view.show_pre;
+                                this.rebuild_plots(cx);
+                                cx.notify();
+                            },
+                        ))
                         .child(self.view_chip(
                             "view-post",
                             "post",
@@ -2996,11 +3331,17 @@ impl StudioApp {
                                 cx.notify();
                             },
                         ))
-                        .child(self.view_chip("view-e0", "E0", self.view.show_e0, cx, |this, cx| {
-                            this.view.show_e0 = !this.view.show_e0;
-                            this.rebuild_plots(cx);
-                            cx.notify();
-                        }))
+                        .child(self.view_chip(
+                            "view-e0",
+                            "E0",
+                            self.view.show_e0,
+                            cx,
+                            |this, cx| {
+                                this.view.show_e0 = !this.view.show_e0;
+                                this.rebuild_plots(cx);
+                                cx.notify();
+                            },
+                        ))
                         .child(self.view_chip(
                             "view-ranges",
                             "ranges",
@@ -3118,16 +3459,20 @@ impl StudioApp {
             row = row.child(div().w(px(72.)).child(field.clone()));
         }
         row = row
-            .child(self.view_chip("view-legend", "legend", self.view.legend, cx, |this, cx| {
-                this.view.legend = !this.view.legend;
-                this.rebuild_plots(cx);
-                cx.notify();
-            }))
-            .child(self.view_chip("view-grid", "grid", self.view.grid, cx, |this, cx| {
-                this.view.grid = !this.view.grid;
-                this.rebuild_plots(cx);
-                cx.notify();
-            }));
+            .child(
+                self.view_chip("view-legend", "legend", self.view.legend, cx, |this, cx| {
+                    this.view.legend = !this.view.legend;
+                    this.rebuild_plots(cx);
+                    cx.notify();
+                }),
+            )
+            .child(
+                self.view_chip("view-grid", "grid", self.view.grid, cx, |this, cx| {
+                    this.view.grid = !this.view.grid;
+                    this.rebuild_plots(cx);
+                    cx.notify();
+                }),
+            );
         row
     }
 
@@ -3245,7 +3590,11 @@ impl StudioApp {
                     .flex_1()
                     .h_full()
                     .rounded_xs()
-                    .bg(if seg == active_seg { t.accent } else { t.raised })
+                    .bg(if seg == active_seg {
+                        t.accent
+                    } else {
+                        t.raised
+                    })
                     .hover(|d| d.bg(t.text_muted))
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
@@ -3387,9 +3736,174 @@ impl StudioApp {
             .into_any_element()
     }
 
-    fn fit_center(&self, _cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    fn batch_results_table(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
-        let Some((k_plot, r_plot)) = &self.fit_plots else {
+        let entity = cx.entity();
+        let (count, names, summary): (usize, Vec<String>, SharedString) = self
+            .batch_fit
+            .as_ref()
+            .map(|batch| {
+                let state = if self.batch_running {
+                    "running"
+                } else if batch.cancelled {
+                    "cancelled · partial"
+                } else {
+                    "complete"
+                };
+                let scope = if batch.preview {
+                    "preview"
+                } else {
+                    "full scan"
+                };
+                (
+                    batch.rows.len(),
+                    batch.varying_names.clone(),
+                    format!(
+                        "Batch results · {scope} · {} fitted / {} · {} problems · {state}",
+                        batch.rows.len(),
+                        batch.total,
+                        batch.problems.len()
+                    )
+                    .into(),
+                )
+            })
+            .unwrap_or_else(|| (0, Vec::new(), "Batch results".into()));
+        let table_width = px(430. + names.len() as f32 * 104.);
+        let header_names = names.clone();
+        let header = {
+            let mut row = div()
+                .h(px(26.))
+                .min_w(table_width)
+                .px_2()
+                .flex()
+                .items_center()
+                .bg(t.surface)
+                .border_b_1()
+                .border_color(t.border)
+                .text_xs()
+                .text_color(t.text_muted)
+                .child(div().w(px(54.)).child("frame"))
+                .child(div().w(px(176.)).child("file"))
+                .child(div().w(px(88.)).child("R-factor"))
+                .child(div().w(px(112.)).child("red. chi²"));
+            for name in header_names {
+                row = row.child(div().w(px(104.)).child(SharedString::from(name)));
+            }
+            row
+        };
+        let row_names = names;
+        let rows = uniform_list("batch-results", count, move |range, _window, app| {
+            let mut rendered = Vec::with_capacity(range.len());
+            for row_ix in range {
+                let (row, label) = {
+                    let state = entity.read(app);
+                    let Some(batch) = state.batch_fit.as_ref() else {
+                        continue;
+                    };
+                    let Some(row) = batch.rows.get(row_ix) else {
+                        continue;
+                    };
+                    (
+                        row.clone(),
+                        batch
+                            .frame_labels
+                            .get(&row.frame)
+                            .cloned()
+                            .unwrap_or_default(),
+                    )
+                };
+                let frame = row.frame;
+                let entry_ix = row.entry_ix;
+                let scan_ix = entity
+                    .read(app)
+                    .batch_fit
+                    .as_ref()
+                    .map(|batch| batch.scan)
+                    .unwrap_or_default();
+                let row_entity = entity.clone();
+                let mut element = div()
+                    .id(("batch-result-row", frame))
+                    .h(px(26.))
+                    .min_w(table_width)
+                    .px_2()
+                    .flex()
+                    .items_center()
+                    .border_b_1()
+                    .border_color(t.border)
+                    .text_xs()
+                    .text_color(t.text)
+                    .hover(|div| div.bg(t.raised))
+                    .cursor_pointer()
+                    .on_click(move |_: &ClickEvent, _window, app| {
+                        row_entity.update(app, |this, cx| {
+                            this.navigate_batch_row(scan_ix, frame, entry_ix, cx)
+                        });
+                    })
+                    .child(div().w(px(54.)).child(format!("{}", frame + 1)))
+                    .child(
+                        div()
+                            .w(px(176.))
+                            .overflow_hidden()
+                            .child(SharedString::from(label)),
+                    )
+                    .child(div().w(px(88.)).child(format!("{:.5}", row.r_factor)))
+                    .child(
+                        div()
+                            .w(px(112.))
+                            .child(format!("{:.4e}", row.reduced_chi_square)),
+                    );
+                for name in &row_names {
+                    let value = row
+                        .value_of(name)
+                        .map(|value| format!("{value:.5}"))
+                        .unwrap_or_else(|| "—".to_string());
+                    element = element.child(div().w(px(104.)).child(value));
+                }
+                rendered.push(element);
+            }
+            rendered
+        })
+        .flex_1()
+        .min_h_0();
+        div()
+            .h(px(260.))
+            .min_h(px(160.))
+            .m_1()
+            .flex()
+            .flex_col()
+            .rounded_md()
+            .bg(t.raised)
+            .border_1()
+            .border_color(t.border)
+            .child(
+                div()
+                    .px_2()
+                    .py_1()
+                    .text_xs()
+                    .text_color(t.text_muted)
+                    .child(summary),
+            )
+            .child(
+                div()
+                    .id("batch-results-horizontal")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_x_scroll()
+                    .child(
+                        div()
+                            .min_w(table_width)
+                            .h_full()
+                            .flex()
+                            .flex_col()
+                            .child(header)
+                            .child(rows),
+                    ),
+            )
+    }
+
+    fn fit_center(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let t = self.theme;
+        if self.fit_plots.is_none() && self.batch_fit.is_none() {
             let hint: SharedString = if self.fit_paths.is_empty() {
                 "Add a FEFF path (.dat) in the panel, then Run Fit".into()
             } else if self.fit_running {
@@ -3405,7 +3919,7 @@ impl StudioApp {
                 .text_color(t.text_muted)
                 .child(hint)
                 .into_any_element();
-        };
+        }
         let card = |title: &'static str, plot: Entity<RuvizPlot>| {
             div()
                 .flex_1()
@@ -3427,13 +3941,69 @@ impl StudioApp {
                 )
                 .child(div().flex_1().p_1().child(plot))
         };
-        div()
-            .flex_1()
-            .flex()
-            .flex_col()
-            .child(card("fit in k-space", k_plot.clone()))
-            .child(card("fit in R-space", r_plot.clone()))
-            .into_any_element()
+        let mut center = div().flex_1().min_h_0().flex().flex_col();
+        if let Some((k_plot, r_plot)) = &self.fit_plots {
+            center = center.child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .child(card("fit in k-space", k_plot.clone()))
+                    .child(card("fit in R-space", r_plot.clone())),
+            );
+        }
+        if self.batch_fit.is_some() {
+            center = center.child(self.batch_results_table(cx));
+        }
+        center.into_any_element()
+    }
+
+    fn batch_problems_list(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let t = self.theme;
+        let entity = cx.entity();
+        let count = self
+            .batch_fit
+            .as_ref()
+            .map(|batch| batch.problems.len())
+            .unwrap_or_default();
+        uniform_list("batch-problems", count, move |range, _window, app| {
+            let mut rows = Vec::with_capacity(range.len());
+            for index in range {
+                let problem = entity
+                    .read(app)
+                    .batch_fit
+                    .as_ref()
+                    .and_then(|batch| batch.problems.get(index))
+                    .cloned();
+                let Some(problem) = problem else {
+                    continue;
+                };
+                rows.push(
+                    div()
+                        .h(px(44.))
+                        .px_2()
+                        .py_0p5()
+                        .flex()
+                        .flex_col()
+                        .border_b_1()
+                        .border_color(t.border)
+                        .text_xs()
+                        .child(div().text_color(t.error).child(SharedString::from(format!(
+                            "frame {} · {}",
+                            problem.frame + 1,
+                            problem.label
+                        ))))
+                        .child(
+                            div()
+                                .overflow_hidden()
+                                .text_color(t.text_muted)
+                                .child(SharedString::from(problem.error)),
+                        ),
+                );
+            }
+            rows
+        })
+        .h(px(160.))
     }
 
     fn fit_panel(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -3488,7 +4058,9 @@ impl StudioApp {
             let enabled = row.spec.enabled;
             let expanded = row.expanded;
             let meta_line: SharedString = match &row.meta {
-                Some(m) => format!("R {:.3} Å · deg {:.0} · {} legs", m.reff, m.degen, m.nleg).into(),
+                Some(m) => {
+                    format!("R {:.3} Å · deg {:.0} · {} legs", m.reff, m.degen, m.nleg).into()
+                }
                 None => "".into(),
             };
             let mut path_card = div().px_2().flex().flex_col().child(
@@ -3601,7 +4173,13 @@ impl StudioApp {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .child(div().w(px(72.)).text_xs().text_color(t.text_muted).child(label))
+                    .child(
+                        div()
+                            .w(px(72.))
+                            .text_xs()
+                            .text_color(t.text_muted)
+                            .child(label),
+                    )
                     .child(div().flex_1().child(field.clone())),
             );
         }
@@ -3641,11 +4219,13 @@ impl StudioApp {
                                 this.new_feff_inp(cx);
                             }),
                         ))
-                        .child(feff_button("feff-choose", "Choose feff.inp...".into()).on_click(
-                            cx.listener(|this, _: &ClickEvent, _window, cx| {
-                                this.choose_feff_inp(cx);
-                            }),
-                        ))
+                        .child(
+                            feff_button("feff-choose", "Choose feff.inp...".into()).on_click(
+                                cx.listener(|this, _: &ClickEvent, _window, cx| {
+                                    this.choose_feff_inp(cx);
+                                }),
+                            ),
+                        )
                         .child(
                             feff_button(
                                 "feff-run",
@@ -3692,42 +4272,67 @@ impl StudioApp {
                     .px_3()
                     .py_0p5()
                     .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(div().w(px(56.)).text_sm().text_color(t.text_muted).child(name))
-                    .child(div().flex_1().child(var.field.clone()))
+                    .flex_col()
                     .child(
                         div()
-                            .id(SharedString::from(format!("vary-{var_name}")))
-                            .px_1()
-                            .rounded_sm()
-                            .text_xs()
-                            .cursor_pointer()
-                            .text_color(if is_expr {
-                                t.warn
-                            } else if vary {
-                                t.accent
-                            } else {
-                                t.text_muted
-                            })
-                            .hover(|d| d.bg(t.raised))
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                                if let Some(v) = this
-                                    .fit_vars
-                                    .iter_mut()
-                                    .find(|v| v.spec.name == var_name)
-                                {
-                                    if v.spec.expr.is_some() {
-                                        // expr -> back to a plain varying value
-                                        v.spec.expr = None;
-                                        v.spec.vary = true;
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .w(px(56.))
+                                    .text_sm()
+                                    .text_color(t.text_muted)
+                                    .child(name),
+                            )
+                            .child(div().flex_1().child(var.field.clone()))
+                            .child(
+                                div()
+                                    .id(SharedString::from(format!("vary-{var_name}")))
+                                    .px_1()
+                                    .rounded_sm()
+                                    .text_xs()
+                                    .cursor_pointer()
+                                    .text_color(if is_expr {
+                                        t.warn
+                                    } else if vary {
+                                        t.accent
                                     } else {
-                                        v.spec.vary = !v.spec.vary;
-                                    }
-                                    cx.notify();
-                                }
-                            }))
-                            .child(badge),
+                                        t.text_muted
+                                    })
+                                    .hover(|d| d.bg(t.raised))
+                                    .on_click(cx.listener(
+                                        move |this, _: &ClickEvent, _window, cx| {
+                                            if let Some(v) = this
+                                                .fit_vars
+                                                .iter_mut()
+                                                .find(|v| v.spec.name == var_name)
+                                            {
+                                                if v.spec.expr.is_some() {
+                                                    // expr -> back to a plain varying value
+                                                    v.spec.expr = None;
+                                                    v.spec.vary = true;
+                                                } else {
+                                                    v.spec.vary = !v.spec.vary;
+                                                }
+                                                cx.notify();
+                                            }
+                                        },
+                                    ))
+                                    .child(badge),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .pl(px(58.))
+                            .pt_0p5()
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .child(div().text_xs().text_color(t.text_muted).child("min"))
+                            .child(div().flex_1().child(var.min_field.clone()))
+                            .child(div().text_xs().text_color(t.text_muted).child("max"))
+                            .child(div().flex_1().child(var.max_field.clone())),
                     ),
             );
         }
@@ -3754,7 +4359,11 @@ impl StudioApp {
                     .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
                         this.run_fit_now(cx);
                     }))
-                    .child(if self.fit_running { "fitting ..." } else { "Run Fit" }),
+                    .child(if self.fit_running {
+                        "fitting ..."
+                    } else {
+                        "Run Fit"
+                    }),
             ),
         );
 
@@ -3762,36 +4371,87 @@ impl StudioApp {
         panel = panel.child(self.section_header("Batch"));
         let batch_label: SharedString = if self.batch_running {
             let (done, total) = self.batch_progress;
-            format!("fitting {done}/{total} ...").into()
-        } else if let Some(data) = &self.operando {
-            format!("Batch fit scan ({} frames)", data.sample_ixs.len()).into()
+            format!("Cancel batch fit ({done}/{total})").into()
         } else {
-            "Batch fit scan (open a scan first)".into()
+            "Run batch fit".into()
         };
         panel = panel.child(
-            div().px_3().pb_1().flex().flex_col().gap_1().child(
-                div()
-                    .id("batch-fit")
-                    .w_full()
-                    .py_1()
-                    .rounded_md()
-                    .flex()
-                    .justify_center()
-                    .text_xs()
-                    .bg(t.raised)
-                    .text_color(t.accent)
-                    .cursor_pointer()
-                    .hover(|d| d.bg(t.border))
-                    .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                        this.run_batch_fit(cx);
-                    }))
-                    .child(batch_label),
-            ),
+            div()
+                .px_3()
+                .pb_1()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(
+                    div()
+                        .id("batch-preview")
+                        .px_1()
+                        .py_0p5()
+                        .rounded_sm()
+                        .border_1()
+                        .border_color(t.border)
+                        .text_xs()
+                        .text_color(if self.batch_preview {
+                            t.accent
+                        } else {
+                            t.text_muted
+                        })
+                        .cursor_pointer()
+                        .hover(|div| div.bg(t.raised))
+                        .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                            this.toggle_batch_preview(cx);
+                        }))
+                        .child(if self.batch_preview {
+                            "preview ✓ · sampled frames"
+                        } else {
+                            "preview off · full scan default"
+                        }),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(t.text_muted)
+                        .child(self.batch_scope_line()),
+                )
+                .child(
+                    div()
+                        .id("batch-fit")
+                        .w_full()
+                        .py_1()
+                        .rounded_md()
+                        .flex()
+                        .justify_center()
+                        .text_xs()
+                        .bg(if self.batch_running {
+                            t.error
+                        } else {
+                            t.raised
+                        })
+                        .text_color(if self.batch_running { t.bg } else { t.accent })
+                        .cursor_pointer()
+                        .hover(|d| d.bg(t.border))
+                        .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                            if this.batch_running {
+                                this.cancel_batch_fit(cx);
+                            } else {
+                                this.run_batch_fit(cx);
+                            }
+                        }))
+                        .child(batch_label),
+                ),
         );
         if let Some(bf) = &self.batch_fit {
-            let summary: SharedString =
-                format!("{} frames fitted · trend: {}", bf.rows.len(),
-                    bf.varying_names.get(bf.trend_param).cloned().unwrap_or_default()).into();
+            let scope = if bf.preview { "preview" } else { "full scan" };
+            let summary: SharedString = format!(
+                "{scope} · {} / {} fitted · trend: {}",
+                bf.rows.len(),
+                bf.total,
+                bf.varying_names
+                    .get(bf.trend_param)
+                    .cloned()
+                    .unwrap_or_default()
+            )
+            .into();
             panel = panel.child(
                 div()
                     .px_3()
@@ -3799,7 +4459,13 @@ impl StudioApp {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .child(div().flex_1().text_xs().text_color(t.text_muted).child(summary))
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_xs()
+                            .text_color(t.text_muted)
+                            .child(summary),
+                    )
                     .child(
                         div()
                             .id("trend-cycle")
@@ -3829,6 +4495,37 @@ impl StudioApp {
                             .child("CSV..."),
                     ),
             );
+            let problem_count = bf.problems.len();
+            panel = panel.child(
+                div()
+                    .id("batch-problems-toggle")
+                    .mx_3()
+                    .mb_1()
+                    .px_1()
+                    .py_0p5()
+                    .rounded_sm()
+                    .border_1()
+                    .border_color(if problem_count > 0 { t.error } else { t.border })
+                    .text_xs()
+                    .text_color(if problem_count > 0 {
+                        t.error
+                    } else {
+                        t.text_muted
+                    })
+                    .cursor_pointer()
+                    .hover(|div| div.bg(t.raised))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                        this.toggle_batch_problems(cx);
+                    }))
+                    .child(SharedString::from(format!(
+                        "{} problems {}",
+                        problem_count,
+                        if bf.problems_open { "▾" } else { "▸" }
+                    ))),
+            );
+            if bf.problems_open {
+                panel = panel.child(div().mx_3().mb_1().child(self.batch_problems_list(cx)));
+            }
         }
 
         // Results.
@@ -3941,7 +4638,13 @@ impl StudioApp {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .child(div().flex_1().text_sm().text_color(t.text_muted).child("mode"))
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_sm()
+                            .text_color(t.text_muted)
+                            .child("mode"),
+                    )
                     .child(
                         div()
                             .id("enum-import-mode")
@@ -4057,7 +4760,11 @@ impl StudioApp {
                                     this.schedule_recompute(cx);
                                     cx.notify();
                                 }))
-                                .child(if align_on { "✓ align to ref" } else { "align to ref" }),
+                                .child(if align_on {
+                                    "✓ align to ref"
+                                } else {
+                                    "align to ref"
+                                }),
                         )
                         .child(div().flex_1()),
                 );
@@ -4103,7 +4810,12 @@ impl StudioApp {
                     ParamKey::FftDk,
                     ParamKey::FftKweight,
                 ],
-                &[ParamKey::FftDk2, ParamKey::FftRmax, ParamKey::FftKstep, ParamKey::FftNfft],
+                &[
+                    ParamKey::FftDk2,
+                    ParamKey::FftRmax,
+                    ParamKey::FftKstep,
+                    ParamKey::FftNfft,
+                ],
                 2,
             ),
         ];

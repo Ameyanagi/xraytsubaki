@@ -65,6 +65,8 @@ mod tests {
                 name: "amp".into(),
                 value: 0.85,
                 vary: true,
+                min: Some(0.0),
+                max: Some(1.5),
                 expr: None,
             }],
             fit_ranges: FitRanges::default(),
@@ -77,6 +79,16 @@ mod tests {
         assert_eq!(loaded.params.rbkg, Some(1.2));
         assert_eq!(loaded.fit_paths[0].deltar, "dr_1*1.02");
         assert_eq!(loaded.fit_vars[0].value, 0.85);
+        assert_eq!(loaded.fit_vars[0].min, Some(0.0));
+        assert_eq!(loaded.fit_vars[0].max, Some(1.5));
         assert_eq!(loaded.source_dir, project.source_dir);
+    }
+
+    #[test]
+    fn older_fit_variables_load_without_bounds() {
+        let var: FitVarSpec =
+            serde_json::from_str(r#"{"name":"amp","value":0.85,"vary":true,"expr":null}"#).unwrap();
+        assert_eq!(var.min, None);
+        assert_eq!(var.max, None);
     }
 }

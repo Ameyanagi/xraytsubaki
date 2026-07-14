@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 use futures::StreamExt;
 use gpui::{
-    ClickEvent, Context, Entity, FocusHandle, IntoElement, KeyBinding, MouseDownEvent,
+    ClickEvent, Context, Entity, FocusHandle, Focusable, IntoElement, KeyBinding, MouseDownEvent,
     ParentElement, PathPromptOptions, Render, ScrollStrategy, SharedString, Styled,
     UniformListScrollHandle, Window, actions, canvas, div, fill, point, prelude::*, px, size,
     uniform_list,
@@ -122,24 +122,57 @@ actions!(
         FrameJumpFwd,
         FrameFirst,
         FrameLast,
+        WorkspaceExplore,
+        WorkspaceOperando,
+        WorkspaceFit,
+        ToggleDataPanel,
+        ToggleContextPanel,
+        FocusFilter,
+        Maximize1,
+        Maximize2,
+        Maximize3,
+        Maximize4,
+        RestoreGrid,
+        ExploreEscape,
     ]
 );
 
-/// Key bindings for list navigation and operando scrubbing; register at
-/// startup alongside the text-input bindings.
+/// Application key bindings; register at startup alongside the text-input
+/// bindings.
+///
+/// GPUI treats context-free bindings as if they matched the deepest focused
+/// context. The shell bindings are therefore deliberately scoped to the root
+/// `Studio`/workspace key context and exclude `TextInput` where a printable or
+/// editing keystroke must stay with the focused editor.
 pub fn studio_keybindings() -> Vec<KeyBinding> {
     vec![
         KeyBinding::new("up", NavUp, Some("DataPanel")),
         KeyBinding::new("down", NavDown, Some("DataPanel")),
         KeyBinding::new("shift-up", NavExtendUp, Some("DataPanel")),
         KeyBinding::new("shift-down", NavExtendDown, Some("DataPanel")),
-        KeyBinding::new("escape", ClearCompare, Some("DataPanel")),
-        KeyBinding::new("left", FramePrev, Some("Operando")),
-        KeyBinding::new("right", FrameNext, Some("Operando")),
-        KeyBinding::new("shift-left", FrameJumpBack, Some("Operando")),
-        KeyBinding::new("shift-right", FrameJumpFwd, Some("Operando")),
-        KeyBinding::new("home", FrameFirst, Some("Operando")),
-        KeyBinding::new("end", FrameLast, Some("Operando")),
+        KeyBinding::new(
+            "escape",
+            ClearCompare,
+            Some("DataPanel && !Explore && !TextInput"),
+        ),
+        KeyBinding::new("left", FramePrev, Some("Operando && !TextInput")),
+        KeyBinding::new("right", FrameNext, Some("Operando && !TextInput")),
+        KeyBinding::new("shift-left", FrameJumpBack, Some("Operando && !TextInput")),
+        KeyBinding::new("shift-right", FrameJumpFwd, Some("Operando && !TextInput")),
+        KeyBinding::new("home", FrameFirst, Some("Operando && !TextInput")),
+        KeyBinding::new("end", FrameLast, Some("Operando && !TextInput")),
+        KeyBinding::new("cmd-1", WorkspaceExplore, Some("Studio")),
+        KeyBinding::new("cmd-2", WorkspaceOperando, Some("Studio")),
+        KeyBinding::new("cmd-3", WorkspaceFit, Some("Studio")),
+        KeyBinding::new("cmd-b", ToggleDataPanel, Some("Studio && !TextInput")),
+        KeyBinding::new("cmd-j", ToggleContextPanel, Some("Studio && !TextInput")),
+        KeyBinding::new("cmd-p", FocusFilter, Some("Studio && !TextInput")),
+        KeyBinding::new("1", Maximize1, Some("Explore && !TextInput")),
+        KeyBinding::new("2", Maximize2, Some("Explore && !TextInput")),
+        KeyBinding::new("3", Maximize3, Some("Explore && !TextInput")),
+        KeyBinding::new("4", Maximize4, Some("Explore && !TextInput")),
+        KeyBinding::new("0", RestoreGrid, Some("Explore && !TextInput")),
+        KeyBinding::new("escape", ExploreEscape, Some("Explore && !TextInput")),
     ]
 }
 
@@ -272,6 +305,8 @@ enum FeffFormKey {
 pub struct StudioApp {
     theme: Theme,
     workspace: Workspace,
+    data_panel_open: bool,
+    context_panel_open: bool,
     catalog: Catalog,
     source_dir: Option<PathBuf>,
     /// Active spectrum (drives params/fit/status).
@@ -542,6 +577,78 @@ mod filter_tests {
     }
 }
 
+#[cfg(test)]
+mod keybinding_tests {
+    use gpui::{Action, KeyBinding, KeyContext};
+
+    use super::{
+        ExploreEscape, FocusFilter, FrameFirst, FrameLast, Maximize1, Maximize2, Maximize3,
+        Maximize4, RestoreGrid, ToggleContextPanel, ToggleDataPanel, WorkspaceExplore,
+        studio_keybindings,
+    };
+
+    fn binding<A: Action + 'static>(bindings: &[KeyBinding]) -> &KeyBinding {
+        bindings
+            .iter()
+            .find(|binding| binding.action().as_any().is::<A>())
+            .expect("action must have a key binding")
+    }
+
+    #[test]
+    fn text_input_context_blocks_shell_editing_keys() {
+        let bindings = studio_keybindings();
+        let studio = KeyContext::parse("Studio Explore").unwrap();
+        let text_input = KeyContext::parse("TextInput").unwrap();
+        let shell_context = [studio.clone()];
+        let editing_context = [studio, text_input];
+
+        let protected = [
+            binding::<ToggleDataPanel>(&bindings),
+            binding::<ToggleContextPanel>(&bindings),
+            binding::<FocusFilter>(&bindings),
+            binding::<Maximize1>(&bindings),
+            binding::<Maximize2>(&bindings),
+            binding::<Maximize3>(&bindings),
+            binding::<Maximize4>(&bindings),
+            binding::<RestoreGrid>(&bindings),
+            binding::<ExploreEscape>(&bindings),
+        ];
+        for binding in protected {
+            let predicate = binding.predicate().expect("binding must be scoped");
+            assert!(predicate.depth_of(&shell_context).is_some());
+            assert!(predicate.depth_of(&editing_context).is_none());
+        }
+
+        // Workspace switching is intentionally global and non-editing.
+        assert!(
+            binding::<WorkspaceExplore>(&bindings)
+                .predicate()
+                .unwrap()
+                .depth_of(&editing_context)
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn operando_extreme_keys_yield_to_nested_text_input() {
+        let bindings = studio_keybindings();
+        let studio = KeyContext::parse("Studio OperandoWorkspace").unwrap();
+        let operando = KeyContext::parse("Operando").unwrap();
+        let text_input = KeyContext::parse("TextInput").unwrap();
+        let scrub_context = [studio.clone(), operando.clone()];
+        let editing_context = [studio, operando, text_input];
+
+        for binding in [
+            binding::<FrameFirst>(&bindings),
+            binding::<FrameLast>(&bindings),
+        ] {
+            let predicate = binding.predicate().expect("binding must be scoped");
+            assert!(predicate.depth_of(&scrub_context).is_some());
+            assert!(predicate.depth_of(&editing_context).is_none());
+        }
+    }
+}
+
 fn default_data_file() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../xraytsubaki/tests/testfiles/Ru_QAS.dat")
 }
@@ -589,6 +696,8 @@ impl StudioApp {
         let mut app = Self {
             theme,
             workspace: Workspace::Explore,
+            data_panel_open: true,
+            context_panel_open: true,
             catalog: Catalog::default(),
             source_dir: None,
             selected: None,
@@ -2767,6 +2876,43 @@ impl StudioApp {
 
     // ---- views -------------------------------------------------------------
 
+    fn set_workspace(&mut self, workspace: Workspace, cx: &mut Context<Self>) {
+        self.workspace = workspace;
+        if workspace == Workspace::Operando {
+            self.ensure_operando(cx);
+        }
+        cx.notify();
+    }
+
+    fn focus_filter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.data_panel_open = true;
+        self.data_tab = DataTab::Files;
+        let input = self.filter_input.clone();
+        cx.notify();
+        // The panel may have been collapsed. Defer focus until the notified
+        // render has placed the TextInput back into the dispatch tree.
+        cx.defer_in(window, move |_this, window, cx| {
+            if let Some(input) = input {
+                input.read(cx).focus_handle(cx).focus(window, cx);
+            }
+        });
+    }
+
+    fn maximize_quadrant(&mut self, index: usize, cx: &mut Context<Self>) {
+        if self.quadrants.len() == 4 {
+            self.maximized = Some(index);
+            cx.notify();
+        }
+    }
+
+    fn explore_escape(&mut self, cx: &mut Context<Self>) {
+        if self.maximized.take().is_some() {
+            cx.notify();
+        } else {
+            self.clear_selection(cx);
+        }
+    }
+
     fn rail_button(
         &self,
         id: &'static str,
@@ -2791,10 +2937,36 @@ impl StudioApp {
             .hover(|d| d.bg(t.raised))
             .cursor_pointer()
             .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                this.workspace = ws;
-                if ws == Workspace::Operando {
-                    this.ensure_operando(cx);
-                }
+                this.set_workspace(ws, cx);
+            }))
+            .child(label)
+    }
+
+    fn panel_toggle_button(
+        &self,
+        id: &'static str,
+        label: &'static str,
+        open: bool,
+        toggle: fn(&mut Self),
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let t = self.theme;
+        div()
+            .id(id)
+            .w(px(40.))
+            .h(px(28.))
+            .my_0p5()
+            .rounded_md()
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_xs()
+            .text_color(if open { t.accent } else { t.text_muted })
+            .when(open, |d| d.bg(t.raised))
+            .hover(|d| d.bg(t.raised).text_color(t.text))
+            .cursor_pointer()
+            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                toggle(this);
                 cx.notify();
             }))
             .child(label)
@@ -2815,6 +2987,22 @@ impl StudioApp {
             .child(self.rail_button("ws-explore", "Ex", Workspace::Explore, cx))
             .child(self.rail_button("ws-operando", "Op", Workspace::Operando, cx))
             .child(self.rail_button("ws-fit", "Ft", Workspace::Fit, cx))
+            .child(div().flex_1())
+            .child(self.panel_toggle_button(
+                "toggle-data-panel",
+                "Data",
+                self.data_panel_open,
+                |this| this.data_panel_open = !this.data_panel_open,
+                cx,
+            ))
+            .child(self.panel_toggle_button(
+                "toggle-context-panel",
+                "Ctx",
+                self.context_panel_open,
+                |this| this.context_panel_open = !this.context_panel_open,
+                cx,
+            ))
+            .pb_2()
     }
 
     fn file_list(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -5035,17 +5223,84 @@ impl StudioApp {
 impl Render for StudioApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = self.theme;
+        let key_context = match self.workspace {
+            Workspace::Explore => "Studio Explore",
+            Workspace::Operando => "Studio OperandoWorkspace",
+            Workspace::Fit => "Studio FitWorkspace",
+        };
         let center = match self.workspace {
             Workspace::Explore => self.explore_center(cx).into_any_element(),
             Workspace::Operando => self.operando_center(cx).into_any_element(),
             Workspace::Fit => self.fit_center(cx).into_any_element(),
         };
-        let context_panel = match self.workspace {
-            Workspace::Fit => self.fit_panel(cx).into_any_element(),
-            _ => self.context_panel(cx).into_any_element(),
+        let data_panel = self
+            .data_panel_open
+            .then(|| self.data_panel(cx).into_any_element());
+        let context_panel = if self.context_panel_open {
+            Some(match self.workspace {
+                Workspace::Fit => self.fit_panel(cx).into_any_element(),
+                _ => self.context_panel(cx).into_any_element(),
+            })
+        } else {
+            None
         };
         div()
             .id("root")
+            .key_context(key_context)
+            .on_action(
+                cx.listener(|this: &mut Self, _: &WorkspaceExplore, _window, cx| {
+                    this.set_workspace(Workspace::Explore, cx);
+                }),
+            )
+            .on_action(
+                cx.listener(|this: &mut Self, _: &WorkspaceOperando, _window, cx| {
+                    this.set_workspace(Workspace::Operando, cx);
+                }),
+            )
+            .on_action(
+                cx.listener(|this: &mut Self, _: &WorkspaceFit, _window, cx| {
+                    this.set_workspace(Workspace::Fit, cx);
+                }),
+            )
+            .on_action(
+                cx.listener(|this: &mut Self, _: &ToggleDataPanel, _window, cx| {
+                    this.data_panel_open = !this.data_panel_open;
+                    cx.notify();
+                }),
+            )
+            .on_action(
+                cx.listener(|this: &mut Self, _: &ToggleContextPanel, _window, cx| {
+                    this.context_panel_open = !this.context_panel_open;
+                    cx.notify();
+                }),
+            )
+            .on_action(cx.listener(|this: &mut Self, _: &FocusFilter, window, cx| {
+                this.focus_filter(window, cx);
+            }))
+            .on_action(cx.listener(|this: &mut Self, _: &Maximize1, _window, cx| {
+                this.maximize_quadrant(0, cx);
+            }))
+            .on_action(cx.listener(|this: &mut Self, _: &Maximize2, _window, cx| {
+                this.maximize_quadrant(1, cx);
+            }))
+            .on_action(cx.listener(|this: &mut Self, _: &Maximize3, _window, cx| {
+                this.maximize_quadrant(2, cx);
+            }))
+            .on_action(cx.listener(|this: &mut Self, _: &Maximize4, _window, cx| {
+                this.maximize_quadrant(3, cx);
+            }))
+            .on_action(
+                cx.listener(|this: &mut Self, _: &RestoreGrid, _window, cx| {
+                    if this.maximized.take().is_some() {
+                        cx.notify();
+                    }
+                }),
+            )
+            .on_action(
+                cx.listener(|this: &mut Self, _: &ExploreEscape, _window, cx| {
+                    this.explore_escape(cx);
+                }),
+            )
             .on_scroll_wheel(cx.listener(|_t, ev: &gpui::ScrollWheelEvent, _w, _cx| {
                 eprintln!("[scroll-dbg] window got wheel: {:?}", ev.delta);
             }))
@@ -5059,9 +5314,9 @@ impl Render for StudioApp {
                     .flex_1()
                     .flex()
                     .child(self.icon_rail(cx))
-                    .child(self.data_panel(cx))
+                    .children(data_panel)
                     .child(div().flex_1().flex().flex_col().child(center))
-                    .child(context_panel),
+                    .children(context_panel),
             )
             .child(self.status_bar(cx))
     }

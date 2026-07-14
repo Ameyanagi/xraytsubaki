@@ -7,6 +7,7 @@
 //! center is the 2x2 quadrant grid from M0.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -50,6 +51,7 @@ use crate::widgets::text_input::{InputEvent, TextInput};
 /// Processed spectra kept in RAM. ~100-300 KB each, so 1024 ≈ a few hundred MB
 /// worst case; browsing a million-file catalog stays bounded.
 const PROCESSED_CACHE_CAPACITY: usize = 1024;
+const JOB_ERROR_CAPACITY: usize = 200;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Workspace {
@@ -211,11 +213,26 @@ const HEATMAP_RIGHT_WITH_COLORBAR: f32 = 0.20;
 /// Downsampled overview of one scan, valid for one params fingerprint.
 struct OperandoData {
     scan: usize,
+    scan_len: usize,
     fingerprint: u64,
     grid: Vec<f64>,
     matrix: Vec<Vec<f64>>,
     e0s: Vec<f64>,
     kweight: f64,
+}
+
+#[derive(Clone)]
+struct FitProvenance {
+    label: SharedString,
+    path: PathBuf,
+    params_fingerprint: u64,
+    model_fingerprint: u64,
+}
+
+#[derive(Clone)]
+struct JobError {
+    label: String,
+    message: String,
 }
 
 struct OperandoPlots {
@@ -309,6 +326,8 @@ pub struct StudioApp {
     context_panel_open: bool,
     catalog: Catalog,
     source_dir: Option<PathBuf>,
+    /// Supersedes receivers from earlier folder scans.
+    catalog_gen: u64,
     /// Active spectrum (drives params/fit/status).
     selected: Option<usize>,
     /// Compare set; the active spectrum is implicitly included.
@@ -316,6 +335,7 @@ pub struct StudioApp {
     /// Merged/averaged spectra (virtual indices DERIVED_BASE + i).
     derived: Vec<DerivedSpectrum>,
     compare_gen: u64,
+    compare_running: bool,
     view: ViewOptions,
     view_offset_field: Option<Entity<NumericField>>,
     filter_input: Option<Entity<TextInput>>,
@@ -333,6 +353,7 @@ pub struct StudioApp {
     /// Bumped on every selection; async load results from older generations
     /// are discarded.
     generation: u64,
+    load_running: bool,
     /// Bumped on every parameter edit; the debounced recompute only fires for
     /// the latest epoch.
     recompute_epoch: u64,
@@ -341,6 +362,8 @@ pub struct StudioApp {
     /// Keyed by (catalog index, params fingerprint).
     cache: LruCache<(usize, u64), Arc<XASSpectrum>>,
     current_path: PathBuf,
+    spectrum_path: PathBuf,
+    spectrum_fingerprint: u64,
     spectrum: Option<Arc<XASSpectrum>>,
     spectrum_label: SharedString,
     quadrants: Vec<(SharedString, Entity<RuvizPlot>)>,
@@ -355,6 +378,8 @@ pub struct StudioApp {
     operando: Option<OperandoData>,
     operando_plots: Option<OperandoPlots>,
     operando_gen: u64,
+    operando_running: bool,
+    operando_cancel: Option<Arc<AtomicBool>>,
     time_pos: usize,
     /// Requested cursor used when a batch-table row opens a scan overview in
     /// the background while the Fit workspace stays visible.
@@ -364,6 +389,7 @@ pub struct StudioApp {
     fit_range_fields: Vec<(RangeKey, Entity<NumericField>)>,
     fit_ranges: FitRanges,
     fit_result: Option<Arc<FeffFitResult>>,
+    fit_provenance: Option<FitProvenance>,
     fit_plots: Option<(Entity<RuvizPlot>, Entity<RuvizPlot>)>,
     fit_gen: u64,
     fit_running: bool,
@@ -381,7 +407,12 @@ pub struct StudioApp {
     batch_gen: u64,
     batch_cancel: Option<Arc<AtomicBool>>,
     batch_started: Option<Instant>,
+    merge_running: bool,
+    merge_gen: u64,
+    merge_cancel: Option<Arc<AtomicBool>>,
     status: SharedString,
+    job_errors: Vec<JobError>,
+    problems_open: bool,
 }
 
 /// Evenly sample `all` (sorted) down to `cap`, always keeping first, last,
@@ -700,10 +731,12 @@ impl StudioApp {
             context_panel_open: true,
             catalog: Catalog::default(),
             source_dir: None,
+            catalog_gen: 0,
             selected: None,
             selection: BTreeSet::new(),
             derived: Vec::new(),
             compare_gen: 0,
+            compare_running: false,
             view: ViewOptions::default(),
             view_offset_field: None,
             filter_input: None,
@@ -716,11 +749,14 @@ impl StudioApp {
             import_preview: "".into(),
             open_enum: None,
             generation: 0,
+            load_running: false,
             recompute_epoch: 0,
             params,
             param_fields,
             cache: LruCache::new(NonZeroUsize::new(PROCESSED_CACHE_CAPACITY).unwrap()),
             current_path: path.clone(),
+            spectrum_path: path.clone(),
+            spectrum_fingerprint: 0,
             spectrum: None,
             spectrum_label: label.clone(),
             quadrants: Vec::new(),
@@ -733,6 +769,8 @@ impl StudioApp {
             operando: None,
             operando_plots: None,
             operando_gen: 0,
+            operando_running: false,
+            operando_cancel: None,
             time_pos: 0,
             pending_time_pos: None,
             fit_paths: Vec::new(),
@@ -740,6 +778,7 @@ impl StudioApp {
             fit_range_fields: Vec::new(),
             fit_ranges: FitRanges::default(),
             fit_result: None,
+            fit_provenance: None,
             fit_plots: None,
             fit_gen: 0,
             fit_running: false,
@@ -755,7 +794,12 @@ impl StudioApp {
             batch_gen: 0,
             batch_cancel: None,
             batch_started: None,
+            merge_running: false,
+            merge_gen: 0,
+            merge_cancel: None,
             status: "loading...".into(),
+            job_errors: Vec::new(),
+            problems_open: false,
         };
         app.fit_range_fields = Self::build_range_fields(theme, app.fit_ranges, cx);
         let offset_field =
@@ -826,16 +870,171 @@ impl StudioApp {
         app.update_import_preview();
         match process_file(&path, &app.params) {
             Ok(sp) => {
-                app.set_processed(NO_ENTRY, label, Arc::new(sp), cx);
+                let fingerprint = app.params.fingerprint();
+                app.set_processed(NO_ENTRY, label, path.clone(), fingerprint, Arc::new(sp), cx);
             }
             Err(e) => {
                 app.status = format!("failed to load {}: {e}", path.display()).into();
+                app.record_job_error(path.display().to_string(), e.to_string());
             }
         }
         if let Some(dir) = initial_dir {
             app.scan_folder(dir, cx);
         }
         app
+    }
+
+    fn record_job_error(&mut self, label: impl Into<String>, message: impl Into<String>) {
+        if self.job_errors.len() == JOB_ERROR_CAPACITY {
+            self.job_errors.remove(0);
+        }
+        self.job_errors.push(JobError {
+            label: label.into(),
+            message: message.into(),
+        });
+    }
+
+    fn running_job_count(&self) -> usize {
+        usize::from(self.catalog.scanning)
+            + usize::from(self.load_running)
+            + usize::from(self.compare_running)
+            + usize::from(self.operando_running)
+            + usize::from(self.merge_running)
+            + usize::from(self.fit_running)
+            + usize::from(self.feff_running)
+            + usize::from(self.batch_running)
+    }
+
+    fn selection_count(&self) -> usize {
+        self.selection.len()
+            + usize::from(
+                self.selected
+                    .is_some_and(|selected| !self.selection.contains(&selected)),
+            )
+    }
+
+    fn fit_model_fingerprint(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        for row in &self.fit_paths {
+            row.spec.file.hash(&mut hasher);
+            row.spec.label.hash(&mut hasher);
+            row.spec.s02.hash(&mut hasher);
+            row.spec.e0.hash(&mut hasher);
+            row.spec.sigma2.hash(&mut hasher);
+            row.spec.deltar.hash(&mut hasher);
+            row.spec.enabled.hash(&mut hasher);
+        }
+        for var in &self.fit_vars {
+            var.spec.name.hash(&mut hasher);
+            var.spec.value.to_bits().hash(&mut hasher);
+            var.spec.vary.hash(&mut hasher);
+            var.spec.min.map(f64::to_bits).hash(&mut hasher);
+            var.spec.max.map(f64::to_bits).hash(&mut hasher);
+            var.spec.expr.hash(&mut hasher);
+        }
+        self.fit_ranges.kmin.to_bits().hash(&mut hasher);
+        self.fit_ranges.kmax.to_bits().hash(&mut hasher);
+        self.fit_ranges.rmin.to_bits().hash(&mut hasher);
+        self.fit_ranges.rmax.to_bits().hash(&mut hasher);
+        self.fit_ranges.kweight.to_bits().hash(&mut hasher);
+        hasher.finish()
+    }
+
+    fn fit_is_stale(&self) -> bool {
+        let Some(provenance) = &self.fit_provenance else {
+            return false;
+        };
+        self.spectrum.is_none()
+            || provenance.label != self.spectrum_label
+            || provenance.path != self.current_path
+            || provenance.path != self.spectrum_path
+            || provenance.params_fingerprint != self.params.fingerprint()
+            || provenance.params_fingerprint != self.spectrum_fingerprint
+            || provenance.model_fingerprint != self.fit_model_fingerprint()
+    }
+
+    /// Reset every state that is indexed by the current catalog before a new
+    /// folder starts streaming. Generation bumps also make old async arrivals
+    /// harmless while their receivers/workers wind down.
+    fn reset_catalog_state(&mut self, cx: &mut Context<Self>) {
+        self.catalog_gen += 1;
+        self.generation += 1;
+        self.compare_gen += 1;
+        self.operando_gen += 1;
+        self.batch_gen += 1;
+        self.merge_gen += 1;
+        if let Some(cancel) = self.operando_cancel.take() {
+            cancel.store(true, Ordering::Relaxed);
+        }
+        if let Some(cancel) = self.batch_cancel.take() {
+            cancel.store(true, Ordering::Relaxed);
+        }
+        if let Some(cancel) = self.merge_cancel.take() {
+            cancel.store(true, Ordering::Relaxed);
+        }
+        self.catalog = Catalog::default();
+        self.load_running = false;
+        self.compare_running = false;
+        self.merge_running = false;
+        self.selected = None;
+        self.selection.clear();
+        self.filtered = None;
+        self.filter_text.clear();
+        if let Some(input) = &self.filter_input {
+            input.update(cx, |input, cx| input.set_text("", cx));
+        }
+        self.cache.clear();
+        self.current_path = PathBuf::new();
+        self.spectrum_path = PathBuf::new();
+        self.spectrum_fingerprint = 0;
+        self.spectrum = None;
+        self.spectrum_label = "no spectrum".into();
+        self.import_preview = "".into();
+        self.quadrants.clear();
+        self.maximized = None;
+        self.file_scroll = UniformListScrollHandle::new();
+        self.scan_scroll = UniformListScrollHandle::new();
+        self.expanded_scan = None;
+        self.active_scan = None;
+        self.operando = None;
+        self.operando_plots = None;
+        self.operando_running = false;
+        self.pending_time_pos = None;
+        self.time_pos = 0;
+        self.batch_fit = None;
+        self.batch_running = false;
+        self.batch_progress = (0, 0);
+        self.batch_started = None;
+    }
+
+    fn cancel_long_jobs(&mut self, cx: &mut Context<Self>) {
+        let mut cancelled = false;
+        if self.operando_running {
+            self.operando_gen += 1;
+            if let Some(cancel) = self.operando_cancel.take() {
+                cancel.store(true, Ordering::Relaxed);
+            }
+            self.operando_running = false;
+            cancelled = true;
+        }
+        if self.batch_running
+            && let Some(cancel) = self.batch_cancel.as_ref()
+        {
+            cancel.store(true, Ordering::Relaxed);
+            cancelled = true;
+        }
+        if self.merge_running {
+            self.merge_gen += 1;
+            if let Some(cancel) = self.merge_cancel.take() {
+                cancel.store(true, Ordering::Relaxed);
+            }
+            self.merge_running = false;
+            cancelled = true;
+        }
+        if cancelled {
+            self.status = "cancelling jobs — completed results are kept ...".into();
+            cx.notify();
+        }
     }
 
     /// Context-panel fields, in pipeline order. Placeholders show the value
@@ -1022,11 +1221,16 @@ impl StudioApp {
 
     fn reprocess_current(&mut self, cx: &mut Context<Self>) {
         let ix = self.selected.unwrap_or(NO_ENTRY);
-        let label = self.spectrum_label.clone();
+        let label: SharedString = self
+            .selected
+            .map(|selected| self.entry_label(selected).into())
+            .unwrap_or_else(|| self.spectrum_label.clone());
         let path = self.current_path.clone();
         self.load_spectrum(ix, path, label, cx);
         // Parameter edits also invalidate the operando overview + overlay.
-        self.ensure_operando(cx);
+        if self.workspace == Workspace::Operando {
+            self.ensure_operando(cx);
+        }
         self.ensure_compare_loaded(cx);
     }
 
@@ -1044,18 +1248,21 @@ impl StudioApp {
         let key = (ix, self.params.fingerprint());
 
         if let Some(sp) = self.cache.get(&key) {
+            self.load_running = false;
             let sp = sp.clone();
-            self.set_processed(ix, label, sp, cx);
+            self.set_processed(ix, label, path, key.1, sp, cx);
             cx.notify();
             return;
         }
 
         self.status = format!("processing {label} ...").into();
+        self.load_running = true;
         cx.notify();
         let params = self.params.clone();
         let derived = (ix >= DERIVED_BASE)
             .then(|| self.derived.get(ix - DERIVED_BASE).cloned())
             .flatten();
+        let processed_path = path.clone();
         let load = cx.background_executor().spawn(async move {
             match derived {
                 Some(d) => process_arrays(d.energy, d.mu, &params),
@@ -1068,14 +1275,16 @@ impl StudioApp {
                 if app.generation != generation {
                     return; // a newer selection/edit superseded this load
                 }
+                app.load_running = false;
                 match result {
                     Ok(sp) => {
                         let sp = Arc::new(sp);
                         app.cache.put(key, sp.clone());
-                        app.set_processed(ix, label, sp, cx);
+                        app.set_processed(ix, label, processed_path, key.1, sp, cx);
                     }
                     Err(e) => {
                         app.status = format!("failed to process {label}: {e}").into();
+                        app.record_job_error(label.to_string(), e.to_string());
                     }
                 }
                 cx.notify();
@@ -1089,11 +1298,15 @@ impl StudioApp {
         &mut self,
         ix: usize,
         label: SharedString,
+        path: PathBuf,
+        fingerprint: u64,
         sp: Arc<XASSpectrum>,
         cx: &mut Context<Self>,
     ) {
         self.status = spectrum_status(&label, &sp);
         self.spectrum_label = label;
+        self.spectrum_path = path;
+        self.spectrum_fingerprint = fingerprint;
         // Surface the auto-determined E0 in the field placeholder.
         if self.params.e0.is_none()
             && let Some(e0) = sp.get_e0()
@@ -1126,24 +1339,34 @@ impl StudioApp {
             return;
         };
         let fingerprint = self.params.fingerprint();
-        if self
-            .operando
-            .as_ref()
-            .is_some_and(|o| o.scan == scan_ix && o.fingerprint == fingerprint)
-        {
-            return;
-        }
         let Some(scan) = self.catalog.scans.get(scan_ix) else {
             return;
         };
         let scan_len = scan.len;
+        if scan_len == 0
+            || self.operando.as_ref().is_some_and(|o| {
+                o.scan == scan_ix && o.scan_len == scan_len && o.fingerprint == fingerprint
+            })
+        {
+            return;
+        }
         let preserve_time_pos = self.operando.as_ref().is_some_and(|o| o.scan == scan_ix);
 
+        if let Some(cancel) = self.operando_cancel.take() {
+            cancel.store(true, Ordering::Relaxed);
+        }
         self.operando_gen += 1;
         let generation = self.operando_gen;
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.operando_cancel = Some(cancel.clone());
+        self.operando_running = true;
         // Even sampling across the scan; first and last frames included.
         let sample_ixs = sample_scan_indices(scan.start, scan_len, MAX_FRAMES);
         let paths: Vec<PathBuf> = sample_ixs.iter().map(|&ix| self.catalog.path(ix)).collect();
+        let labels: Vec<String> = sample_ixs
+            .iter()
+            .map(|&ix| self.catalog.name(ix).to_string())
+            .collect();
         let params = self.params.clone();
         let grid: Vec<f64> = (0..K_GRID_BINS)
             .map(|i| i as f64 * K_GRID_MAX / (K_GRID_BINS - 1) as f64)
@@ -1156,19 +1379,25 @@ impl StudioApp {
         .into();
 
         let job_grid = grid.clone();
+        let job_cancel = cancel.clone();
         let job = cx.background_executor().spawn(async move {
             paths
                 .par_iter()
-                .map(|path| {
-                    process_file(path, &params)
-                        .ok()
+                .zip(labels.par_iter())
+                .map(|(path, label)| {
+                    if job_cancel.load(Ordering::Relaxed) {
+                        return None;
+                    }
+                    let result = process_file(path, &params)
+                        .map_err(|error| error.to_string())
                         .and_then(|sp| {
-                            let row = resample_chik(&sp, &job_grid)?;
-                            Some((row, sp.get_e0().unwrap_or(f64::NAN)))
-                        })
-                        .unwrap_or_else(|| (vec![0.0; job_grid.len()], f64::NAN))
+                            resample_chik(&sp, &job_grid)
+                                .map(|row| (row, sp.get_e0().unwrap_or(f64::NAN)))
+                                .ok_or_else(|| "processed spectrum has no chi(k)".to_string())
+                        });
+                    Some((label.clone(), result))
                 })
-                .collect::<Vec<(Vec<f64>, f64)>>()
+                .collect::<Vec<_>>()
         });
         cx.spawn(async move |this, cx| {
             let rows = job.await;
@@ -1176,10 +1405,34 @@ impl StudioApp {
                 if app.operando_gen != generation {
                     return;
                 }
-                let (matrix, e0s): (Vec<Vec<f64>>, Vec<f64>) = rows.into_iter().unzip();
+                app.operando_running = false;
+                app.operando_cancel = None;
+                if cancel.load(Ordering::Relaxed) {
+                    app.status = "scan overview cancelled".into();
+                    cx.notify();
+                    return;
+                }
+                let mut matrix = Vec::with_capacity(rows.len());
+                let mut e0s = Vec::with_capacity(rows.len());
+                let mut failed = 0usize;
+                for row in rows.into_iter().flatten() {
+                    match row {
+                        (_, Ok((values, e0))) => {
+                            matrix.push(values);
+                            e0s.push(e0);
+                        }
+                        (label, Err(error)) => {
+                            failed += 1;
+                            app.record_job_error(label, error);
+                            matrix.push(vec![f64::NAN; grid.len()]);
+                            e0s.push(f64::NAN);
+                        }
+                    }
+                }
                 let kweight = app.params.fft_kweight.unwrap_or(2.0);
                 app.operando = Some(OperandoData {
                     scan: scan_ix,
+                    scan_len,
                     fingerprint,
                     grid,
                     matrix,
@@ -1200,7 +1453,11 @@ impl StudioApp {
                         }
                     });
                 app.rebuild_operando_plots(cx);
-                app.status = "scan overview ready".into();
+                app.status = if failed == 0 {
+                    "scan overview ready".into()
+                } else {
+                    format!("scan overview ready · {failed} failed").into()
+                };
                 app.sync_time_selection(scan_ix, cx);
                 cx.notify();
             })
@@ -1405,6 +1662,7 @@ impl StudioApp {
         }
         self.compare_gen += 1;
         let generation = self.compare_gen;
+        self.compare_running = true;
         self.status = format!("processing {} spectra for overlay ...", missing.len()).into();
         cx.notify();
         let params = self.params.clone();
@@ -1426,13 +1684,17 @@ impl StudioApp {
                 if app.compare_gen != generation {
                     return;
                 }
+                app.compare_running = false;
                 let mut failed = 0usize;
                 for (ix, result) in results {
                     match result {
                         Ok(sp) => {
                             app.cache.put((ix, fingerprint), Arc::new(sp));
                         }
-                        Err(_) => failed += 1,
+                        Err(error) => {
+                            failed += 1;
+                            app.record_job_error(app.entry_label(ix), error.to_string());
+                        }
                     }
                 }
                 let (_, total) = app.compare_indices();
@@ -1561,18 +1823,36 @@ impl StudioApp {
     }
 
     fn scan_folder(&mut self, root: PathBuf, cx: &mut Context<Self>) {
+        self.reset_catalog_state(cx);
         self.source_dir = Some(root.clone());
         self.catalog.scanning = true;
         self.status = format!("scanning {} ...", root.display()).into();
+        let catalog_gen = self.catalog_gen;
         let mut rx = start_scan(root);
         cx.spawn(async move |this, cx| {
             while let Some(event) = rx.next().await {
                 let done = matches!(event, ScanEvent::Done { .. } | ScanEvent::Error(_));
                 let update = this.update(cx, |app, cx| {
+                    if app.catalog_gen != catalog_gen {
+                        return true;
+                    }
                     match event {
                         ScanEvent::Batch(batch) => {
                             let first = app.catalog.is_empty();
+                            let old_active_len = app
+                                .active_scan
+                                .and_then(|scan_ix| app.catalog.scans.get(scan_ix))
+                                .map(|scan| scan.len);
                             app.catalog.extend(batch);
+                            let active_extended = app.active_scan.is_some_and(|scan_ix| {
+                                let new_len = app.catalog.scans.get(scan_ix).map(|scan| scan.len);
+                                old_active_len.is_some() && new_len > old_active_len
+                            });
+                            if active_extended {
+                                if app.workspace == Workspace::Operando {
+                                    app.ensure_operando(cx);
+                                }
+                            }
                             // Show something as soon as the index has anything.
                             if first && app.selected.is_none() {
                                 app.select_entry(0, cx);
@@ -1584,15 +1864,25 @@ impl StudioApp {
                             if !app.filter_text.is_empty() {
                                 app.apply_filter(cx);
                             }
+                            if app.active_scan.is_some() {
+                                if let Some(operando) = &mut app.operando {
+                                    operando.scan_len = usize::MAX;
+                                }
+                                if app.workspace == Workspace::Operando {
+                                    app.ensure_operando(cx);
+                                }
+                            }
                         }
                         ScanEvent::Error(e) => {
                             app.catalog.scanning = false;
                             app.status = format!("scan failed: {e}").into();
+                            app.record_job_error("catalog scan", e);
                         }
                     }
                     cx.notify();
+                    done
                 });
-                if done || update.is_err() {
+                if update.unwrap_or(true) {
                     break;
                 }
             }
@@ -1750,16 +2040,39 @@ impl StudioApp {
         );
         let paths: Vec<PathBuf> = files.iter().map(|&ix| self.catalog.path(ix)).collect();
         let params = self.params.clone();
+        let catalog_gen = self.catalog_gen;
+        if let Some(cancel) = self.merge_cancel.take() {
+            cancel.store(true, Ordering::Relaxed);
+        }
+        self.merge_gen += 1;
+        let generation = self.merge_gen;
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.merge_cancel = Some(cancel.clone());
+        self.merge_running = true;
         self.status = format!("merging {} spectra ...", files.len()).into();
         cx.notify();
+        let job_cancel = cancel.clone();
         let job = cx.background_executor().spawn(async move {
-            let inputs: Result<Vec<(Vec<f64>, Vec<f64>)>, String> =
-                paths.par_iter().map(|p| load_raw(p, &params)).collect();
+            let inputs: Result<Vec<(Vec<f64>, Vec<f64>)>, String> = paths
+                .par_iter()
+                .map(|p| {
+                    if job_cancel.load(Ordering::Relaxed) {
+                        Err("merge cancelled".to_string())
+                    } else {
+                        load_raw(p, &params)
+                    }
+                })
+                .collect();
             inputs.and_then(|inputs| average_spectra(&inputs))
         });
         cx.spawn(async move |this, cx| {
             let result = job.await;
             this.update(cx, |app, cx| {
+                if app.catalog_gen != catalog_gen || app.merge_gen != generation {
+                    return;
+                }
+                app.merge_running = false;
+                app.merge_cancel = None;
                 match result {
                     Ok((energy, mu)) => {
                         app.derived.push(DerivedSpectrum {
@@ -1773,7 +2086,12 @@ impl StudioApp {
                         app.select_entry(ix, cx);
                     }
                     Err(e) => {
-                        app.status = format!("merge failed: {e}").into();
+                        if cancel.load(Ordering::Relaxed) {
+                            app.status = "merge cancelled".into();
+                        } else {
+                            app.status = format!("merge failed: {e}").into();
+                            app.record_job_error(format!("merge: {label}"), e);
+                        }
                     }
                 }
                 cx.notify();
@@ -1825,7 +2143,7 @@ impl StudioApp {
             }
             self.selected = Some(ix);
             let label: SharedString = self.entry_label(ix).into();
-            self.spectrum_label = label.clone();
+            self.current_path = PathBuf::new();
             self.load_spectrum(ix, PathBuf::new(), label, cx);
             return;
         }
@@ -1834,7 +2152,6 @@ impl StudioApp {
         }
         self.selected = Some(ix);
         let label: SharedString = self.catalog.name(ix).to_string().into();
-        self.spectrum_label = label.clone();
         let path = self.catalog.path(ix);
         self.current_path = path.clone();
         self.update_import_preview();
@@ -2114,8 +2431,14 @@ impl StudioApp {
         };
         self.fit_gen += 1;
         let generation = self.fit_gen;
+        let provenance = FitProvenance {
+            label: self.spectrum_label.clone(),
+            path: self.spectrum_path.clone(),
+            params_fingerprint: self.spectrum_fingerprint,
+            model_fingerprint: self.fit_model_fingerprint(),
+        };
         self.fit_running = true;
-        self.status = "fitting ...".into();
+        self.status = format!("fitting {} ...", provenance.label).into();
         cx.notify();
         let paths: Vec<FitPathSpec> = self.fit_paths.iter().map(|r| r.spec.clone()).collect();
         let vars: Vec<FitVarSpec> = self.fit_vars.iter().map(|v| v.spec.clone()).collect();
@@ -2134,28 +2457,40 @@ impl StudioApp {
                 app.last_fit_duration = Some(started.elapsed());
                 match result {
                     Ok(result) => {
+                        app.fit_provenance = Some(provenance.clone());
+                        let stale = app.fit_is_stale();
                         app.status = format!(
-                            "fit done · R-factor {:.5} · red. chi² {:.3e}",
-                            result.r_factor, result.reduced_chi_square
+                            "fit done for {}{} · R-factor {:.5} · red. chi² {:.3e}",
+                            provenance.label,
+                            if stale { " (stale)" } else { "" },
+                            result.r_factor,
+                            result.reduced_chi_square
                         )
                         .into();
                         let result = Arc::new(result);
                         app.fit_result = Some(result.clone());
                         app.rebuild_fit_plots(cx);
                         // Reflect fitted values back into the variable fields.
-                        for var in &mut app.fit_vars {
-                            if var.spec.expr.is_some() {
-                                continue;
+                        if !stale {
+                            for var in &mut app.fit_vars {
+                                if var.spec.expr.is_some() {
+                                    continue;
+                                }
+                                if let Some(fitted) = result.variables.get(&var.spec.name) {
+                                    var.spec.value = fitted.value;
+                                    let text = format!("{:.5}", fitted.value);
+                                    var.field.update(cx, |f, cx| f.set_text(text, cx));
+                                }
                             }
-                            if let Some(fitted) = result.variables.get(&var.spec.name) {
-                                var.spec.value = fitted.value;
-                                let text = format!("{:.5}", fitted.value);
-                                var.field.update(cx, |f, cx| f.set_text(text, cx));
+                            let model_fingerprint = app.fit_model_fingerprint();
+                            if let Some(provenance) = &mut app.fit_provenance {
+                                provenance.model_fingerprint = model_fingerprint;
                             }
                         }
                     }
                     Err(e) => {
                         app.status = format!("fit failed: {e}").into();
+                        app.record_job_error(format!("fit: {}", provenance.label), e.to_string());
                     }
                 }
                 cx.notify();
@@ -2355,6 +2690,12 @@ impl StudioApp {
                         if app.batch_gen != generation {
                             return true;
                         }
+                        if let BatchFitEvent::Problem(problem) = &event {
+                            app.record_job_error(
+                                format!("batch fit: {}", problem.label),
+                                problem.error.clone(),
+                            );
+                        }
                         if let Some(batch) = &mut app.batch_fit {
                             match event {
                                 BatchFitEvent::Row(row) => {
@@ -2421,6 +2762,20 @@ impl StudioApp {
                 }
                 rows.sort_by_key(|row| row.frame);
                 problems.sort_by_key(|problem| problem.frame);
+                let streamed_problem_frames: BTreeSet<usize> = app
+                    .batch_fit
+                    .as_ref()
+                    .map(|batch| batch.problems.iter().map(|problem| problem.frame).collect())
+                    .unwrap_or_default();
+                for problem in problems
+                    .iter()
+                    .filter(|problem| !streamed_problem_frames.contains(&problem.frame))
+                {
+                    app.record_job_error(
+                        format!("batch fit: {}", problem.label),
+                        problem.error.clone(),
+                    );
+                }
                 let completed = rows.len() + problems.len();
                 app.batch_progress = (completed, total);
                 if let Some(batch) = &mut app.batch_fit {
@@ -2552,12 +2907,15 @@ impl StudioApp {
         let rx = cx.prompt_for_new_path(std::path::Path::new(&home), Some("batch_fit.csv"));
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(path))) = rx.await {
-                let message = match std::fs::write(&path, csv) {
-                    Ok(()) => format!("exported {}", path.display()),
-                    Err(e) => format!("export failed: {e}"),
+                let (message, error) = match std::fs::write(&path, csv) {
+                    Ok(()) => (format!("exported {}", path.display()), None),
+                    Err(e) => (format!("export failed: {e}"), Some(e.to_string())),
                 };
                 this.update(cx, |app, cx| {
                     app.status = message.into();
+                    if let Some(error) = error {
+                        app.record_job_error("batch CSV export", error);
+                    }
                     cx.notify();
                 })
                 .ok();
@@ -2599,7 +2957,10 @@ impl StudioApp {
                 .into();
                 self.feff_workspace = Some(dir);
             }
-            Err(e) => self.status = format!("feff.inp generation failed: {e}").into(),
+            Err(e) => {
+                self.status = format!("feff.inp generation failed: {e}").into();
+                self.record_job_error("feff.inp generation", e.to_string());
+            }
         }
         cx.notify();
     }
@@ -2620,7 +2981,10 @@ impl StudioApp {
                 .into();
                 self.feff_workspace = Some(dir);
             }
-            Err(e) => self.status = format!("failed to create feff workspace: {e}").into(),
+            Err(e) => {
+                self.status = format!("failed to create feff workspace: {e}").into();
+                self.record_job_error("FEFF workspace", e.to_string());
+            }
         }
         cx.notify();
     }
@@ -2696,6 +3060,7 @@ impl StudioApp {
                     }
                     Err(e) => {
                         app.status = format!("FEFF10 failed: {e}").into();
+                        app.record_job_error("FEFF10", e.to_string());
                     }
                 }
                 cx.notify();
@@ -2726,12 +3091,15 @@ impl StudioApp {
         let rx = cx.prompt_for_new_path(std::path::Path::new(&home), Some("project.xtproj"));
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(path))) = rx.await {
-                let message = match crate::project::save(&path, &project) {
-                    Ok(()) => format!("saved {}", path.display()),
-                    Err(e) => format!("save failed: {e}"),
+                let (message, error) = match crate::project::save(&path, &project) {
+                    Ok(()) => (format!("saved {}", path.display()), None),
+                    Err(e) => (format!("save failed: {e}"), Some(e.to_string())),
                 };
                 this.update(cx, |app, cx| {
                     app.status = message.into();
+                    if let Some(error) = error {
+                        app.record_job_error("save project", error);
+                    }
                     cx.notify();
                 })
                 .ok();
@@ -2759,6 +3127,7 @@ impl StudioApp {
                     Err(e) => {
                         this.update(cx, |app, cx| {
                             app.status = format!("open failed: {e}").into();
+                            app.record_job_error("open project", e.to_string());
                             cx.notify();
                         })
                         .ok();
@@ -2813,7 +3182,10 @@ impl StudioApp {
         // Fit model: rebuild rows, variables, ranges.
         self.fit_paths.clear();
         self.fit_vars.clear();
+        self.fit_gen += 1;
+        self.fit_running = false;
         self.fit_result = None;
+        self.fit_provenance = None;
         self.fit_plots = None;
         self.batch_fit = None;
         for spec in project.fit_paths {
@@ -2860,17 +3232,16 @@ impl StudioApp {
         self.derived = project.derived;
 
         // Reopen the data source.
-        self.operando = None;
-        self.operando_plots = None;
-        self.active_scan = None;
-        self.expanded_scan = None;
         if let Some(dir) = project.source_dir.clone() {
-            self.catalog = Catalog::default();
-            self.selected = None;
             self.scan_folder(dir, cx);
+        } else {
+            self.reset_catalog_state(cx);
+            self.source_dir = None;
         }
         self.status = "project loaded".into();
-        self.schedule_recompute(cx);
+        if self.spectrum.is_some() {
+            self.schedule_recompute(cx);
+        }
         cx.notify();
     }
 
@@ -4108,7 +4479,7 @@ impl StudioApp {
                 .child(hint)
                 .into_any_element();
         }
-        let card = |title: &'static str, plot: Entity<RuvizPlot>| {
+        let card = |title: SharedString, plot: Entity<RuvizPlot>| {
             div()
                 .flex_1()
                 .min_h_0()
@@ -4130,14 +4501,39 @@ impl StudioApp {
                 .child(div().flex_1().p_1().child(plot))
         };
         let mut center = div().flex_1().min_h_0().flex().flex_col();
+        if let Some(provenance) = &self.fit_provenance {
+            let stale = self.fit_is_stale();
+            let badge: SharedString = if stale {
+                format!(
+                    "fitted: {} · stale — active spectrum or fit inputs changed",
+                    provenance.label
+                )
+                .into()
+            } else {
+                format!("fitted: {}", provenance.label).into()
+            };
+            center = center.child(
+                div()
+                    .mx_1()
+                    .mt_1()
+                    .px_2()
+                    .py_1()
+                    .rounded_sm()
+                    .border_1()
+                    .border_color(if stale { t.error } else { t.accent })
+                    .text_xs()
+                    .text_color(if stale { t.error } else { t.accent })
+                    .child(badge),
+            );
+        }
         if let Some((k_plot, r_plot)) = &self.fit_plots {
             center = center.child(
                 div()
                     .flex_1()
                     .min_h_0()
                     .flex()
-                    .child(card("fit in k-space", k_plot.clone()))
-                    .child(card("fit in R-space", r_plot.clone())),
+                    .child(card("fit in k-space".into(), k_plot.clone()))
+                    .child(card("fit in R-space".into(), r_plot.clone())),
             );
         }
         if self.batch_fit.is_some() {
@@ -4719,6 +5115,26 @@ impl StudioApp {
         // Results.
         if let Some(result) = &self.fit_result {
             panel = panel.child(self.section_header("Results"));
+            if let Some(provenance) = &self.fit_provenance {
+                let stale = self.fit_is_stale();
+                panel = panel.child(
+                    div()
+                        .mx_3()
+                        .mb_1()
+                        .px_1()
+                        .py_0p5()
+                        .rounded_sm()
+                        .border_1()
+                        .border_color(if stale { t.error } else { t.accent })
+                        .text_xs()
+                        .text_color(if stale { t.error } else { t.accent })
+                        .child(SharedString::from(format!(
+                            "fitted: {}{}",
+                            provenance.label,
+                            if stale { " · stale" } else { "" }
+                        ))),
+                );
+            }
             for line in result_summary(result) {
                 panel = panel.child(
                     div()
@@ -5162,13 +5578,83 @@ impl StudioApp {
             .child(sections)
     }
 
+    fn problems_panel(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let t = self.theme;
+        let mut list = div()
+            .id("recent-problems-list")
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll();
+        for error in self.job_errors.iter().rev() {
+            list = list.child(
+                div()
+                    .px_3()
+                    .py_1()
+                    .border_b_1()
+                    .border_color(t.border)
+                    .text_xs()
+                    .child(
+                        div()
+                            .text_color(t.error)
+                            .child(SharedString::from(error.label.clone())),
+                    )
+                    .child(
+                        div()
+                            .text_color(t.text_muted)
+                            .child(SharedString::from(error.message.clone())),
+                    ),
+            );
+        }
+        div()
+            .h(px(180.))
+            .w_full()
+            .flex()
+            .flex_col()
+            .bg(t.surface)
+            .border_t_1()
+            .border_color(t.border)
+            .child(
+                div()
+                    .h(px(28.))
+                    .px_3()
+                    .flex()
+                    .items_center()
+                    .border_b_1()
+                    .border_color(t.border)
+                    .text_xs()
+                    .text_color(t.text)
+                    .child(div().flex_1().child(format!(
+                        "Recent problems ({}/{JOB_ERROR_CAPACITY})",
+                        self.job_errors.len()
+                    )))
+                    .child(
+                        div()
+                            .id("clear-problems")
+                            .px_2()
+                            .rounded_sm()
+                            .cursor_pointer()
+                            .hover(|d| d.bg(t.raised))
+                            .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                                this.job_errors.clear();
+                                this.problems_open = false;
+                                cx.notify();
+                            }))
+                            .child("clear"),
+                    ),
+            )
+            .child(list)
+    }
+
     fn status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
         let theme_label = match self.theme.mode {
             ThemeMode::Dark => "dark",
             ThemeMode::Light => "light",
         };
-        div()
+        let jobs = self.running_job_count();
+        let selection = self.selection_count();
+        let errors = self.job_errors.len();
+        let mut bar = div()
             .h(px(28.))
             .w_full()
             .flex()
@@ -5181,42 +5667,80 @@ impl StudioApp {
             .text_xs()
             .text_color(t.text_muted)
             .child(div().flex_1().child(self.status.clone()))
+            .child(format!("jobs:{jobs}"))
+            .child(format!(
+                "cache:{}/{}",
+                self.cache.len(),
+                PROCESSED_CACHE_CAPACITY
+            ))
+            .child(format!("{selection} selected"))
             .child(
                 div()
-                    .id("open-project")
+                    .id("problems-toggle")
                     .px_2()
                     .rounded_sm()
+                    .border_1()
+                    .border_color(if errors > 0 { t.error } else { t.border })
+                    .text_color(if errors > 0 { t.error } else { t.text_muted })
                     .cursor_pointer()
-                    .hover(|d| d.bg(t.raised).text_color(t.text))
+                    .hover(|d| d.bg(t.raised))
                     .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                        this.open_project(cx);
+                        this.problems_open = !this.problems_open;
+                        cx.notify();
                     }))
-                    .child("open project"),
-            )
-            .child(
+                    .child(format!("errors:{errors}")),
+            );
+        if self.operando_running || self.batch_running || self.merge_running {
+            bar = bar.child(
                 div()
-                    .id("save-project")
+                    .id("cancel-jobs")
                     .px_2()
                     .rounded_sm()
+                    .text_color(t.error)
                     .cursor_pointer()
-                    .hover(|d| d.bg(t.raised).text_color(t.text))
+                    .hover(|d| d.bg(t.raised))
                     .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                        this.save_project(cx);
+                        this.cancel_long_jobs(cx);
                     }))
-                    .child("save project"),
-            )
-            .child(
-                div()
-                    .id("theme-toggle")
-                    .px_2()
-                    .rounded_sm()
-                    .cursor_pointer()
-                    .hover(|d| d.bg(t.raised).text_color(t.text))
-                    .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                        this.toggle_theme(cx);
-                    }))
-                    .child(format!("theme: {theme_label}")),
-            )
+                    .child("cancel jobs"),
+            );
+        }
+        bar.child(
+            div()
+                .id("open-project")
+                .px_2()
+                .rounded_sm()
+                .cursor_pointer()
+                .hover(|d| d.bg(t.raised).text_color(t.text))
+                .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                    this.open_project(cx);
+                }))
+                .child("open project"),
+        )
+        .child(
+            div()
+                .id("save-project")
+                .px_2()
+                .rounded_sm()
+                .cursor_pointer()
+                .hover(|d| d.bg(t.raised).text_color(t.text))
+                .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                    this.save_project(cx);
+                }))
+                .child("save project"),
+        )
+        .child(
+            div()
+                .id("theme-toggle")
+                .px_2()
+                .rounded_sm()
+                .cursor_pointer()
+                .hover(|d| d.bg(t.raised).text_color(t.text))
+                .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                    this.toggle_theme(cx);
+                }))
+                .child(format!("theme: {theme_label}")),
+        )
     }
 }
 
@@ -5317,6 +5841,10 @@ impl Render for StudioApp {
                     .children(data_panel)
                     .child(div().flex_1().flex().flex_col().child(center))
                     .children(context_panel),
+            )
+            .children(
+                self.problems_open
+                    .then(|| self.problems_panel(cx).into_any_element()),
             )
             .child(self.status_bar(cx))
     }

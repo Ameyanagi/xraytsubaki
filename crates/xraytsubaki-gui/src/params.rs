@@ -3,7 +3,6 @@
 //! processed-spectrum cache so edits invalidate exactly what they change.
 
 use std::hash::{Hash, Hasher};
-use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use xraytsubaki::prelude::*;
@@ -55,7 +54,10 @@ pub fn parse_cols(text: &str) -> Option<Vec<usize>> {
     for token in text.split([',', ' ']).filter(|t| !t.is_empty()) {
         match token.split_once('-') {
             Some((a, b)) => {
-                let (a, b) = (a.trim().parse::<usize>().ok()?, b.trim().parse::<usize>().ok()?);
+                let (a, b) = (
+                    a.trim().parse::<usize>().ok()?,
+                    b.trim().parse::<usize>().ok()?,
+                );
                 if a > b {
                     return None;
                 }
@@ -96,9 +98,51 @@ pub fn read_columns(path: &std::path::Path) -> Result<Vec<Vec<f64>>, String> {
     Ok(rows)
 }
 
+/// Bytes read for the import preview: enough to reach the first numeric
+/// row of any realistic header without ever parsing a whole file.
+const PREVIEW_BYTES: usize = 64 * 1024;
+
+/// First numeric data row of a file, reading at most [`PREVIEW_BYTES`].
+/// Used by the import preview, which runs on the background executor so
+/// selection never blocks on I/O (large files, network filesystems).
+pub fn preview_first_row(path: &std::path::Path) -> Result<Vec<f64>, String> {
+    use std::io::Read;
+    let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut buf = Vec::with_capacity(PREVIEW_BYTES);
+    file.take(PREVIEW_BYTES as u64)
+        .read_to_end(&mut buf)
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    let truncated = buf.len() == PREVIEW_BYTES;
+    let text = String::from_utf8_lossy(&buf);
+    let mut lines: Vec<&str> = text.lines().collect();
+    if truncated {
+        // the final line may be cut mid-number
+        lines.pop();
+    }
+    for line in lines {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') || line.starts_with('*') {
+            continue;
+        }
+        let values: Option<Vec<f64>> = line
+            .split_whitespace()
+            .map(|t| t.parse::<f64>().ok())
+            .collect();
+        if let Some(values) = values
+            && !values.is_empty()
+        {
+            return Ok(values);
+        }
+    }
+    Err(format!("{}: no numeric data rows", path.display()))
+}
+
 /// Energy and mu(E) for one file under the import configuration. Rows whose
 /// math is non-finite (e.g. log of a non-positive ratio) are dropped.
-pub fn load_mu(path: &std::path::Path, import: &ImportConfig) -> Result<(Vec<f64>, Vec<f64>), String> {
+pub fn load_mu(
+    path: &std::path::Path,
+    import: &ImportConfig,
+) -> Result<(Vec<f64>, Vec<f64>), String> {
     let rows = read_columns(path)?;
     let width = rows[0].len();
     let need = |col: usize, name: &str| -> Result<usize, String> {
@@ -154,7 +198,10 @@ pub fn load_mu(path: &std::path::Path, import: &ImportConfig) -> Result<(Vec<f64
         }
     }
     if energy.len() < 2 {
-        return Err(format!("{}: fewer than 2 finite data points", path.display()));
+        return Err(format!(
+            "{}: fewer than 2 finite data points",
+            path.display()
+        ));
     }
     Ok((energy, mu))
 }
@@ -221,8 +268,6 @@ pub const AUTOBK_SOLVERS: [AUTOBKSolver; 3] = [
     AUTOBKSolver::LegacyLm,
 ];
 
-
-
 impl PipelineParams {
     pub fn fingerprint(&self) -> u64 {
         let mut hasher = std::hash::DefaultHasher::new();
@@ -278,7 +323,10 @@ impl PipelineParams {
 
 /// Load a file and run the full pipeline with the given parameters.
 /// Runs on the background executor.
-pub fn process_file(path: &PathBuf, params: &PipelineParams) -> Result<XASSpectrum, String> {
+pub fn process_file(
+    path: &std::path::Path,
+    params: &PipelineParams,
+) -> Result<XASSpectrum, String> {
     let (energy, mu) = load_raw(path, params)?;
     process_arrays(energy, mu, params)
 }
@@ -310,47 +358,90 @@ pub struct DerivedSpectrum {
     pub mu: Vec<f64>,
 }
 
-/// Average spectra on the first input's energy grid, restricted to the
-/// overlap region; the others are linearly interpolated onto it.
-pub fn average_spectra(inputs: &[(Vec<f64>, Vec<f64>)]) -> Result<(Vec<f64>, Vec<f64>), String> {
-    if inputs.len() < 2 {
-        return Err("need at least 2 spectra to merge".into());
-    }
-    let lo = inputs
-        .iter()
-        .map(|(e, _)| *e.first().unwrap_or(&f64::MAX))
-        .fold(f64::MIN, f64::max);
-    let hi = inputs
-        .iter()
-        .map(|(e, _)| *e.last().unwrap_or(&f64::MIN))
-        .fold(f64::MAX, f64::min);
-    if hi <= lo {
-        return Err("selected spectra have no overlapping energy range".into());
-    }
-    let grid: Vec<f64> = inputs[0]
-        .0
-        .iter()
-        .copied()
-        .filter(|&e| e >= lo && e <= hi)
-        .collect();
-    if grid.len() < 2 {
-        return Err("overlap region too small to merge".into());
-    }
-    let mut sum = vec![0.0f64; grid.len()];
-    for (e, mu) in inputs {
-        let mut j = 0usize;
-        for (gi, &g) in grid.iter().enumerate() {
-            while j + 2 < e.len() && e[j + 1] < g {
-                j += 1;
-            }
-            let (e0v, e1v) = (e[j], e[j + 1]);
-            let t = if e1v > e0v { ((g - e0v) / (e1v - e0v)).clamp(0.0, 1.0) } else { 0.0 };
-            sum[gi] += mu[j] + t * (mu[j + 1] - mu[j]);
+/// Running average over spectra streamed one at a time, so merging N files
+/// needs memory for the accumulator plus a single input — never all N at
+/// once. The first spectrum's energy axis hosts a running sum; the overlap
+/// window shrinks as inputs arrive and the grid is trimmed to it at the
+/// end, which reproduces [`average_spectra`]'s all-at-once result exactly.
+pub struct StreamingAverage {
+    grid: Vec<f64>,
+    sum: Vec<f64>,
+    count: usize,
+    lo: f64,
+    hi: f64,
+}
+
+impl StreamingAverage {
+    pub fn new(energy: Vec<f64>, mu: Vec<f64>) -> Self {
+        let lo = *energy.first().unwrap_or(&f64::MAX);
+        let hi = *energy.last().unwrap_or(&f64::MIN);
+        Self {
+            grid: energy,
+            sum: mu,
+            count: 1,
+            lo,
+            hi,
         }
     }
-    let n = inputs.len() as f64;
-    let avg: Vec<f64> = sum.into_iter().map(|v| v / n).collect();
-    Ok((grid, avg))
+
+    /// Fold one spectrum (>= 2 points, ascending energy — what `load_raw`
+    /// guarantees) into the running sum via clamped linear interpolation.
+    pub fn add(&mut self, energy: &[f64], mu: &[f64]) {
+        self.lo = self.lo.max(*energy.first().unwrap_or(&f64::MAX));
+        self.hi = self.hi.min(*energy.last().unwrap_or(&f64::MIN));
+        let mut j = 0usize;
+        for (gi, &g) in self.grid.iter().enumerate() {
+            while j + 2 < energy.len() && energy[j + 1] < g {
+                j += 1;
+            }
+            let (e0v, e1v) = (energy[j], energy[j + 1]);
+            let t = if e1v > e0v {
+                ((g - e0v) / (e1v - e0v)).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            self.sum[gi] += mu[j] + t * (mu[j + 1] - mu[j]);
+        }
+        self.count += 1;
+    }
+
+    pub fn finish(self) -> Result<(Vec<f64>, Vec<f64>), String> {
+        if self.count < 2 {
+            return Err("need at least 2 spectra to merge".into());
+        }
+        if self.hi <= self.lo {
+            return Err("selected spectra have no overlapping energy range".into());
+        }
+        let n = self.count as f64;
+        let (lo, hi) = (self.lo, self.hi);
+        let (grid, avg): (Vec<f64>, Vec<f64>) = self
+            .grid
+            .into_iter()
+            .zip(self.sum)
+            .filter(|&(g, _)| g >= lo && g <= hi)
+            .map(|(g, s)| (g, s / n))
+            .unzip();
+        if grid.len() < 2 {
+            return Err("overlap region too small to merge".into());
+        }
+        Ok((grid, avg))
+    }
+}
+
+/// Average spectra on the first input's energy grid, restricted to the
+/// overlap region; the others are linearly interpolated onto it.
+/// Test-only reference: production merging streams through [`StreamingAverage`].
+#[cfg(test)]
+pub fn average_spectra(inputs: &[(Vec<f64>, Vec<f64>)]) -> Result<(Vec<f64>, Vec<f64>), String> {
+    let mut iter = inputs.iter();
+    let Some((energy, mu)) = iter.next() else {
+        return Err("need at least 2 spectra to merge".into());
+    };
+    let mut acc = StreamingAverage::new(energy.clone(), mu.clone());
+    for (energy, mu) in iter {
+        acc.add(energy, mu);
+    }
+    acc.finish()
 }
 
 /// E0 of the reference channel ln(It/Ir) of this file.
@@ -550,8 +641,10 @@ mod tests {
     fn bad_column_is_reported() {
         let dir = std::env::temp_dir();
         let path = fixture(&dir);
-        let mut import = ImportConfig::default();
-        import.i0_col = 9;
+        let import = ImportConfig {
+            i0_col: 9,
+            ..Default::default()
+        };
         let err = load_mu(&path, &import).unwrap_err();
         assert!(err.contains("I0 column 9"), "{err}");
     }
@@ -579,9 +672,11 @@ mod tests {
         let e0_ref = reference_e0(&path, &import).unwrap();
         assert!((e0_ref - 105.0).abs() < 2.0, "ref e0 = {e0_ref}");
 
-        let mut params = PipelineParams::default();
-        params.align_to_ref = true;
-        params.align_target = Some(100.0);
+        let _params = PipelineParams {
+            align_to_ref: true,
+            align_target: Some(100.0),
+            ..Default::default()
+        };
         let (energy, _) = load_mu(&path, &import).unwrap();
         // emulate the shift process_file applies
         let shift = 100.0 - e0_ref;
@@ -592,10 +687,14 @@ mod tests {
 
     #[test]
     fn average_of_two_known_spectra() {
-        let a = ((0..10).map(|i| i as f64).collect::<Vec<_>>(),
-                 (0..10).map(|i| i as f64).collect::<Vec<_>>());
-        let b = ((0..10).map(|i| i as f64 + 0.5).collect::<Vec<_>>(),
-                 (0..10).map(|_| 1.0).collect::<Vec<_>>());
+        let a = (
+            (0..10).map(|i| i as f64).collect::<Vec<_>>(),
+            (0..10).map(|i| i as f64).collect::<Vec<_>>(),
+        );
+        let b = (
+            (0..10).map(|i| i as f64 + 0.5).collect::<Vec<_>>(),
+            (0..10).map(|_| 1.0).collect::<Vec<_>>(),
+        );
         let (grid, avg) = average_spectra(&[a, b]).unwrap();
         // overlap region [0.5, 9.0]; grid from first input
         assert!(*grid.first().unwrap() >= 0.5 && *grid.last().unwrap() <= 9.0);

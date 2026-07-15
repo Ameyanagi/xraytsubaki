@@ -46,11 +46,10 @@ mod tests {
         let project = ProjectFile {
             version: PROJECT_VERSION,
             source_dir: Some(PathBuf::from("/tmp/xts-operando")),
-            params: {
-                let mut p = PipelineParams::default();
-                p.rbkg = Some(1.2);
-                p.fft_kweight = Some(3.0);
-                p
+            params: PipelineParams {
+                rbkg: Some(1.2),
+                fft_kweight: Some(3.0),
+                ..Default::default()
             },
             fit_paths: vec![FitPathSpec {
                 file: PathBuf::from("/tmp/feff0001.dat"),

@@ -28,10 +28,10 @@ pub struct CrystalSpec {
 const SYMBOLS: &[&str] = &[
     "H", "He", "Li", "Be", "B", "C", "N", "O", "F", "Ne", "Na", "Mg", "Al", "Si", "P", "S", "Cl",
     "Ar", "K", "Ca", "Sc", "Ti", "V", "Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn", "Ga", "Ge", "As",
-    "Se", "Br", "Kr", "Rb", "Sr", "Y", "Zr", "Nb", "Mo", "Tc", "Ru", "Rh", "Pd", "Ag", "Cd",
-    "In", "Sn", "Sb", "Te", "I", "Xe", "Cs", "Ba", "La", "Ce", "Pr", "Nd", "Pm", "Sm", "Eu",
-    "Gd", "Tb", "Dy", "Ho", "Er", "Tm", "Yb", "Lu", "Hf", "Ta", "W", "Re", "Os", "Ir", "Pt",
-    "Au", "Hg", "Tl", "Pb", "Bi", "Po", "At", "Rn", "Fr", "Ra", "Ac", "Th", "Pa", "U",
+    "Se", "Br", "Kr", "Rb", "Sr", "Y", "Zr", "Nb", "Mo", "Tc", "Ru", "Rh", "Pd", "Ag", "Cd", "In",
+    "Sn", "Sb", "Te", "I", "Xe", "Cs", "Ba", "La", "Ce", "Pr", "Nd", "Pm", "Sm", "Eu", "Gd", "Tb",
+    "Dy", "Ho", "Er", "Tm", "Yb", "Lu", "Hf", "Ta", "W", "Re", "Os", "Ir", "Pt", "Au", "Hg", "Tl",
+    "Pb", "Bi", "Po", "At", "Rn", "Fr", "Ra", "Ac", "Th", "Pa", "U",
 ];
 
 fn atomic_number(symbol: &str) -> Option<usize> {
@@ -52,6 +52,8 @@ fn hole_index(edge: &str) -> Option<u32> {
 }
 
 type Atom = (f64, f64, f64, usize); // x, y, z, potential index
+type Basis = Vec<([f64; 3], usize)>; // (frac coords, potential index)
+type Cell = [[f64; 3]; 3];
 
 /// Atoms within rmax of the absorber at the origin for the given structure.
 fn build_cluster(spec: &CrystalSpec) -> Result<Vec<Atom>, String> {
@@ -61,14 +63,9 @@ fn build_cluster(spec: &CrystalSpec) -> Result<Vec<Atom>, String> {
     }
     let rmax = spec.rmax.clamp(2.0, 12.0);
     // (lattice vectors, basis as (frac coords, potential))
-    let cubic = |basis: Vec<([f64; 3], usize)>| {
-        (
-            [[a, 0.0, 0.0], [0.0, a, 0.0], [0.0, 0.0, a]],
-            basis,
-        )
-    };
+    let cubic = |basis: Basis| ([[a, 0.0, 0.0], [0.0, a, 0.0], [0.0, 0.0, a]], basis);
     let structure = spec.structure.trim().to_ascii_lowercase();
-    let (cell, basis): ([[f64; 3]; 3], Vec<([f64; 3], usize)>) = match structure.as_str() {
+    let (cell, basis): (Cell, Basis) = match structure.as_str() {
         // conventional cubic cells keep the math obvious
         "fcc" => cubic(vec![
             ([0.0, 0.0, 0.0], 1),
@@ -109,10 +106,7 @@ fn build_cluster(spec: &CrystalSpec) -> Result<Vec<Atom>, String> {
                     [-a / 2.0, a * 3.0f64.sqrt() / 2.0, 0.0],
                     [0.0, 0.0, c],
                 ],
-                vec![
-                    ([0.0, 0.0, 0.0], 1),
-                    ([1.0 / 3.0, 2.0 / 3.0, 0.5], 1),
-                ],
+                vec![([0.0, 0.0, 0.0], 1), ([1.0 / 3.0, 2.0 / 3.0, 0.5], 1)],
             )
         }
         other => {
@@ -165,15 +159,15 @@ pub fn generate_inp(spec: &CrystalSpec) -> Result<String, String> {
         .map(str::trim)
         .filter(|s| !s.is_empty());
     let z2 = match (needs_el2, el2) {
-        (true, Some(sym)) => {
-            Some((sym, atomic_number(sym).ok_or_else(|| format!("unknown element '{sym}'"))?))
-        }
+        (true, Some(sym)) => Some((
+            sym,
+            atomic_number(sym).ok_or_else(|| format!("unknown element '{sym}'"))?,
+        )),
         (true, None) => return Err("this structure needs a second element".into()),
         (false, _) => None,
     };
-    let hole = hole_index(&spec.edge).ok_or_else(|| {
-        format!("unknown edge '{}' (K, L1, L2, L3)", spec.edge)
-    })?;
+    let hole = hole_index(&spec.edge)
+        .ok_or_else(|| format!("unknown edge '{}' (K, L1, L2, L3)", spec.edge))?;
     let mut atoms = build_cluster(spec)?;
     // absorber takes potential 0
     atoms[0].3 = 0;
@@ -329,14 +323,12 @@ fn discover_path_files(workspace: &Path) -> Vec<PathBuf> {
         .flatten()
         .map(|e| e.path())
         .filter(|p| {
-            p.file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| {
-                    n.len() == 12
-                        && n.starts_with("feff")
-                        && n.ends_with(".dat")
-                        && n[4..8].chars().all(|c| c.is_ascii_digit())
-                })
+            p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+                n.len() == 12
+                    && n.starts_with("feff")
+                    && n.ends_with(".dat")
+                    && n[4..8].chars().all(|c| c.is_ascii_digit())
+            })
         })
         .collect();
     paths.sort();

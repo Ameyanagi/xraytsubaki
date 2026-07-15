@@ -28,7 +28,9 @@ pub struct FileMeta {
 pub enum ScanEvent {
     // Error is reserved for scanner-side failures (e.g. root vanishes mid-scan).
     Batch(Vec<FileMeta>),
-    Done { total: usize },
+    Done {
+        total: usize,
+    },
     #[allow(dead_code)]
     Error(String),
 }
@@ -98,12 +100,53 @@ pub fn start_scan(root: PathBuf) -> mpsc::UnboundedReceiver<ScanEvent> {
     rx
 }
 
-/// Compact entry: interned dir id + filename.
+/// Compact entry: interned dir id (+ size). File names live in the chunked
+/// name store so filter snapshots can share them (see [`NAME_CHUNK`]).
 pub struct EntryMeta {
     pub dir: u32,
-    pub name: Box<str>,
     #[allow(dead_code)] // feeds parameter-fingerprint cache keys in M2
     pub size: u64,
+}
+
+/// Name-store chunk size. Sealed chunks are Arc-shared, so a filter
+/// snapshot costs len/NAME_CHUNK pointer clones plus one deep copy of the
+/// unsealed tail (< NAME_CHUNK short strings) — sub-millisecond even at
+/// 10^6 entries, while the O(n) match itself runs off the UI thread.
+pub const NAME_CHUNK: usize = 4096;
+
+/// Immutable, cheaply cloneable view of the catalog file names, handed to
+/// the background filter job.
+#[derive(Clone)]
+pub struct NameSnapshot {
+    sealed: Vec<Arc<[Box<str>]>>,
+    tail: Arc<[Box<str>]>,
+}
+
+impl NameSnapshot {
+    pub fn len(&self) -> usize {
+        self.sealed.len() * NAME_CHUNK + self.tail.len()
+    }
+
+    #[allow(dead_code)] // completes the len() API; exercised in tests
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    #[allow(dead_code)] // random access for future selection expressions; tested
+    pub fn get(&self, ix: usize) -> &str {
+        match self.sealed.get(ix / NAME_CHUNK) {
+            Some(chunk) => &chunk[ix % NAME_CHUNK],
+            None => &self.tail[ix - self.sealed.len() * NAME_CHUNK],
+        }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &str> {
+        self.sealed
+            .iter()
+            .flat_map(|chunk| chunk.iter())
+            .chain(self.tail.iter())
+            .map(|name| &**name)
+    }
 }
 
 /// A scan = one directory of time-ordered spectra (entries are contiguous
@@ -120,6 +163,8 @@ pub struct Catalog {
     dirs: Vec<Arc<str>>,
     dir_ids: HashMap<Arc<str>, u32>,
     pub entries: Vec<EntryMeta>,
+    sealed_names: Vec<Arc<[Box<str>]>>,
+    tail_names: Vec<Box<str>>,
     pub scans: Vec<ScanGroup>,
     pub scanning: bool,
 }
@@ -147,9 +192,13 @@ impl Catalog {
             let ix = self.entries.len();
             self.entries.push(EntryMeta {
                 dir: dir_id,
-                name: file.name,
                 size: file.size,
             });
+            self.tail_names.push(file.name);
+            if self.tail_names.len() == NAME_CHUNK {
+                self.sealed_names
+                    .push(std::mem::take(&mut self.tail_names).into());
+            }
             match self.scans.last_mut() {
                 Some(scan) if scan.dir == dir_id => scan.len += 1,
                 _ => {
@@ -170,11 +219,78 @@ impl Catalog {
     }
 
     pub fn name(&self, ix: usize) -> &str {
-        &self.entries[ix].name
+        match self.sealed_names.get(ix / NAME_CHUNK) {
+            Some(chunk) => &chunk[ix % NAME_CHUNK],
+            None => &self.tail_names[ix - self.sealed_names.len() * NAME_CHUNK],
+        }
     }
 
     pub fn path(&self, ix: usize) -> PathBuf {
         let entry = &self.entries[ix];
-        PathBuf::from(&*self.dirs[entry.dir as usize]).join(&*entry.name)
+        PathBuf::from(&*self.dirs[entry.dir as usize]).join(self.name(ix))
+    }
+
+    pub fn names_snapshot(&self) -> NameSnapshot {
+        NameSnapshot {
+            sealed: self.sealed_names.clone(),
+            tail: self.tail_names.clone().into(),
+        }
+    }
+
+    /// (start, len, label) per scan; one row per directory, so this stays
+    /// tiny even for million-file catalogs.
+    #[allow(dead_code)] // feeds scan-chip/selection-expression work; tested
+    pub fn scan_spans(&self) -> Vec<(usize, usize, String)> {
+        self.scans
+            .iter()
+            .map(|scan| (scan.start, scan.len, scan.label.clone()))
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn meta(dir: &Arc<str>, name: &str) -> FileMeta {
+        FileMeta {
+            dir: dir.clone(),
+            name: name.into(),
+            size: 0,
+        }
+    }
+
+    #[test]
+    fn names_survive_chunk_boundaries_and_snapshots() {
+        let mut catalog = Catalog::default();
+        let dir: Arc<str> = Arc::from("/data/scan_01");
+        let total = NAME_CHUNK + 3;
+        catalog.extend(
+            (0..total)
+                .map(|i| meta(&dir, &format!("f{i:07}.dat")))
+                .collect(),
+        );
+        assert_eq!(catalog.len(), total);
+        assert_eq!(catalog.name(0), "f0000000.dat");
+        assert_eq!(
+            catalog.name(NAME_CHUNK - 1),
+            format!("f{:07}.dat", NAME_CHUNK - 1)
+        );
+        assert_eq!(catalog.name(NAME_CHUNK), format!("f{NAME_CHUNK:07}.dat"));
+
+        let snapshot = catalog.names_snapshot();
+        assert_eq!(snapshot.len(), total);
+        assert_eq!(snapshot.get(NAME_CHUNK + 2), catalog.name(NAME_CHUNK + 2));
+        assert_eq!(snapshot.iter().count(), total);
+        assert_eq!(snapshot.iter().next(), Some("f0000000.dat"));
+
+        // Snapshots stay valid while the catalog keeps growing.
+        catalog.extend(vec![meta(&dir, "late.dat")]);
+        assert_eq!(snapshot.len(), total);
+        assert_eq!(catalog.name(total), "late.dat");
+        assert_eq!(
+            catalog.scan_spans(),
+            vec![(0, total + 1, "scan_01".to_string())]
+        );
     }
 }

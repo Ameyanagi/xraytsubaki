@@ -142,11 +142,10 @@ fn build_multi(
         plot = Some(sb.into());
         builder = Plot::new(); // unused after first; keeps the borrow checker simple
     }
-    let plot = plot.unwrap_or_else(|| builder.into());
+    let plot = plot.unwrap_or(builder);
     if with_legend {
-        let p: Plot = plot;
         // Plot -> builder chain for legend placement
-        return p.legend(ruviz::core::Position::TopRight).into();
+        return plot.legend(ruviz::core::Position::TopRight);
     }
     plot
 }
@@ -298,10 +297,8 @@ pub fn build_quadrants_multi(
         if view.show_krange
             && let Some(xftf) = active.sp.xftf.as_ref()
         {
-            for value in [xftf.kmin, xftf.kmax] {
-                if let Some(v) = value {
-                    chi_k = chi_k.vline_styled(v, Color::new(90, 140, 200), 1.0, LineStyle::Dashed);
-                }
+            for v in [xftf.kmin, xftf.kmax].into_iter().flatten() {
+                chi_k = chi_k.vline_styled(v, Color::new(90, 140, 200), 1.0, LineStyle::Dashed);
             }
         }
     }

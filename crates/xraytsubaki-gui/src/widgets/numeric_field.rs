@@ -37,7 +37,9 @@ impl NumericField {
     ) -> Self {
         let input = cx.new(|cx| TextInput::new(placeholder, format_value(value), theme, cx));
         cx.subscribe(&input, |this: &mut Self, input, event, cx| {
-            let InputEvent::Committed(text) = event;
+            let InputEvent::Committed(text) = event else {
+                return;
+            };
             let text = text.trim();
             let parsed = if text.is_empty() || text.eq_ignore_ascii_case("auto") {
                 Some(None)
@@ -73,7 +75,11 @@ impl NumericField {
         cx.notify();
     }
 
-    pub fn set_placeholder(&mut self, placeholder: impl Into<SharedString>, cx: &mut Context<Self>) {
+    pub fn set_placeholder(
+        &mut self,
+        placeholder: impl Into<SharedString>,
+        cx: &mut Context<Self>,
+    ) {
         self.input
             .update(cx, |i, cx| i.set_placeholder(placeholder, cx));
     }
@@ -83,15 +89,6 @@ impl NumericField {
         self.value = value;
         self.input
             .update(cx, |i, cx| i.set_text(format_value(value), cx));
-        cx.notify();
-    }
-
-    /// Programmatically set the value (e.g. fitted result); does not emit.
-    pub fn set_value_text(&mut self, text: String, cx: &mut Context<Self>) {
-        if let Ok(v) = text.parse::<f64>() {
-            self.value = Some(v);
-        }
-        self.input.update(cx, |i, cx| i.set_text(text, cx));
         cx.notify();
     }
 }

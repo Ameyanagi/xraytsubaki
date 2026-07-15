@@ -1,5 +1,6 @@
 //! Single-line text input widget, adapted from gpui's examples/input.rs
-//! (gpui 0.2.2). Emits [`InputEvent::Committed`] on Enter;
+//! (gpui 0.2.2). Emits [`InputEvent::Committed`] on Enter and
+//! [`InputEvent::Edited`] on every user-initiated content change;
 //! [`text_input_keybindings`] must be registered with `cx.bind_keys` at startup.
 
 use std::ops::Range;
@@ -8,8 +9,8 @@ use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, ElementId, ElementInputHandler, Entity,
     EntityInputHandler, EventEmitter, FocusHandle, Focusable, GlobalElementId, KeyBinding,
     LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point,
-    ShapedLine, SharedString, Style, TextRun, size, UTF16Selection, UnderlineStyle, Window, actions,
-    div, fill, point, prelude::*, px, relative,
+    ShapedLine, SharedString, Style, TextRun, UTF16Selection, UnderlineStyle, Window, actions, div,
+    fill, point, prelude::*, px, relative, size,
 };
 use unicode_segmentation::*;
 
@@ -58,6 +59,10 @@ pub fn text_input_keybindings() -> Vec<KeyBinding> {
 pub enum InputEvent {
     /// Enter pressed: the current text.
     Committed(SharedString),
+    /// User edit (typing/backspace/paste/IME): the current text.
+    /// Programmatic `set_text` deliberately does not emit, so subscribers
+    /// can reset the field without feedback loops.
+    Edited(SharedString),
 }
 
 impl EventEmitter<InputEvent> for TextInput {}
@@ -112,7 +117,11 @@ impl TextInput {
         cx.notify();
     }
 
-    pub fn set_placeholder(&mut self, placeholder: impl Into<SharedString>, cx: &mut Context<Self>) {
+    pub fn set_placeholder(
+        &mut self,
+        placeholder: impl Into<SharedString>,
+        cx: &mut Context<Self>,
+    ) {
         self.placeholder = placeholder.into();
         cx.notify();
     }
@@ -401,6 +410,7 @@ impl EntityInputHandler for TextInput {
                 .into();
         self.selected_range = range.start + new_text.len()..range.start + new_text.len();
         self.marked_range.take();
+        cx.emit(InputEvent::Edited(self.content.clone()));
         cx.notify();
     }
 
@@ -432,6 +442,7 @@ impl EntityInputHandler for TextInput {
             .map(|new_range| new_range.start + range.start..new_range.end + range.end)
             .unwrap_or_else(|| range.start + new_text.len()..range.start + new_text.len());
 
+        cx.emit(InputEvent::Edited(self.content.clone()));
         cx.notify();
     }
 
@@ -710,4 +721,3 @@ impl Focusable for TextInput {
         self.focus_handle.clone()
     }
 }
-

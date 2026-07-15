@@ -36,8 +36,8 @@ use crate::fitting::{
     result_summary, run_fit,
 };
 use crate::params::{
-    AUTOBK_SOLVERS, DerivedSpectrum, DetectionMode, FT_WINDOWS, PipelineParams, average_spectra,
-    load_raw, parse_cols, process_arrays, process_file, read_columns, resample_chik,
+    AUTOBK_SOLVERS, DerivedSpectrum, DetectionMode, FT_WINDOWS, PipelineParams, StreamingAverage,
+    load_raw, parse_cols, preview_first_row, process_arrays, process_file, resample_chik,
 };
 use crate::plotting::{
     QuadTrace, TraceLayout, ViewOptions, build_fit_k, build_fit_r, build_frame_chik, build_heatmap,
@@ -350,6 +350,8 @@ pub struct StudioApp {
     open_enum: Option<EnumParam>,
     /// Catalog indices passing the filter (ascending); None = no filter.
     filtered: Option<Arc<Vec<usize>>>,
+    /// Bumped per filter edit; stale background match results are dropped.
+    filter_gen: u64,
     /// Bumped on every selection; async load results from older generations
     /// are discarded.
     generation: u64,
@@ -547,15 +549,21 @@ mod thin_tests {
 
 /// Case-insensitive name filter with `*` wildcards; without `*` it is a
 /// substring match. Segments must appear in order; ends anchor unless the
-/// pattern starts/ends with `*`.
+/// pattern starts/ends with `*`. Test-only convenience wrapper.
+#[cfg(test)]
 fn filter_match(name: &str, pattern: &str) -> bool {
-    let name = name.to_ascii_lowercase();
-    let pattern = pattern.to_ascii_lowercase();
+    filter_match_lower(&name.to_ascii_lowercase(), &pattern.to_ascii_lowercase())
+}
+
+/// Name filter over pre-lowercased inputs; the bulk matcher lowercases the
+/// pattern once and reuses one name buffer, so a full catalog pass does
+/// O(1) allocations instead of two per entry.
+fn filter_match_lower(name: &str, pattern: &str) -> bool {
     if pattern.is_empty() {
         return true;
     }
     if !pattern.contains('*') {
-        return name.contains(&pattern);
+        return name.contains(pattern);
     }
     let anchored_start = !pattern.starts_with('*');
     let anchored_end = !pattern.ends_with('*');
@@ -742,6 +750,7 @@ impl StudioApp {
             filter_input: None,
             filter_text: String::new(),
             filtered: None,
+            filter_gen: 0,
             data_focus: cx.focus_handle(),
             operando_focus: cx.focus_handle(),
             adv_open: [false; 4],
@@ -816,15 +825,22 @@ impl StudioApp {
         app.view_offset_field = Some(offset_field);
         let filter_input = cx.new(|cx| TextInput::new("filter… (* glob)", "", theme, cx));
         cx.subscribe(&filter_input, |this: &mut Self, _f, event, cx| {
-            let InputEvent::Committed(text) = event;
-            this.filter_text = text.trim().to_string();
-            this.apply_filter(cx);
+            // Per-keystroke filtering (doc "Search-first"): Edited and
+            // Committed both re-run the (background) match.
+            let (InputEvent::Committed(text) | InputEvent::Edited(text)) = event;
+            let text = text.trim().to_string();
+            if text != this.filter_text {
+                this.filter_text = text;
+                this.apply_filter(cx);
+            }
         })
         .detach();
         app.filter_input = Some(filter_input);
         let roi_input = cx.new(|cx| TextInput::new("e.g. 4 or 4-7", "4", theme, cx));
         cx.subscribe(&roi_input, |this: &mut Self, input, event, cx| {
-            let InputEvent::Committed(text) = event;
+            let InputEvent::Committed(text) = event else {
+                return;
+            };
             match parse_cols(text) {
                 Some(cols) => {
                     if this.params.import.fluor_cols != cols {
@@ -867,7 +883,7 @@ impl StudioApp {
         })
         .collect();
 
-        app.update_import_preview();
+        app.update_import_preview(cx);
         match process_file(&path, &app.params) {
             Ok(sp) => {
                 let fingerprint = app.params.fingerprint();
@@ -979,6 +995,7 @@ impl StudioApp {
         self.selected = None;
         self.selection.clear();
         self.filtered = None;
+        self.filter_gen += 1;
         self.filter_text.clear();
         if let Some(input) = &self.filter_input {
             input.update(cx, |input, cx| input.set_text("", cx));
@@ -1763,7 +1780,7 @@ impl StudioApp {
                 })
                 .collect();
         } else {
-            for ((_, entity), (_, plot)) in self.quadrants.iter().zip(titled.into_iter()) {
+            for ((_, entity), (_, plot)) in self.quadrants.iter().zip(titled) {
                 entity.update(cx, |rp, cx| rp.set_plot(plot, cx));
             }
         }
@@ -1848,10 +1865,8 @@ impl StudioApp {
                                 let new_len = app.catalog.scans.get(scan_ix).map(|scan| scan.len);
                                 old_active_len.is_some() && new_len > old_active_len
                             });
-                            if active_extended {
-                                if app.workspace == Workspace::Operando {
-                                    app.ensure_operando(cx);
-                                }
+                            if active_extended && app.workspace == Workspace::Operando {
+                                app.ensure_operando(cx);
                             }
                             // Show something as soon as the index has anything.
                             if first && app.selected.is_none() {
@@ -1979,17 +1994,45 @@ impl StudioApp {
         }
     }
 
+    /// Re-run the name filter on the background executor over a cheap
+    /// [`crate::catalog::NameSnapshot`]; only the latest generation's result
+    /// lands, so typing never blocks on a million-entry match pass.
     fn apply_filter(&mut self, cx: &mut Context<Self>) {
+        self.filter_gen += 1;
         if self.filter_text.is_empty() {
             self.filtered = None;
-        } else {
-            let pattern = self.filter_text.clone();
-            let matches: Vec<usize> = (0..self.catalog.len())
-                .filter(|&ix| filter_match(self.catalog.name(ix), &pattern))
-                .collect();
-            self.filtered = Some(Arc::new(matches));
+            cx.notify();
+            return;
         }
-        cx.notify();
+        let generation = self.filter_gen;
+        let catalog_gen = self.catalog_gen;
+        let pattern = self.filter_text.to_ascii_lowercase();
+        let names = self.catalog.names_snapshot();
+        let job = cx.background_executor().spawn(async move {
+            let mut lower = String::new();
+            let mut matches = Vec::new();
+            for (ix, name) in names.iter().enumerate() {
+                lower.clear();
+                lower.push_str(name);
+                lower.make_ascii_lowercase();
+                if filter_match_lower(&lower, &pattern) {
+                    matches.push(ix);
+                }
+            }
+            matches
+        });
+        cx.spawn(async move |this, cx| {
+            let matches = job.await;
+            this.update(cx, |app, cx| {
+                if app.filter_gen != generation || app.catalog_gen != catalog_gen {
+                    return;
+                }
+                app.filtered = Some(Arc::new(matches));
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Add the scan containing the active spectrum to the compare set.
@@ -2053,17 +2096,22 @@ impl StudioApp {
         cx.notify();
         let job_cancel = cancel.clone();
         let job = cx.background_executor().spawn(async move {
-            let inputs: Result<Vec<(Vec<f64>, Vec<f64>)>, String> = paths
-                .par_iter()
-                .map(|p| {
-                    if job_cancel.load(Ordering::Relaxed) {
-                        Err("merge cancelled".to_string())
-                    } else {
-                        load_raw(p, &params)
-                    }
-                })
-                .collect();
-            inputs.and_then(|inputs| average_spectra(&inputs))
+            // Stream a running sum: memory stays bounded at one input plus
+            // the accumulator no matter how many spectra are merged.
+            let mut iter = paths.iter();
+            let first = iter
+                .next()
+                .ok_or_else(|| "need at least 2 spectra to merge".to_string())?;
+            let (energy, mu) = load_raw(first, &params)?;
+            let mut acc = StreamingAverage::new(energy, mu);
+            for path in iter {
+                if job_cancel.load(Ordering::Relaxed) {
+                    return Err("merge cancelled".to_string());
+                }
+                let (energy, mu) = load_raw(path, &params)?;
+                acc.add(&energy, &mu);
+            }
+            acc.finish()
         });
         cx.spawn(async move |this, cx| {
             let result = job.await;
@@ -2154,23 +2202,45 @@ impl StudioApp {
         let label: SharedString = self.catalog.name(ix).to_string().into();
         let path = self.catalog.path(ix);
         self.current_path = path.clone();
-        self.update_import_preview();
+        self.update_import_preview(cx);
         self.load_spectrum(ix, path, label, cx);
     }
 
-    fn update_import_preview(&mut self) {
-        self.import_preview = match read_columns(&self.current_path) {
-            Ok(rows) => {
-                let first = rows[0]
-                    .iter()
-                    .take(6)
-                    .map(|v| format!("{v:.4}"))
-                    .collect::<Vec<_>>()
-                    .join("  ");
-                format!("{} columns · row 0: {first}", rows[0].len()).into()
-            }
-            Err(_) => "no preview".into(),
-        };
+    /// Bounded-read preview of the current file on the background executor;
+    /// the result is dropped if the selection moved on before it arrived.
+    fn update_import_preview(&mut self, cx: &mut Context<Self>) {
+        let path = self.current_path.clone();
+        if path.as_os_str().is_empty() {
+            self.import_preview = "no preview".into();
+            return;
+        }
+        let job = cx.background_executor().spawn({
+            let path = path.clone();
+            async move { preview_first_row(&path) }
+        });
+        cx.spawn(async move |this, cx| {
+            let result = job.await;
+            this.update(cx, |app, cx| {
+                if app.current_path != path {
+                    return; // a newer selection superseded this preview
+                }
+                app.import_preview = match result {
+                    Ok(row) => {
+                        let first = row
+                            .iter()
+                            .take(6)
+                            .map(|v| format!("{v:.4}"))
+                            .collect::<Vec<_>>()
+                            .join("  ");
+                        format!("{} columns · row 0: {first}", row.len()).into()
+                    }
+                    Err(_) => "no preview".into(),
+                };
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     // ---- fitting -----------------------------------------------------------
@@ -2221,20 +2291,26 @@ impl StudioApp {
         let max_field = cx.new(|cx| TextInput::new("max", "", theme, cx));
         let var_name = name.to_string();
         cx.subscribe(&field, move |this: &mut Self, _field, event, cx| {
-            let InputEvent::Committed(text) = event;
+            let InputEvent::Committed(text) = event else {
+                return;
+            };
             let text = text.trim().to_string();
             this.set_var_text(&var_name.clone(), &text, cx);
         })
         .detach();
         let var_name = name.to_string();
         cx.subscribe(&min_field, move |this: &mut Self, _field, event, cx| {
-            let InputEvent::Committed(text) = event;
+            let InputEvent::Committed(text) = event else {
+                return;
+            };
             this.set_var_bound(&var_name, true, text, cx);
         })
         .detach();
         let var_name = name.to_string();
         cx.subscribe(&max_field, move |this: &mut Self, _field, event, cx| {
-            let InputEvent::Committed(text) = event;
+            let InputEvent::Committed(text) = event else {
+                return;
+            };
             this.set_var_bound(&var_name, false, text, cx);
         })
         .detach();
@@ -2400,7 +2476,9 @@ impl StudioApp {
         .map(|(param, initial)| {
             let field = cx.new(|cx| TextInput::new("expr", initial, theme, cx));
             cx.subscribe(&field, move |this: &mut Self, _field, event, cx| {
-                let InputEvent::Committed(text) = event;
+                let InputEvent::Committed(text) = event else {
+                    return;
+                };
                 this.set_path_param(path_ix, param, text, cx);
             })
             .detach();
@@ -5164,16 +5242,6 @@ impl StudioApp {
                     .child("FIT MODEL"),
             )
             .child(panel)
-    }
-
-    fn placeholder_center(&self, label: &'static str) -> impl IntoElement + use<> {
-        div()
-            .flex_1()
-            .flex()
-            .items_center()
-            .justify_center()
-            .text_color(self.theme.text_muted)
-            .child(label)
     }
 
     fn section_header(&self, label: &'static str) -> impl IntoElement + use<> {

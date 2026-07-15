@@ -8,10 +8,10 @@ mod catalog;
 mod feffgen;
 mod fitting;
 mod params;
-mod widgets;
 mod plotting;
 mod project;
 mod theme;
+mod widgets;
 
 use std::path::PathBuf;
 

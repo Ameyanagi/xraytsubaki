@@ -4567,9 +4567,12 @@ impl StudioApp {
                                 .cursor_pointer()
                                 .on_click(move |ev: &ClickEvent, _window, app| {
                                     let modifiers = ev.modifiers();
+                                    let double = ev.click_count() >= 2;
                                     row_entity.update(app, |this, cx| {
                                         if modifiers.shift || modifiers.platform {
                                             this.select_scan_range(scan_ix, cx);
+                                        } else if double {
+                                            this.open_scan(scan_ix, cx);
                                         } else {
                                             this.active_scan = Some(scan_ix);
                                             this.expanded_scan = (this.expanded_scan
@@ -4580,10 +4583,18 @@ impl StudioApp {
                                     });
                                 })
                                 .child(if is_expanded { "▾" } else { "▸" })
-                                .child(div().flex_1().overflow_hidden().child(label))
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .overflow_hidden()
+                                        .whitespace_nowrap()
+                                        .child(label),
+                                )
                                 .child(
                                     div()
                                         .id(("scan-operando", scan_ix))
+                                        .flex_none()
                                         .px_1()
                                         .rounded_sm()
                                         .text_xs()

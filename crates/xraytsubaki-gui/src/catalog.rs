@@ -230,6 +230,21 @@ impl Catalog {
         PathBuf::from(&*self.dirs[entry.dir as usize]).join(self.name(ix))
     }
 
+    /// Locate an entry by its full path (parent dir + file name) — used to
+    /// re-key path-persisted per-spectrum overrides onto the current index.
+    /// Scans are per-directory, so only the matching directory's members
+    /// are searched, never the whole catalog.
+    pub fn find_by_path(&self, path: &Path) -> Option<usize> {
+        let dir = path.parent()?.to_string_lossy();
+        let name = path.file_name()?.to_string_lossy();
+        let dir_id = *self.dir_ids.get(dir.as_ref())?;
+        self.scans
+            .iter()
+            .filter(|scan| scan.dir == dir_id)
+            .flat_map(|scan| scan.start..scan.start + scan.len)
+            .find(|&ix| self.name(ix) == name)
+    }
+
     pub fn names_snapshot(&self) -> NameSnapshot {
         NameSnapshot {
             sealed: self.sealed_names.clone(),
@@ -514,6 +529,22 @@ mod tests {
         });
         catalog.extend(batch);
         catalog
+    }
+
+    #[test]
+    fn find_by_path_round_trips_catalog_paths() {
+        let catalog = sample_catalog();
+        for ix in [0, NAME_CHUNK, catalog.len() - 1] {
+            assert_eq!(catalog.find_by_path(&catalog.path(ix)), Some(ix));
+        }
+        assert_eq!(
+            catalog.find_by_path(Path::new("/data/scan_01/missing.dat")),
+            None
+        );
+        assert_eq!(
+            catalog.find_by_path(Path::new("/elsewhere/a00000.dat")),
+            None
+        );
     }
 
     #[test]

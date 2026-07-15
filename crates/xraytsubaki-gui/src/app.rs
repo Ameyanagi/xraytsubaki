@@ -44,7 +44,7 @@ use crate::plotting::{
     build_fit_residual_r, build_frame_chik, build_heatmap, build_quadrants_multi, build_trend,
     chik_label, middle_truncate, trace_rgba,
 };
-use crate::project::{PROJECT_VERSION, ProjectFile};
+use crate::project::{PROJECT_VERSION, ParamOverride, ProjectFile};
 use crate::theme::{Theme, ThemeMode};
 use crate::widgets::numeric_field::{FieldEvent, FieldKind, NumericField};
 use crate::widgets::text_input::{InputEvent, TextInput};
@@ -103,6 +103,125 @@ enum EnumParam {
     BkgWindow,
     BkgSolver,
     FftWindow,
+}
+
+/// Context-panel section a parameter belongs to, for the per-section
+/// global/override chips.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ParamSection {
+    Import,
+    Norm,
+    Bkg,
+    Fft,
+}
+
+/// Copy one section's fields from `src` over `dst`. Reset-to-global is
+/// `copy_section(override, global, section)`; the single field list here
+/// also powers `section_differs`.
+fn copy_section(dst: &mut PipelineParams, src: &PipelineParams, section: ParamSection) {
+    match section {
+        ParamSection::Import => {
+            dst.import = src.import.clone();
+            dst.align_to_ref = src.align_to_ref;
+            dst.align_target = src.align_target;
+        }
+        ParamSection::Norm => {
+            dst.e0 = src.e0;
+            dst.pre_edge_start = src.pre_edge_start;
+            dst.pre_edge_end = src.pre_edge_end;
+            dst.norm_start = src.norm_start;
+            dst.norm_end = src.norm_end;
+            dst.norm_polyorder = src.norm_polyorder;
+            dst.n_victoreen = src.n_victoreen;
+        }
+        ParamSection::Bkg => {
+            dst.rbkg = src.rbkg;
+            dst.bkg_kmin = src.bkg_kmin;
+            dst.bkg_kmax = src.bkg_kmax;
+            dst.bkg_kstep = src.bkg_kstep;
+            dst.bkg_nknots = src.bkg_nknots;
+            dst.bkg_kweight = src.bkg_kweight;
+            dst.bkg_clamp_lo = src.bkg_clamp_lo;
+            dst.bkg_clamp_hi = src.bkg_clamp_hi;
+            dst.bkg_window = src.bkg_window;
+            dst.bkg_dk = src.bkg_dk;
+            dst.bkg_solver = src.bkg_solver;
+            dst.bkg_nfft = src.bkg_nfft;
+        }
+        ParamSection::Fft => {
+            dst.fft_kmin = src.fft_kmin;
+            dst.fft_kmax = src.fft_kmax;
+            dst.fft_dk = src.fft_dk;
+            dst.fft_kweight = src.fft_kweight;
+            dst.fft_dk2 = src.fft_dk2;
+            dst.fft_rmax = src.fft_rmax;
+            dst.fft_window = src.fft_window;
+            dst.fft_kstep = src.fft_kstep;
+            dst.fft_nfft = src.fft_nfft;
+        }
+    }
+}
+
+/// True when the section's fields differ between the two param sets.
+fn section_differs(a: &PipelineParams, b: &PipelineParams, section: ParamSection) -> bool {
+    let mut probe = a.clone();
+    copy_section(&mut probe, b, section);
+    probe != *a
+}
+
+/// Combined validity stamp for a scan-wide computation (operando overview,
+/// batch fit): the global fingerprint plus every per-spectrum override
+/// landing inside the frame range, so editing one member's params
+/// invalidates exactly the overviews it feeds.
+fn scan_fingerprint(
+    global: &PipelineParams,
+    overrides: &BTreeMap<usize, PipelineParams>,
+    start: usize,
+    len: usize,
+) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    global.fingerprint().hash(&mut hasher);
+    for (ix, params) in overrides.range(start..start.saturating_add(len)) {
+        ix.hash(&mut hasher);
+        params.fingerprint().hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+/// Value a context-panel numeric field should display for a param set.
+fn param_field_value(key: ParamKey, p: &PipelineParams) -> Option<f64> {
+    match key {
+        ParamKey::ImpEnergyCol => Some(p.import.energy_col as f64),
+        ParamKey::ImpI0Col => Some(p.import.i0_col as f64),
+        ParamKey::ImpItCol => Some(p.import.it_col as f64),
+        ParamKey::ImpIrCol => Some(p.import.ir_col as f64),
+        ParamKey::AlignTarget => p.align_target,
+        ParamKey::E0 => p.e0,
+        ParamKey::PreEdgeStart => p.pre_edge_start,
+        ParamKey::PreEdgeEnd => p.pre_edge_end,
+        ParamKey::NormStart => p.norm_start,
+        ParamKey::NormEnd => p.norm_end,
+        ParamKey::NormPolyorder => p.norm_polyorder.map(|v| v as f64),
+        ParamKey::NVictoreen => p.n_victoreen.map(|v| v as f64),
+        ParamKey::Rbkg => p.rbkg,
+        ParamKey::BkgKmin => p.bkg_kmin,
+        ParamKey::BkgKmax => p.bkg_kmax,
+        ParamKey::BkgKstep => p.bkg_kstep,
+        ParamKey::BkgNknots => p.bkg_nknots.map(|v| v as f64),
+        ParamKey::BkgKweight => p.bkg_kweight.map(|v| v as f64),
+        ParamKey::BkgClampLo => p.bkg_clamp_lo.map(|v| v as f64),
+        ParamKey::BkgClampHi => p.bkg_clamp_hi.map(|v| v as f64),
+        ParamKey::BkgDk => p.bkg_dk,
+        ParamKey::BkgNfft => p.bkg_nfft.map(|v| v as f64),
+        ParamKey::FftKmin => p.fft_kmin,
+        ParamKey::FftKmax => p.fft_kmax,
+        ParamKey::FftDk => p.fft_dk,
+        ParamKey::FftKweight => p.fft_kweight,
+        ParamKey::FftDk2 => p.fft_dk2,
+        ParamKey::FftRmax => p.fft_rmax,
+        ParamKey::FftKstep => p.fft_kstep,
+        ParamKey::FftNfft => p.fft_nfft.map(|v| v as f64),
+    }
 }
 
 const DETECTION_MODES: [DetectionMode; 3] = [
@@ -394,8 +513,15 @@ pub struct StudioApp {
     /// the latest epoch.
     recompute_epoch: u64,
     params: PipelineParams,
+    /// Per-spectrum parameter overrides (copy-on-write of the full param
+    /// set), keyed by catalog index. Indices are only stable within one
+    /// scan session; persistence re-keys by file path (`ParamOverride`).
+    overrides: BTreeMap<usize, PipelineParams>,
+    /// Path-keyed overrides from a loaded project, resolved to catalog
+    /// indices once the folder scan / index restore materializes entries.
+    pending_overrides: Vec<ParamOverride>,
     param_fields: Vec<(ParamKey, Entity<NumericField>)>,
-    /// Keyed by (catalog index, params fingerprint).
+    /// Keyed by (catalog index, effective-params fingerprint).
     cache: LruCache<(usize, u64), Arc<XASSpectrum>>,
     current_path: PathBuf,
     spectrum_path: PathBuf,
@@ -581,6 +707,78 @@ mod thin_tests {
         );
         assert_eq!(scan_list_row(5, 3, expanded), Some(ScanListRow::Header(2)));
         assert_eq!(scan_list_row(6, 3, expanded), None);
+    }
+}
+
+#[cfg(test)]
+mod override_tests {
+    use std::collections::BTreeMap;
+
+    use super::{ParamSection, copy_section, scan_fingerprint, section_differs};
+    use crate::params::PipelineParams;
+
+    #[test]
+    fn section_differs_is_per_section_and_reset_restores_global() {
+        let global = PipelineParams::default();
+        let mut ov = global.clone();
+        ov.e0 = Some(22117.0);
+        ov.rbkg = Some(1.4);
+        assert!(section_differs(&ov, &global, ParamSection::Norm));
+        assert!(section_differs(&ov, &global, ParamSection::Bkg));
+        assert!(!section_differs(&ov, &global, ParamSection::Fft));
+        assert!(!section_differs(&ov, &global, ParamSection::Import));
+
+        copy_section(&mut ov, &global, ParamSection::Norm);
+        assert!(!section_differs(&ov, &global, ParamSection::Norm));
+        assert!(section_differs(&ov, &global, ParamSection::Bkg));
+        copy_section(&mut ov, &global, ParamSection::Bkg);
+        assert!(ov == global);
+    }
+
+    #[test]
+    fn every_section_owns_at_least_one_field() {
+        // Guards the copy_section field lists against a param moving
+        // between sections without updating them.
+        let global = PipelineParams::default();
+        let changed = PipelineParams {
+            align_target: Some(1.0),
+            e0: Some(2.0),
+            rbkg: Some(3.0),
+            fft_kmin: Some(4.0),
+            ..Default::default()
+        };
+        for section in [
+            ParamSection::Import,
+            ParamSection::Norm,
+            ParamSection::Bkg,
+            ParamSection::Fft,
+        ] {
+            assert!(
+                section_differs(&changed, &global, section),
+                "{section:?} must own a changed field"
+            );
+        }
+    }
+
+    #[test]
+    fn scan_fingerprint_tracks_overrides_inside_the_range_only() {
+        let global = PipelineParams::default();
+        let mut overrides = BTreeMap::new();
+        let base = scan_fingerprint(&global, &overrides, 100, 50);
+        assert_eq!(base, scan_fingerprint(&global, &overrides, 100, 50));
+
+        let ov = PipelineParams {
+            rbkg: Some(1.3),
+            ..Default::default()
+        };
+        overrides.insert(10, ov.clone()); // outside [100, 150)
+        assert_eq!(base, scan_fingerprint(&global, &overrides, 100, 50));
+
+        overrides.insert(120, ov); // inside
+        assert_ne!(base, scan_fingerprint(&global, &overrides, 100, 50));
+
+        overrides.remove(&120);
+        assert_eq!(base, scan_fingerprint(&global, &overrides, 100, 50));
     }
 }
 
@@ -799,6 +997,8 @@ impl StudioApp {
             load_running: false,
             recompute_epoch: 0,
             params,
+            overrides: BTreeMap::new(),
+            pending_overrides: Vec::new(),
             param_fields,
             cache: LruCache::new(NonZeroUsize::new(PROCESSED_CACHE_CAPACITY).unwrap()),
             current_path: path.clone(),
@@ -896,8 +1096,8 @@ impl StudioApp {
             };
             match parse_cols(text) {
                 Some(cols) => {
-                    if this.params.import.fluor_cols != cols {
-                        this.params.import.fluor_cols = cols;
+                    if this.ui_params().import.fluor_cols != cols {
+                        this.edit_params().import.fluor_cols = cols;
                         this.schedule_recompute(cx);
                     }
                 }
@@ -910,7 +1110,7 @@ impl StudioApp {
                                 .into();
                     }
                     let text = this
-                        .params
+                        .ui_params()
                         .import
                         .fluor_cols
                         .iter()
@@ -989,6 +1189,126 @@ impl StudioApp {
             )
     }
 
+    /// Entry whose params a context-panel edit targets: exactly one active
+    /// catalog spectrum (doc: "editing while a spectrum is selected creates
+    /// an override"). Multi-selection, derived spectra, and the default
+    /// file edit the global set.
+    fn override_target(&self) -> Option<usize> {
+        let ix = self.selected?;
+        (ix < DERIVED_BASE && self.selection_count() <= 1).then_some(ix)
+    }
+
+    /// Effective params for an entry: its override, else the global set.
+    fn effective_params(&self, ix: usize) -> &PipelineParams {
+        self.overrides.get(&ix).unwrap_or(&self.params)
+    }
+
+    fn effective_fingerprint(&self, ix: usize) -> u64 {
+        self.effective_params(ix).fingerprint()
+    }
+
+    /// Effective fingerprint of the active spectrum (global when nothing
+    /// from the catalog is selected).
+    fn active_fingerprint(&self) -> u64 {
+        self.effective_fingerprint(self.selected.unwrap_or(NO_ENTRY))
+    }
+
+    /// Params the context panel displays: the override target's effective
+    /// set, falling back to the globals.
+    fn ui_params(&self) -> &PipelineParams {
+        match self.override_target() {
+            Some(ix) => self.effective_params(ix),
+            None => &self.params,
+        }
+    }
+
+    /// Params a context-panel edit lands on. A lone selected spectrum gets
+    /// a copy-on-write override created on first edit; otherwise the edit
+    /// goes to the global set.
+    fn edit_params(&mut self) -> &mut PipelineParams {
+        match self.override_target() {
+            Some(ix) => self
+                .overrides
+                .entry(ix)
+                .or_insert_with(|| self.params.clone()),
+            None => &mut self.params,
+        }
+    }
+
+    /// Whether the override target's `section` diverges from the globals
+    /// (drives the section-header chip).
+    fn section_overridden(&self, section: ParamSection) -> bool {
+        self.override_target()
+            .and_then(|ix| self.overrides.get(&ix))
+            .is_some_and(|ov| section_differs(ov, &self.params, section))
+    }
+
+    /// Chip action: copy the global section back over the override,
+    /// dropping the override entirely once nothing diverges anymore.
+    fn reset_section_override(&mut self, section: ParamSection, cx: &mut Context<Self>) {
+        let Some(ix) = self.override_target() else {
+            return;
+        };
+        let global = self.params.clone();
+        let Some(ov) = self.overrides.get_mut(&ix) else {
+            return;
+        };
+        copy_section(ov, &global, section);
+        if *ov == global {
+            self.overrides.remove(&ix);
+        }
+        self.sync_param_fields(cx);
+        self.schedule_recompute(cx);
+        cx.notify();
+    }
+
+    /// Push the displayed param set into the context-panel fields (never
+    /// emits change events). Called whenever the edit target may have
+    /// changed: selection moves, multi-select edits, resets, project load.
+    fn sync_param_fields(&mut self, cx: &mut Context<Self>) {
+        let params = self.ui_params().clone();
+        for (key, field) in &self.param_fields {
+            let value = param_field_value(*key, &params);
+            field.update(cx, |f, cx| f.set_value(value, cx));
+        }
+        if let Some(roi) = &self.roi_input {
+            let text = params
+                .import
+                .fluor_cols
+                .iter()
+                .map(|c| c.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            roi.update(cx, |i, cx| i.set_text(text, cx));
+        }
+    }
+
+    /// Attach path-keyed overrides from a loaded project to the freshly
+    /// materialized catalog. Overrides created this session win over the
+    /// persisted set; paths missing from the catalog are reported.
+    fn resolve_pending_overrides(&mut self, cx: &mut Context<Self>) {
+        if self.pending_overrides.is_empty() {
+            return;
+        }
+        let pending = std::mem::take(&mut self.pending_overrides);
+        let mut missing = 0usize;
+        for saved in pending {
+            match self.catalog.find_by_path(&saved.path) {
+                Some(ix) => {
+                    self.overrides.entry(ix).or_insert(saved.params);
+                }
+                None => missing += 1,
+            }
+        }
+        if missing > 0 {
+            self.record_job_error(
+                "param overrides",
+                format!("{missing} saved override(s) matched no file in the catalog"),
+            );
+        }
+        self.sync_param_fields(cx);
+    }
+
     fn fit_model_fingerprint(&self) -> u64 {
         let mut hasher = DefaultHasher::new();
         for row in &self.fit_paths {
@@ -1024,7 +1344,7 @@ impl StudioApp {
             || provenance.label != self.spectrum_label
             || provenance.path != self.current_path
             || provenance.path != self.spectrum_path
-            || provenance.params_fingerprint != self.params.fingerprint()
+            || provenance.params_fingerprint != self.active_fingerprint()
             || provenance.params_fingerprint != self.spectrum_fingerprint
             || provenance.model_fingerprint != self.fit_model_fingerprint()
     }
@@ -1062,6 +1382,10 @@ impl StudioApp {
             input.update(cx, |input, cx| input.set_text("", cx));
         }
         self.cache.clear();
+        // Overrides are keyed by catalog index; a new catalog orphans them.
+        // Persisted copies live in the project file, keyed by path.
+        self.overrides.clear();
+        self.pending_overrides.clear();
         self.current_path = PathBuf::new();
         self.spectrum_path = PathBuf::new();
         self.spectrum_fingerprint = 0;
@@ -1185,7 +1509,7 @@ impl StudioApp {
     }
 
     fn apply_param(&mut self, key: ParamKey, value: Option<f64>, cx: &mut Context<Self>) {
-        let p = &mut self.params;
+        let p = self.edit_params();
         let int = value.map(|v| v.round() as i32);
         let col = value.map(|v| v.round().max(0.0) as usize);
         match key {
@@ -1221,6 +1545,8 @@ impl StudioApp {
             ParamKey::FftNfft => p.fft_nfft = int,
         }
         self.schedule_recompute(cx);
+        // The section chip may have just flipped global -> override.
+        cx.notify();
     }
 
     /// Option labels for an enum parameter: index 0 = auto, then variants.
@@ -1250,18 +1576,19 @@ impl StudioApp {
     /// Apply a selection from the option list (0 = auto).
     fn set_enum_param(&mut self, which: EnumParam, index: usize, cx: &mut Context<Self>) {
         let variant = index.checked_sub(1);
+        let p = self.edit_params();
         match which {
             EnumParam::ImportMode => {
-                self.params.import.mode = DETECTION_MODES[index.min(2)];
+                p.import.mode = DETECTION_MODES[index.min(2)];
             }
             EnumParam::BkgWindow => {
-                self.params.bkg_window = variant.map(|i| FT_WINDOWS[i]);
+                p.bkg_window = variant.map(|i| FT_WINDOWS[i]);
             }
             EnumParam::BkgSolver => {
-                self.params.bkg_solver = variant.map(|i| AUTOBK_SOLVERS[i]);
+                p.bkg_solver = variant.map(|i| AUTOBK_SOLVERS[i]);
             }
             EnumParam::FftWindow => {
-                self.params.fft_window = variant.map(|i| FT_WINDOWS[i]);
+                p.fft_window = variant.map(|i| FT_WINDOWS[i]);
             }
         }
         self.open_enum = None;
@@ -1270,25 +1597,23 @@ impl StudioApp {
     }
 
     fn enum_selected_index(&self, which: EnumParam) -> usize {
+        let p = self.ui_params();
         match which {
             EnumParam::ImportMode => DETECTION_MODES
                 .iter()
-                .position(|m| *m == self.params.import.mode)
+                .position(|m| *m == p.import.mode)
                 .unwrap_or(0),
-            EnumParam::BkgWindow => self
-                .params
+            EnumParam::BkgWindow => p
                 .bkg_window
                 .and_then(|w| FT_WINDOWS.iter().position(|x| *x == w))
                 .map(|i| i + 1)
                 .unwrap_or(0),
-            EnumParam::BkgSolver => self
-                .params
+            EnumParam::BkgSolver => p
                 .bkg_solver
                 .and_then(|v| AUTOBK_SOLVERS.iter().position(|x| *x == v))
                 .map(|i| i + 1)
                 .unwrap_or(0),
-            EnumParam::FftWindow => self
-                .params
+            EnumParam::FftWindow => p
                 .fft_window
                 .and_then(|w| FT_WINDOWS.iter().position(|x| *x == w))
                 .map(|i| i + 1)
@@ -1340,7 +1665,7 @@ impl StudioApp {
     ) {
         self.generation += 1;
         let generation = self.generation;
-        let key = (ix, self.params.fingerprint());
+        let key = (ix, self.effective_fingerprint(ix));
 
         if let Some(sp) = self.cache.get(&key) {
             self.load_running = false;
@@ -1353,7 +1678,7 @@ impl StudioApp {
         self.status = format!("processing {label} ...").into();
         self.load_running = true;
         cx.notify();
-        let params = self.params.clone();
+        let params = self.effective_params(ix).clone();
         let derived = (ix >= DERIVED_BASE)
             .then(|| self.derived.get(ix - DERIVED_BASE).cloned())
             .flatten();
@@ -1403,7 +1728,7 @@ impl StudioApp {
         self.spectrum_path = path;
         self.spectrum_fingerprint = fingerprint;
         // Surface the auto-determined E0 in the field placeholder.
-        if self.params.e0.is_none()
+        if self.effective_params(ix).e0.is_none()
             && let Some(e0) = sp.get_e0()
             && let Some((_, field)) = self
                 .param_fields
@@ -1433,11 +1758,12 @@ impl StudioApp {
         let Some(scan_ix) = self.active_scan else {
             return;
         };
-        let fingerprint = self.params.fingerprint();
         let Some(scan) = self.catalog.scans.get(scan_ix) else {
             return;
         };
+        let scan_start = scan.start;
         let scan_len = scan.len;
+        let fingerprint = scan_fingerprint(&self.params, &self.overrides, scan_start, scan_len);
         if scan_len == 0
             || self.operando.as_ref().is_some_and(|o| {
                 o.scan == scan_ix && o.scan_len == scan_len && o.fingerprint == fingerprint
@@ -1456,19 +1782,26 @@ impl StudioApp {
         self.operando_cancel = Some(cancel.clone());
         self.operando_running = true;
         // Even sampling across the scan; first and last frames included.
-        let sample_ixs = sample_scan_indices(scan.start, scan_len, MAX_FRAMES);
-        let paths: Vec<PathBuf> = sample_ixs.iter().map(|&ix| self.catalog.path(ix)).collect();
-        let labels: Vec<String> = sample_ixs
+        let sample_ixs = sample_scan_indices(scan_start, scan_len, MAX_FRAMES);
+        let frames: Vec<(usize, PathBuf, String)> = sample_ixs
             .iter()
-            .map(|&ix| self.catalog.name(ix).to_string())
+            .map(|&ix| (ix, self.catalog.path(ix), self.catalog.name(ix).to_string()))
             .collect();
-        let params = self.params.clone();
+        // Global params plus the (usually tiny) override set for this scan;
+        // frames look their effective params up by catalog index.
+        let global = Arc::new(self.params.clone());
+        let frame_overrides: Arc<BTreeMap<usize, PipelineParams>> = Arc::new(
+            self.overrides
+                .range(scan_start..scan_start.saturating_add(scan_len))
+                .map(|(&ix, p)| (ix, p.clone()))
+                .collect(),
+        );
         let grid: Vec<f64> = (0..K_GRID_BINS)
             .map(|i| i as f64 * K_GRID_MAX / (K_GRID_BINS - 1) as f64)
             .collect();
         self.status = format!(
             "building scan overview ({} of {} frames) ...",
-            paths.len(),
+            frames.len(),
             scan_len
         )
         .into();
@@ -1476,14 +1809,14 @@ impl StudioApp {
         let job_grid = grid.clone();
         let job_cancel = cancel.clone();
         let job = cx.background_executor().spawn(async move {
-            paths
+            frames
                 .par_iter()
-                .zip(labels.par_iter())
-                .map(|(path, label)| {
+                .map(|(ix, path, label)| {
                     if job_cancel.load(Ordering::Relaxed) {
                         return None;
                     }
-                    let result = process_file(path, &params)
+                    let params = frame_overrides.get(ix).unwrap_or(&global);
+                    let result = process_file(path, params)
                         .map_err(|error| error.to_string())
                         .and_then(|sp| {
                             resample_chik(&sp, &job_grid)
@@ -1571,12 +1904,12 @@ impl StudioApp {
         let scan_ix = data.scan;
         let sample_pos = nearest_sample_pos(self.time_pos, scan.len, data.matrix.len());
         let cursor_ix = scan.start + self.time_pos.min(scan.len.saturating_sub(1));
-        let fingerprint = data.fingerprint;
+        let cursor_fingerprint = self.effective_fingerprint(cursor_ix);
         let grid = data.grid.clone();
         let sampled_row = data.matrix.get(sample_pos).cloned().unwrap_or_default();
         let row = self
             .cache
-            .peek(&(cursor_ix, fingerprint))
+            .peek(&(cursor_ix, cursor_fingerprint))
             .and_then(|sp| resample_chik(sp, &grid))
             .unwrap_or(sampled_row);
         let heatmap = build_heatmap(&data.matrix, &data.grid, scan.len, &self.theme);
@@ -1646,8 +1979,8 @@ impl StudioApp {
         self.time_pos = pos;
         let sample_pos = nearest_sample_pos(pos, scan_len, data.matrix.len());
         let grid = data.grid.clone();
-        let fingerprint = data.fingerprint;
         let sampled_row = data.matrix.get(sample_pos).cloned().unwrap_or_default();
+        let fingerprint = self.effective_fingerprint(ix);
         let row = self
             .cache
             .peek(&(ix, fingerprint))
@@ -1716,7 +2049,7 @@ impl StudioApp {
         let Some(scan) = self.catalog.scans.get(data.scan) else {
             return;
         };
-        if data.fingerprint != self.params.fingerprint()
+        if data.fingerprint != scan_fingerprint(&self.params, &self.overrides, scan.start, scan.len)
             || ix != scan.start + self.time_pos.min(scan.len.saturating_sub(1))
         {
             return;
@@ -1743,23 +2076,30 @@ impl StudioApp {
     }
 
     /// Process any compare-set members missing from the cache (rayon batch),
-    /// then rebuild the overlay.
+    /// then rebuild the overlay. Every member is processed and cached under
+    /// its own effective params.
     fn ensure_compare_loaded(&mut self, cx: &mut Context<Self>) {
-        let fingerprint = self.params.fingerprint();
         let (indices, _) = self.compare_indices();
-        let missing: Vec<(usize, Result<PathBuf, DerivedSpectrum>)> = indices
-            .iter()
-            .filter(|&&ix| ix != NO_ENTRY && !self.cache.contains(&(ix, fingerprint)))
-            .filter_map(|&ix| {
-                if ix >= DERIVED_BASE {
-                    self.derived
-                        .get(ix - DERIVED_BASE)
-                        .map(|d| (ix, Err(d.clone())))
-                } else {
-                    Some((ix, Ok(self.catalog.path(ix))))
+        let mut missing: Vec<(usize, u64, Result<PathBuf, DerivedSpectrum>, PipelineParams)> =
+            Vec::new();
+        for &ix in &indices {
+            if ix == NO_ENTRY {
+                continue;
+            }
+            let fingerprint = self.effective_fingerprint(ix);
+            if self.cache.contains(&(ix, fingerprint)) {
+                continue;
+            }
+            let source = if ix >= DERIVED_BASE {
+                match self.derived.get(ix - DERIVED_BASE) {
+                    Some(d) => Err(d.clone()),
+                    None => continue,
                 }
-            })
-            .collect();
+            } else {
+                Ok(self.catalog.path(ix))
+            };
+            missing.push((ix, fingerprint, source, self.effective_params(ix).clone()));
+        }
         if missing.is_empty() {
             self.rebuild_plots(cx);
             cx.notify();
@@ -1770,16 +2110,15 @@ impl StudioApp {
         self.compare_running = true;
         self.status = format!("processing {} spectra for overlay ...", missing.len()).into();
         cx.notify();
-        let params = self.params.clone();
         let job = cx.background_executor().spawn(async move {
             missing
                 .par_iter()
-                .map(|(ix, source)| {
+                .map(|(ix, fingerprint, source, params)| {
                     let result = match source {
-                        Ok(path) => process_file(path, &params),
-                        Err(d) => process_arrays(d.energy.clone(), d.mu.clone(), &params),
+                        Ok(path) => process_file(path, params),
+                        Err(d) => process_arrays(d.energy.clone(), d.mu.clone(), params),
                     };
-                    (*ix, result)
+                    (*ix, *fingerprint, result)
                 })
                 .collect::<Vec<_>>()
         });
@@ -1791,7 +2130,7 @@ impl StudioApp {
                 }
                 app.compare_running = false;
                 let mut failed = 0usize;
-                for (ix, result) in results {
+                for (ix, fingerprint, result) in results {
                     match result {
                         Ok(sp) => {
                             app.cache.put((ix, fingerprint), Arc::new(sp));
@@ -1817,7 +2156,6 @@ impl StudioApp {
     }
 
     fn rebuild_plots(&mut self, cx: &mut Context<Self>) {
-        let fingerprint = self.params.fingerprint();
         let (indices, total) = self.compare_indices();
         let mut traces: Vec<QuadTrace> = Vec::new();
         for ix in indices {
@@ -1825,6 +2163,7 @@ impl StudioApp {
                 continue;
             }
             let label = self.entry_label(ix);
+            let fingerprint = self.effective_fingerprint(ix);
             if let Some(sp) = self.cache.get(&(ix, fingerprint)) {
                 traces.push(QuadTrace {
                     label,
@@ -1979,6 +2318,7 @@ impl StudioApp {
                     Ok(catalog) => {
                         let total = catalog.len();
                         app.catalog = catalog;
+                        app.resolve_pending_overrides(cx);
                         app.status =
                             format!("index loaded · {total} files · checking for changes ...")
                                 .into();
@@ -2094,7 +2434,19 @@ impl StudioApp {
         self.merge_running = false;
         self.operando_running = false;
         self.batch_running = false;
+        // Indices shift under a refreshed walk; re-key overrides by path so
+        // surviving files keep their per-spectrum params.
+        let path_overrides: Vec<(PathBuf, PipelineParams)> = self
+            .overrides
+            .iter()
+            .filter(|&(&ix, _)| ix < self.catalog.len())
+            .map(|(&ix, params)| (self.catalog.path(ix), params.clone()))
+            .collect();
         self.catalog = catalog;
+        self.overrides = path_overrides
+            .into_iter()
+            .filter_map(|(path, params)| self.catalog.find_by_path(&path).map(|ix| (ix, params)))
+            .collect();
         self.selection.clear();
         self.cache.clear();
         self.expanded_scan = None;
@@ -2112,6 +2464,7 @@ impl StudioApp {
         } else {
             self.filtered = None;
         }
+        self.sync_param_fields(cx);
         cx.notify();
     }
 
@@ -2179,6 +2532,7 @@ impl StudioApp {
                         ScanEvent::Done { total } => {
                             app.catalog.scanning = false;
                             app.status = format!("indexed {total} files").into();
+                            app.resolve_pending_overrides(cx);
                             app.persist_catalog_index(cx);
                             if !app.filter_text.is_empty() {
                                 app.apply_filter(cx);
@@ -2244,6 +2598,9 @@ impl StudioApp {
             self.selection.clear();
             self.select_entry(ix, cx);
         }
+        // Selection-count changes can flip the panel between a spectrum's
+        // override and the globals.
+        self.sync_param_fields(cx);
         cx.notify();
     }
 
@@ -2286,6 +2643,7 @@ impl StudioApp {
         if let Some(scan) = self.catalog.scans.get(scan_ix) {
             self.selection.extend(scan.start..scan.start + scan.len);
             self.ensure_compare_loaded(cx);
+            self.sync_param_fields(cx);
             cx.notify();
         }
     }
@@ -2294,6 +2652,7 @@ impl StudioApp {
         if !self.selection.is_empty() {
             self.selection.clear();
             self.rebuild_plots(cx);
+            self.sync_param_fields(cx);
             cx.notify();
         }
     }
@@ -2362,6 +2721,7 @@ impl StudioApp {
         let kept: BTreeSet<usize> = self.selection.iter().copied().step_by(10).collect();
         self.selection = kept;
         self.ensure_compare_loaded(cx);
+        self.sync_param_fields(cx);
         cx.notify();
     }
 
@@ -2385,8 +2745,12 @@ impl StudioApp {
             trim(self.catalog.name(files[0])),
             trim(self.catalog.name(*files.last().unwrap()))
         );
-        let paths: Vec<PathBuf> = files.iter().map(|&ix| self.catalog.path(ix)).collect();
-        let params = self.params.clone();
+        // Each input loads under its own effective params (per-file import
+        // config / alignment overrides apply to the merge too).
+        let sources: Vec<(PathBuf, PipelineParams)> = files
+            .iter()
+            .map(|&ix| (self.catalog.path(ix), self.effective_params(ix).clone()))
+            .collect();
         let catalog_gen = self.catalog_gen;
         if let Some(cancel) = self.merge_cancel.take() {
             cancel.store(true, Ordering::Relaxed);
@@ -2402,17 +2766,17 @@ impl StudioApp {
         let job = cx.background_executor().spawn(async move {
             // Stream a running sum: memory stays bounded at one input plus
             // the accumulator no matter how many spectra are merged.
-            let mut iter = paths.iter();
-            let first = iter
+            let mut iter = sources.iter();
+            let (first_path, first_params) = iter
                 .next()
                 .ok_or_else(|| "need at least 2 spectra to merge".to_string())?;
-            let (energy, mu) = load_raw(first, &params)?;
+            let (energy, mu) = load_raw(first_path, first_params)?;
             let mut acc = StreamingAverage::new(energy, mu);
-            for path in iter {
+            for (path, params) in iter {
                 if job_cancel.load(Ordering::Relaxed) {
                     return Err("merge cancelled".to_string());
                 }
-                let (energy, mu) = load_raw(path, &params)?;
+                let (energy, mu) = load_raw(path, params)?;
                 acc.add(&energy, &mu);
             }
             acc.finish()
@@ -2465,6 +2829,7 @@ impl StudioApp {
         }
         self.cache.clear();
         self.rebuild_plots(cx);
+        self.sync_param_fields(cx);
         cx.notify();
     }
 
@@ -2473,6 +2838,7 @@ impl StudioApp {
         if let Some(filtered) = &self.filtered {
             self.selection.extend(filtered.iter().copied());
             self.ensure_compare_loaded(cx);
+            self.sync_param_fields(cx);
             cx.notify();
         }
     }
@@ -2496,6 +2862,7 @@ impl StudioApp {
             self.selected = Some(ix);
             let label: SharedString = self.entry_label(ix).into();
             self.current_path = PathBuf::new();
+            self.sync_param_fields(cx);
             self.load_spectrum(ix, PathBuf::new(), label, cx);
             return;
         }
@@ -2507,6 +2874,9 @@ impl StudioApp {
         let path = self.catalog.path(ix);
         self.current_path = path.clone();
         self.update_import_preview(cx);
+        // The panel must show this spectrum's effective (override or
+        // global) params.
+        self.sync_param_fields(cx);
         self.load_spectrum(ix, path, label, cx);
     }
 
@@ -2984,7 +3354,7 @@ impl StudioApp {
         };
         let scan_start = scan.start;
         let scan_len = scan.len;
-        let fingerprint = self.params.fingerprint();
+        let fingerprint = scan_fingerprint(&self.params, &self.overrides, scan_start, scan_len);
         let preview = self.batch_preview;
         let indices = if preview {
             sample_scan_indices(scan_start, scan_len, MAX_FRAMES)
@@ -3030,7 +3400,15 @@ impl StudioApp {
         self.status = format!("batch fit 0/{total} ...").into();
         cx.notify();
 
-        let params = self.params.clone();
+        // Frames fit under their effective params: global set plus the
+        // (usually tiny) override map for this scan, looked up by index.
+        let global = Arc::new(self.params.clone());
+        let frame_overrides: Arc<BTreeMap<usize, PipelineParams>> = Arc::new(
+            self.overrides
+                .range(scan_start..scan_start.saturating_add(scan_len))
+                .map(|(&ix, p)| (ix, p.clone()))
+                .collect(),
+        );
         let paths: Vec<FitPathSpec> = self.fit_paths.iter().map(|r| r.spec.clone()).collect();
         let vars: Vec<FitVarSpec> = self.fit_vars.iter().map(|v| v.spec.clone()).collect();
         let ranges = self.fit_ranges;
@@ -3045,7 +3423,9 @@ impl StudioApp {
                         return None;
                     }
                     let result = (|| -> Result<BatchFitRow, String> {
-                        let sp = process_file(path, &params).map_err(|error| error.to_string())?;
+                        let frame_params = frame_overrides.get(ix).unwrap_or(&global);
+                        let sp =
+                            process_file(path, frame_params).map_err(|error| error.to_string())?;
                         if job_cancel.load(Ordering::Relaxed) {
                             return Err("batch cancelled".into());
                         }
@@ -3485,10 +3865,23 @@ impl StudioApp {
     // ---- project persistence -------------------------------------------------
 
     fn project_file(&self) -> ProjectFile {
+        // Overrides persist keyed by file path (indices are per-session);
+        // still-unresolved pending ones survive a save-before-scan-finished.
+        let mut overrides: Vec<ParamOverride> = self
+            .overrides
+            .iter()
+            .filter(|&(&ix, _)| ix < self.catalog.len())
+            .map(|(&ix, params)| ParamOverride {
+                path: self.catalog.path(ix),
+                params: params.clone(),
+            })
+            .collect();
+        overrides.extend(self.pending_overrides.iter().cloned());
         ProjectFile {
             version: PROJECT_VERSION,
             source_dir: self.source_dir.clone(),
             params: self.params.clone(),
+            overrides,
             fit_paths: self.fit_paths.iter().map(|r| r.spec.clone()).collect(),
             fit_vars: self.fit_vars.iter().map(|v| v.spec.clone()).collect(),
             fit_ranges: self.fit_ranges,
@@ -3551,45 +3944,7 @@ impl StudioApp {
     }
 
     fn apply_project(&mut self, project: ProjectFile, cx: &mut Context<Self>) {
-        // Pipeline params + field texts.
         self.params = project.params;
-        let value_of = |key: ParamKey, p: &PipelineParams| match key {
-            ParamKey::ImpEnergyCol => Some(p.import.energy_col as f64),
-            ParamKey::ImpI0Col => Some(p.import.i0_col as f64),
-            ParamKey::ImpItCol => Some(p.import.it_col as f64),
-            ParamKey::ImpIrCol => Some(p.import.ir_col as f64),
-            ParamKey::AlignTarget => p.align_target,
-            ParamKey::E0 => p.e0,
-            ParamKey::PreEdgeStart => p.pre_edge_start,
-            ParamKey::PreEdgeEnd => p.pre_edge_end,
-            ParamKey::NormStart => p.norm_start,
-            ParamKey::NormEnd => p.norm_end,
-            ParamKey::NormPolyorder => p.norm_polyorder.map(|v| v as f64),
-            ParamKey::NVictoreen => p.n_victoreen.map(|v| v as f64),
-            ParamKey::Rbkg => p.rbkg,
-            ParamKey::BkgKmin => p.bkg_kmin,
-            ParamKey::BkgKmax => p.bkg_kmax,
-            ParamKey::BkgKstep => p.bkg_kstep,
-            ParamKey::BkgNknots => p.bkg_nknots.map(|v| v as f64),
-            ParamKey::BkgKweight => p.bkg_kweight.map(|v| v as f64),
-            ParamKey::BkgClampLo => p.bkg_clamp_lo.map(|v| v as f64),
-            ParamKey::BkgClampHi => p.bkg_clamp_hi.map(|v| v as f64),
-            ParamKey::BkgDk => p.bkg_dk,
-            ParamKey::BkgNfft => p.bkg_nfft.map(|v| v as f64),
-            ParamKey::FftKmin => p.fft_kmin,
-            ParamKey::FftKmax => p.fft_kmax,
-            ParamKey::FftDk => p.fft_dk,
-            ParamKey::FftKweight => p.fft_kweight,
-            ParamKey::FftDk2 => p.fft_dk2,
-            ParamKey::FftRmax => p.fft_rmax,
-            ParamKey::FftKstep => p.fft_kstep,
-            ParamKey::FftNfft => p.fft_nfft.map(|v| v as f64),
-        };
-        let params = self.params.clone();
-        for (key, field) in &self.param_fields {
-            let value = value_of(*key, &params);
-            field.update(cx, |f, cx| f.set_value(value, cx));
-        }
 
         // Fit model: rebuild rows, variables, ranges.
         self.fit_paths.clear();
@@ -3643,13 +3998,17 @@ impl StudioApp {
         self.feff_workspace = project.feff_workspace;
         self.derived = project.derived;
 
-        // Reopen the data source.
+        // Reopen the data source. Per-spectrum overrides wait path-keyed
+        // until the (re)scanned catalog can resolve them to indices; with
+        // no source there is no catalog for them to attach to.
         if let Some(dir) = project.source_dir.clone() {
             self.scan_folder(dir, cx);
+            self.pending_overrides = project.overrides;
         } else {
             self.reset_catalog_state(cx);
             self.source_dir = None;
         }
+        self.sync_param_fields(cx);
         self.status = "project loaded".into();
         if self.spectrum.is_some() {
             self.schedule_recompute(cx);
@@ -4421,6 +4780,46 @@ impl StudioApp {
                 action(this, cx);
             }))
             .child(label)
+    }
+
+    /// Section-header chip (doc: per-spectrum override vs. global
+    /// defaults): `global` when the shown spectrum follows the global set,
+    /// `override ✕` (click = reset to global) when the section diverges.
+    /// Absent while edits target the globals (multi-selection, no catalog
+    /// selection).
+    fn override_chip(
+        &self,
+        id: SharedString,
+        section: ParamSection,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        self.override_target()?;
+        let t = self.theme;
+        let chip = if self.section_overridden(section) {
+            div()
+                .id(id)
+                .px_1()
+                .rounded_sm()
+                .text_xs()
+                .border_1()
+                .border_color(t.warn)
+                .text_color(t.warn)
+                .cursor_pointer()
+                .hover(|d| d.bg(t.raised))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                    this.reset_section_override(section, cx);
+                }))
+                .child("override ✕")
+                .into_any_element()
+        } else {
+            div()
+                .px_1()
+                .text_xs()
+                .text_color(t.text_muted)
+                .child("global")
+                .into_any_element()
+        };
+        Some(chip)
     }
 
     fn view_options_row(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -5703,8 +6102,10 @@ impl StudioApp {
                     .pb_1()
                     .flex()
                     .items_center()
-                    .justify_between()
+                    .gap_2()
                     .child(div().text_xs().text_color(t.accent).child("Import"))
+                    .children(self.override_chip("ovr-import".into(), ParamSection::Import, cx))
+                    .child(div().flex_1())
                     .child(
                         div()
                             .id("adv-import")
@@ -5833,7 +6234,7 @@ impl StudioApp {
                             .child(div().w(px(96.)).child(roi.clone())),
                     );
                 }
-                let align_on = self.params.align_to_ref;
+                let align_on = self.ui_params().align_to_ref;
                 sections = sections.child(
                     div()
                         .px_3()
@@ -5851,7 +6252,8 @@ impl StudioApp {
                                 .text_color(if align_on { t.accent } else { t.text_muted })
                                 .hover(|d| d.bg(t.raised))
                                 .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                                    this.params.align_to_ref = !this.params.align_to_ref;
+                                    let on = this.ui_params().align_to_ref;
+                                    this.edit_params().align_to_ref = !on;
                                     this.schedule_recompute(cx);
                                     cx.notify();
                                 }))
@@ -5916,6 +6318,11 @@ impl StudioApp {
         ];
         for (title, basics, advanced, fold) in groups {
             let open = self.adv_open[fold];
+            let section = match fold {
+                0 => ParamSection::Norm,
+                1 => ParamSection::Bkg,
+                _ => ParamSection::Fft,
+            };
             sections = sections.child(
                 div()
                     .px_3()
@@ -5923,8 +6330,14 @@ impl StudioApp {
                     .pb_1()
                     .flex()
                     .items_center()
-                    .justify_between()
+                    .gap_2()
                     .child(div().text_xs().text_color(t.accent).child(title))
+                    .children(self.override_chip(
+                        SharedString::from(format!("ovr-{fold}")),
+                        section,
+                        cx,
+                    ))
+                    .child(div().flex_1())
                     .child(
                         div()
                             .id(SharedString::from(format!("adv-{fold}")))

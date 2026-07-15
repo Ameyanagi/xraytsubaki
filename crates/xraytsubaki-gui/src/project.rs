@@ -12,6 +12,16 @@ use crate::fitting::{FitPathSpec, FitRanges, FitVarSpec};
 use crate::params::DerivedSpectrum;
 use crate::params::PipelineParams;
 
+/// One spectrum's parameter override. Catalog indices are only stable
+/// within a single scan session, so persistence keys overrides by the
+/// file's full path (dir + name) and re-resolves them to indices when the
+/// catalog is rebuilt on project load.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ParamOverride {
+    pub path: PathBuf,
+    pub params: PipelineParams,
+}
+
 #[derive(Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ProjectFile {
@@ -19,6 +29,8 @@ pub struct ProjectFile {
     /// Root folder of the catalog (re-scanned on open).
     pub source_dir: Option<PathBuf>,
     pub params: PipelineParams,
+    /// Per-spectrum parameter overrides (empty in pre-override projects).
+    pub overrides: Vec<ParamOverride>,
     pub fit_paths: Vec<FitPathSpec>,
     pub fit_vars: Vec<FitVarSpec>,
     pub fit_ranges: FitRanges,
@@ -52,6 +64,13 @@ mod tests {
                 fft_kweight: Some(3.0),
                 ..Default::default()
             },
+            overrides: vec![ParamOverride {
+                path: PathBuf::from("/tmp/xts-operando/scan_01/frame_0042.dat"),
+                params: PipelineParams {
+                    e0: Some(22119.5),
+                    ..Default::default()
+                },
+            }],
             fit_paths: vec![FitPathSpec {
                 file: PathBuf::from("/tmp/feff0001.dat"),
                 label: "feff0001.dat".into(),
@@ -77,11 +96,20 @@ mod tests {
         save(&path, &project).unwrap();
         let loaded = load(&path).unwrap();
         assert_eq!(loaded.params.rbkg, Some(1.2));
+        assert_eq!(loaded.overrides.len(), 1);
+        assert_eq!(loaded.overrides[0].path, project.overrides[0].path);
+        assert_eq!(loaded.overrides[0].params.e0, Some(22119.5));
         assert_eq!(loaded.fit_paths[0].deltar, "dr_1*1.02");
         assert_eq!(loaded.fit_vars[0].value, 0.85);
         assert_eq!(loaded.fit_vars[0].min, Some(0.0));
         assert_eq!(loaded.fit_vars[0].max, Some(1.5));
         assert_eq!(loaded.source_dir, project.source_dir);
+    }
+
+    #[test]
+    fn pre_override_projects_load_with_empty_overrides() {
+        let project: ProjectFile = serde_json::from_str(r#"{"version":1}"#).unwrap();
+        assert!(project.overrides.is_empty());
     }
 
     #[test]

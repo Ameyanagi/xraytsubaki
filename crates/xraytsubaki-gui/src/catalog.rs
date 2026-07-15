@@ -7,7 +7,7 @@
 //! MB, not gigabytes.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use futures::channel::mpsc;
@@ -246,6 +246,208 @@ impl Catalog {
             .map(|scan| (scan.start, scan.len, scan.label.clone()))
             .collect()
     }
+
+    /// Cheap, `Send` view of everything the index file stores: interned dirs
+    /// (Arc clones), per-entry (dir id, size), and the shared name store.
+    /// Encoding and reconcile comparisons run off the UI thread on this.
+    pub fn index_parts(&self) -> IndexParts {
+        IndexParts {
+            dirs: self.dirs.clone(),
+            metas: self.entries.iter().map(|e| (e.dir, e.size)).collect(),
+            names: self.names_snapshot(),
+        }
+    }
+}
+
+// ---- persisted catalog index (doc: "Indexes persist next to the project
+// file, so reopening a million-file project is < 1 s") -----------------------
+//
+// The index lives in a per-user cache directory keyed by a hash of the
+// canonical root path rather than next to the project file: it also serves
+// plain "Open Folder" sessions with no project, and beamline source trees
+// are frequently read-only network mounts we must not write into. The file
+// stores the canonical root, the interned dir table, and one (dir id, size,
+// name) record per entry in walk order; scan grouping is re-derived by
+// replaying the records through `Catalog::extend`.
+
+/// Version tag; bump when the record layout changes (old files are ignored).
+const INDEX_MAGIC: &[u8; 8] = b"XTIDX01\n";
+
+/// Everything needed to encode or compare a catalog index off-thread.
+pub struct IndexParts {
+    pub dirs: Vec<Arc<str>>,
+    pub metas: Vec<(u32, u64)>,
+    pub names: NameSnapshot,
+}
+
+impl IndexParts {
+    /// True when two walks produced the identical index (same dirs, order,
+    /// sizes, names) — the "nothing changed on disk" reconcile fast path.
+    pub fn same_index(&self, other: &IndexParts) -> bool {
+        self.metas == other.metas
+            && self.dirs.len() == other.dirs.len()
+            && self
+                .dirs
+                .iter()
+                .zip(&other.dirs)
+                .all(|(a, b)| a.as_ref() == b.as_ref())
+            && self.names.iter().eq(other.names.iter())
+    }
+}
+
+fn fnv1a(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for &b in bytes {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+fn canonical_root(root: &Path) -> PathBuf {
+    root.canonicalize().unwrap_or_else(|_| root.to_path_buf())
+}
+
+/// Cache file for `root`'s index, keyed by the canonical path (stable across
+/// runs via FNV-1a; the stored root string guards against collisions).
+pub fn index_cache_path(root: &Path) -> Option<PathBuf> {
+    let canon = canonical_root(root);
+    let base = if cfg!(target_os = "macos") {
+        PathBuf::from(std::env::var_os("HOME")?).join("Library/Caches")
+    } else {
+        std::env::var_os("XDG_CACHE_HOME")
+            .map(PathBuf::from)
+            .or_else(|| Some(PathBuf::from(std::env::var_os("HOME")?).join(".cache")))?
+    };
+    let hash = fnv1a(canon.to_string_lossy().as_bytes());
+    Some(
+        base.join("xraytsubaki/catalog")
+            .join(format!("{hash:016x}.xtidx")),
+    )
+}
+
+fn push_str(out: &mut Vec<u8>, s: &str) {
+    out.extend_from_slice(&(s.len() as u32).to_le_bytes());
+    out.extend_from_slice(s.as_bytes());
+}
+
+/// Serialize an index snapshot for `root`.
+pub fn encode_index(root: &Path, parts: &IndexParts) -> Vec<u8> {
+    debug_assert_eq!(parts.metas.len(), parts.names.len());
+    // magic + root + dir table + ~(14 bytes + name) per entry
+    let mut out = Vec::with_capacity(64 + parts.metas.len() * 32);
+    out.extend_from_slice(INDEX_MAGIC);
+    push_str(&mut out, canonical_root(root).to_string_lossy().as_ref());
+    out.extend_from_slice(&(parts.dirs.len() as u32).to_le_bytes());
+    for dir in &parts.dirs {
+        push_str(&mut out, dir);
+    }
+    out.extend_from_slice(&(parts.metas.len() as u64).to_le_bytes());
+    for (&(dir, size), name) in parts.metas.iter().zip(parts.names.iter()) {
+        out.extend_from_slice(&dir.to_le_bytes());
+        out.extend_from_slice(&size.to_le_bytes());
+        out.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        out.extend_from_slice(name.as_bytes());
+    }
+    out
+}
+
+/// Sequential little-endian reader over the index byte format.
+struct Reader<'a> {
+    bytes: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> Reader<'a> {
+    fn take(&mut self, n: usize) -> Result<&'a [u8], String> {
+        let end = self
+            .pos
+            .checked_add(n)
+            .filter(|&end| end <= self.bytes.len())
+            .ok_or("truncated catalog index")?;
+        let slice = &self.bytes[self.pos..end];
+        self.pos = end;
+        Ok(slice)
+    }
+
+    fn u16(&mut self) -> Result<u16, String> {
+        Ok(u16::from_le_bytes(self.take(2)?.try_into().unwrap()))
+    }
+
+    fn u32(&mut self) -> Result<u32, String> {
+        Ok(u32::from_le_bytes(self.take(4)?.try_into().unwrap()))
+    }
+
+    fn u64(&mut self) -> Result<u64, String> {
+        Ok(u64::from_le_bytes(self.take(8)?.try_into().unwrap()))
+    }
+
+    fn str(&mut self) -> Result<&'a str, String> {
+        let len = self.u32()? as usize;
+        std::str::from_utf8(self.take(len)?).map_err(|_| "corrupt catalog index".to_string())
+    }
+}
+
+/// Rebuild a catalog from index bytes. `expected_root` must match the stored
+/// canonical root (hash-collision and stale-cache guard).
+pub fn decode_index(bytes: &[u8], expected_root: &Path) -> Result<Catalog, String> {
+    let mut r = Reader { bytes, pos: 0 };
+    if r.take(INDEX_MAGIC.len())? != INDEX_MAGIC {
+        return Err("unknown catalog index format".into());
+    }
+    let root = r.str()?;
+    if root != canonical_root(expected_root).to_string_lossy() {
+        return Err(format!("catalog index is for a different root ({root})"));
+    }
+    let dir_count = r.u32()? as usize;
+    let mut dirs: Vec<Arc<str>> = Vec::with_capacity(dir_count.min(1 << 20));
+    for _ in 0..dir_count {
+        dirs.push(Arc::from(r.str()?));
+    }
+    let entry_count = r.u64()? as usize;
+    let mut catalog = Catalog::default();
+    let mut batch: Vec<FileMeta> = Vec::with_capacity(BATCH_SIZE);
+    for _ in 0..entry_count {
+        let dir_id = r.u32()? as usize;
+        let size = r.u64()?;
+        let name_len = r.u16()? as usize;
+        let name = std::str::from_utf8(r.take(name_len)?)
+            .map_err(|_| "corrupt catalog index".to_string())?;
+        let dir = dirs
+            .get(dir_id)
+            .ok_or("corrupt catalog index (dir id out of range)")?
+            .clone();
+        batch.push(FileMeta {
+            dir,
+            name: name.into(),
+            size,
+        });
+        if batch.len() == BATCH_SIZE {
+            catalog.extend(std::mem::take(&mut batch));
+        }
+    }
+    catalog.extend(batch);
+    if catalog.len() != entry_count {
+        return Err("truncated catalog index".into());
+    }
+    Ok(catalog)
+}
+
+/// Atomically (write + rename) persist the index snapshot for `root`.
+pub fn write_index(path: &Path, root: &Path, parts: &IndexParts) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let bytes = encode_index(root, parts);
+    let tmp = path.with_extension("xtidx.tmp");
+    std::fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+}
+
+/// Read + decode the persisted index for `root`.
+pub fn load_index(path: &Path, root: &Path) -> Result<Catalog, String> {
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    decode_index(&bytes, root)
 }
 
 #[cfg(test)]
@@ -292,5 +494,80 @@ mod tests {
             catalog.scan_spans(),
             vec![(0, total + 1, "scan_01".to_string())]
         );
+    }
+
+    fn sample_catalog() -> Catalog {
+        let mut catalog = Catalog::default();
+        let dir_a: Arc<str> = Arc::from("/data/scan_01");
+        let dir_b: Arc<str> = Arc::from("/data/scan_02");
+        let mut batch: Vec<FileMeta> = (0..NAME_CHUNK + 5)
+            .map(|i| FileMeta {
+                dir: dir_a.clone(),
+                name: format!("a{i:05}.dat").into(),
+                size: i as u64,
+            })
+            .collect();
+        batch.push(FileMeta {
+            dir: dir_b.clone(),
+            name: "b00000.dat".into(),
+            size: 7,
+        });
+        catalog.extend(batch);
+        catalog
+    }
+
+    #[test]
+    fn index_round_trips_through_bytes() {
+        let catalog = sample_catalog();
+        let root = Path::new("/data");
+        let bytes = encode_index(root, &catalog.index_parts());
+        let loaded = decode_index(&bytes, root).expect("decode");
+        assert_eq!(loaded.len(), catalog.len());
+        assert_eq!(loaded.scans.len(), 2);
+        for ix in [0, NAME_CHUNK - 1, NAME_CHUNK, catalog.len() - 1] {
+            assert_eq!(loaded.name(ix), catalog.name(ix));
+            assert_eq!(loaded.path(ix), catalog.path(ix));
+            assert_eq!(loaded.entries[ix].size, catalog.entries[ix].size);
+        }
+        assert!(loaded.index_parts().same_index(&catalog.index_parts()));
+    }
+
+    #[test]
+    fn index_rejects_wrong_root_magic_and_truncation() {
+        let catalog = sample_catalog();
+        let root = Path::new("/data");
+        let bytes = encode_index(root, &catalog.index_parts());
+        assert!(decode_index(&bytes, Path::new("/elsewhere")).is_err());
+        assert!(decode_index(&bytes[..bytes.len() - 3], root).is_err());
+        let mut corrupt = bytes.clone();
+        corrupt[0] ^= 0xff;
+        assert!(decode_index(&corrupt, root).is_err());
+    }
+
+    #[test]
+    fn same_index_detects_changes() {
+        let catalog = sample_catalog();
+        let parts = catalog.index_parts();
+        assert!(parts.same_index(&catalog.index_parts()));
+
+        let mut grown = sample_catalog();
+        grown.extend(vec![FileMeta {
+            dir: Arc::from("/data/scan_02"),
+            name: "b00001.dat".into(),
+            size: 8,
+        }]);
+        assert!(!parts.same_index(&grown.index_parts()));
+
+        // Same shape, one size changed (file rewritten in place).
+        let root = Path::new("/data");
+        let mut bytes = encode_index(root, &parts);
+        let mut resized = decode_index(&bytes, root).unwrap().index_parts();
+        resized.metas[0].1 += 1;
+        assert!(!parts.same_index(&resized));
+        // and one renamed file
+        let pos = bytes.len() - 1;
+        bytes[pos] = b'x';
+        let renamed = decode_index(&bytes, root).unwrap();
+        assert!(!parts.same_index(&renamed.index_parts()));
     }
 }

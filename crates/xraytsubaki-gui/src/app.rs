@@ -29,7 +29,7 @@ use rayon::prelude::*;
 
 use xraytsubaki::prelude::FeffFitResult;
 
-use crate::catalog::{Catalog, ScanEvent, start_scan};
+use crate::catalog::{Catalog, ScanEvent, index_cache_path, load_index, start_scan, write_index};
 use crate::fitting::expr_identifiers;
 use crate::fitting::{
     BatchFitRow, FitPathSpec, FitRanges, FitVarSpec, PathMeta, batch_csv, path_meta,
@@ -45,7 +45,7 @@ use crate::plotting::{
 };
 use crate::project::{PROJECT_VERSION, ProjectFile};
 use crate::theme::{Theme, ThemeMode};
-use crate::widgets::numeric_field::{FieldEvent, NumericField};
+use crate::widgets::numeric_field::{FieldEvent, FieldKind, NumericField};
 use crate::widgets::text_input::{InputEvent, TextInput};
 
 /// Processed spectra kept in RAM. ~100-300 KB each, so 1024 ≈ a few hundred MB
@@ -328,6 +328,8 @@ pub struct StudioApp {
     source_dir: Option<PathBuf>,
     /// Supersedes receivers from earlier folder scans.
     catalog_gen: u64,
+    /// Background freshness re-walk behind a restored catalog index.
+    verify_running: bool,
     /// Active spectrum (drives params/fit/status).
     selected: Option<usize>,
     /// Compare set; the active spectrum is implicitly included.
@@ -740,6 +742,7 @@ impl StudioApp {
             catalog: Catalog::default(),
             source_dir: None,
             catalog_gen: 0,
+            verify_running: false,
             selected: None,
             selection: BTreeSet::new(),
             derived: Vec::new(),
@@ -811,15 +814,29 @@ impl StudioApp {
             problems_open: false,
         };
         app.fit_range_fields = Self::build_range_fields(theme, app.fit_ranges, cx);
-        let offset_field =
-            cx.new(|cx| NumericField::new("offset", "", Some(app.view.offset_frac), theme, cx));
+        let offset_field = cx.new(|cx| {
+            NumericField::new(
+                "offset",
+                "",
+                Some(app.view.offset_frac),
+                FieldKind::Float,
+                theme,
+                cx,
+            )
+        });
         cx.subscribe(&offset_field, |this: &mut Self, _f, event, cx| {
-            let FieldEvent::Changed(value) = event;
-            if let Some(v) = value {
-                this.view.offset_frac = v.clamp(0.05, 5.0);
-                this.rebuild_plots(cx);
-                cx.notify();
-            }
+            match event {
+                FieldEvent::Changed(Some(v)) => {
+                    this.view.offset_frac = v.clamp(0.05, 5.0);
+                    this.rebuild_plots(cx);
+                    cx.notify();
+                }
+                FieldEvent::Changed(None) => {}
+                FieldEvent::Invalid(message) => {
+                    this.status = message.clone();
+                    cx.notify();
+                }
+            };
         })
         .detach();
         app.view_offset_field = Some(offset_field);
@@ -849,7 +866,13 @@ impl StudioApp {
                     }
                 }
                 None => {
-                    // revert to current value
+                    // revert to current value, with a visible rejection cue
+                    let trimmed = text.trim();
+                    if !trimmed.is_empty() {
+                        this.status =
+                            format!("invalid ROI columns: '{trimmed}' — expected e.g. 4 or 4-7")
+                                .into();
+                    }
                     let text = this
                         .params
                         .import
@@ -912,6 +935,7 @@ impl StudioApp {
 
     fn running_job_count(&self) -> usize {
         usize::from(self.catalog.scanning)
+            + usize::from(self.verify_running)
             + usize::from(self.load_running)
             + usize::from(self.compare_running)
             + usize::from(self.operando_running)
@@ -989,6 +1013,7 @@ impl StudioApp {
             cancel.store(true, Ordering::Relaxed);
         }
         self.catalog = Catalog::default();
+        self.verify_running = false;
         self.load_running = false;
         self.compare_running = false;
         self.merge_running = false;
@@ -1060,46 +1085,63 @@ impl StudioApp {
         theme: Theme,
         cx: &mut Context<Self>,
     ) -> Vec<(ParamKey, Entity<NumericField>)> {
-        let specs: [(ParamKey, &str, &str); 30] = [
-            (ParamKey::ImpEnergyCol, "energy col", "0"),
-            (ParamKey::ImpI0Col, "I0 col", "1"),
-            (ParamKey::ImpItCol, "It col", "2"),
-            (ParamKey::ImpIrCol, "Ir col", "3"),
-            (ParamKey::AlignTarget, "ref E0 target", "e.g. 22117"),
-            (ParamKey::E0, "E0 (eV)", "auto"),
-            (ParamKey::PreEdgeStart, "pre-edge start", "auto (-200)"),
-            (ParamKey::PreEdgeEnd, "pre-edge end", "auto (-30)"),
-            (ParamKey::NormStart, "norm start", "auto (150)"),
-            (ParamKey::NormEnd, "norm end", "auto (2000)"),
-            (ParamKey::NormPolyorder, "poly order", "auto (2)"),
-            (ParamKey::NVictoreen, "victoreen n", "auto (0)"),
-            (ParamKey::Rbkg, "rbkg (Å)", "auto (1.0)"),
-            (ParamKey::BkgKmin, "k min", "auto (0)"),
-            (ParamKey::BkgKmax, "k max", "auto (full)"),
-            (ParamKey::BkgKstep, "k step", "auto (0.05)"),
-            (ParamKey::BkgNknots, "spline knots", "auto"),
-            (ParamKey::BkgKweight, "bkg k-weight", "auto (1)"),
-            (ParamKey::BkgClampLo, "clamp lo", "auto (0)"),
-            (ParamKey::BkgClampHi, "clamp hi", "auto (1)"),
-            (ParamKey::BkgDk, "window dk", "auto (0.1)"),
-            (ParamKey::BkgNfft, "nfft", "auto (2048)"),
-            (ParamKey::FftKmin, "k min", "auto (2)"),
-            (ParamKey::FftKmax, "k max", "auto (15)"),
-            (ParamKey::FftDk, "dk", "auto (1)"),
-            (ParamKey::FftKweight, "k-weight", "auto (2)"),
-            (ParamKey::FftDk2, "dk2", "auto"),
-            (ParamKey::FftRmax, "R max out", "auto (10)"),
-            (ParamKey::FftKstep, "k step", "auto"),
-            (ParamKey::FftNfft, "nfft", "auto (2048)"),
+        // Column indices clamp to >= 0 like apply_param; other integer
+        // params only round, so the display always matches the applied value.
+        const COL: FieldKind = FieldKind::Integer { min: Some(0) };
+        const INT: FieldKind = FieldKind::Integer { min: None };
+        const FLOAT: FieldKind = FieldKind::Float;
+        let specs: [(ParamKey, &str, &str, FieldKind); 30] = [
+            (ParamKey::ImpEnergyCol, "energy col", "0", COL),
+            (ParamKey::ImpI0Col, "I0 col", "1", COL),
+            (ParamKey::ImpItCol, "It col", "2", COL),
+            (ParamKey::ImpIrCol, "Ir col", "3", COL),
+            (ParamKey::AlignTarget, "ref E0 target", "e.g. 22117", FLOAT),
+            (ParamKey::E0, "E0 (eV)", "auto", FLOAT),
+            (
+                ParamKey::PreEdgeStart,
+                "pre-edge start",
+                "auto (-200)",
+                FLOAT,
+            ),
+            (ParamKey::PreEdgeEnd, "pre-edge end", "auto (-30)", FLOAT),
+            (ParamKey::NormStart, "norm start", "auto (150)", FLOAT),
+            (ParamKey::NormEnd, "norm end", "auto (2000)", FLOAT),
+            (ParamKey::NormPolyorder, "poly order", "auto (2)", INT),
+            (ParamKey::NVictoreen, "victoreen n", "auto (0)", INT),
+            (ParamKey::Rbkg, "rbkg (Å)", "auto (1.0)", FLOAT),
+            (ParamKey::BkgKmin, "k min", "auto (0)", FLOAT),
+            (ParamKey::BkgKmax, "k max", "auto (full)", FLOAT),
+            (ParamKey::BkgKstep, "k step", "auto (0.05)", FLOAT),
+            (ParamKey::BkgNknots, "spline knots", "auto", INT),
+            (ParamKey::BkgKweight, "bkg k-weight", "auto (1)", INT),
+            (ParamKey::BkgClampLo, "clamp lo", "auto (0)", INT),
+            (ParamKey::BkgClampHi, "clamp hi", "auto (1)", INT),
+            (ParamKey::BkgDk, "window dk", "auto (0.1)", FLOAT),
+            (ParamKey::BkgNfft, "nfft", "auto (2048)", INT),
+            (ParamKey::FftKmin, "k min", "auto (2)", FLOAT),
+            (ParamKey::FftKmax, "k max", "auto (15)", FLOAT),
+            (ParamKey::FftDk, "dk", "auto (1)", FLOAT),
+            (ParamKey::FftKweight, "k-weight", "auto (2)", FLOAT),
+            (ParamKey::FftDk2, "dk2", "auto", FLOAT),
+            (ParamKey::FftRmax, "R max out", "auto (10)", FLOAT),
+            (ParamKey::FftKstep, "k step", "auto", FLOAT),
+            (ParamKey::FftNfft, "nfft", "auto (2048)", INT),
         ];
         specs
             .into_iter()
-            .map(|(key, label, placeholder)| {
-                let field = cx.new(|cx| NumericField::new(label, placeholder, None, theme, cx));
-                cx.subscribe(&field, move |this: &mut Self, _field, event, cx| {
-                    let FieldEvent::Changed(value) = event;
-                    this.apply_param(key, *value, cx);
-                })
+            .map(|(key, label, placeholder, kind)| {
+                let field =
+                    cx.new(|cx| NumericField::new(label, placeholder, None, kind, theme, cx));
+                cx.subscribe(
+                    &field,
+                    move |this: &mut Self, _field, event, cx| match event {
+                        FieldEvent::Changed(value) => this.apply_param(key, *value, cx),
+                        FieldEvent::Invalid(message) => {
+                            this.status = message.clone();
+                            cx.notify();
+                        }
+                    },
+                )
                 .detach();
                 (key, field)
             })
@@ -1839,9 +1881,205 @@ impl StudioApp {
         .detach();
     }
 
+    /// Open a folder: restore the persisted index instantly when one exists
+    /// (doc: "reopening a million-file project is < 1 s"), falling back to a
+    /// streaming walk. Either way the tree is (re)walked in the background —
+    /// as the primary scan or as the freshness re-check.
     fn scan_folder(&mut self, root: PathBuf, cx: &mut Context<Self>) {
         self.reset_catalog_state(cx);
         self.source_dir = Some(root.clone());
+        match index_cache_path(&root).filter(|p| p.exists()) {
+            Some(index_path) => self.load_catalog_index(root, index_path, cx),
+            None => self.start_live_scan(root, cx),
+        }
+    }
+
+    /// Restore the catalog from its persisted index on the background
+    /// executor, then start the freshness re-walk. Falls back to a live scan
+    /// if the file is stale/corrupt.
+    fn load_catalog_index(&mut self, root: PathBuf, index_path: PathBuf, cx: &mut Context<Self>) {
+        let catalog_gen = self.catalog_gen;
+        self.status = format!("loading index for {} ...", root.display()).into();
+        let job = cx.background_executor().spawn({
+            let root = root.clone();
+            async move { load_index(&index_path, &root) }
+        });
+        cx.spawn(async move |this, cx| {
+            let result = job.await;
+            this.update(cx, |app, cx| {
+                if app.catalog_gen != catalog_gen {
+                    return;
+                }
+                match result {
+                    Ok(catalog) => {
+                        let total = catalog.len();
+                        app.catalog = catalog;
+                        app.status =
+                            format!("index loaded · {total} files · checking for changes ...")
+                                .into();
+                        if total > 0 && app.selected.is_none() {
+                            app.select_entry(0, cx);
+                        }
+                        if !app.filter_text.is_empty() {
+                            app.apply_filter(cx);
+                        }
+                        app.start_verify_scan(root, cx);
+                    }
+                    Err(e) => {
+                        app.record_job_error("catalog index", e);
+                        app.start_live_scan(root, cx);
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Freshness re-check behind a restored index: walk the tree into a
+    /// shadow catalog off the live one, then reconcile — identical walks are
+    /// a no-op, otherwise the fresh catalog replaces the stale index.
+    fn start_verify_scan(&mut self, root: PathBuf, cx: &mut Context<Self>) {
+        self.verify_running = true;
+        let catalog_gen = self.catalog_gen;
+        let mut rx = start_scan(root.clone());
+        cx.spawn(async move |this, cx| {
+            let mut shadow = Catalog::default();
+            loop {
+                let Some(event) = rx.next().await else {
+                    return; // scanner died without Done; keep the loaded index
+                };
+                let superseded = this
+                    .update(cx, |app, _| app.catalog_gen != catalog_gen)
+                    .unwrap_or(true);
+                if superseded {
+                    return;
+                }
+                match event {
+                    ScanEvent::Batch(batch) => shadow.extend(batch),
+                    ScanEvent::Done { .. } => break,
+                    ScanEvent::Error(e) => {
+                        this.update(cx, |app, cx| {
+                            app.verify_running = false;
+                            app.record_job_error("index freshness check", e);
+                            cx.notify();
+                        })
+                        .ok();
+                        return;
+                    }
+                }
+            }
+            let Ok(Some(live_parts)) = this.update(cx, |app, _| {
+                (app.catalog_gen == catalog_gen).then(|| app.catalog.index_parts())
+            }) else {
+                return;
+            };
+            // Million-entry comparison stays off the UI thread.
+            let compare = cx.background_executor().spawn(async move {
+                let unchanged = live_parts.same_index(&shadow.index_parts());
+                (unchanged, shadow)
+            });
+            let (unchanged, shadow) = compare.await;
+            this.update(cx, |app, cx| {
+                if app.catalog_gen != catalog_gen {
+                    return;
+                }
+                app.verify_running = false;
+                if unchanged {
+                    app.status = format!("index verified · {} files", app.catalog.len()).into();
+                } else {
+                    let before = app.catalog.len();
+                    app.install_refreshed_catalog(shadow, cx);
+                    app.status = format!(
+                        "index refreshed · {} files (was {before})",
+                        app.catalog.len()
+                    )
+                    .into();
+                    app.persist_catalog_index(cx);
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Swap in a freshly walked catalog after the index diverged. Everything
+    /// keyed by catalog indices is invalidated; the active spectrum is
+    /// re-located by path so the plots keep their subject when it survived.
+    fn install_refreshed_catalog(&mut self, catalog: Catalog, cx: &mut Context<Self>) {
+        self.generation += 1;
+        self.compare_gen += 1;
+        self.operando_gen += 1;
+        self.batch_gen += 1;
+        self.merge_gen += 1;
+        for cancel in [
+            self.operando_cancel.take(),
+            self.batch_cancel.take(),
+            self.merge_cancel.take(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            cancel.store(true, Ordering::Relaxed);
+        }
+        self.load_running = false;
+        self.compare_running = false;
+        self.merge_running = false;
+        self.operando_running = false;
+        self.batch_running = false;
+        self.catalog = catalog;
+        self.selection.clear();
+        self.cache.clear();
+        self.expanded_scan = None;
+        self.active_scan = None;
+        self.operando = None;
+        self.operando_plots = None;
+        self.time_pos = 0;
+        self.pending_time_pos = None;
+        self.batch_fit = None;
+        self.selected = (!self.current_path.as_os_str().is_empty())
+            .then(|| (0..self.catalog.len()).find(|&ix| self.catalog.path(ix) == self.current_path))
+            .flatten();
+        if !self.filter_text.is_empty() {
+            self.apply_filter(cx);
+        } else {
+            self.filtered = None;
+        }
+        cx.notify();
+    }
+
+    /// Persist the current catalog as the folder's index file (background;
+    /// write errors land in the error center, success is silent).
+    fn persist_catalog_index(&mut self, cx: &mut Context<Self>) {
+        let Some(root) = self.source_dir.clone() else {
+            return;
+        };
+        let Some(path) = index_cache_path(&root) else {
+            return;
+        };
+        if self.catalog.is_empty() {
+            // nothing to restore next time; drop any stale index
+            let _ = std::fs::remove_file(&path);
+            return;
+        }
+        let parts = self.catalog.index_parts();
+        let job = cx
+            .background_executor()
+            .spawn(async move { write_index(&path, &root, &parts) });
+        cx.spawn(async move |this, cx| {
+            if let Err(e) = job.await {
+                this.update(cx, |app, _| app.record_job_error("catalog index write", e))
+                    .ok();
+            }
+        })
+        .detach();
+    }
+
+    /// Full streaming walk into the live catalog (first open of a folder, or
+    /// the fallback when no valid index exists).
+    fn start_live_scan(&mut self, root: PathBuf, cx: &mut Context<Self>) {
         self.catalog.scanning = true;
         self.status = format!("scanning {} ...", root.display()).into();
         let catalog_gen = self.catalog_gen;
@@ -1876,6 +2114,7 @@ impl StudioApp {
                         ScanEvent::Done { total } => {
                             app.catalog.scanning = false;
                             app.status = format!("indexed {total} files").into();
+                            app.persist_catalog_index(cx);
                             if !app.filter_text.is_empty() {
                                 app.apply_filter(cx);
                             }
@@ -2260,9 +2499,18 @@ impl StudioApp {
         specs
             .into_iter()
             .map(|(key, label, value)| {
-                let field = cx.new(|cx| NumericField::new(label, "", Some(value), theme, cx));
+                let field = cx.new(|cx| {
+                    NumericField::new(label, "", Some(value), FieldKind::Float, theme, cx)
+                });
                 cx.subscribe(&field, move |this: &mut Self, _field, event, cx| {
-                    let FieldEvent::Changed(value) = event;
+                    let value = match event {
+                        FieldEvent::Changed(value) => value,
+                        FieldEvent::Invalid(message) => {
+                            this.status = message.clone();
+                            cx.notify();
+                            return;
+                        }
+                    };
                     if let Some(v) = value {
                         let r = &mut this.fit_ranges;
                         match key {
@@ -5624,7 +5872,7 @@ impl StudioApp {
                 .py_2()
                 .text_xs()
                 .text_color(t.text_muted)
-                .child("Enter commits · empty = auto"),
+                .child("Enter/Tab/blur commits · empty = auto"),
         );
 
         div()

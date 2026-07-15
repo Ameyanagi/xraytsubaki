@@ -1,7 +1,10 @@
 //! Single-line text input widget, adapted from gpui's examples/input.rs
-//! (gpui 0.2.2). Emits [`InputEvent::Committed`] on Enter and
-//! [`InputEvent::Edited`] on every user-initiated content change;
-//! [`text_input_keybindings`] must be registered with `cx.bind_keys` at startup.
+//! (gpui 0.2.2). Emits [`InputEvent::Committed`] on Enter and on focus loss
+//! (doc: "Numeric fields commit on Enter/blur") and [`InputEvent::Edited`]
+//! on every user-initiated content change. Every input is a tab stop, so
+//! Tab / shift-Tab commit and walk the rendered inputs in document order.
+//! [`text_input_keybindings`] must be registered with `cx.bind_keys` at
+//! startup.
 
 use std::ops::Range;
 
@@ -28,11 +31,16 @@ actions!(
         SelectAll,
         Home,
         End,
+        WordLeft,
+        WordRight,
+        DeleteToStart,
         ShowCharacterPalette,
         Paste,
         Cut,
         Copy,
         Commit,
+        NextField,
+        PrevField,
     ]
 );
 
@@ -51,13 +59,21 @@ pub fn text_input_keybindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-x", Cut, None),
         KeyBinding::new("home", Home, None),
         KeyBinding::new("end", End, None),
+        // standard macOS line/word gestures
+        KeyBinding::new("cmd-left", Home, None),
+        KeyBinding::new("cmd-right", End, None),
+        KeyBinding::new("alt-left", WordLeft, None),
+        KeyBinding::new("alt-right", WordRight, None),
+        KeyBinding::new("cmd-backspace", DeleteToStart, None),
         KeyBinding::new("ctrl-cmd-space", ShowCharacterPalette, None),
         KeyBinding::new("enter", Commit, None),
+        KeyBinding::new("tab", NextField, None),
+        KeyBinding::new("shift-tab", PrevField, None),
     ]
 }
 
 pub enum InputEvent {
-    /// Enter pressed: the current text.
+    /// Enter pressed or focus lost: the current text.
     Committed(SharedString),
     /// User edit (typing/backspace/paste/IME): the current text.
     /// Programmatic `set_text` deliberately does not emit, so subscribers
@@ -78,6 +94,12 @@ pub struct TextInput {
     last_layout: Option<ShapedLine>,
     last_bounds: Option<Bounds<Pixels>>,
     is_selecting: bool,
+    /// Border flashes in the error color while set (rejected input).
+    error: bool,
+    /// Focus state seen by the previous render; a true→false transition is
+    /// a blur, which commits like Enter. (Focus changes always redraw the
+    /// window, so render observes every transition.)
+    was_focused: bool,
 }
 
 impl TextInput {
@@ -88,7 +110,8 @@ impl TextInput {
         cx: &mut Context<Self>,
     ) -> Self {
         Self {
-            focus_handle: cx.focus_handle(),
+            // equal tab_index everywhere -> Tab follows document order
+            focus_handle: cx.focus_handle().tab_index(0).tab_stop(true),
             content: initial.into(),
             placeholder: placeholder.into(),
             theme,
@@ -98,6 +121,8 @@ impl TextInput {
             last_layout: None,
             last_bounds: None,
             is_selecting: false,
+            error: false,
+            was_focused: false,
         }
     }
 
@@ -126,8 +151,30 @@ impl TextInput {
         cx.notify();
     }
 
+    /// Flash (or clear) the rejected-input border.
+    pub fn set_error(&mut self, error: bool, cx: &mut Context<Self>) {
+        if self.error != error {
+            self.error = error;
+            cx.notify();
+        }
+    }
+
     fn commit(&mut self, _: &Commit, _window: &mut Window, cx: &mut Context<Self>) {
         cx.emit(InputEvent::Committed(self.content.clone()));
+    }
+
+    /// Tab: commit, then let the window's tab-stop ring pick the next input.
+    /// Every TextInput is a tab stop (equal index, so document order — the
+    /// context panel renders fields in pipeline order); hidden fields are
+    /// not painted and therefore skipped.
+    fn next_field(&mut self, _: &NextField, window: &mut Window, cx: &mut Context<Self>) {
+        cx.emit(InputEvent::Committed(self.content.clone()));
+        window.focus_next(cx);
+    }
+
+    fn prev_field(&mut self, _: &PrevField, window: &mut Window, cx: &mut Context<Self>) {
+        cx.emit(InputEvent::Committed(self.content.clone()));
+        window.focus_prev(cx);
     }
     fn left(&mut self, _: &Left, _: &mut Window, cx: &mut Context<Self>) {
         if self.selected_range.is_empty() {
@@ -166,6 +213,23 @@ impl TextInput {
         self.move_to(self.content.len(), cx);
     }
 
+    fn word_left(&mut self, _: &WordLeft, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_to(self.previous_word_boundary(self.cursor_offset()), cx);
+    }
+
+    fn word_right(&mut self, _: &WordRight, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_to(self.next_word_boundary(self.cursor_offset()), cx);
+    }
+
+    fn delete_to_start(&mut self, _: &DeleteToStart, window: &mut Window, cx: &mut Context<Self>) {
+        let end = self.selected_range.end;
+        if end == 0 {
+            return;
+        }
+        self.selected_range = 0..end;
+        self.replace_text_in_range(None, "", window, cx)
+    }
+
     fn backspace(&mut self, _: &Backspace, window: &mut Window, cx: &mut Context<Self>) {
         if self.selected_range.is_empty() {
             let prev = self.previous_boundary(self.cursor_offset());
@@ -195,11 +259,40 @@ impl TextInput {
         cx: &mut Context<Self>,
     ) {
         self.is_selecting = true;
+        let index = self.index_for_mouse_position(event.position);
 
         if event.modifiers.shift {
-            self.select_to(self.index_for_mouse_position(event.position), cx);
+            self.select_to(index, cx);
+        } else if event.click_count >= 3 {
+            self.selected_range = 0..self.content.len();
+            cx.notify();
+        } else if event.click_count == 2 {
+            self.select_word_at(index, cx);
         } else {
-            self.move_to(self.index_for_mouse_position(event.position), cx)
+            self.move_to(index, cx)
+        }
+    }
+
+    /// Double-click: select the word-bound segment under `offset` (the last
+    /// segment when the click lands past the end of the text).
+    fn select_word_at(&mut self, offset: usize, cx: &mut Context<Self>) {
+        let segment = self
+            .content
+            .split_word_bound_indices()
+            .map(|(start, word)| start..start + word.len())
+            .find(|range| range.contains(&offset) || offset < range.end)
+            .or_else(|| {
+                self.content
+                    .split_word_bound_indices()
+                    .next_back()
+                    .map(|(start, word)| start..start + word.len())
+            });
+        if let Some(range) = segment {
+            self.selected_range = range;
+            self.selection_reversed = false;
+            cx.notify();
+        } else {
+            self.move_to(offset, cx);
         }
     }
 
@@ -338,6 +431,26 @@ impl TextInput {
         self.content
             .grapheme_indices(true)
             .find_map(|(idx, _)| (idx > offset).then_some(idx))
+            .unwrap_or(self.content.len())
+    }
+
+    /// Start of the word before `offset` (alt-left semantics).
+    fn previous_word_boundary(&self, offset: usize) -> usize {
+        self.content
+            .unicode_word_indices()
+            .rev()
+            .find_map(|(idx, _)| (idx < offset).then_some(idx))
+            .unwrap_or(0)
+    }
+
+    /// End of the word after `offset` (alt-right semantics).
+    fn next_word_boundary(&self, offset: usize) -> usize {
+        self.content
+            .unicode_word_indices()
+            .find_map(|(idx, word)| {
+                let end = idx + word.len();
+                (end > offset).then_some(end)
+            })
             .unwrap_or(self.content.len())
     }
 
@@ -674,6 +787,11 @@ impl Render for TextInput {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = self.theme;
         let focused = self.focus_handle.is_focused(window);
+        if self.was_focused && !focused {
+            // blur commits exactly like Enter (doc: "commit on Enter/blur")
+            cx.emit(InputEvent::Committed(self.content.clone()));
+        }
+        self.was_focused = focused;
         div()
             .flex()
             .key_context("TextInput")
@@ -688,11 +806,16 @@ impl Render for TextInput {
             .on_action(cx.listener(Self::select_all))
             .on_action(cx.listener(Self::home))
             .on_action(cx.listener(Self::end))
+            .on_action(cx.listener(Self::word_left))
+            .on_action(cx.listener(Self::word_right))
+            .on_action(cx.listener(Self::delete_to_start))
             .on_action(cx.listener(Self::show_character_palette))
             .on_action(cx.listener(Self::paste))
             .on_action(cx.listener(Self::cut))
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::commit))
+            .on_action(cx.listener(Self::next_field))
+            .on_action(cx.listener(Self::prev_field))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
@@ -701,7 +824,13 @@ impl Render for TextInput {
             .rounded_sm()
             .bg(t.bg)
             .border_1()
-            .border_color(if focused { t.accent } else { t.border })
+            .border_color(if self.error {
+                t.error
+            } else if focused {
+                t.accent
+            } else {
+                t.border
+            })
             .text_color(t.text)
             .line_height(px(18.))
             .text_size(px(12.))

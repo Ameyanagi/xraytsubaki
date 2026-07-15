@@ -1,6 +1,7 @@
 //! Project persistence (.xtproj): JSON capturing the data source, pipeline
 //! parameters, and fit model so a session can be reopened. Catalog contents
-//! are re-scanned on load (indexing is fast); processed data is recomputed
+//! restore from the per-user index cache (see `catalog::index_cache_path`)
+//! with a background freshness re-walk; processed data is recomputed
 //! through the fingerprint cache.
 
 use std::path::{Path, PathBuf};

@@ -4436,6 +4436,9 @@ impl StudioApp {
         div()
             .w(px(48.))
             .h_full()
+            .min_h_0()
+            .min_w_0()
+            .flex_none()
             .flex()
             .flex_col()
             .items_center()
@@ -4519,6 +4522,7 @@ impl StudioApp {
         })
         .track_scroll(&self.file_scroll)
         .flex_1()
+        .min_h_0()
     }
 
     fn scan_list(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -4654,6 +4658,7 @@ impl StudioApp {
         })
         .track_scroll(&self.scan_scroll)
         .flex_1()
+        .min_h_0()
     }
 
     fn data_tab_button(
@@ -4730,6 +4735,9 @@ impl StudioApp {
             )
             .w(px(220.))
             .h_full()
+            .min_h_0()
+            .min_w_0()
+            .flex_none()
             .flex()
             .flex_col()
             .bg(t.surface)
@@ -4943,6 +4951,8 @@ impl StudioApp {
         let maximized = self.maximized == Some(index);
         div()
             .flex_1()
+            .min_h_0()
+            .min_w_0()
             .m_1()
             .flex()
             .flex_col()
@@ -5081,7 +5091,7 @@ impl StudioApp {
                 }
                 header
             })
-            .child(div().flex_1().p_1().child(plot.clone()))
+            .child(div().flex_1().min_h_0().min_w_0().p_1().child(plot.clone()))
     }
 
     fn view_chip(
@@ -5151,6 +5161,7 @@ impl StudioApp {
         let t = self.theme;
         let waterfall = self.view.layout == TraceLayout::Waterfall;
         let mut row = div()
+            .min_w_0()
             .px_2()
             .py_1()
             .flex()
@@ -5201,7 +5212,6 @@ impl StudioApp {
             .px_2()
             .py_1()
             .flex()
-            .flex_wrap()
             .items_center()
             .gap_3()
             .text_xs()
@@ -5209,6 +5219,7 @@ impl StudioApp {
         for (label, color) in &self.legend_entries {
             row = row.child(
                 div()
+                    .flex_none()
                     .flex()
                     .items_center()
                     .gap_1()
@@ -5216,7 +5227,12 @@ impl StudioApp {
                     .child(label.clone()),
             );
         }
-        row
+        div()
+            .id("legend-strip-horizontal")
+            .w_full()
+            .min_w_0()
+            .overflow_x_scroll()
+            .child(row)
     }
 
     fn explore_center(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -5224,6 +5240,8 @@ impl StudioApp {
         if self.quadrants.len() != 4 {
             return div()
                 .flex_1()
+                .min_h_0()
+                .min_w_0()
                 .flex()
                 .items_center()
                 .justify_center()
@@ -5233,20 +5251,33 @@ impl StudioApp {
         if let Some(index) = self.maximized {
             return div()
                 .flex_1()
+                .min_h_0()
+                .min_w_0()
                 .flex()
                 .flex_col()
                 .child(self.view_options_row(cx))
-                .child(div().flex_1().flex().child(self.quadrant(index, cx)));
+                .child(
+                    div()
+                        .flex_1()
+                        .min_h_0()
+                        .min_w_0()
+                        .flex()
+                        .child(self.quadrant(index, cx)),
+                );
         }
         let show_strip = self.view.legend && !self.legend_entries.is_empty();
         div()
             .flex_1()
+            .min_h_0()
+            .min_w_0()
             .flex()
             .flex_col()
             .child(self.view_options_row(cx))
             .child(
                 div()
                     .flex_1()
+                    .min_h_0()
+                    .min_w_0()
                     .flex()
                     .child(self.quadrant(0, cx))
                     .child(self.quadrant(1, cx)),
@@ -5254,6 +5285,8 @@ impl StudioApp {
             .child(
                 div()
                     .flex_1()
+                    .min_h_0()
+                    .min_w_0()
                     .flex()
                     .child(self.quadrant(2, cx))
                     .child(self.quadrant(3, cx)),
@@ -5362,6 +5395,8 @@ impl StudioApp {
             };
             return div()
                 .flex_1()
+                .min_h_0()
+                .min_w_0()
                 .flex()
                 .items_center()
                 .justify_center()
@@ -5414,11 +5449,14 @@ impl StudioApp {
                 this.set_time_pos(last, cx);
             }))
             .flex_1()
+            .min_h_0()
+            .min_w_0()
             .flex()
             .child(
                 // Left: heatmap overview + scrubber.
                 div()
                     .flex_1()
+                    .min_h_0()
                     .min_w_0()
                     .m_1()
                     .flex()
@@ -5439,6 +5477,8 @@ impl StudioApp {
                         div()
                             .relative()
                             .flex_1()
+                            .min_h_0()
+                            .min_w_0()
                             .p_1()
                             .child(plots.heatmap.clone())
                             .child(self.heatmap_cursor_overlay(cx)),
@@ -5457,12 +5497,15 @@ impl StudioApp {
                 // Right: frame chi(k) + E0 trend.
                 div()
                     .flex_1()
+                    .min_h_0()
                     .min_w_0()
                     .flex()
                     .flex_col()
                     .child(
                         div()
                             .flex_1()
+                            .min_h_0()
+                            .min_w_0()
                             .m_1()
                             .flex()
                             .flex_col()
@@ -5478,11 +5521,20 @@ impl StudioApp {
                                     .text_color(t.text_muted)
                                     .child(chik_header),
                             )
-                            .child(div().flex_1().p_1().child(plots.chik.clone())),
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_h_0()
+                                    .min_w_0()
+                                    .p_1()
+                                    .child(plots.chik.clone()),
+                            ),
                     )
                     .child(
                         div()
                             .flex_1()
+                            .min_h_0()
+                            .min_w_0()
                             .m_1()
                             .flex()
                             .flex_col()
@@ -5498,7 +5550,14 @@ impl StudioApp {
                                     .text_color(t.text_muted)
                                     .child(trend_header),
                             )
-                            .child(div().flex_1().p_1().child(plots.trend.clone())),
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_h_0()
+                                    .min_w_0()
+                                    .p_1()
+                                    .child(plots.trend.clone()),
+                            ),
                     ),
             )
             .into_any_element()
@@ -5635,8 +5694,10 @@ impl StudioApp {
         .flex_1()
         .min_h_0();
         div()
-            .h(px(260.))
-            .min_h(px(160.))
+            .flex_1()
+            .min_h(px(120.))
+            .max_h(px(260.))
+            .min_w_0()
             .m_1()
             .flex()
             .flex_col()
@@ -5671,11 +5732,13 @@ impl StudioApp {
                     .id("batch-results-horizontal")
                     .flex_1()
                     .min_h_0()
+                    .min_w_0()
                     .overflow_x_scroll()
                     .child(
                         div()
                             .min_w(table_width)
                             .h_full()
+                            .min_h_0()
                             .flex()
                             .flex_col()
                             .child(header)
@@ -5696,6 +5759,8 @@ impl StudioApp {
             };
             return div()
                 .flex_1()
+                .min_h_0()
+                .min_w_0()
                 .flex()
                 .items_center()
                 .justify_center()
@@ -5705,6 +5770,8 @@ impl StudioApp {
         }
         let card = |title: SharedString, plot: Entity<RuvizPlot>| {
             div()
+                .min_h_0()
+                .min_w_0()
                 .flex()
                 .flex_col()
                 .rounded_md()
@@ -5719,7 +5786,7 @@ impl StudioApp {
                         .text_color(t.text_muted)
                         .child(title),
                 )
-                .child(div().flex_1().p_1().child(plot))
+                .child(div().flex_1().min_h_0().min_w_0().p_1().child(plot))
         };
         // Data-vs-model overlay with a residual strip beneath (doc: Fit
         // workspace "below, a residual strip").
@@ -5727,14 +5794,21 @@ impl StudioApp {
             div()
                 .flex_1()
                 .min_h_0()
+                .min_w_0()
                 .m_1()
                 .flex()
                 .flex_col()
                 .gap_1()
-                .child(card(title, main).flex_1().min_h_0())
-                .child(card("residual".into(), residual).h(px(140.)))
+                .child(card(title, main).flex_1().min_h_0().min_w_0())
+                .child(
+                    card("residual".into(), residual)
+                        .flex_1()
+                        .min_h(px(80.))
+                        .max_h(px(140.))
+                        .min_w_0(),
+                )
         };
-        let mut center = div().flex_1().min_h_0().flex().flex_col();
+        let mut center = div().flex_1().min_h_0().min_w_0().flex().flex_col();
         if let Some(provenance) = &self.fit_provenance {
             let stale = self.fit_is_stale();
             let badge: SharedString = if stale {
@@ -5765,6 +5839,7 @@ impl StudioApp {
                 div()
                     .flex_1()
                     .min_h_0()
+                    .min_w_0()
                     .flex()
                     .child(column(
                         "fit in k-space".into(),
@@ -5838,6 +5913,7 @@ impl StudioApp {
             .id("fit-scroll")
             .flex_1()
             .min_h_0()
+            .min_w_0()
             .flex()
             .flex_col()
             .overflow_y_scroll();
@@ -5927,12 +6003,21 @@ impl StudioApp {
                             }))
                             .child(
                                 div()
+                                    .flex_none()
                                     .text_sm()
                                     .text_color(if enabled { t.text } else { t.text_muted })
                                     .child(label),
                             )
                             .child(div().flex_1())
-                            .child(div().text_xs().text_color(t.text_muted).child(meta_line)),
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
+                                    .text_xs()
+                                    .text_color(t.text_muted)
+                                    .child(meta_line),
+                            ),
                     ),
             );
             if expanded {
@@ -6392,6 +6477,9 @@ impl StudioApp {
         div()
             .w(px(260.))
             .h_full()
+            .min_h_0()
+            .min_w_0()
+            .flex_none()
             .flex()
             .flex_col()
             .bg(t.surface)
@@ -6430,6 +6518,7 @@ impl StudioApp {
             .id("params-scroll")
             .flex_1()
             .min_h_0()
+            .min_w_0()
             .flex()
             .flex_col()
             .overflow_y_scroll();
@@ -6542,6 +6631,7 @@ impl StudioApp {
             // The preview stays compact but shows enough real rows to verify
             // delimiter/header detection and the role assignments at a glance.
             if let Some(preview) = &self.import_preview {
+                let table_width = px(preview.column_count as f32 * 72.);
                 let header_status = if preview.names.is_some() {
                     "header names found"
                 } else {
@@ -6611,6 +6701,7 @@ impl StudioApp {
                     );
                 }
                 let mut table = div()
+                    .min_w(table_width)
                     .mb_1()
                     .border_1()
                     .border_color(t.border)
@@ -6639,6 +6730,7 @@ impl StudioApp {
                     div()
                         .id("import-preview-horizontal")
                         .mx_3()
+                        .min_w_0()
                         .overflow_x_scroll()
                         .child(table),
                 );
@@ -7034,6 +7126,9 @@ impl StudioApp {
         div()
             .w(px(260.))
             .h_full()
+            .min_h_0()
+            .min_w_0()
+            .flex_none()
             .flex()
             .flex_col()
             .bg(t.surface)
@@ -7056,6 +7151,7 @@ impl StudioApp {
             .id("recent-problems-list")
             .flex_1()
             .min_h_0()
+            .min_w_0()
             .overflow_y_scroll();
         for error in self.job_errors.iter().rev() {
             list = list.child(
@@ -7080,6 +7176,9 @@ impl StudioApp {
         div()
             .h(px(180.))
             .w_full()
+            .min_h_0()
+            .min_w_0()
+            .flex_none()
             .flex()
             .flex_col()
             .bg(t.surface)
@@ -7129,6 +7228,8 @@ impl StudioApp {
         let mut bar = div()
             .h(px(28.))
             .w_full()
+            .min_w_0()
+            .flex_none()
             .flex()
             .items_center()
             .px_3()
@@ -7138,7 +7239,14 @@ impl StudioApp {
             .border_color(t.border)
             .text_xs()
             .text_color(t.text_muted)
-            .child(div().flex_1().child(self.status.clone()))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .child(self.status.clone()),
+            )
             .child(format!("jobs:{jobs}"))
             .child(format!(
                 "cache:{}/{}",
@@ -7296,6 +7404,8 @@ impl Render for StudioApp {
                 }),
             )
             .size_full()
+            .min_h_0()
+            .min_w_0()
             .flex()
             .flex_col()
             .bg(t.bg)
@@ -7303,10 +7413,20 @@ impl Render for StudioApp {
             .child(
                 div()
                     .flex_1()
+                    .min_h_0()
+                    .min_w_0()
                     .flex()
                     .child(self.icon_rail(cx))
                     .children(data_panel)
-                    .child(div().flex_1().flex().flex_col().child(center))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_h_0()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .child(center),
+                    )
                     .children(context_panel),
             )
             .children(

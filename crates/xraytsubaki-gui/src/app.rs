@@ -418,6 +418,7 @@ enum BatchFitEvent {
 struct BatchFitData {
     scan: usize,
     fingerprint: u64,
+    model_fingerprint: u64,
     rows: Vec<BatchFitRow>,
     /// File labels captured when the batch scope was created, keyed by the
     /// true frame offset within the scan. Export never consults a later scan.
@@ -477,6 +478,8 @@ pub struct StudioApp {
     context_panel_open: bool,
     catalog: Catalog,
     source_dir: Option<PathBuf>,
+    /// Cache location resolved alongside root canonicalization off the UI thread.
+    catalog_index_path: Option<PathBuf>,
     /// Supersedes receivers from earlier folder scans.
     catalog_gen: u64,
     /// Background freshness re-walk behind a restored catalog index.
@@ -563,7 +566,7 @@ pub struct StudioApp {
     feff_running: bool,
     feff_gen: u64,
     feff_form: Vec<(FeffFormKey, Entity<TextInput>)>,
-    /// Batch-fit rows for (scan, params fingerprint) + progress counter.
+    /// Batch-fit rows with scan-parameter and fit-model provenance.
     batch_fit: Option<BatchFitData>,
     /// False is the default full-scan scope; true opts into the overview sample.
     batch_preview: bool,
@@ -632,6 +635,22 @@ fn nearest_sample_pos(full_pos: usize, full_len: usize, sample_len: usize) -> us
     ((numerator + denominator / 2) / denominator) as usize
 }
 
+/// Resolve a virtualized file row defensively. A stale filtered index must
+/// never be allowed to address a newly reconciled, shorter catalog.
+fn catalog_row_index(filtered: Option<&[usize]>, row: usize, catalog_len: usize) -> Option<usize> {
+    let ix = match filtered {
+        Some(filtered) => filtered.get(row).copied()?,
+        None => row,
+    };
+    (ix < catalog_len).then_some(ix)
+}
+
+fn scan_entry_offset(scan_start: usize, scan_len: usize, entry: usize) -> Option<usize> {
+    entry
+        .checked_sub(scan_start)
+        .filter(|&offset| offset < scan_len)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ScanListRow {
     Header(usize),
@@ -666,7 +685,10 @@ fn scan_list_row(
 
 #[cfg(test)]
 mod thin_tests {
-    use super::{ScanListRow, nearest_sample_pos, scan_list_row, thin_even};
+    use super::{
+        ScanListRow, catalog_row_index, nearest_sample_pos, scan_entry_offset, scan_list_row,
+        thin_even,
+    };
 
     #[test]
     fn small_sets_pass_through() {
@@ -707,6 +729,22 @@ mod thin_tests {
         );
         assert_eq!(scan_list_row(5, 3, expanded), Some(ScanListRow::Header(2)));
         assert_eq!(scan_list_row(6, 3, expanded), None);
+    }
+
+    #[test]
+    fn reconciled_catalog_rejects_stale_filtered_indices() {
+        let stale = [0, 4, 9];
+        assert_eq!(catalog_row_index(Some(&stale), 0, 2), Some(0));
+        assert_eq!(catalog_row_index(Some(&stale), 1, 2), None);
+        assert_eq!(catalog_row_index(Some(&stale), 3, 2), None);
+    }
+
+    #[test]
+    fn scan_members_map_to_cursor_offsets() {
+        assert_eq!(scan_entry_offset(40, 5, 40), Some(0));
+        assert_eq!(scan_entry_offset(40, 5, 44), Some(4));
+        assert_eq!(scan_entry_offset(40, 5, 39), None);
+        assert_eq!(scan_entry_offset(40, 5, 45), None);
     }
 }
 
@@ -974,6 +1012,7 @@ impl StudioApp {
             context_panel_open: true,
             catalog: Catalog::default(),
             source_dir: None,
+            catalog_index_path: None,
             catalog_gen: 0,
             verify_running: false,
             selected: None,
@@ -1349,6 +1388,12 @@ impl StudioApp {
             || provenance.model_fingerprint != self.fit_model_fingerprint()
     }
 
+    fn batch_fit_is_stale(&self) -> bool {
+        self.batch_fit
+            .as_ref()
+            .is_some_and(|batch| batch.model_fingerprint != self.fit_model_fingerprint())
+    }
+
     /// Reset every state that is indexed by the current catalog before a new
     /// folder starts streaming. Generation bumps also make old async arrivals
     /// harmless while their receivers/workers wind down.
@@ -1369,6 +1414,7 @@ impl StudioApp {
             cancel.store(true, Ordering::Relaxed);
         }
         self.catalog = Catalog::default();
+        self.catalog_index_path = None;
         self.verify_running = false;
         self.load_running = false;
         self.compare_running = false;
@@ -1963,19 +2009,32 @@ impl StudioApp {
     }
 
     fn set_time_pos(&mut self, pos: usize, cx: &mut Context<Self>) {
-        let Some(data) = &self.operando else {
+        let Some((scan_ix, ix)) = self.update_operando_cursor(pos, cx) else {
             return;
         };
-        let Some(scan) = self.catalog.scans.get(data.scan) else {
-            return;
-        };
+        if self.selected != Some(ix) {
+            self.sync_time_selection(scan_ix, cx);
+        }
+        cx.notify();
+    }
+
+    /// Update only the operando cursor and its cursor-dependent plots. The
+    /// caller decides whether selection also needs changing, preventing the
+    /// two synchronization directions from recursively selecting each other.
+    fn update_operando_cursor(
+        &mut self,
+        pos: usize,
+        cx: &mut Context<Self>,
+    ) -> Option<(usize, usize)> {
+        let data = self.operando.as_ref()?;
+        let scan = self.catalog.scans.get(data.scan)?;
         let scan_ix = data.scan;
         let scan_start = scan.start;
         let scan_len = scan.len;
         let pos = pos.min(scan_len.saturating_sub(1));
         let ix = scan_start + pos;
-        if pos == self.time_pos && self.selected == Some(ix) {
-            return;
+        if pos == self.time_pos {
+            return Some((scan_ix, ix));
         }
         self.time_pos = pos;
         let sample_pos = nearest_sample_pos(pos, scan_len, data.matrix.len());
@@ -1997,8 +2056,25 @@ impl StudioApp {
             set_plot_keep_view(&plots.trend, trend, cx);
         }
         self.status = format!("frame {}/{} · {}", pos + 1, scan_len, self.catalog.name(ix)).into();
-        self.sync_time_selection(scan_ix, cx);
-        cx.notify();
+        Some((scan_ix, ix))
+    }
+
+    /// Selection-to-cursor half of operando synchronization. This deliberately
+    /// does not select, so `set_time_pos` can safely use `select_entry` for the
+    /// opposite direction without a ping-pong loop.
+    fn sync_operando_cursor_to_entry(&mut self, ix: usize, cx: &mut Context<Self>) {
+        let Some(data) = &self.operando else {
+            return;
+        };
+        let Some(scan) = self.catalog.scans.get(data.scan) else {
+            return;
+        };
+        let Some(offset) = scan_entry_offset(scan.start, scan.len, ix) else {
+            return;
+        };
+        if offset != self.time_pos {
+            self.update_operando_cursor(offset, cx);
+        }
     }
 
     /// Route the full-resolution cursor frame through the shared lazy,
@@ -2294,10 +2370,30 @@ impl StudioApp {
     fn scan_folder(&mut self, root: PathBuf, cx: &mut Context<Self>) {
         self.reset_catalog_state(cx);
         self.source_dir = Some(root.clone());
-        match index_cache_path(&root).filter(|p| p.exists()) {
-            Some(index_path) => self.load_catalog_index(root, index_path, cx),
-            None => self.start_live_scan(root, cx),
-        }
+        self.status = format!("checking catalog index for {} ...", root.display()).into();
+        let catalog_gen = self.catalog_gen;
+        let probe_root = root.clone();
+        let probe = cx.background_executor().spawn(async move {
+            let path = index_cache_path(&probe_root);
+            let exists = path.as_ref().is_some_and(|path| path.exists());
+            (path, exists)
+        });
+        cx.spawn(async move |this, cx| {
+            let (index_path, exists) = probe.await;
+            this.update(cx, |app, cx| {
+                if app.catalog_gen != catalog_gen {
+                    return;
+                }
+                app.catalog_index_path = index_path.clone();
+                if let Some(index_path) = index_path.filter(|_| exists) {
+                    app.load_catalog_index(root, index_path, cx);
+                } else {
+                    app.start_live_scan(root, cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Restore the catalog from its persisted index on the background
@@ -2421,6 +2517,10 @@ impl StudioApp {
         self.operando_gen += 1;
         self.batch_gen += 1;
         self.merge_gen += 1;
+        // Filter results contain catalog indices. Invalidate them before the
+        // catalog swap so no render can observe old indices with new entries.
+        self.filter_gen += 1;
+        self.filtered = None;
         for cancel in [
             self.operando_cancel.take(),
             self.batch_cancel.take(),
@@ -2463,8 +2563,6 @@ impl StudioApp {
             .flatten();
         if !self.filter_text.is_empty() {
             self.apply_filter(cx);
-        } else {
-            self.filtered = None;
         }
         self.sync_param_fields(cx);
         cx.notify();
@@ -2476,18 +2574,21 @@ impl StudioApp {
         let Some(root) = self.source_dir.clone() else {
             return;
         };
-        let Some(path) = index_cache_path(&root) else {
+        let Some(path) = self.catalog_index_path.clone() else {
             return;
         };
-        if self.catalog.is_empty() {
-            // nothing to restore next time; drop any stale index
-            let _ = std::fs::remove_file(&path);
-            return;
-        }
-        let parts = self.catalog.index_parts();
-        let job = cx
-            .background_executor()
-            .spawn(async move { write_index(&path, &root, &parts) });
+        let parts = (!self.catalog.is_empty()).then(|| self.catalog.index_parts());
+        let job = cx.background_executor().spawn(async move {
+            if let Some(parts) = parts {
+                write_index(&path, &root, &parts)
+            } else {
+                match std::fs::remove_file(&path) {
+                    Ok(()) => Ok(()),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                    Err(error) => Err(error.to_string()),
+                }
+            }
+        });
         cx.spawn(async move |this, cx| {
             if let Err(e) = job.await {
                 this.update(cx, |app, _| app.record_job_error("catalog index write", e))
@@ -2872,6 +2973,7 @@ impl StudioApp {
             return;
         }
         self.selected = Some(ix);
+        self.sync_operando_cursor_to_entry(ix, cx);
         let label: SharedString = self.catalog.name(ix).to_string().into();
         let path = self.catalog.path(ix);
         self.current_path = path.clone();
@@ -3357,6 +3459,7 @@ impl StudioApp {
         let scan_start = scan.start;
         let scan_len = scan.len;
         let fingerprint = scan_fingerprint(&self.params, &self.overrides, scan_start, scan_len);
+        let model_fingerprint = self.fit_model_fingerprint();
         let preview = self.batch_preview;
         let indices = if preview {
             sample_scan_indices(scan_start, scan_len, MAX_FRAMES)
@@ -3389,6 +3492,7 @@ impl StudioApp {
         self.batch_fit = Some(BatchFitData {
             scan: scan_ix,
             fingerprint,
+            model_fingerprint,
             rows: Vec::new(),
             frame_labels,
             problems: Vec::new(),
@@ -3608,6 +3712,7 @@ impl StudioApp {
         if let (Some(bf), Some(data)) = (&self.batch_fit, &self.operando)
             && bf.scan == data.scan
             && bf.fingerprint == data.fingerprint
+            && bf.model_fingerprint == self.fit_model_fingerprint()
             && let Some(name) = bf.varying_names.get(bf.trend_param)
         {
             let scan_len = self
@@ -3642,6 +3747,7 @@ impl StudioApp {
         if let (Some(bf), Some(data)) = (&self.batch_fit, &self.operando)
             && bf.scan == data.scan
             && bf.fingerprint == data.fingerprint
+            && bf.model_fingerprint == self.fit_model_fingerprint()
             && let Some(name) = bf.varying_names.get(bf.trend_param)
         {
             return name.clone();
@@ -3692,6 +3798,12 @@ impl StudioApp {
     }
 
     fn export_batch_csv(&mut self, cx: &mut Context<Self>) {
+        if self.batch_fit_is_stale() {
+            self.status =
+                "batch results are stale — rerun with the current fit model to export".into();
+            cx.notify();
+            return;
+        }
         let Some(bf) = &self.batch_fit else {
             return;
         };
@@ -4171,11 +4283,18 @@ impl StudioApp {
         uniform_list("catalog-files", count, move |range, _window, app| {
             let mut rows = Vec::with_capacity(range.len());
             for row in range {
-                let ix = match &filtered {
-                    Some(f) => f[row],
-                    None => row,
+                let (ix, name) = {
+                    let state = entity.read(app);
+                    let Some(ix) = catalog_row_index(
+                        filtered.as_deref().map(Vec::as_slice),
+                        row,
+                        state.catalog.len(),
+                    ) else {
+                        continue;
+                    };
+                    let name: SharedString = state.catalog.name(ix).to_string().into();
+                    (ix, name)
                 };
-                let name: SharedString = entity.read(app).catalog.name(ix).to_string().into();
                 let is_active = active == Some(ix);
                 let in_set = selection.contains(&ix);
                 let entity = entity.clone();
@@ -5183,6 +5302,7 @@ impl StudioApp {
     fn batch_results_table(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
         let entity = cx.entity();
+        let stale = self.batch_fit_is_stale();
         let (count, names, summary): (usize, Vec<String>, SharedString) = self
             .batch_fit
             .as_ref()
@@ -5323,9 +5443,23 @@ impl StudioApp {
                 div()
                     .px_2()
                     .py_1()
+                    .flex()
+                    .items_center()
+                    .gap_2()
                     .text_xs()
                     .text_color(t.text_muted)
-                    .child(summary),
+                    .child(div().flex_1().child(summary))
+                    .when(stale, |row| {
+                        row.child(
+                            div()
+                                .px_1()
+                                .rounded_sm()
+                                .border_1()
+                                .border_color(t.error)
+                                .text_color(t.error)
+                                .child("stale — fit model changed"),
+                        )
+                    }),
             )
             .child(
                 div()
@@ -5925,6 +6059,7 @@ impl StudioApp {
                 ),
         );
         if let Some(bf) = &self.batch_fit {
+            let batch_stale = self.batch_fit_is_stale();
             let scope = if bf.preview { "preview" } else { "full scan" };
             let summary: SharedString = format!(
                 "{scope} · {} / {} fitted · trend: {}",
@@ -5970,13 +6105,15 @@ impl StudioApp {
                             .px_1()
                             .rounded_sm()
                             .text_xs()
-                            .text_color(t.accent)
-                            .cursor_pointer()
-                            .hover(|d| d.bg(t.raised))
-                            .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                                this.export_batch_csv(cx);
-                            }))
-                            .child("CSV..."),
+                            .text_color(if batch_stale { t.text_muted } else { t.accent })
+                            .when(!batch_stale, |button| {
+                                button.cursor_pointer().hover(|d| d.bg(t.raised)).on_click(
+                                    cx.listener(|this, _: &ClickEvent, _window, cx| {
+                                        this.export_batch_csv(cx);
+                                    }),
+                                )
+                            })
+                            .child(if batch_stale { "CSV stale" } else { "CSV..." }),
                     ),
             );
             let problem_count = bf.problems.len();

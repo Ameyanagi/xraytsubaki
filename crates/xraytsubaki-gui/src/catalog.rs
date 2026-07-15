@@ -26,12 +26,8 @@ pub struct FileMeta {
 }
 
 pub enum ScanEvent {
-    // Error is reserved for scanner-side failures (e.g. root vanishes mid-scan).
     Batch(Vec<FileMeta>),
-    Done {
-        total: usize,
-    },
-    #[allow(dead_code)]
+    Done { total: usize },
     Error(String),
 }
 
@@ -48,12 +44,18 @@ pub fn start_scan(root: PathBuf) -> mpsc::UnboundedReceiver<ScanEvent> {
 
             // Sorted traversal: scan/time-series members must appear in
             // index order, not OS directory order.
-            for entry in walkdir::WalkDir::new(&root)
+            for result in walkdir::WalkDir::new(&root)
                 .follow_links(false)
                 .sort_by_file_name()
                 .into_iter()
-                .filter_map(|e| e.ok())
             {
+                let entry = match result {
+                    Ok(entry) => entry,
+                    Err(error) => {
+                        let _ = tx.unbounded_send(ScanEvent::Error(error.to_string()));
+                        return;
+                    }
+                };
                 if !entry.file_type().is_file() {
                     continue;
                 }
@@ -76,7 +78,16 @@ pub fn start_scan(root: PathBuf) -> mpsc::UnboundedReceiver<ScanEvent> {
                         arc
                     }
                 };
-                let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                let size = match entry.metadata() {
+                    Ok(metadata) => metadata.len(),
+                    Err(error) => {
+                        let _ = tx.unbounded_send(ScanEvent::Error(format!(
+                            "cannot read metadata for {}: {error}",
+                            entry.path().display()
+                        )));
+                        return;
+                    }
+                };
                 batch.push(FileMeta {
                     dir,
                     name: name.into_owned().into_boxed_str(),
@@ -102,9 +113,9 @@ pub fn start_scan(root: PathBuf) -> mpsc::UnboundedReceiver<ScanEvent> {
 
 /// Compact entry: interned dir id (+ size). File names live in the chunked
 /// name store so filter snapshots can share them (see [`NAME_CHUNK`]).
+#[derive(Clone, PartialEq, Eq)]
 pub struct EntryMeta {
     pub dir: u32,
-    #[allow(dead_code)] // feeds parameter-fingerprint cache keys in M2
     pub size: u64,
 }
 
@@ -162,7 +173,7 @@ pub struct ScanGroup {
 pub struct Catalog {
     dirs: Vec<Arc<str>>,
     dir_ids: HashMap<Arc<str>, u32>,
-    pub entries: Vec<EntryMeta>,
+    entries: Arc<Vec<EntryMeta>>,
     sealed_names: Vec<Arc<[Box<str>]>>,
     tail_names: Vec<Box<str>>,
     pub scans: Vec<ScanGroup>,
@@ -190,7 +201,7 @@ impl Catalog {
                 }
             };
             let ix = self.entries.len();
-            self.entries.push(EntryMeta {
+            Arc::make_mut(&mut self.entries).push(EntryMeta {
                 dir: dir_id,
                 size: file.size,
             });
@@ -228,6 +239,11 @@ impl Catalog {
     pub fn path(&self, ix: usize) -> PathBuf {
         let entry = &self.entries[ix];
         PathBuf::from(&*self.dirs[entry.dir as usize]).join(self.name(ix))
+    }
+
+    #[cfg(test)]
+    fn entry_size(&self, ix: usize) -> u64 {
+        self.entries[ix].size
     }
 
     /// Locate an entry by its full path (parent dir + file name) — used to
@@ -268,7 +284,7 @@ impl Catalog {
     pub fn index_parts(&self) -> IndexParts {
         IndexParts {
             dirs: self.dirs.clone(),
-            metas: self.entries.iter().map(|e| (e.dir, e.size)).collect(),
+            metas: self.entries.clone(),
             names: self.names_snapshot(),
         }
     }
@@ -291,7 +307,7 @@ const INDEX_MAGIC: &[u8; 8] = b"XTIDX01\n";
 /// Everything needed to encode or compare a catalog index off-thread.
 pub struct IndexParts {
     pub dirs: Vec<Arc<str>>,
-    pub metas: Vec<(u32, u64)>,
+    pub metas: Arc<Vec<EntryMeta>>,
     pub names: NameSnapshot,
 }
 
@@ -358,9 +374,9 @@ pub fn encode_index(root: &Path, parts: &IndexParts) -> Vec<u8> {
         push_str(&mut out, dir);
     }
     out.extend_from_slice(&(parts.metas.len() as u64).to_le_bytes());
-    for (&(dir, size), name) in parts.metas.iter().zip(parts.names.iter()) {
-        out.extend_from_slice(&dir.to_le_bytes());
-        out.extend_from_slice(&size.to_le_bytes());
+    for (meta, name) in parts.metas.iter().zip(parts.names.iter()) {
+        out.extend_from_slice(&meta.dir.to_le_bytes());
+        out.extend_from_slice(&meta.size.to_le_bytes());
         out.extend_from_slice(&(name.len() as u16).to_le_bytes());
         out.extend_from_slice(name.as_bytes());
     }
@@ -467,6 +483,8 @@ pub fn load_index(path: &Path, root: &Path) -> Result<Catalog, String> {
 
 #[cfg(test)]
 mod tests {
+    use futures::StreamExt;
+
     use super::*;
 
     fn meta(dir: &Arc<str>, name: &str) -> FileMeta {
@@ -558,7 +576,7 @@ mod tests {
         for ix in [0, NAME_CHUNK - 1, NAME_CHUNK, catalog.len() - 1] {
             assert_eq!(loaded.name(ix), catalog.name(ix));
             assert_eq!(loaded.path(ix), catalog.path(ix));
-            assert_eq!(loaded.entries[ix].size, catalog.entries[ix].size);
+            assert_eq!(loaded.entry_size(ix), catalog.entry_size(ix));
         }
         assert!(loaded.index_parts().same_index(&catalog.index_parts()));
     }
@@ -593,12 +611,25 @@ mod tests {
         let root = Path::new("/data");
         let mut bytes = encode_index(root, &parts);
         let mut resized = decode_index(&bytes, root).unwrap().index_parts();
-        resized.metas[0].1 += 1;
+        Arc::make_mut(&mut resized.metas)[0].size += 1;
         assert!(!parts.same_index(&resized));
         // and one renamed file
         let pos = bytes.len() - 1;
         bytes[pos] = b'x';
         let renamed = decode_index(&bytes, root).unwrap();
         assert!(!parts.same_index(&renamed.index_parts()));
+    }
+
+    #[test]
+    fn missing_scan_root_reports_error_without_done() {
+        let root = std::env::temp_dir().join(format!(
+            "xraytsubaki-missing-scan-root-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let mut rx = start_scan(root);
+        let first = futures::executor::block_on(rx.next()).expect("scanner event");
+        assert!(matches!(first, ScanEvent::Error(_)));
+        assert!(futures::executor::block_on(rx.next()).is_none());
     }
 }

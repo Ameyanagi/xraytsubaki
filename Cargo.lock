@@ -7395,9 +7395,9 @@ dependencies = [
 
 [[package]]
 name = "ruviz"
-version = "0.4.19"
+version = "0.4.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a1901fc7506c07a13c427d4f3c286dcc4063993849efa8455d364c0667d5578"
+checksum = "08cc2441fba93cedd0f03c70438b854aec0c0b6b086d1e632e62c5e3bd9fb03c"
 dependencies = [
  "anyhow",
  "cosmic-text 0.16.0",
@@ -7410,9 +7410,11 @@ dependencies = [
  "num_cpus",
  "palette",
  "rayon",
+ "swash",
  "thiserror 2.0.18",
  "tiny-skia 0.12.0",
  "tiny-skia-path 0.12.0",
+ "ttf-parser 0.25.1",
  "typst",
  "typst-kit",
  "typst-render",
@@ -7423,9 +7425,9 @@ dependencies = [
 
 [[package]]
 name = "ruviz-gpui"
-version = "0.4.19"
+version = "0.4.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cec23c16f6b82e925a022e52d3344f7f923800e9690451afa2ec2a3030a08ebe"
+checksum = "63ffba06bd2170d558fc13585fbfcff284b85d2b5eee01bc72bc2fb3799e196c"
 dependencies = [
  "arboard",
  "core-foundation 0.10.0",

@@ -371,7 +371,7 @@ struct FitPlots {
     r_residual: Entity<RuvizPlot>,
 }
 
-/// Swap a plot's data while keeping the user's pan/zoom. ruviz-gpui 0.4.19's
+/// Swap a plot's data while keeping the user's pan/zoom. ruviz-gpui's
 /// `set_plot` replaces the whole interactive session and unconditionally
 /// resets its interaction state, so the visible bounds are captured first and
 /// re-applied afterwards whenever the user had deviated from the default view.
@@ -1913,9 +1913,10 @@ impl StudioApp {
             .and_then(|sp| resample_chik(sp, &grid))
             .unwrap_or(sampled_row);
         let heatmap = build_heatmap(&data.matrix, &data.grid, scan.len, &self.theme);
-        let chik = build_frame_chik(&grid, &row, &self.theme);
+        let chik = build_frame_chik(&grid, &row, data.kweight, &self.theme);
         let (trend_values, trend_cursor) = self.trend_series();
-        let trend = build_trend(&trend_values, trend_cursor, &self.theme);
+        let trend_name = self.trend_name();
+        let trend = build_trend(&trend_values, trend_cursor, &trend_name, &self.theme);
         match &mut self.operando_plots {
             Some(plots) => {
                 if plots.scan == scan_ix {
@@ -1986,9 +1987,10 @@ impl StudioApp {
             .peek(&(ix, fingerprint))
             .and_then(|sp| resample_chik(sp, &grid))
             .unwrap_or(sampled_row);
-        let chik = build_frame_chik(&grid, &row, &self.theme);
+        let chik = build_frame_chik(&grid, &row, data.kweight, &self.theme);
         let (trend_values, trend_cursor) = self.trend_series();
-        let trend = build_trend(&trend_values, trend_cursor, &self.theme);
+        let trend_name = self.trend_name();
+        let trend = build_trend(&trend_values, trend_cursor, &trend_name, &self.theme);
         if let Some(plots) = &self.operando_plots {
             // Scrub steps swap data only; the user's zoom survives.
             set_plot_keep_view(&plots.chik, chik, cx);
@@ -2057,7 +2059,7 @@ impl StudioApp {
         let Some(row) = resample_chik(sp, &data.grid) else {
             return;
         };
-        let chik = build_frame_chik(&data.grid, &row, &self.theme);
+        let chik = build_frame_chik(&data.grid, &row, data.kweight, &self.theme);
         if let Some(plots) = &self.operando_plots {
             set_plot_keep_view(&plots.chik, chik, cx);
         }
@@ -3601,8 +3603,7 @@ impl StudioApp {
 
     /// The operando trend series: fitted parameter when a batch fit exists
     /// for the current scan/params, otherwise E0.
-    /// Trend values and cursor row; the quantity name is `trend_name`, shown
-    /// in the trend card header instead of a (broken-upstream) plot ylabel.
+    /// Trend values and cursor row; `trend_name` provides the plot's ylabel.
     fn trend_series(&self) -> (Vec<f64>, usize) {
         if let (Some(bf), Some(data)) = (&self.batch_fit, &self.operando)
             && bf.scan == data.scan
@@ -3636,7 +3637,7 @@ impl StudioApp {
     }
 
     /// Name of the trend quantity (mirrors trend_series' selection) without
-    /// materializing the full values vector; used by the card header.
+    /// materializing the full values vector; used by the plot ylabel.
     fn trend_name(&self) -> String {
         if let (Some(bf), Some(data)) = (&self.batch_fit, &self.operando)
             && bf.scan == data.scan
@@ -5049,8 +5050,8 @@ impl StudioApp {
         let kw = self.operando.as_ref().map(|d| d.kweight).unwrap_or(2.0);
         let overview_label: SharedString =
             format!("scan overview · frame vs {} · k (1/Å)", chik_label(kw)).into();
-        let chik_header: SharedString = format!("frame · {}", chik_label(kw)).into();
-        let trend_header: SharedString = format!("trend · {}", self.trend_name()).into();
+        let chik_header: SharedString = "frame".into();
+        let trend_header: SharedString = "trend".into();
         div()
             .id("operando-center")
             .key_context("Operando")
@@ -5421,19 +5422,18 @@ impl StudioApp {
             );
         }
         if let Some(plots) = &self.fit_plots {
-            let kw = self.fit_result.as_ref().map(|r| r.kweight).unwrap_or(2.0);
             center = center.child(
                 div()
                     .flex_1()
                     .min_h_0()
                     .flex()
                     .child(column(
-                        format!("fit in k-space · {}", chik_label(kw)).into(),
+                        "fit in k-space".into(),
                         plots.k.clone(),
                         plots.k_residual.clone(),
                     ))
                     .child(column(
-                        "fit in R-space · |χ(R)|".into(),
+                        "fit in R-space".into(),
                         plots.r.clone(),
                         plots.r_residual.clone(),
                     )),

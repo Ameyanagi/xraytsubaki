@@ -36,8 +36,9 @@ use crate::fitting::{
     result_summary, run_fit,
 };
 use crate::params::{
-    AUTOBK_SOLVERS, DerivedSpectrum, DetectionMode, FT_WINDOWS, PipelineParams, StreamingAverage,
-    load_raw, parse_cols, preview_first_row, process_arrays, process_file, resample_chik,
+    AUTOBK_SOLVERS, DerivedSpectrum, DetectionMode, FT_WINDOWS, ImportPreview, PipelineParams,
+    StreamingAverage, load_raw, parse_cols, preview_import, process_arrays, process_file,
+    resample_chik,
 };
 use crate::plotting::{
     QuadTrace, TraceLayout, ViewOptions, build_fit_k, build_fit_r, build_fit_residual_k,
@@ -103,6 +104,17 @@ enum EnumParam {
     BkgWindow,
     BkgSolver,
     FftWindow,
+}
+
+/// Import role edited by a detected-column picker.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ImportRole {
+    Energy,
+    I0,
+    It,
+    Ir,
+    Fluor,
+    Mu,
 }
 
 /// Context-panel section a parameter belongs to, for the per-section
@@ -191,10 +203,10 @@ fn scan_fingerprint(
 /// Value a context-panel numeric field should display for a param set.
 fn param_field_value(key: ParamKey, p: &PipelineParams) -> Option<f64> {
     match key {
-        ParamKey::ImpEnergyCol => Some(p.import.energy_col as f64),
-        ParamKey::ImpI0Col => Some(p.import.i0_col as f64),
-        ParamKey::ImpItCol => Some(p.import.it_col as f64),
-        ParamKey::ImpIrCol => Some(p.import.ir_col as f64),
+        ParamKey::ImpEnergyCol => p.import.energy_col.map(|column| column as f64),
+        ParamKey::ImpI0Col => p.import.i0_col.map(|column| column as f64),
+        ParamKey::ImpItCol => p.import.it_col.map(|column| column as f64),
+        ParamKey::ImpIrCol => p.import.ir_col.map(|column| column as f64),
         ParamKey::AlignTarget => p.align_target,
         ParamKey::E0 => p.e0,
         ParamKey::PreEdgeStart => p.pre_edge_start,
@@ -224,10 +236,11 @@ fn param_field_value(key: ParamKey, p: &PipelineParams) -> Option<f64> {
     }
 }
 
-const DETECTION_MODES: [DetectionMode; 3] = [
+const DETECTION_MODES: [DetectionMode; 4] = [
     DetectionMode::Transmission,
     DetectionMode::Fluorescence,
     DetectionMode::Reference,
+    DetectionMode::MuColumn,
 ];
 
 actions!(
@@ -501,7 +514,10 @@ pub struct StudioApp {
     /// Per-section "advanced parameters" fold state (Norm, Bkg, FFT, Import).
     adv_open: [bool; 4],
     roi_input: Option<Entity<TextInput>>,
-    import_preview: SharedString,
+    import_preview: Option<ImportPreview>,
+    import_preview_error: SharedString,
+    import_preview_gen: u64,
+    open_import_role: Option<ImportRole>,
     /// Which enum parameter's option list is expanded.
     open_enum: Option<EnumParam>,
     /// Catalog indices passing the filter (ascending); None = no filter.
@@ -1030,7 +1046,10 @@ impl StudioApp {
             operando_focus: cx.focus_handle(),
             adv_open: [false; 4],
             roi_input: None,
-            import_preview: "".into(),
+            import_preview: None,
+            import_preview_error: "".into(),
+            import_preview_gen: 0,
+            open_import_role: None,
             open_enum: None,
             generation: 0,
             load_running: false,
@@ -1128,30 +1147,39 @@ impl StudioApp {
         })
         .detach();
         app.filter_input = Some(filter_input);
-        let roi_input = cx.new(|cx| TextInput::new("e.g. 4 or 4-7", "4", theme, cx));
+        let roi_input = cx.new(|cx| TextInput::new("e.g. 4 or 4-7", "", theme, cx));
         cx.subscribe(&roi_input, |this: &mut Self, input, event, cx| {
             let InputEvent::Committed(text) = event else {
                 return;
             };
-            match parse_cols(text) {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                if this.ui_params().import.fluor_cols.is_some() {
+                    this.edit_params().import.fluor_cols = None;
+                    this.schedule_recompute(cx);
+                    this.update_import_preview(cx);
+                }
+                cx.notify();
+                return;
+            }
+            match parse_cols(trimmed) {
                 Some(cols) => {
-                    if this.ui_params().import.fluor_cols != cols {
-                        this.edit_params().import.fluor_cols = cols;
+                    if this.ui_params().import.fluor_cols.as_ref() != Some(&cols) {
+                        this.edit_params().import.fluor_cols = Some(cols);
                         this.schedule_recompute(cx);
+                        this.update_import_preview(cx);
                     }
                 }
                 None => {
                     // revert to current value, with a visible rejection cue
-                    let trimmed = text.trim();
-                    if !trimmed.is_empty() {
-                        this.status =
-                            format!("invalid ROI columns: '{trimmed}' — expected e.g. 4 or 4-7")
-                                .into();
-                    }
+                    this.status =
+                        format!("invalid ROI columns: '{trimmed}' — expected e.g. 4 or 4-7").into();
                     let text = this
                         .ui_params()
                         .import
                         .fluor_cols
+                        .as_deref()
+                        .unwrap_or_default()
                         .iter()
                         .map(|c| c.to_string())
                         .collect::<Vec<_>>()
@@ -1314,12 +1342,15 @@ impl StudioApp {
             let text = params
                 .import
                 .fluor_cols
+                .as_deref()
+                .unwrap_or_default()
                 .iter()
                 .map(|c| c.to_string())
                 .collect::<Vec<_>>()
                 .join(",");
             roi.update(cx, |i, cx| i.set_text(text, cx));
         }
+        self.update_import_preview(cx);
     }
 
     /// Attach path-keyed overrides from a loaded project to the freshly
@@ -1437,7 +1468,10 @@ impl StudioApp {
         self.spectrum_fingerprint = 0;
         self.spectrum = None;
         self.spectrum_label = "no spectrum".into();
-        self.import_preview = "".into();
+        self.import_preview = None;
+        self.import_preview_error = "".into();
+        self.import_preview_gen += 1;
+        self.open_import_role = None;
         self.quadrants.clear();
         self.maximized = None;
         self.file_scroll = UniformListScrollHandle::new();
@@ -1559,10 +1593,10 @@ impl StudioApp {
         let int = value.map(|v| v.round() as i32);
         let col = value.map(|v| v.round().max(0.0) as usize);
         match key {
-            ParamKey::ImpEnergyCol => p.import.energy_col = col.unwrap_or(0),
-            ParamKey::ImpI0Col => p.import.i0_col = col.unwrap_or(1),
-            ParamKey::ImpItCol => p.import.it_col = col.unwrap_or(2),
-            ParamKey::ImpIrCol => p.import.ir_col = col.unwrap_or(3),
+            ParamKey::ImpEnergyCol => p.import.energy_col = col,
+            ParamKey::ImpI0Col => p.import.i0_col = col,
+            ParamKey::ImpItCol => p.import.it_col = col,
+            ParamKey::ImpIrCol => p.import.ir_col = col,
             ParamKey::AlignTarget => p.align_target = value,
             ParamKey::E0 => p.e0 = value,
             ParamKey::PreEdgeStart => p.pre_edge_start = value,
@@ -1591,15 +1625,28 @@ impl StudioApp {
             ParamKey::FftNfft => p.fft_nfft = int,
         }
         self.schedule_recompute(cx);
+        if matches!(
+            key,
+            ParamKey::ImpEnergyCol | ParamKey::ImpI0Col | ParamKey::ImpItCol | ParamKey::ImpIrCol
+        ) {
+            self.update_import_preview(cx);
+        }
         // The section chip may have just flipped global -> override.
         cx.notify();
     }
 
     /// Option labels for an enum parameter: index 0 = auto, then variants.
-    fn enum_options(which: EnumParam) -> Vec<String> {
+    fn enum_options(&self, which: EnumParam) -> Vec<String> {
         let (auto_label, variants): (&str, Vec<String>) = match which {
             EnumParam::ImportMode => {
-                return DETECTION_MODES.iter().map(|m| format!("{m:?}")).collect();
+                let resolved = self
+                    .import_preview
+                    .as_ref()
+                    .map(|preview| format!("{:?}", preview.auto_mode))
+                    .unwrap_or_else(|| "detecting…".into());
+                let mut options = vec![format!("auto ({resolved})")];
+                options.extend(DETECTION_MODES.iter().map(|mode| format!("{mode:?}")));
+                return options;
             }
             EnumParam::BkgWindow => (
                 "auto (Hanning)",
@@ -1625,7 +1672,9 @@ impl StudioApp {
         let p = self.edit_params();
         match which {
             EnumParam::ImportMode => {
-                p.import.mode = DETECTION_MODES[index.min(2)];
+                p.import.mode = variant
+                    .and_then(|i| DETECTION_MODES.get(i).copied())
+                    .unwrap_or(DetectionMode::Auto);
             }
             EnumParam::BkgWindow => {
                 p.bkg_window = variant.map(|i| FT_WINDOWS[i]);
@@ -1639,16 +1688,26 @@ impl StudioApp {
         }
         self.open_enum = None;
         self.schedule_recompute(cx);
+        if which == EnumParam::ImportMode {
+            self.update_import_preview(cx);
+        }
         cx.notify();
     }
 
     fn enum_selected_index(&self, which: EnumParam) -> usize {
         let p = self.ui_params();
         match which {
-            EnumParam::ImportMode => DETECTION_MODES
-                .iter()
-                .position(|m| *m == p.import.mode)
-                .unwrap_or(0),
+            EnumParam::ImportMode => {
+                if p.import.mode == DetectionMode::Auto {
+                    0
+                } else {
+                    DETECTION_MODES
+                        .iter()
+                        .position(|mode| *mode == p.import.mode)
+                        .map(|index| index + 1)
+                        .unwrap_or(0)
+                }
+            }
             EnumParam::BkgWindow => p
                 .bkg_window
                 .and_then(|w| FT_WINDOWS.iter().position(|x| *x == w))
@@ -1665,6 +1724,139 @@ impl StudioApp {
                 .map(|i| i + 1)
                 .unwrap_or(0),
         }
+    }
+
+    fn import_column_label(preview: Option<&ImportPreview>, column: usize) -> String {
+        preview
+            .and_then(|preview| preview.names.as_ref())
+            .and_then(|names| names.get(column))
+            .map(|name| format!("col {column} · {name}"))
+            .unwrap_or_else(|| format!("col {column}"))
+    }
+
+    fn import_role_label(role: ImportRole) -> &'static str {
+        match role {
+            ImportRole::Energy => "energy",
+            ImportRole::I0 => "I0",
+            ImportRole::It => "It",
+            ImportRole::Ir => "Ir",
+            ImportRole::Fluor => "SDD ROIs",
+            ImportRole::Mu => "mu",
+        }
+    }
+
+    fn import_role_current_label(&self, role: ImportRole) -> String {
+        let preview = self.import_preview.as_ref();
+        let import = &self.ui_params().import;
+        if role == ImportRole::Fluor {
+            return match &import.fluor_cols {
+                Some(columns) if columns.is_empty() => "none".into(),
+                Some(columns) => columns
+                    .iter()
+                    .map(|&column| Self::import_column_label(preview, column))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                None => self.import_role_auto_label(role),
+            };
+        }
+        let manual = match role {
+            ImportRole::Energy => import.energy_col,
+            ImportRole::I0 => import.i0_col,
+            ImportRole::It => import.it_col,
+            ImportRole::Ir => import.ir_col,
+            ImportRole::Mu => import.mu_col,
+            ImportRole::Fluor => unreachable!(),
+        };
+        if let Some(column) = manual {
+            return Self::import_column_label(preview, column);
+        }
+        self.import_role_auto_label(role)
+    }
+
+    fn import_role_auto_label(&self, role: ImportRole) -> String {
+        let preview = self.import_preview.as_ref();
+        if role == ImportRole::Fluor {
+            return preview
+                .map(|preview| {
+                    let columns = preview
+                        .detected
+                        .fluor_cols
+                        .iter()
+                        .map(|&column| Self::import_column_label(Some(preview), column))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("auto ({columns})")
+                })
+                .unwrap_or_else(|| "auto (detecting…)".into());
+        }
+        let resolved = preview.and_then(|preview| match role {
+            ImportRole::Energy => Some(preview.detected.energy_col),
+            ImportRole::I0 => Some(preview.detected.i0_col),
+            ImportRole::It => Some(preview.detected.it_col),
+            ImportRole::Ir => Some(preview.detected.ir_col),
+            ImportRole::Mu => preview.detected.mu_col,
+            ImportRole::Fluor => unreachable!(),
+        });
+        resolved
+            .map(|column| format!("auto ({})", Self::import_column_label(preview, column)))
+            .unwrap_or_else(|| "auto (not found)".into())
+    }
+
+    fn import_role_manual_column(&self, role: ImportRole) -> Option<usize> {
+        let import = &self.ui_params().import;
+        match role {
+            ImportRole::Energy => import.energy_col,
+            ImportRole::I0 => import.i0_col,
+            ImportRole::It => import.it_col,
+            ImportRole::Ir => import.ir_col,
+            ImportRole::Mu => import.mu_col,
+            ImportRole::Fluor => None,
+        }
+    }
+
+    fn set_import_role_column(
+        &mut self,
+        role: ImportRole,
+        column: Option<usize>,
+        cx: &mut Context<Self>,
+    ) {
+        let import = &mut self.edit_params().import;
+        match role {
+            ImportRole::Energy => import.energy_col = column,
+            ImportRole::I0 => import.i0_col = column,
+            ImportRole::It => import.it_col = column,
+            ImportRole::Ir => import.ir_col = column,
+            ImportRole::Mu => import.mu_col = column,
+            ImportRole::Fluor => return,
+        }
+        self.open_import_role = None;
+        self.schedule_recompute(cx);
+        self.update_import_preview(cx);
+        cx.notify();
+    }
+
+    fn toggle_import_fluor(&mut self, column: Option<usize>, cx: &mut Context<Self>) {
+        match column {
+            None => self.edit_params().import.fluor_cols = None,
+            Some(column) => {
+                let mut columns = self
+                    .ui_params()
+                    .import
+                    .fluor_cols
+                    .clone()
+                    .unwrap_or_default();
+                if let Some(index) = columns.iter().position(|&current| current == column) {
+                    columns.remove(index);
+                } else {
+                    columns.push(column);
+                    columns.sort_unstable();
+                }
+                self.edit_params().import.fluor_cols = Some(columns);
+            }
+        }
+        self.schedule_recompute(cx);
+        self.update_import_preview(cx);
+        cx.notify();
     }
 
     /// Debounced (~200 ms) recompute of the current spectrum after parameter
@@ -2989,31 +3181,33 @@ impl StudioApp {
     fn update_import_preview(&mut self, cx: &mut Context<Self>) {
         let path = self.current_path.clone();
         if path.as_os_str().is_empty() {
-            self.import_preview = "no preview".into();
+            self.import_preview = None;
+            self.import_preview_error = "no preview".into();
             return;
         }
+        self.import_preview_gen += 1;
+        let generation = self.import_preview_gen;
+        let import = self.ui_params().import.clone();
         let job = cx.background_executor().spawn({
             let path = path.clone();
-            async move { preview_first_row(&path) }
+            async move { preview_import(&path, &import) }
         });
         cx.spawn(async move |this, cx| {
             let result = job.await;
             this.update(cx, |app, cx| {
-                if app.current_path != path {
+                if app.current_path != path || app.import_preview_gen != generation {
                     return; // a newer selection superseded this preview
                 }
-                app.import_preview = match result {
-                    Ok(row) => {
-                        let first = row
-                            .iter()
-                            .take(6)
-                            .map(|v| format!("{v:.4}"))
-                            .collect::<Vec<_>>()
-                            .join("  ");
-                        format!("{} columns · row 0: {first}", row.len()).into()
+                match result {
+                    Ok(preview) => {
+                        app.import_preview = Some(preview);
+                        app.import_preview_error = "".into();
                     }
-                    Err(_) => "no preview".into(),
-                };
+                    Err(_) => {
+                        app.import_preview = None;
+                        app.import_preview_error = "no preview".into();
+                    }
+                }
                 cx.notify();
             })
             .ok();
@@ -6260,7 +6454,7 @@ impl StudioApp {
                     ),
             );
             // mode selector (always visible)
-            let options = Self::enum_options(EnumParam::ImportMode);
+            let options = self.enum_options(EnumParam::ImportMode);
             let selected = self.enum_selected_index(EnumParam::ImportMode);
             let expanded = self.open_enum == Some(EnumParam::ImportMode);
             let current: SharedString = options[selected].clone().into();
@@ -6292,6 +6486,7 @@ impl StudioApp {
                             .cursor_pointer()
                             .hover(|d| d.border_color(t.accent))
                             .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                                this.open_import_role = None;
                                 this.open_enum = if this.open_enum == Some(EnumParam::ImportMode) {
                                     None
                                 } else {
@@ -6333,24 +6528,249 @@ impl StudioApp {
                 }
                 sections = sections.child(list);
             }
-            // preview line (always visible)
-            sections = sections.child(
-                div()
-                    .px_3()
-                    .pb_1()
-                    .text_xs()
-                    .text_color(t.text_muted)
-                    .child(self.import_preview.clone()),
-            );
+            // The preview stays compact but shows enough real rows to verify
+            // delimiter/header detection and the role assignments at a glance.
+            if let Some(preview) = &self.import_preview {
+                let header_status = if preview.names.is_some() {
+                    "header names found"
+                } else {
+                    "no header names"
+                };
+                sections = sections.child(
+                    div()
+                        .px_3()
+                        .pb_1()
+                        .text_xs()
+                        .text_color(t.text_muted)
+                        .child(format!(
+                            "detected: {} columns · {header_status} · auto: {:?}",
+                            preview.column_count, preview.auto_mode
+                        )),
+                );
+                let mut header = div().flex();
+                for column in 0..preview.column_count {
+                    let name = preview
+                        .names
+                        .as_ref()
+                        .and_then(|names| names.get(column))
+                        .cloned()
+                        .unwrap_or_else(|| format!("col {column}"));
+                    let mut roles = Vec::new();
+                    if preview.resolved.energy_col == column {
+                        roles.push("E");
+                    }
+                    if preview.resolved.i0_col == column {
+                        roles.push("I0");
+                    }
+                    if preview.resolved.it_col == column {
+                        roles.push("It");
+                    }
+                    if preview.resolved.ir_col == column {
+                        roles.push("Ir");
+                    }
+                    if preview.resolved.fluor_cols.contains(&column) {
+                        roles.push("ROI");
+                    }
+                    if preview.resolved.mu_col == Some(column) {
+                        roles.push("mu");
+                    }
+                    let assigned = !roles.is_empty();
+                    header = header.child(
+                        div()
+                            .w(px(72.))
+                            .flex_none()
+                            .px_1()
+                            .py_0p5()
+                            .flex()
+                            .flex_col()
+                            .border_r_1()
+                            .border_color(t.border)
+                            .when(assigned, |cell| cell.bg(t.raised))
+                            .child(div().text_xs().text_color(t.text).child(name))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(if assigned { t.accent } else { t.text_muted })
+                                    .child(if assigned {
+                                        roles.join("/")
+                                    } else {
+                                        "—".into()
+                                    }),
+                            ),
+                    );
+                }
+                let mut table = div()
+                    .mb_1()
+                    .border_1()
+                    .border_color(t.border)
+                    .flex()
+                    .flex_col()
+                    .child(header);
+                for row in &preview.rows {
+                    let mut line = div().flex().border_t_1().border_color(t.border);
+                    for value in row {
+                        line = line.child(
+                            div()
+                                .w(px(72.))
+                                .flex_none()
+                                .px_1()
+                                .py_0p5()
+                                .text_xs()
+                                .text_color(t.text_muted)
+                                .border_r_1()
+                                .border_color(t.border)
+                                .child(format!("{value:.4}")),
+                        );
+                    }
+                    table = table.child(line);
+                }
+                sections = sections.child(
+                    div()
+                        .id("import-preview-horizontal")
+                        .mx_3()
+                        .overflow_x_scroll()
+                        .child(table),
+                );
+            } else {
+                sections = sections.child(
+                    div()
+                        .px_3()
+                        .pb_1()
+                        .text_xs()
+                        .text_color(t.text_muted)
+                        .child(self.import_preview_error.clone()),
+                );
+            }
             if open {
-                for key in [
-                    ParamKey::ImpEnergyCol,
-                    ParamKey::ImpI0Col,
-                    ParamKey::ImpItCol,
-                    ParamKey::ImpIrCol,
+                for role in [
+                    ImportRole::Energy,
+                    ImportRole::I0,
+                    ImportRole::It,
+                    ImportRole::Ir,
+                    ImportRole::Fluor,
+                    ImportRole::Mu,
                 ] {
-                    if let Some(f) = field(key) {
-                        sections = sections.child(f);
+                    let expanded = self.open_import_role == Some(role);
+                    sections = sections.child(
+                        div()
+                            .px_3()
+                            .py_0p5()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_sm()
+                                    .text_color(t.text_muted)
+                                    .child(Self::import_role_label(role)),
+                            )
+                            .child(
+                                div()
+                                    .id(SharedString::from(format!("import-role-{role:?}")))
+                                    .w(px(150.))
+                                    .px_2()
+                                    .py_0p5()
+                                    .rounded_sm()
+                                    .text_xs()
+                                    .bg(t.bg)
+                                    .border_1()
+                                    .border_color(if expanded { t.accent } else { t.border })
+                                    .text_color(t.text)
+                                    .cursor_pointer()
+                                    .hover(|picker| picker.border_color(t.accent))
+                                    .on_click(cx.listener(
+                                        move |this, _: &ClickEvent, _window, cx| {
+                                            this.open_enum = None;
+                                            this.open_import_role =
+                                                if this.open_import_role == Some(role) {
+                                                    None
+                                                } else {
+                                                    Some(role)
+                                                };
+                                            cx.notify();
+                                        },
+                                    ))
+                                    .child(format!("{} ▾", self.import_role_current_label(role))),
+                            ),
+                    );
+                    if expanded {
+                        let manual = self.import_role_manual_column(role);
+                        let fluor = self.ui_params().import.fluor_cols.as_ref();
+                        let mut list = div()
+                            .mx_3()
+                            .mb_1()
+                            .rounded_sm()
+                            .border_1()
+                            .border_color(t.border)
+                            .bg(t.bg)
+                            .flex()
+                            .flex_col();
+                        let auto_selected = if role == ImportRole::Fluor {
+                            fluor.is_none()
+                        } else {
+                            manual.is_none()
+                        };
+                        list = list.child(
+                            div()
+                                .id(SharedString::from(format!("import-role-{role:?}-auto")))
+                                .px_2()
+                                .py_0p5()
+                                .text_xs()
+                                .cursor_pointer()
+                                .when(auto_selected, |item| item.bg(t.raised).text_color(t.accent))
+                                .when(!auto_selected, |item| item.text_color(t.text))
+                                .hover(|item| item.bg(t.raised))
+                                .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                                    if role == ImportRole::Fluor {
+                                        this.toggle_import_fluor(None, cx);
+                                        this.open_import_role = None;
+                                    } else {
+                                        this.set_import_role_column(role, None, cx);
+                                    }
+                                }))
+                                .child(self.import_role_auto_label(role)),
+                        );
+                        let column_count = self
+                            .import_preview
+                            .as_ref()
+                            .map(|preview| preview.column_count)
+                            .unwrap_or(0);
+                        for column in 0..column_count {
+                            let is_selected = if role == ImportRole::Fluor {
+                                fluor.is_some_and(|columns| columns.contains(&column))
+                            } else {
+                                manual == Some(column)
+                            };
+                            let option =
+                                Self::import_column_label(self.import_preview.as_ref(), column);
+                            list = list.child(
+                                div()
+                                    .id(SharedString::from(format!(
+                                        "import-role-{role:?}-{column}"
+                                    )))
+                                    .px_2()
+                                    .py_0p5()
+                                    .text_xs()
+                                    .cursor_pointer()
+                                    .when(is_selected, |item| {
+                                        item.bg(t.raised).text_color(t.accent)
+                                    })
+                                    .when(!is_selected, |item| item.text_color(t.text))
+                                    .hover(|item| item.bg(t.raised))
+                                    .on_click(cx.listener(
+                                        move |this, _: &ClickEvent, _window, cx| {
+                                            if role == ImportRole::Fluor {
+                                                this.toggle_import_fluor(Some(column), cx);
+                                            } else {
+                                                this.set_import_role_column(role, Some(column), cx);
+                                            }
+                                        },
+                                    ))
+                                    .child(option),
+                            );
+                        }
+                        sections = sections.child(list);
                     }
                 }
                 if let Some(roi) = &self.roi_input {
@@ -6366,7 +6786,7 @@ impl StudioApp {
                                     .flex_1()
                                     .text_sm()
                                     .text_color(t.text_muted)
-                                    .child("ROI cols"),
+                                    .child("type ROI cols"),
                             )
                             .child(div().w(px(96.)).child(roi.clone())),
                     );
@@ -6511,7 +6931,7 @@ impl StudioApp {
                     _ => &[],
                 };
                 for &(label, which) in enum_rows {
-                    let options = Self::enum_options(which);
+                    let options = self.enum_options(which);
                     let selected = self.enum_selected_index(which);
                     let expanded = self.open_enum == Some(which);
                     let current: SharedString = options[selected].clone().into();

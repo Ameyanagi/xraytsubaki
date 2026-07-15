@@ -12,39 +12,244 @@ use xraytsubaki::xafs::normalization::PrePostEdge;
 /// How the measured intensities turn into mu(E).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub enum DetectionMode {
-    /// mu = ln(I0/It)
+    /// Infer the mode from named columns in each file.
     #[default]
+    Auto,
+    /// mu = ln(I0/It)
     Transmission,
     /// mu = sum(ROI columns)/I0
     Fluorescence,
     /// mu = ln(It/Ir) — the reference foil between It and Ir.
     Reference,
+    /// A file column already contains mu(E).
+    MuColumn,
 }
 
-/// Configure-once import applied to every file in the catalog. Defaults
-/// match the QAS transmission layout (energy, I0, It, Ir, If).
+/// Configure-once import applied to every file in the catalog. `None` and
+/// [`DetectionMode::Auto`] resolve independently from each file's content.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ImportConfig {
     pub mode: DetectionMode,
-    pub energy_col: usize,
-    pub i0_col: usize,
-    pub it_col: usize,
-    pub ir_col: usize,
+    pub energy_col: Option<usize>,
+    pub i0_col: Option<usize>,
+    pub it_col: Option<usize>,
+    pub ir_col: Option<usize>,
     /// Fluorescence ROI columns (e.g. SDD elements); their sum is If.
-    pub fluor_cols: Vec<usize>,
+    pub fluor_cols: Option<Vec<usize>>,
+    /// Precomputed mu(E), used by [`DetectionMode::MuColumn`].
+    pub mu_col: Option<usize>,
 }
 
 impl Default for ImportConfig {
     fn default() -> Self {
         Self {
-            mode: DetectionMode::Transmission,
-            energy_col: 0,
-            i0_col: 1,
-            it_col: 2,
-            ir_col: 3,
-            fluor_cols: vec![4],
+            mode: DetectionMode::Auto,
+            energy_col: None,
+            i0_col: None,
+            it_col: None,
+            ir_col: None,
+            fluor_cols: None,
+            mu_col: None,
         }
+    }
+}
+
+/// File-derived import assignments after applying any manual overrides.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResolvedImport {
+    pub mode: DetectionMode,
+    pub energy_col: usize,
+    pub i0_col: usize,
+    pub it_col: usize,
+    pub ir_col: usize,
+    pub fluor_cols: Vec<usize>,
+    pub mu_col: Option<usize>,
+}
+
+/// Bounded data shown in the Import panel.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ImportPreview {
+    pub column_count: usize,
+    pub names: Option<Vec<String>>,
+    pub rows: Vec<Vec<f64>>,
+    /// Fully automatic assignments, used for role-picker auto labels.
+    pub detected: ResolvedImport,
+    /// Mode that Auto would choose while retaining current manual columns.
+    pub auto_mode: DetectionMode,
+    /// Current assignments after applying all manual overrides.
+    pub resolved: ResolvedImport,
+}
+
+#[derive(Debug)]
+struct ParsedData {
+    names: Option<Vec<String>>,
+    rows: Vec<Vec<f64>>,
+}
+
+#[derive(Debug)]
+struct DetectedRoles {
+    energy_col: usize,
+    i0_col: usize,
+    it_col: usize,
+    ir_col: usize,
+    fluor_cols: Vec<usize>,
+    mu_col: Option<usize>,
+    named_i0: bool,
+    named_it: bool,
+    named_fluor: bool,
+}
+
+const ENERGY_NAMES: &[&str] = &["energy", "e", "mono_e", "energy_ev", "en"];
+const I0_NAMES: &[&str] = &["i0", "io", "i_0", "monitor", "mon"];
+const IT_NAMES: &[&str] = &["it", "i1", "i_t", "itrans", "trans", "transmission"];
+const IR_NAMES: &[&str] = &["ir", "i2", "iref", "i_r", "ref", "reference"];
+const FLUOR_NAMES: &[&str] = &["iff", "if", "i_f", "fluo", "fluor", "fl", "pips", "ifluor"];
+const MU_NAMES: &[&str] = &["mu", "xmu", "mutrans", "mu_t", "norm", "mufluor"];
+
+fn name_matches(name: &str, exact: &[&str]) -> bool {
+    let name = name.to_ascii_lowercase();
+    exact.contains(&name.as_str())
+}
+
+fn fluorescence_name_matches(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    FLUOR_NAMES.contains(&name.as_str()) || name.starts_with("sdd") || name.starts_with("roi")
+}
+
+fn parse_data(text: &str) -> Result<ParsedData, String> {
+    let mut rows = Vec::new();
+    let mut width = 0usize;
+    let mut last_comment = None;
+    for line in text.lines() {
+        let line = line.trim();
+        if rows.is_empty() && line.starts_with('#') {
+            last_comment = Some(line);
+            continue;
+        }
+        if line.is_empty() || line.starts_with('#') || line.starts_with('*') {
+            continue;
+        }
+        let values: Option<Vec<f64>> = line
+            .split_whitespace()
+            .map(|token| token.parse::<f64>().ok())
+            .collect();
+        let Some(values) = values else { continue };
+        if values.is_empty() {
+            continue;
+        }
+        if rows.is_empty() {
+            width = values.len();
+        }
+        if values.len() >= width {
+            rows.push(values[..width].to_vec());
+        }
+    }
+    if rows.is_empty() {
+        return Err("no numeric data rows".into());
+    }
+    let names = last_comment.and_then(|line| {
+        let names = line
+            .trim_start_matches('#')
+            .split(|c: char| c.is_whitespace() || c == ',')
+            .filter(|token| !token.is_empty())
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        (names.len() == width).then_some(names)
+    });
+    Ok(ParsedData { names, rows })
+}
+
+fn monotonic_energy_column(rows: &[Vec<f64>], width: usize) -> Option<usize> {
+    (0..width).find(|&column| {
+        let values = rows.iter().map(|row| row[column]).collect::<Vec<_>>();
+        let increasing = values.windows(2).all(|pair| pair[1] > pair[0]);
+        let decreasing = values.windows(2).all(|pair| pair[1] < pair[0]);
+        let span = (values[values.len() - 1] - values[0]).abs();
+        values.iter().all(|value| value.is_finite())
+            && (increasing || decreasing)
+            && (10.0..=10_000_000.0).contains(&span)
+            && values.iter().any(|value| value.abs() >= 100.0)
+    })
+}
+
+fn detect_roles(data: &ParsedData) -> DetectedRoles {
+    let width = data.rows[0].len();
+    let find = |synonyms: &[&str]| {
+        data.names
+            .as_ref()
+            .and_then(|names| names.iter().position(|name| name_matches(name, synonyms)))
+    };
+    let named_energy = find(ENERGY_NAMES);
+    let named_i0 = find(I0_NAMES);
+    let named_it = find(IT_NAMES);
+    let named_ir = find(IR_NAMES);
+    let fluor_cols = data
+        .names
+        .as_ref()
+        .map(|names| {
+            names
+                .iter()
+                .enumerate()
+                .filter_map(|(column, name)| fluorescence_name_matches(name).then_some(column))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let mu_col = find(MU_NAMES);
+    let energy_col = named_energy
+        .or_else(|| {
+            data.names
+                .is_none()
+                .then(|| monotonic_energy_column(&data.rows, width))
+                .flatten()
+        })
+        .unwrap_or(0);
+    DetectedRoles {
+        energy_col,
+        i0_col: named_i0.unwrap_or(1),
+        it_col: named_it.unwrap_or(2),
+        ir_col: named_ir.unwrap_or(3),
+        fluor_cols: if fluor_cols.is_empty() {
+            vec![4]
+        } else {
+            fluor_cols.clone()
+        },
+        mu_col,
+        named_i0: named_i0.is_some(),
+        named_it: named_it.is_some(),
+        named_fluor: !fluor_cols.is_empty(),
+    }
+}
+
+fn resolve_import(data: &ParsedData, import: &ImportConfig) -> ResolvedImport {
+    let detected = detect_roles(data);
+    let mode = match import.mode {
+        DetectionMode::Auto if import.mu_col.is_some() || detected.mu_col.is_some() => {
+            DetectionMode::MuColumn
+        }
+        DetectionMode::Auto
+            if (import.i0_col.is_some() && import.it_col.is_some())
+                || (detected.named_i0 && detected.named_it) =>
+        {
+            DetectionMode::Transmission
+        }
+        DetectionMode::Auto
+            if (import.i0_col.is_some() && import.fluor_cols.is_some())
+                || (detected.named_i0 && detected.named_fluor) =>
+        {
+            DetectionMode::Fluorescence
+        }
+        DetectionMode::Auto => DetectionMode::Transmission,
+        mode => mode,
+    };
+    ResolvedImport {
+        mode,
+        energy_col: import.energy_col.unwrap_or(detected.energy_col),
+        i0_col: import.i0_col.unwrap_or(detected.i0_col),
+        it_col: import.it_col.unwrap_or(detected.it_col),
+        ir_col: import.ir_col.unwrap_or(detected.ir_col),
+        fluor_cols: import.fluor_cols.clone().unwrap_or(detected.fluor_cols),
+        mu_col: import.mu_col.or(detected.mu_col),
     }
 }
 
@@ -69,43 +274,17 @@ pub fn parse_cols(text: &str) -> Option<Vec<usize>> {
     (!out.is_empty()).then_some(out)
 }
 
-/// Whitespace-delimited numeric rows; '#', '*' and non-numeric lines are
-/// skipped. Rows shorter than the first data row are dropped.
-pub fn read_columns(path: &std::path::Path) -> Result<Vec<Vec<f64>>, String> {
-    let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let mut rows: Vec<Vec<f64>> = Vec::new();
-    let mut width = 0usize;
-    for line in text.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') || line.starts_with('*') {
-            continue;
-        }
-        let values: Option<Vec<f64>> = line
-            .split_whitespace()
-            .map(|t| t.parse::<f64>().ok())
-            .collect();
-        let Some(values) = values else { continue };
-        if rows.is_empty() {
-            width = values.len();
-        }
-        if values.len() >= width && width > 0 {
-            rows.push(values);
-        }
-    }
-    if rows.len() < 2 {
-        return Err(format!("{}: no numeric data rows", path.display()));
-    }
-    Ok(rows)
-}
-
 /// Bytes read for the import preview: enough to reach the first numeric
 /// row of any realistic header without ever parsing a whole file.
 const PREVIEW_BYTES: usize = 64 * 1024;
 
-/// First numeric data row of a file, reading at most [`PREVIEW_BYTES`].
-/// Used by the import preview, which runs on the background executor so
+/// Column metadata and the first three numeric rows, reading at most
+/// [`PREVIEW_BYTES`]. The caller runs this on the background executor so
 /// selection never blocks on I/O (large files, network filesystems).
-pub fn preview_first_row(path: &std::path::Path) -> Result<Vec<f64>, String> {
+pub fn preview_import(
+    path: &std::path::Path,
+    import: &ImportConfig,
+) -> Result<ImportPreview, String> {
     use std::io::Read;
     let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut buf = Vec::with_capacity(PREVIEW_BYTES);
@@ -119,22 +298,20 @@ pub fn preview_first_row(path: &std::path::Path) -> Result<Vec<f64>, String> {
         // the final line may be cut mid-number
         lines.pop();
     }
-    for line in lines {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') || line.starts_with('*') {
-            continue;
-        }
-        let values: Option<Vec<f64>> = line
-            .split_whitespace()
-            .map(|t| t.parse::<f64>().ok())
-            .collect();
-        if let Some(values) = values
-            && !values.is_empty()
-        {
-            return Ok(values);
-        }
-    }
-    Err(format!("{}: no numeric data rows", path.display()))
+    let data = parse_data(&lines.join("\n")).map_err(|e| format!("{}: {e}", path.display()))?;
+    let detected = resolve_import(&data, &ImportConfig::default());
+    let mut auto_import = import.clone();
+    auto_import.mode = DetectionMode::Auto;
+    let auto_mode = resolve_import(&data, &auto_import).mode;
+    let resolved = resolve_import(&data, import);
+    Ok(ImportPreview {
+        column_count: data.rows[0].len(),
+        names: data.names,
+        rows: data.rows.into_iter().take(3).collect(),
+        detected,
+        auto_mode,
+        resolved,
+    })
 }
 
 /// Energy and mu(E) for one file under the import configuration. Rows whose
@@ -143,7 +320,13 @@ pub fn load_mu(
     path: &std::path::Path,
     import: &ImportConfig,
 ) -> Result<(Vec<f64>, Vec<f64>), String> {
-    let rows = read_columns(path)?;
+    let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let data = parse_data(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    if data.rows.len() < 2 {
+        return Err(format!("{}: no numeric data rows", path.display()));
+    }
+    let resolved = resolve_import(&data, import);
+    let rows = data.rows;
     let width = rows[0].len();
     let need = |col: usize, name: &str| -> Result<usize, String> {
         if col < width {
@@ -155,12 +338,13 @@ pub fn load_mu(
             ))
         }
     };
-    let e = need(import.energy_col, "energy")?;
+    let e = need(resolved.energy_col, "energy")?;
     let mut energy = Vec::with_capacity(rows.len());
     let mut mu = Vec::with_capacity(rows.len());
-    match import.mode {
+    match resolved.mode {
+        DetectionMode::Auto => unreachable!("auto mode is resolved before import math"),
         DetectionMode::Transmission => {
-            let (i0, it) = (need(import.i0_col, "I0")?, need(import.it_col, "It")?);
+            let (i0, it) = (need(resolved.i0_col, "I0")?, need(resolved.it_col, "It")?);
             for row in &rows {
                 let m = (row[i0] / row[it]).ln();
                 if m.is_finite() && row[e].is_finite() {
@@ -170,9 +354,9 @@ pub fn load_mu(
             }
         }
         DetectionMode::Fluorescence => {
-            let i0 = need(import.i0_col, "I0")?;
+            let i0 = need(resolved.i0_col, "I0")?;
             let mut cols = Vec::new();
-            for &c in &import.fluor_cols {
+            for &c in &resolved.fluor_cols {
                 cols.push(need(c, "ROI")?);
             }
             if cols.is_empty() {
@@ -187,12 +371,24 @@ pub fn load_mu(
             }
         }
         DetectionMode::Reference => {
-            let (it, ir) = (need(import.it_col, "It")?, need(import.ir_col, "Ir")?);
+            let (it, ir) = (need(resolved.it_col, "It")?, need(resolved.ir_col, "Ir")?);
             for row in &rows {
                 let m = (row[it] / row[ir]).ln();
                 if m.is_finite() && row[e].is_finite() {
                     energy.push(row[e]);
                     mu.push(m);
+                }
+            }
+        }
+        DetectionMode::MuColumn => {
+            let mu_col = resolved
+                .mu_col
+                .ok_or_else(|| format!("{}: no precomputed mu column detected", path.display()))?;
+            let mu_col = need(mu_col, "mu")?;
+            for row in &rows {
+                if row[mu_col].is_finite() && row[e].is_finite() {
+                    energy.push(row[e]);
+                    mu.push(row[mu_col]);
                 }
             }
         }
@@ -279,6 +475,7 @@ impl PipelineParams {
         self.import.it_col.hash(&mut hasher);
         self.import.ir_col.hash(&mut hasher);
         self.import.fluor_cols.hash(&mut hasher);
+        self.import.mu_col.hash(&mut hasher);
         for v in [
             self.e0,
             self.pre_edge_start,
@@ -602,6 +799,91 @@ mod tests {
         assert_eq!(parse_cols("a"), None);
     }
 
+    #[test]
+    fn header_names_come_from_last_comment_and_must_match_width() {
+        let data =
+            parse_data("# metadata that is not a header\n# Energy, I0, It\n7000 10 5\n7010 10 4\n")
+                .unwrap();
+        assert_eq!(
+            data.names,
+            Some(vec!["Energy".into(), "I0".into(), "It".into()])
+        );
+
+        let no_header = parse_data("7000 10 5\n7010 10 4\n").unwrap();
+        assert_eq!(no_header.names, None);
+
+        let mismatch = parse_data("# energy i0\n7000 10 5\n7010 10 4\n").unwrap();
+        assert_eq!(mismatch.names, None);
+    }
+
+    #[test]
+    fn synonyms_match_roles_case_insensitively() {
+        for name in ENERGY_NAMES {
+            assert!(name_matches(&name.to_ascii_uppercase(), ENERGY_NAMES));
+        }
+        for name in I0_NAMES {
+            assert!(name_matches(&name.to_ascii_uppercase(), I0_NAMES));
+        }
+        for name in IT_NAMES {
+            assert!(name_matches(&name.to_ascii_uppercase(), IT_NAMES));
+        }
+        for name in IR_NAMES {
+            assert!(name_matches(&name.to_ascii_uppercase(), IR_NAMES));
+        }
+        for name in MU_NAMES {
+            assert!(name_matches(&name.to_ascii_uppercase(), MU_NAMES));
+        }
+        for name in FLUOR_NAMES {
+            assert!(fluorescence_name_matches(&name.to_ascii_uppercase()));
+        }
+        assert!(fluorescence_name_matches("SDD_1"));
+        assert!(fluorescence_name_matches("roi7"));
+
+        let data = parse_data(
+            "# MONO_E MON ITRANS IREF SDD1 roi_2 XMU\n7000 10 5 2 1 2 0.3\n7010 10 4 2 1 2 0.4\n",
+        )
+        .unwrap();
+        let detected = detect_roles(&data);
+        assert_eq!(detected.energy_col, 0);
+        assert_eq!(detected.i0_col, 1);
+        assert_eq!(detected.it_col, 2);
+        assert_eq!(detected.ir_col, 3);
+        assert_eq!(detected.fluor_cols, vec![4, 5]);
+        assert_eq!(detected.mu_col, Some(6));
+    }
+
+    #[test]
+    fn auto_mode_inference_has_stable_precedence() {
+        let mu = parse_data("# energy mu i0 it iff\n7000 .1 10 5 2\n7010 .2 10 4 2\n").unwrap();
+        assert_eq!(
+            resolve_import(&mu, &ImportConfig::default()).mode,
+            DetectionMode::MuColumn
+        );
+
+        let transmission = parse_data("# energy i0 it iff\n7000 10 5 2\n7010 10 4 2\n").unwrap();
+        assert_eq!(
+            resolve_import(&transmission, &ImportConfig::default()).mode,
+            DetectionMode::Transmission
+        );
+
+        let fluorescence = parse_data("# energy monitor sdd1\n7000 10 2\n7010 10 3\n").unwrap();
+        assert_eq!(
+            resolve_import(&fluorescence, &ImportConfig::default()).mode,
+            DetectionMode::Fluorescence
+        );
+    }
+
+    #[test]
+    fn no_header_energy_fallback_uses_plausible_monotonic_column() {
+        let data = parse_data("0 7000 10 5\n1 7020 10 4\n2 7040 10 3\n").unwrap();
+        let resolved = resolve_import(&data, &ImportConfig::default());
+        assert_eq!(resolved.energy_col, 1);
+        assert_eq!(resolved.i0_col, 1);
+        assert_eq!(resolved.it_col, 2);
+        assert_eq!(resolved.ir_col, 3);
+        assert_eq!(resolved.mode, DetectionMode::Transmission);
+    }
+
     fn fixture(dir: &std::path::Path) -> std::path::PathBuf {
         let path = dir.join("import_fixture.dat");
         std::fs::write(
@@ -627,7 +909,7 @@ mod tests {
         assert!((mu[2] - (10.0f64 / 2.0).ln()).abs() < 1e-12);
 
         import.mode = DetectionMode::Fluorescence;
-        import.fluor_cols = vec![4, 5];
+        import.fluor_cols = Some(vec![4, 5]);
         let (_, mu) = load_mu(&path, &import).unwrap();
         assert!((mu[0] - (1.0 + 2.0) / 10.0).abs() < 1e-12);
         assert!((mu[1] - (1.5 + 2.5) / 10.0).abs() < 1e-12);
@@ -635,6 +917,12 @@ mod tests {
         import.mode = DetectionMode::Reference;
         let (_, mu) = load_mu(&path, &import).unwrap();
         assert!((mu[0] - (5.0f64 / 2.5).ln()).abs() < 1e-12);
+
+        let mu_path = dir.join("precomputed_mu.dat");
+        std::fs::write(&mu_path, "# energy mu\n100 0.25\n101 0.5\n").unwrap();
+        let (energy, mu) = load_mu(&mu_path, &ImportConfig::default()).unwrap();
+        assert_eq!(energy, vec![100.0, 101.0]);
+        assert_eq!(mu, vec![0.25, 0.5]);
     }
 
     #[test]
@@ -642,7 +930,8 @@ mod tests {
         let dir = std::env::temp_dir();
         let path = fixture(&dir);
         let import = ImportConfig {
-            i0_col: 9,
+            mode: DetectionMode::Transmission,
+            i0_col: Some(9),
             ..Default::default()
         };
         let err = load_mu(&path, &import).unwrap_err();
@@ -718,5 +1007,41 @@ mod tests {
             assert!((e[i] - le[i]).abs() < 1e-9);
             assert!((mu[i] - lm[i]).abs() < 1e-9);
         }
+    }
+
+    #[test]
+    fn ru_qas_auto_detection_golden() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../xraytsubaki/tests/testfiles/Ru_QAS.dat");
+        let text = std::fs::read_to_string(path).unwrap();
+        let data = parse_data(&text).unwrap();
+        let resolved = resolve_import(&data, &ImportConfig::default());
+        assert_eq!(resolved.energy_col, 0);
+        assert_eq!(resolved.i0_col, 1);
+        assert_eq!(resolved.it_col, 2);
+        assert_eq!(resolved.ir_col, 3);
+        assert_eq!(resolved.fluor_cols, vec![4]);
+        assert_eq!(resolved.mode, DetectionMode::Transmission);
+    }
+
+    #[test]
+    fn legacy_import_json_deserializes_as_manual_overrides() {
+        let import: ImportConfig = serde_json::from_str(
+            r#"{
+                "mode":"Transmission",
+                "energy_col":0,
+                "i0_col":1,
+                "it_col":2,
+                "ir_col":3,
+                "fluor_cols":[4]
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(import.energy_col, Some(0));
+        assert_eq!(import.i0_col, Some(1));
+        assert_eq!(import.it_col, Some(2));
+        assert_eq!(import.ir_col, Some(3));
+        assert_eq!(import.fluor_cols, Some(vec![4]));
+        assert_eq!(import.mu_col, None);
     }
 }

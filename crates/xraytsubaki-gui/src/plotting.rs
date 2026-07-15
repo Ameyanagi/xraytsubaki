@@ -1,5 +1,14 @@
 //! Builders turning a processed `XASSpectrum` into ruviz `Plot`s for the four
 //! Explore quadrants: mu(E), normalized mu(E), k-weighted chi(k), |chi(R)|.
+//!
+//! No plot sets a `.ylabel(...)`: ruviz 0.4.19 renders rotated y-axis labels
+//! through `TextRenderer::render_text_rotated` (ruviz src/render/text.rs),
+//! which feeds UNpremultiplied glyph channels to
+//! `tiny_skia::PremultipliedColorU8::from_rgba`. That constructor rejects any
+//! pixel whose channel exceeds its alpha, so every antialiased edge pixel of
+//! light-on-dark text is dropped and vertical labels render decimated/garbled
+//! (the horizontal text path blends correctly). Until that is fixed upstream,
+//! the y quantity lives in each card header (GPUI text, always crisp).
 
 use ruviz::plots::heatmap::HeatmapConfig;
 use ruviz::prelude::Plot;
@@ -18,6 +27,9 @@ pub struct QuadrantPlots {
     pub norm: Plot,
     pub chi_k: Plot,
     pub chi_r: Plot,
+    /// Card-header titles naming each quadrant's y quantity (see module doc
+    /// on why plots carry no ylabel).
+    pub titles: [String; 4],
 }
 
 /// One spectrum in a comparison overlay.
@@ -51,6 +63,8 @@ pub struct ViewOptions {
     /// chi(k) quadrant: FFT k-range lines and the FT window curve.
     pub show_krange: bool,
     pub show_kwin: bool,
+    /// |chi(R)| quadrant: also plot Re[chi(R)] of the active trace.
+    pub show_re: bool,
 }
 
 impl Default for ViewOptions {
@@ -67,6 +81,7 @@ impl Default for ViewOptions {
             flat: true,
             show_krange: false,
             show_kwin: false,
+            show_re: false,
         }
     }
 }
@@ -74,17 +89,67 @@ impl Default for ViewOptions {
 /// Legends beyond this many traces are clutter.
 const MAX_LEGEND_TRACES: usize = 8;
 
+/// Stable per-trace color: keyed by the trace's position in the sorted
+/// selection so draw order (active drawn last) never reshuffles colors.
+pub fn trace_color(theme: &Theme, index: usize) -> Color {
+    theme.plot_theme().get_color(index)
+}
+
+/// The same stable trace color as a gpui color, for the shared legend strip.
+pub fn trace_rgba(theme: &Theme, index: usize) -> gpui::Rgba {
+    let c = trace_color(theme, index);
+    gpui::Rgba {
+        r: c.r as f32 / 255.0,
+        g: c.g as f32 / 255.0,
+        b: c.b as f32 / 255.0,
+        a: c.a as f32 / 255.0,
+    }
+}
+
+/// Middle-truncate `name` to at most `max` characters ("frame_0…003.dat").
+pub fn middle_truncate(name: &str, max: usize) -> String {
+    let count = name.chars().count();
+    if count <= max || max < 2 {
+        return name.to_string();
+    }
+    let head = (max - 1) / 2;
+    let tail = max - 1 - head;
+    let front: String = name.chars().take(head).collect();
+    let back: String = name.chars().skip(count - tail).collect();
+    format!("{front}…{back}")
+}
+
+/// Header label for a k-weighted chi(k) quantity (GPUI text only — plots keep
+/// ASCII axis labels).
+pub fn chik_label(kw: f64) -> String {
+    let n = kw.round();
+    if (kw - n).abs() > 1e-9 {
+        return format!("k^{kw:.1} χ(k)");
+    }
+    match n as i64 {
+        0 => "χ(k)".to_string(),
+        1 => "k·χ(k)".to_string(),
+        2 => "k²χ(k)".to_string(),
+        3 => "k³χ(k)".to_string(),
+        _ => format!("k^{n:.0} χ(k)"),
+    }
+}
+
 /// Build one quadrant from per-trace (x, y) extractions. Inactive traces
-/// draw first (thin), the active trace last (thick, on top). Waterfall mode
-/// offsets successive traces by `offset_frac` x the first trace's range.
+/// draw first (thin), the active trace last (thick, on top); every trace has
+/// an explicit color keyed to its original position so the reordering never
+/// recolors anything. Waterfall mode offsets successive traces by
+/// `offset_frac` x the first trace's range. Returns the plot plus the
+/// waterfall shift of the active (or first) trace so diagnostic overlays can
+/// be aligned to the curve they annotate.
 fn build_multi(
     traces: &[QuadTrace],
     view: &ViewOptions,
     theme: &Theme,
+    in_plot_legend: bool,
     xlabel: &str,
-    ylabel: &str,
     extract: impl Fn(&XASSpectrum) -> Option<(Vec<f64>, Vec<f64>)>,
-) -> Plot {
+) -> (Plot, f64) {
     let mut series: Vec<(usize, &QuadTrace, Vec<f64>, Vec<f64>)> = traces
         .iter()
         .enumerate()
@@ -116,6 +181,7 @@ fn build_multi(
             }
         }
     }
+    let active_shift = offset * traces.iter().position(|t| t.active).unwrap_or(0) as f64;
     // Active trace drawn last so it sits on top.
     series.sort_by_key(|(_, t, _, _)| t.active);
 
@@ -123,17 +189,19 @@ fn build_multi(
     let mut builder = Plot::new()
         .theme(theme.plot_theme())
         .grid(view.grid)
-        .xlabel(xlabel)
-        .ylabel(ylabel);
-    let with_legend = view.legend && n > 1 && n <= MAX_LEGEND_TRACES;
+        .xlabel(xlabel);
+    // In the grid the shared GPUI legend strip identifies traces; in-plot
+    // legends only when a quadrant is maximized.
+    let with_legend = in_plot_legend && view.legend && n > 1 && n <= MAX_LEGEND_TRACES;
     let mut plot: Option<Plot> = None;
-    for (_, trace, x, y) in &series {
+    for (i, trace, x, y) in &series {
         let width = if trace.active && n > 1 { 2.2 } else { 1.4 };
         let sb = match plot.take() {
             None => builder.line(x, y),
             Some(p) => p.line(x, y),
         }
-        .line_width(width);
+        .line_width(width)
+        .color(trace_color(theme, *i));
         let sb = if with_legend {
             sb.label(&trace.label)
         } else {
@@ -145,16 +213,17 @@ fn build_multi(
     let plot = plot.unwrap_or(builder);
     if with_legend {
         // Plot -> builder chain for legend placement
-        return plot.legend(ruviz::core::Position::TopRight);
+        return (plot.legend(ruviz::core::Position::TopRight), active_shift);
     }
-    plot
+    (plot, active_shift)
 }
 
 /// Normalization-check overlays for the active trace on the mu(E) plot:
 /// dashed pre/post-edge trendlines, the E0 line, and the fit-window lines
 /// (pre-edge range muted, norm range in a second hue; values are stored
-/// relative to E0).
-fn add_mu_diagnostics(mut plot: Plot, sp: &XASSpectrum, view: &ViewOptions) -> Plot {
+/// relative to E0). `shift` is the active trace's waterfall offset so the
+/// trendlines sit on the curve they belong to.
+fn add_mu_diagnostics(mut plot: Plot, sp: &XASSpectrum, view: &ViewOptions, shift: f64) -> Plot {
     let trend = Color::from_gray(150);
     let e0_color = Color::ORANGE;
     let pre_color = Color::new(90, 140, 200);
@@ -164,7 +233,7 @@ fn add_mu_diagnostics(mut plot: Plot, sp: &XASSpectrum, view: &ViewOptions) -> P
         && let (Some(energy), Some(pre)) = (sp.energy.as_ref(), sp.get_pre_edge())
     {
         let x = vecs(energy);
-        let y = vecs(&pre);
+        let y: Vec<f64> = pre.iter().map(|v| v + shift).collect();
         plot = plot
             .line(&x, &y)
             .line_width(1.0)
@@ -177,7 +246,7 @@ fn add_mu_diagnostics(mut plot: Plot, sp: &XASSpectrum, view: &ViewOptions) -> P
         && let (Some(energy), Some(post)) = (sp.energy.as_ref(), sp.get_post_edge())
     {
         let x = vecs(energy);
-        let y = vecs(&post);
+        let y: Vec<f64> = post.iter().map(|v| v + shift).collect();
         plot = plot
             .line(&x, &y)
             .line_width(1.0)
@@ -210,11 +279,13 @@ fn add_mu_diagnostics(mut plot: Plot, sp: &XASSpectrum, view: &ViewOptions) -> P
     plot
 }
 
-/// All four Explore quadrants for a set of traces.
+/// All four Explore quadrants for a set of traces. `in_plot_legend` opts into
+/// ruviz legends (maximized quadrant); the grid uses the shared GPUI strip.
 pub fn build_quadrants_multi(
     traces: &[QuadTrace],
     view: &ViewOptions,
     theme: &Theme,
+    in_plot_legend: bool,
 ) -> QuadrantPlots {
     let kw = traces
         .iter()
@@ -223,20 +294,17 @@ pub fn build_quadrants_multi(
         .and_then(|t| t.sp.get_kweight().copied())
         .unwrap_or(2.0);
 
-    let mut mu_e = build_multi(traces, view, theme, "Energy (eV)", "mu(E)", |sp| {
-        Some((sp.energy.as_ref().map(vecs)?, sp.mu.as_ref().map(vecs)?))
-    });
+    let (mut mu_e, mu_shift) =
+        build_multi(traces, view, theme, in_plot_legend, "Energy (eV)", |sp| {
+            Some((sp.energy.as_ref().map(vecs)?, sp.mu.as_ref().map(vecs)?))
+        });
     let flat = view.flat;
-    let mut norm = build_multi(
+    let (mut norm, _) = build_multi(
         traces,
         view,
         theme,
+        in_plot_legend,
         "Energy (eV)",
-        if flat {
-            "flattened mu(E)"
-        } else {
-            "normalized mu(E)"
-        },
         move |sp| {
             let y = if flat {
                 sp.get_flat().or_else(|| sp.get_norm())
@@ -246,12 +314,12 @@ pub fn build_quadrants_multi(
             Some((sp.energy.as_ref().map(vecs)?, y.map(|v| vecs(&v))?))
         },
     );
-    let mut chi_k = build_multi(
+    let (mut chi_k, chik_shift) = build_multi(
         traces,
         view,
         theme,
+        in_plot_legend,
         "k (1/Angstrom)",
-        &format!("k^{kw:.0} chi(k)"),
         |sp| {
             Some((
                 sp.get_k().map(|v| vecs(&v))?,
@@ -259,21 +327,23 @@ pub fn build_quadrants_multi(
             ))
         },
     );
-    let chi_r = build_multi(traces, view, theme, "R (Angstrom)", "|chi(R)|", |sp| {
-        let r = sp.get_r().map(|v| vecs(&v))?;
-        let m = sp.get_chir_mag().map(|v| vecs(&v))?;
-        let n = r.len().min(m.len());
-        Some((r[..n].to_vec(), m[..n].to_vec()))
-    });
+    let (mut chi_r, chir_shift) =
+        build_multi(traces, view, theme, in_plot_legend, "R (Angstrom)", |sp| {
+            let r = sp.get_r().map(|v| vecs(&v))?;
+            let m = sp.get_chir_mag().map(|v| vecs(&v))?;
+            let n = r.len().min(m.len());
+            Some((r[..n].to_vec(), m[..n].to_vec()))
+        });
 
     if let Some(active) = traces.iter().find(|t| t.active).or_else(|| traces.first()) {
-        mu_e = add_mu_diagnostics(mu_e, &active.sp, view);
+        mu_e = add_mu_diagnostics(mu_e, &active.sp, view, mu_shift);
         if view.show_e0
             && let Some(e0) = active.sp.get_e0()
         {
             norm = norm.vline_styled(e0, Color::ORANGE, 1.2, LineStyle::Dashed);
         }
-        // FT window diagnostics on chi(k), scaled to the data amplitude.
+        // FT window diagnostics on chi(k), scaled to the data amplitude and
+        // shifted onto the active trace in waterfall mode.
         if view.show_kwin
             && let (Some(k), Some(kwin), Some(chi)) = (
                 active.sp.get_k(),
@@ -284,7 +354,7 @@ pub fn build_quadrants_multi(
             let peak = chi.iter().fold(0.0f64, |m, v| m.max(v.abs())).max(1e-12);
             let x = vecs(&k);
             let n = x.len().min(kwin.len());
-            let y: Vec<f64> = kwin.iter().take(n).map(|w| w * peak).collect();
+            let y: Vec<f64> = kwin.iter().take(n).map(|w| w * peak + chik_shift).collect();
             let x = x[..n].to_vec();
             chi_k = chi_k
                 .line(&x, &y)
@@ -301,39 +371,95 @@ pub fn build_quadrants_multi(
                 chi_k = chi_k.vline_styled(v, Color::new(90, 140, 200), 1.0, LineStyle::Dashed);
             }
         }
+        // Re part of chi(R) for phase-agreement checks (doc: "|χ(R)| (+Re
+        // part toggle)"), aligned to the active trace's waterfall offset.
+        if view.show_re
+            && let (Some(r), Some(re)) = (active.sp.get_r(), active.sp.get_chir_real())
+        {
+            let r = vecs(&r);
+            let n = r.len().min(re.len());
+            let y: Vec<f64> = re.iter().take(n).map(|v| v + chir_shift).collect();
+            let x = r[..n].to_vec();
+            chi_r = chi_r
+                .line(&x, &y)
+                .line_width(1.0)
+                .line_style(LineStyle::Dashed)
+                .color(Color::from_gray(150))
+                .label("Re")
+                .into();
+        }
     }
+    let titles = [
+        "μ(E)".to_string(),
+        if flat {
+            "flattened μ(E)".to_string()
+        } else {
+            "normalized μ(E)".to_string()
+        },
+        chik_label(kw),
+        if view.show_re {
+            "|χ(R)| + Re".to_string()
+        } else {
+            "|χ(R)|".to_string()
+        },
+    ];
     QuadrantPlots {
         mu_e,
         norm,
         chi_k,
         chi_r,
+        titles,
     }
 }
 
-/// Operando heatmap: rows = frames (time), cols = k-grid bins.
-pub fn build_heatmap(matrix: &Vec<Vec<f64>>, kmax: f64, theme: &Theme) -> Plot {
-    let _ = kmax;
+/// Operando heatmap in physical units: x in k (1/Angstrom) from the resample
+/// grid, y = frame index over the FULL scan (rows are the evenly sampled
+/// overview). Frame 0 stays at the top — matching the cursor overlay, click
+/// mapping, and batch table order — so rows are flipped (ruviz draws row 0 at
+/// the top of the y extent) and the y axis is reversed to keep tick values
+/// truthful.
+pub fn build_heatmap(matrix: &[Vec<f64>], grid: &[f64], scan_len: usize, theme: &Theme) -> Plot {
+    let kmin = grid.first().copied().unwrap_or(0.0);
+    let kmax = grid.last().copied().unwrap_or(1.0).max(kmin + 1e-9);
+    let last_frame = scan_len.saturating_sub(1).max(1) as f64;
+    let flipped: Vec<Vec<f64>> = matrix.iter().rev().cloned().collect();
     Plot::new()
         .theme(theme.plot_theme())
-        .xlabel("k bin")
-        .ylabel("frame")
-        .heatmap(matrix, Some(HeatmapConfig::new().colorbar(true)))
+        .xlabel("k (1/Angstrom)")
+        .heatmap(
+            &flipped,
+            Some(
+                HeatmapConfig::new()
+                    .colorbar(true)
+                    .extent(kmin, kmax, 0.0, last_frame),
+            ),
+        )
+        .ylim(last_frame, 0.0)
         .into()
 }
 
 /// chi(k) of a single operando frame from the resampled grid row.
-pub fn build_frame_chik(grid: &[f64], row: &[f64], kw: f64, theme: &Theme) -> Plot {
+pub fn build_frame_chik(grid: &[f64], row: &[f64], theme: &Theme) -> Plot {
     let grid: Vec<f64> = grid.to_vec();
     let row: Vec<f64> = row.to_vec();
     Plot::new()
         .theme(theme.plot_theme())
         .line(&grid, &row)
         .xlabel("k (1/Angstrom)")
-        .ylabel(format!("k^{kw:.0} chi(k)"))
         .into()
 }
 
-/// k-space fit overlay: k-weighted data vs model.
+/// Shade the k/R window the fit actually used (from the result, so the bands
+/// stay truthful when the panel ranges have been edited since).
+fn shade_range(plot: Plot, lo: Option<f64>, hi: Option<f64>) -> Plot {
+    match (lo, hi) {
+        (Some(lo), Some(hi)) if hi > lo => plot.axvspan(lo, hi),
+        _ => plot,
+    }
+}
+
+/// k-space fit overlay: k-weighted data vs model, per-path contributions,
+/// and the shaded fit range.
 pub fn build_fit_k(result: &xraytsubaki::prelude::FeffFitResult, theme: &Theme) -> Plot {
     let k = vecs(&result.k);
     let kw = result.kweight;
@@ -345,50 +471,116 @@ pub fn build_fit_k(result: &xraytsubaki::prelude::FeffFitResult, theme: &Theme) 
     };
     let data = weight(&result.data_chi);
     let model = weight(&result.model_chi);
-    Plot::new()
+    let mut plot: Plot = Plot::new()
         .theme(theme.plot_theme())
         .line(&k, &data)
         .label("data")
         .line(&k, &model)
         .label("fit")
+        .into();
+    if result.path_contributions.len() > 1 {
+        for path in &result.path_contributions {
+            let y = weight(&path.chi);
+            plot = plot
+                .line(&k, &y)
+                .line_width(1.0)
+                .line_style(LineStyle::Dashed)
+                .label(&path.label)
+                .into();
+        }
+    }
+    shade_range(plot, result.kmin, result.kmax)
         .legend(ruviz::core::position::Position::TopRight)
         .xlabel("k (1/Angstrom)")
-        .ylabel(format!("k^{kw:.0} chi(k)"))
-        .into()
 }
 
-/// R-space fit overlay: |chi(R)| of data vs model.
+/// R-space fit overlay: |chi(R)| of data vs model, per-path contributions,
+/// and the shaded fit range.
 pub fn build_fit_r(result: &xraytsubaki::prelude::FeffFitResult, theme: &Theme) -> Plot {
     let r = vecs(&result.r);
-    let data_mag: Vec<f64> = result
-        .data_chir_re
-        .iter()
-        .zip(result.data_chir_im.iter())
-        .map(|(re, im)| (re * re + im * im).sqrt())
-        .collect();
+    let data_mag = fit_data_chir_mag(result);
     let model_mag = vecs(&result.model_chir_mag);
     let n = r.len().min(data_mag.len()).min(model_mag.len());
     let r = r[..n].to_vec();
     let data_mag = data_mag[..n].to_vec();
     let model_mag = model_mag[..n].to_vec();
-    Plot::new()
+    let mut plot: Plot = Plot::new()
         .theme(theme.plot_theme())
         .line(&r, &data_mag)
         .label("data")
         .line(&r, &model_mag)
         .label("fit")
+        .into();
+    if result.path_contributions.len() > 1 {
+        for path in &result.path_contributions {
+            let m = path.chir_mag.iter().take(n).copied().collect::<Vec<f64>>();
+            let x = r[..m.len()].to_vec();
+            plot = plot
+                .line(&x, &m)
+                .line_width(1.0)
+                .line_style(LineStyle::Dashed)
+                .label(&path.label)
+                .into();
+        }
+    }
+    shade_range(plot, result.rmin, result.rmax)
         .legend(ruviz::core::position::Position::TopRight)
         .xlabel("R (Angstrom)")
-        .ylabel("|chi(R)|")
-        .into()
+}
+
+fn fit_data_chir_mag(result: &xraytsubaki::prelude::FeffFitResult) -> Vec<f64> {
+    result
+        .data_chir_re
+        .iter()
+        .zip(result.data_chir_im.iter())
+        .map(|(re, im)| (re * re + im * im).sqrt())
+        .collect()
+}
+
+/// Residual strip under the k-space fit: k-weighted (data - model).
+pub fn build_fit_residual_k(result: &xraytsubaki::prelude::FeffFitResult, theme: &Theme) -> Plot {
+    let k = vecs(&result.k);
+    let kw = result.kweight;
+    let res: Vec<f64> = result
+        .data_chi
+        .iter()
+        .zip(result.model_chi.iter())
+        .zip(k.iter())
+        .map(|((d, m), kk)| (d - m) * kk.powf(kw))
+        .collect();
+    let plot: Plot = Plot::new()
+        .theme(theme.plot_theme())
+        .line(&k, &res)
+        .line_width(1.0)
+        .color(Color::from_gray(150))
+        .into();
+    shade_range(plot, result.kmin, result.kmax)
+        .hline_styled(0.0, Color::from_gray(120), 0.8, LineStyle::Dashed)
+        .xlabel("k (1/Angstrom)")
+}
+
+/// Residual strip under the R-space fit: |chi(R)| data - model.
+pub fn build_fit_residual_r(result: &xraytsubaki::prelude::FeffFitResult, theme: &Theme) -> Plot {
+    let r = vecs(&result.r);
+    let data_mag = fit_data_chir_mag(result);
+    let model_mag = vecs(&result.model_chir_mag);
+    let n = r.len().min(data_mag.len()).min(model_mag.len());
+    let res: Vec<f64> = (0..n).map(|i| data_mag[i] - model_mag[i]).collect();
+    let r = r[..n].to_vec();
+    let plot: Plot = Plot::new()
+        .theme(theme.plot_theme())
+        .line(&r, &res)
+        .line_width(1.0)
+        .color(Color::from_gray(150))
+        .into();
+    shade_range(plot, result.rmin, result.rmax)
+        .hline_styled(0.0, Color::from_gray(120), 0.8, LineStyle::Dashed)
+        .xlabel("R (Angstrom)")
 }
 
 /// Parameter-vs-frame trend with a cursor marker.
-pub fn build_trend(values: &[f64], cursor: usize, ylabel: &str, theme: &Theme) -> Plot {
-    let mut plot = Plot::new()
-        .theme(theme.plot_theme())
-        .xlabel("frame")
-        .ylabel(ylabel);
+pub fn build_trend(values: &[f64], cursor: usize, theme: &Theme) -> Plot {
+    let mut plot = Plot::new().theme(theme.plot_theme()).xlabel("frame");
     // Missing/failed frames remain real gaps: each contiguous finite run is
     // its own series, located at the true full-scan frame index.
     let mut start = 0;
@@ -420,5 +612,41 @@ pub fn build_trend(values: &[f64], cursor: usize, ylabel: &str, theme: &Theme) -
             plot.scatter(&cx, &cyv).into()
         }
         _ => plot,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{chik_label, middle_truncate};
+
+    #[test]
+    fn middle_truncate_passes_short_names_through() {
+        assert_eq!(middle_truncate("short.dat", 28), "short.dat");
+        assert_eq!(middle_truncate("", 8), "");
+    }
+
+    #[test]
+    fn middle_truncate_keeps_head_and_tail() {
+        let out = middle_truncate("frame_000000000000123456.dat", 15);
+        assert_eq!(out.chars().count(), 15);
+        assert!(out.starts_with("frame_0"));
+        assert!(out.ends_with("456.dat"));
+        assert!(out.contains('…'));
+    }
+
+    #[test]
+    fn middle_truncate_respects_char_boundaries() {
+        let out = middle_truncate("αβγδεζηθικλμνξοπρστυ", 9);
+        assert_eq!(out.chars().count(), 9);
+    }
+
+    #[test]
+    fn chik_labels_common_weights() {
+        assert_eq!(chik_label(0.0), "χ(k)");
+        assert_eq!(chik_label(1.0), "k·χ(k)");
+        assert_eq!(chik_label(2.0), "k²χ(k)");
+        assert_eq!(chik_label(3.0), "k³χ(k)");
+        assert_eq!(chik_label(4.0), "k^4 χ(k)");
+        assert_eq!(chik_label(2.5), "k^2.5 χ(k)");
     }
 }

@@ -40,8 +40,9 @@ use crate::params::{
     load_raw, parse_cols, preview_first_row, process_arrays, process_file, resample_chik,
 };
 use crate::plotting::{
-    QuadTrace, TraceLayout, ViewOptions, build_fit_k, build_fit_r, build_frame_chik, build_heatmap,
-    build_quadrants_multi, build_trend,
+    QuadTrace, TraceLayout, ViewOptions, build_fit_k, build_fit_r, build_fit_residual_k,
+    build_fit_residual_r, build_frame_chik, build_heatmap, build_quadrants_multi, build_trend,
+    chik_label, middle_truncate, trace_rgba,
 };
 use crate::project::{PROJECT_VERSION, ProjectFile};
 use crate::theme::{Theme, ThemeMode};
@@ -236,9 +237,40 @@ struct JobError {
 }
 
 struct OperandoPlots {
+    /// Scan the plots currently show; a different scan gets fresh viewports
+    /// instead of inheriting the previous scan's pan/zoom.
+    scan: usize,
     heatmap: Entity<RuvizPlot>,
     chik: Entity<RuvizPlot>,
     trend: Entity<RuvizPlot>,
+}
+
+struct FitPlots {
+    k: Entity<RuvizPlot>,
+    k_residual: Entity<RuvizPlot>,
+    r: Entity<RuvizPlot>,
+    r_residual: Entity<RuvizPlot>,
+}
+
+/// Swap a plot's data while keeping the user's pan/zoom. ruviz-gpui 0.4.19's
+/// `set_plot` replaces the whole interactive session and unconditionally
+/// resets its interaction state, so the visible bounds are captured first and
+/// re-applied afterwards whenever the user had deviated from the default view.
+fn set_plot_keep_view(entity: &Entity<RuvizPlot>, plot: ruviz::prelude::Plot, cx: &mut gpui::App) {
+    entity.update(cx, |rp, cx| {
+        let saved = rp
+            .interactive_session()
+            .viewport_snapshot()
+            .ok()
+            .filter(|snapshot| snapshot.visible_bounds != snapshot.base_bounds)
+            .map(|snapshot| snapshot.visible_bounds);
+        rp.set_plot(plot, cx);
+        if let Some(bounds) = saved {
+            // restore_visible_bounds marks the session dirty itself; the
+            // set_plot notify above schedules the re-render.
+            rp.interactive_session().restore_visible_bounds(bounds);
+        }
+    });
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -371,6 +403,9 @@ pub struct StudioApp {
     spectrum: Option<Arc<XASSpectrum>>,
     spectrum_label: SharedString,
     quadrants: Vec<(SharedString, Entity<RuvizPlot>)>,
+    /// Shared Explore legend strip entries (truncated label, stable color),
+    /// rebuilt with the quadrant plots; empty for a single trace.
+    legend_entries: Vec<(SharedString, gpui::Rgba)>,
     maximized: Option<usize>,
     data_tab: DataTab,
     file_scroll: UniformListScrollHandle,
@@ -394,7 +429,7 @@ pub struct StudioApp {
     fit_ranges: FitRanges,
     fit_result: Option<Arc<FeffFitResult>>,
     fit_provenance: Option<FitProvenance>,
-    fit_plots: Option<(Entity<RuvizPlot>, Entity<RuvizPlot>)>,
+    fit_plots: Option<FitPlots>,
     fit_gen: u64,
     fit_running: bool,
     last_fit_duration: Option<Duration>,
@@ -772,6 +807,7 @@ impl StudioApp {
             spectrum: None,
             spectrum_label: label.clone(),
             quadrants: Vec::new(),
+            legend_entries: Vec::new(),
             maximized: None,
             data_tab: DataTab::Files,
             file_scroll: UniformListScrollHandle::new(),
@@ -1532,29 +1568,38 @@ impl StudioApp {
         let Some(scan) = self.catalog.scans.get(data.scan) else {
             return;
         };
+        let scan_ix = data.scan;
         let sample_pos = nearest_sample_pos(self.time_pos, scan.len, data.matrix.len());
         let cursor_ix = scan.start + self.time_pos.min(scan.len.saturating_sub(1));
         let fingerprint = data.fingerprint;
         let grid = data.grid.clone();
-        let kweight = data.kweight;
         let sampled_row = data.matrix.get(sample_pos).cloned().unwrap_or_default();
         let row = self
             .cache
             .peek(&(cursor_ix, fingerprint))
             .and_then(|sp| resample_chik(sp, &grid))
             .unwrap_or(sampled_row);
-        let heatmap = build_heatmap(&data.matrix, K_GRID_MAX, &self.theme);
-        let chik = build_frame_chik(&grid, &row, kweight, &self.theme);
-        let (trend_values, trend_label, trend_cursor) = self.trend_series();
-        let trend = build_trend(&trend_values, trend_cursor, &trend_label, &self.theme);
-        match &self.operando_plots {
+        let heatmap = build_heatmap(&data.matrix, &data.grid, scan.len, &self.theme);
+        let chik = build_frame_chik(&grid, &row, &self.theme);
+        let (trend_values, trend_cursor) = self.trend_series();
+        let trend = build_trend(&trend_values, trend_cursor, &self.theme);
+        match &mut self.operando_plots {
             Some(plots) => {
-                plots.heatmap.update(cx, |rp, cx| rp.set_plot(heatmap, cx));
-                plots.chik.update(cx, |rp, cx| rp.set_plot(chik, cx));
-                plots.trend.update(cx, |rp, cx| rp.set_plot(trend, cx));
+                if plots.scan == scan_ix {
+                    set_plot_keep_view(&plots.heatmap, heatmap, cx);
+                    set_plot_keep_view(&plots.chik, chik, cx);
+                    set_plot_keep_view(&plots.trend, trend, cx);
+                } else {
+                    // New scan: fresh viewports, the old zoom is meaningless.
+                    plots.scan = scan_ix;
+                    plots.heatmap.update(cx, |rp, cx| rp.set_plot(heatmap, cx));
+                    plots.chik.update(cx, |rp, cx| rp.set_plot(chik, cx));
+                    plots.trend.update(cx, |rp, cx| rp.set_plot(trend, cx));
+                }
             }
             None => {
                 self.operando_plots = Some(OperandoPlots {
+                    scan: scan_ix,
                     heatmap: plot_builder(heatmap).interactive().build(cx),
                     chik: plot_builder(chik).interactive().build(cx),
                     trend: plot_builder(trend).interactive().build(cx),
@@ -1608,12 +1653,13 @@ impl StudioApp {
             .peek(&(ix, fingerprint))
             .and_then(|sp| resample_chik(sp, &grid))
             .unwrap_or(sampled_row);
-        let chik = build_frame_chik(&grid, &row, data.kweight, &self.theme);
-        let (trend_values, trend_label, trend_cursor) = self.trend_series();
-        let trend = build_trend(&trend_values, trend_cursor, &trend_label, &self.theme);
+        let chik = build_frame_chik(&grid, &row, &self.theme);
+        let (trend_values, trend_cursor) = self.trend_series();
+        let trend = build_trend(&trend_values, trend_cursor, &self.theme);
         if let Some(plots) = &self.operando_plots {
-            plots.chik.update(cx, |rp, cx| rp.set_plot(chik, cx));
-            plots.trend.update(cx, |rp, cx| rp.set_plot(trend, cx));
+            // Scrub steps swap data only; the user's zoom survives.
+            set_plot_keep_view(&plots.chik, chik, cx);
+            set_plot_keep_view(&plots.trend, trend, cx);
         }
         self.status = format!("frame {}/{} · {}", pos + 1, scan_len, self.catalog.name(ix)).into();
         self.sync_time_selection(scan_ix, cx);
@@ -1678,9 +1724,9 @@ impl StudioApp {
         let Some(row) = resample_chik(sp, &data.grid) else {
             return;
         };
-        let chik = build_frame_chik(&data.grid, &row, data.kweight, &self.theme);
+        let chik = build_frame_chik(&data.grid, &row, &self.theme);
         if let Some(plots) = &self.operando_plots {
-            plots.chik.update(cx, |rp, cx| rp.set_plot(chik, cx));
+            set_plot_keep_view(&plots.chik, chik, cx);
         }
     }
 
@@ -1806,12 +1852,30 @@ impl StudioApp {
             )
             .into();
         }
-        let plots = build_quadrants_multi(&traces, &self.view, &self.theme);
+        // The grid uses one shared legend strip; per-plot legends only when a
+        // quadrant is maximized.
+        self.legend_entries = if traces.len() > 1 {
+            traces
+                .iter()
+                .enumerate()
+                .map(|(i, trace)| {
+                    (
+                        SharedString::from(middle_truncate(&trace.label, 28)),
+                        trace_rgba(&self.theme, i),
+                    )
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let in_plot_legend = self.maximized.is_some();
+        let plots = build_quadrants_multi(&traces, &self.view, &self.theme, in_plot_legend);
+        let [t0, t1, t2, t3] = plots.titles;
         let titled = [
-            ("mu(E)", plots.mu_e),
-            ("normalized", plots.norm),
-            ("chi(k)", plots.chi_k),
-            ("|chi(R)|", plots.chi_r),
+            (t0, plots.mu_e),
+            (t1, plots.norm),
+            (t2, plots.chi_k),
+            (t3, plots.chi_r),
         ];
         if self.quadrants.is_empty() {
             self.quadrants = titled
@@ -1822,8 +1886,9 @@ impl StudioApp {
                 })
                 .collect();
         } else {
-            for ((_, entity), (_, plot)) in self.quadrants.iter().zip(titled) {
-                entity.update(cx, |rp, cx| rp.set_plot(plot, cx));
+            for ((slot, entity), (title, plot)) in self.quadrants.iter_mut().zip(titled) {
+                *slot = SharedString::from(title);
+                set_plot_keep_view(entity, plot, cx);
             }
         }
     }
@@ -2832,16 +2897,22 @@ impl StudioApp {
         };
         let k_plot = build_fit_k(result, &self.theme);
         let r_plot = build_fit_r(result, &self.theme);
+        let k_res = build_fit_residual_k(result, &self.theme);
+        let r_res = build_fit_residual_r(result, &self.theme);
         match &self.fit_plots {
-            Some((k_entity, r_entity)) => {
-                k_entity.update(cx, |rp, cx| rp.set_plot(k_plot, cx));
-                r_entity.update(cx, |rp, cx| rp.set_plot(r_plot, cx));
+            Some(plots) => {
+                set_plot_keep_view(&plots.k, k_plot, cx);
+                set_plot_keep_view(&plots.k_residual, k_res, cx);
+                set_plot_keep_view(&plots.r, r_plot, cx);
+                set_plot_keep_view(&plots.r_residual, r_res, cx);
             }
             None => {
-                self.fit_plots = Some((
-                    plot_builder(k_plot).interactive().build(cx),
-                    plot_builder(r_plot).interactive().build(cx),
-                ));
+                self.fit_plots = Some(FitPlots {
+                    k: plot_builder(k_plot).interactive().build(cx),
+                    k_residual: plot_builder(k_res).interactive().build(cx),
+                    r: plot_builder(r_plot).interactive().build(cx),
+                    r_residual: plot_builder(r_res).interactive().build(cx),
+                });
             }
         }
     }
@@ -3150,7 +3221,9 @@ impl StudioApp {
 
     /// The operando trend series: fitted parameter when a batch fit exists
     /// for the current scan/params, otherwise E0.
-    fn trend_series(&self) -> (Vec<f64>, String, usize) {
+    /// Trend values and cursor row; the quantity name is `trend_name`, shown
+    /// in the trend card header instead of a (broken-upstream) plot ylabel.
+    fn trend_series(&self) -> (Vec<f64>, usize) {
         if let (Some(bf), Some(data)) = (&self.batch_fit, &self.operando)
             && bf.scan == data.scan
             && bf.fingerprint == data.fingerprint
@@ -3168,7 +3241,7 @@ impl StudioApp {
                     *slot = v;
                 }
             }
-            return (values, name.clone(), self.time_pos);
+            return (values, self.time_pos);
         }
         let values = self
             .operando
@@ -3179,7 +3252,20 @@ impl StudioApp {
             .operando_scan_len()
             .map(|len| nearest_sample_pos(self.time_pos, len, values.len()))
             .unwrap_or_default();
-        (values, "E0 (eV)".to_string(), cursor)
+        (values, cursor)
+    }
+
+    /// Name of the trend quantity (mirrors trend_series' selection) without
+    /// materializing the full values vector; used by the card header.
+    fn trend_name(&self) -> String {
+        if let (Some(bf), Some(data)) = (&self.batch_fit, &self.operando)
+            && bf.scan == data.scan
+            && bf.fingerprint == data.fingerprint
+            && let Some(name) = bf.varying_names.get(bf.trend_param)
+        {
+            return name.clone();
+        }
+        "E0 (eV)".to_string()
     }
 
     fn cycle_trend_param(&mut self, cx: &mut Context<Self>) {
@@ -3595,16 +3681,26 @@ impl StudioApp {
         });
     }
 
+    /// Maximize state changes rebuild the quadrants: the maximized view gets
+    /// per-plot legends, the grid relies on the shared legend strip.
+    fn set_maximized(&mut self, maximized: Option<usize>, cx: &mut Context<Self>) {
+        if self.maximized == maximized {
+            return;
+        }
+        self.maximized = maximized;
+        self.rebuild_plots(cx);
+        cx.notify();
+    }
+
     fn maximize_quadrant(&mut self, index: usize, cx: &mut Context<Self>) {
         if self.quadrants.len() == 4 {
-            self.maximized = Some(index);
-            cx.notify();
+            self.set_maximized(Some(index), cx);
         }
     }
 
     fn explore_escape(&mut self, cx: &mut Context<Self>) {
-        if self.maximized.take().is_some() {
-            cx.notify();
+        if self.maximized.is_some() {
+            self.set_maximized(None, cx);
         } else {
             self.clear_selection(cx);
         }
@@ -4182,12 +4278,12 @@ impl StudioApp {
                         .cursor_pointer()
                         .hover(|d| d.text_color(t.text))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                            this.maximized = if this.maximized == Some(index) {
+                            let next = if this.maximized == Some(index) {
                                 None
                             } else {
                                 Some(index)
                             };
-                            cx.notify();
+                            this.set_maximized(next, cx);
                         }))
                         .child(title.clone()),
                 );
@@ -4286,6 +4382,18 @@ impl StudioApp {
                                 cx.notify();
                             },
                         ));
+                } else if index == 3 {
+                    header = header.child(self.view_chip(
+                        "view-re",
+                        "Re",
+                        self.view.show_re,
+                        cx,
+                        |this, cx| {
+                            this.view.show_re = !this.view.show_re;
+                            this.rebuild_plots(cx);
+                            cx.notify();
+                        },
+                    ));
                 }
                 header
             })
@@ -4361,6 +4469,32 @@ impl StudioApp {
         row
     }
 
+    /// One shared legend strip for the whole 2x2 grid (color chip +
+    /// middle-truncated name per overlaid trace, in stable selection order).
+    fn legend_strip(&self) -> impl IntoElement + use<> {
+        let t = self.theme;
+        let mut row = div()
+            .px_2()
+            .py_1()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap_3()
+            .text_xs()
+            .text_color(t.text_muted);
+        for (label, color) in &self.legend_entries {
+            row = row.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .child(div().w(px(10.)).h(px(10.)).rounded_xs().bg(*color))
+                    .child(label.clone()),
+            );
+        }
+        row
+    }
+
     fn explore_center(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
         if self.quadrants.len() != 4 {
@@ -4380,6 +4514,7 @@ impl StudioApp {
                 .child(self.view_options_row(cx))
                 .child(div().flex_1().flex().child(self.quadrant(index, cx)));
         }
+        let show_strip = self.view.legend && !self.legend_entries.is_empty();
         div()
             .flex_1()
             .flex()
@@ -4399,6 +4534,7 @@ impl StudioApp {
                     .child(self.quadrant(2, cx))
                     .child(self.quadrant(3, cx)),
             )
+            .children(show_strip.then(|| self.legend_strip()))
     }
 
     /// Cursor line and pointer navigation over the heatmap. The y hit area
@@ -4511,6 +4647,11 @@ impl StudioApp {
         };
         let frames = self.operando_scan_len().unwrap_or(0);
         let frame_label: SharedString = format!("frame {} / {frames}", self.time_pos + 1).into();
+        let kw = self.operando.as_ref().map(|d| d.kweight).unwrap_or(2.0);
+        let overview_label: SharedString =
+            format!("scan overview · frame vs {} · k (1/Å)", chik_label(kw)).into();
+        let chik_header: SharedString = format!("frame · {}", chik_label(kw)).into();
+        let trend_header: SharedString = format!("trend · {}", self.trend_name()).into();
         div()
             .id("operando-center")
             .key_context("Operando")
@@ -4568,7 +4709,7 @@ impl StudioApp {
                             .py_1()
                             .text_xs()
                             .text_color(t.text_muted)
-                            .child("scan overview · k²χ(k) vs time"),
+                            .child(overview_label),
                     )
                     .child(
                         div()
@@ -4599,23 +4740,41 @@ impl StudioApp {
                         div()
                             .flex_1()
                             .m_1()
+                            .flex()
+                            .flex_col()
                             .rounded_md()
                             .bg(t.raised)
                             .border_1()
                             .border_color(t.border)
-                            .p_1()
-                            .child(plots.chik.clone()),
+                            .child(
+                                div()
+                                    .px_2()
+                                    .py_1()
+                                    .text_xs()
+                                    .text_color(t.text_muted)
+                                    .child(chik_header),
+                            )
+                            .child(div().flex_1().p_1().child(plots.chik.clone())),
                     )
                     .child(
                         div()
                             .flex_1()
                             .m_1()
+                            .flex()
+                            .flex_col()
                             .rounded_md()
                             .bg(t.raised)
                             .border_1()
                             .border_color(t.border)
-                            .p_1()
-                            .child(plots.trend.clone()),
+                            .child(
+                                div()
+                                    .px_2()
+                                    .py_1()
+                                    .text_xs()
+                                    .text_color(t.text_muted)
+                                    .child(trend_header),
+                            )
+                            .child(div().flex_1().p_1().child(plots.trend.clone())),
                     ),
             )
             .into_any_element()
@@ -4807,9 +4966,6 @@ impl StudioApp {
         }
         let card = |title: SharedString, plot: Entity<RuvizPlot>| {
             div()
-                .flex_1()
-                .min_h_0()
-                .m_1()
                 .flex()
                 .flex_col()
                 .rounded_md()
@@ -4825,6 +4981,19 @@ impl StudioApp {
                         .child(title),
                 )
                 .child(div().flex_1().p_1().child(plot))
+        };
+        // Data-vs-model overlay with a residual strip beneath (doc: Fit
+        // workspace "below, a residual strip").
+        let column = |title: SharedString, main: Entity<RuvizPlot>, residual: Entity<RuvizPlot>| {
+            div()
+                .flex_1()
+                .min_h_0()
+                .m_1()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(card(title, main).flex_1().min_h_0())
+                .child(card("residual".into(), residual).h(px(140.)))
         };
         let mut center = div().flex_1().min_h_0().flex().flex_col();
         if let Some(provenance) = &self.fit_provenance {
@@ -4852,14 +5021,23 @@ impl StudioApp {
                     .child(badge),
             );
         }
-        if let Some((k_plot, r_plot)) = &self.fit_plots {
+        if let Some(plots) = &self.fit_plots {
+            let kw = self.fit_result.as_ref().map(|r| r.kweight).unwrap_or(2.0);
             center = center.child(
                 div()
                     .flex_1()
                     .min_h_0()
                     .flex()
-                    .child(card("fit in k-space".into(), k_plot.clone()))
-                    .child(card("fit in R-space".into(), r_plot.clone())),
+                    .child(column(
+                        format!("fit in k-space · {}", chik_label(kw)).into(),
+                        plots.k.clone(),
+                        plots.k_residual.clone(),
+                    ))
+                    .child(column(
+                        "fit in R-space · |χ(R)|".into(),
+                        plots.r.clone(),
+                        plots.r_residual.clone(),
+                    )),
             );
         }
         if self.batch_fit.is_some() {
@@ -4920,9 +5098,6 @@ impl StudioApp {
         let t = self.theme;
         let mut panel = div()
             .id("fit-scroll")
-            .on_scroll_wheel(cx.listener(|_t, ev: &gpui::ScrollWheelEvent, _w, _cx| {
-                eprintln!("[scroll-dbg] fit-scroll got wheel: {:?}", ev.delta);
-            }))
             .flex_1()
             .min_h_0()
             .flex()
@@ -6131,9 +6306,7 @@ impl Render for StudioApp {
             }))
             .on_action(
                 cx.listener(|this: &mut Self, _: &RestoreGrid, _window, cx| {
-                    if this.maximized.take().is_some() {
-                        cx.notify();
-                    }
+                    this.set_maximized(None, cx);
                 }),
             )
             .on_action(
@@ -6141,9 +6314,6 @@ impl Render for StudioApp {
                     this.explore_escape(cx);
                 }),
             )
-            .on_scroll_wheel(cx.listener(|_t, ev: &gpui::ScrollWheelEvent, _w, _cx| {
-                eprintln!("[scroll-dbg] window got wheel: {:?}", ev.delta);
-            }))
             .size_full()
             .flex()
             .flex_col()

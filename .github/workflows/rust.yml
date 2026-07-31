@@ -62,6 +62,11 @@ jobs:
       run: cargo bench -p xraytsubaki --bench xas_group_benchmark_single -- --noplot
     - name: Run parallel benchmark
       run: cargo bench -p xraytsubaki --bench xas_group_benchmark_parallel -- --noplot
+    # baseline.json also gates autobk_stage_legacy_lm and
+    # autobk_stage_linear_direct, which live in this target. Without it their
+    # estimates.json never exists and the gate fails as "missing" on every push.
+    - name: Run AUTOBK stage benchmark
+      run: cargo bench -p xraytsubaki --bench autobk_stage_benchmark -- --noplot
     - name: Evaluate benchmark regression (informational on PR, blocking on push)
       run: |
         MODE="informational"

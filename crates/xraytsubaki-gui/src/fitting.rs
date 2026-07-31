@@ -195,6 +195,26 @@ impl BatchFitRow {
     }
 }
 
+/// Escape a text field for CSV (RFC 4180) and neutralize spreadsheet formula
+/// injection.
+///
+/// Two distinct hazards reach these cells: file labels come from the
+/// filesystem and parameter names are user-defined, so both can contain a
+/// comma or quote — which would shift every later column — and both can begin
+/// with a character that Excel, LibreOffice and Sheets treat as the start of a
+/// formula rather than text.
+fn csv_field(value: &str) -> String {
+    let mut field = String::with_capacity(value.len() + 2);
+    if value.starts_with(['=', '+', '-', '@', '\t', '\r']) {
+        field.push('\'');
+    }
+    field.push_str(value);
+    if field.contains([',', '"', '\n', '\r']) {
+        return format!("\"{}\"", field.replace('"', "\"\""));
+    }
+    field
+}
+
 /// CSV for a batch-fit result set: frame, captured file label, fit statistics, then one
 /// value/stderr column pair per varying parameter.
 pub fn batch_csv(
@@ -204,7 +224,11 @@ pub fn batch_csv(
 ) -> String {
     let mut out = String::from("frame,file,r_factor,reduced_chi_square");
     for name in names {
-        out.push_str(&format!(",{name},{name}_stderr"));
+        out.push_str(&format!(
+            ",{},{}",
+            csv_field(name),
+            csv_field(&format!("{name}_stderr"))
+        ));
     }
     out.push('\n');
     for row in rows {
@@ -213,8 +237,11 @@ pub fn batch_csv(
             .map(String::as_str)
             .unwrap_or("");
         out.push_str(&format!(
-            "{},{file},{:.6},{:.6e}",
-            row.frame, row.r_factor, row.reduced_chi_square
+            "{},{},{:.6},{:.6e}",
+            row.frame,
+            csv_field(file),
+            row.r_factor,
+            row.reduced_chi_square
         ));
         for name in names {
             match row.values.iter().find(|(n, _, _)| n == name) {
@@ -254,6 +281,52 @@ mod tests {
     use super::*;
     use crate::feffgen::{CrystalSpec, new_workspace_from_spec, run_feff10};
     use crate::params::{PipelineParams, process_file};
+
+    #[test]
+    fn csv_fields_are_escaped_and_formula_neutralized() {
+        // Plain text passes through untouched.
+        assert_eq!(csv_field("Ru_QAS.dat"), "Ru_QAS.dat");
+        // A comma in a filename would otherwise shift every later column.
+        assert_eq!(csv_field("scan,01.dat"), "\"scan,01.dat\"");
+        // Quotes are doubled per RFC 4180.
+        assert_eq!(csv_field("a\"b"), "\"a\"\"b\"");
+        // Newlines force quoting too.
+        assert_eq!(csv_field("a\nb"), "\"a\nb\"");
+        // Formula-leading text is forced to a literal string.
+        assert_eq!(csv_field("=1+1"), "'=1+1");
+        assert_eq!(csv_field("@SUM(A1)"), "'@SUM(A1)");
+        assert_eq!(csv_field("-2+3"), "'-2+3");
+        // Both hazards at once: neutralized *and* quoted.
+        assert_eq!(csv_field("=cmd|'/c calc'!A1,x"), "\"'=cmd|'/c calc'!A1,x\"");
+    }
+
+    #[test]
+    fn batch_csv_escapes_hostile_labels_and_names() {
+        let rows = vec![BatchFitRow {
+            frame: 0,
+            entry_ix: 0,
+            r_factor: 0.01,
+            reduced_chi_square: 1.0e-6,
+            values: vec![("=evil".into(), 1.0, Some(0.1))],
+        }];
+        let names = vec!["=evil".to_string()];
+        let labels = BTreeMap::from([(0usize, "scan,01.dat".to_string())]);
+        let csv = batch_csv(&rows, &names, &labels);
+        let header = csv.lines().next().unwrap();
+        assert!(
+            header.contains("'=evil"),
+            "header not neutralized: {header}"
+        );
+        assert!(
+            header.contains("'=evil_stderr"),
+            "stderr header not neutralized: {header}"
+        );
+        let row = csv.lines().nth(1).unwrap();
+        assert!(
+            row.contains("\"scan,01.dat\""),
+            "comma in label not quoted: {row}"
+        );
+    }
 
     #[test]
     fn batch_csv_uses_labels_captured_with_the_batch() {

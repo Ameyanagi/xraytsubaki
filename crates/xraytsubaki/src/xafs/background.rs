@@ -548,6 +548,11 @@ impl AUTOBK {
                     }
                     Err(linear_err) => {
                         if fallback_enabled {
+                            // LinearDirect skips building the basis, so the
+                            // fallback would otherwise recompute it on every
+                            // iteration. Build it once here instead.
+                            let mut spline_opt = spline_opt;
+                            spline_opt.ensure_precomputed_basis();
                             Self::solve_nonlinear_problem(spline_opt, fallback_solver)
                         } else {
                             Err(linear_err)
@@ -793,10 +798,29 @@ impl AUTOBK {
         let mu_fit = mu.rows(iek0, iemax - iek0 + 1).into_owned();
         let mu_out = kout.interpolate(kraw_fit.as_slice(), mu_fit.as_slice())?;
 
+        // Built once here rather than on every LM iteration: the basis depends
+        // only on knots, order and evaluation points, all fixed for the
+        // lifetime of this spline. See `residual_jacobian_with_scale`.
+        //
+        // Only the iterative solvers consume it. LinearDirect solves through
+        // `linear_design_matrix` and never asks for this Jacobian, so building
+        // it there is pure overhead — measured at +20% on that path.
+        let precomputed_basis = match self.solver.unwrap_or(AUTOBKSolver::LinearDirect) {
+            AUTOBKSolver::LegacyLm | AUTOBKSolver::TrustRegionDogLeg => -splev_jacobian(
+                knots.clone(),
+                coefs.clone(),
+                order,
+                kout.data.as_vec().clone(),
+                3,
+            ),
+            AUTOBKSolver::LinearDirect => DMatrix::zeros(0, 0),
+        };
+
         let spline_opt = AUTOBKSpline {
             coefs: DVector::from_vec(coefs),
             knots: DVector::from_vec(knots),
             order,
+            precomputed_basis,
             irbkg: irbkg.max(1) as usize,
             nfft: nfft as usize,
             kraw: kraw_fit,
@@ -999,6 +1023,11 @@ struct AUTOBKSpline {
     pub clamp_hi: i32,
     pub kstep: f64,
     pub scale: f64,
+    /// B-spline basis Jacobian (`kout.len()` x `coefs.len()`), negated.
+    /// Depends only on knots, order and evaluation points, so it is computed
+    /// once instead of on every Levenberg-Marquardt iteration. Empty when the
+    /// spline was default-constructed; see `residual_jacobian_with_scale`.
+    pub precomputed_basis: DMatrix<f64>,
 }
 
 impl Default for AUTOBKSpline {
@@ -1020,11 +1049,35 @@ impl Default for AUTOBKSpline {
             clamp_hi: 1,
             kstep: 0.05,
             scale: 1.0,
+            precomputed_basis: DMatrix::zeros(0, 0),
         }
     }
 }
 
 impl AUTOBKSpline {
+    /// Whether `precomputed_basis` matches this spline's current shape.
+    /// A `Default`-constructed spline has an empty basis and fails this.
+    fn basis_cache_is_valid(&self) -> bool {
+        self.precomputed_basis.nrows() == self.kout.len()
+            && self.precomputed_basis.ncols() == self.coefs.len()
+    }
+
+    /// Build `precomputed_basis` unless it is already valid. Used when a
+    /// solver that skipped the precomputation hands the spline to one that
+    /// needs it.
+    fn ensure_precomputed_basis(&mut self) {
+        if self.basis_cache_is_valid() {
+            return;
+        }
+        self.precomputed_basis = -splev_jacobian(
+            self.knots.data.as_vec().clone(),
+            self.coefs.data.as_vec().clone(),
+            self.order,
+            self.kout.data.as_vec().clone(),
+            3,
+        );
+    }
+
     fn chi_for_coefs(&self, coefs: &DVector<f64>) -> DVector<f64> {
         let (_, chi) = spline_eval_nalgebra(
             &self.kraw,
@@ -1113,13 +1166,28 @@ impl AUTOBKSpline {
             1.0
         };
 
-        let spline_jacobian = -splev_jacobian(
-            self.knots.data.as_vec().clone(),
-            self.coefs.data.as_vec().clone(),
-            self.order,
-            self.kout.data.as_vec().clone(),
-            3,
-        );
+        // `splev_jacobian` reads `coefs` only for its length (it sizes the
+        // output and bounds-checks the write); every entry comes from
+        // `fpbspl` over the knots, order and evaluation points. Those three
+        // are fixed for the lifetime of the spline — `set_params` writes only
+        // `coefs` — so this matrix is identical on every LM iteration and is
+        // built once in `calc_background`.
+        //
+        // The guard keeps a `Default`-constructed spline (which has an empty
+        // basis) correct rather than silently wrong.
+        let fallback;
+        let spline_jacobian: &DMatrix<f64> = if self.basis_cache_is_valid() {
+            &self.precomputed_basis
+        } else {
+            fallback = -splev_jacobian(
+                self.knots.data.as_vec().clone(),
+                self.coefs.data.as_vec().clone(),
+                self.order,
+                self.kout.data.as_vec().clone(),
+                3,
+            );
+            &fallback
+        };
 
         let jacobian_columns = spline_jacobian
             .column_iter()

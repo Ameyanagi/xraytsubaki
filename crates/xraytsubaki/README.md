@@ -6,7 +6,7 @@ xraytsubaki is a Rust-based program that implements the core functionalities of 
 
 The inception of this project was triggered when I needed to process over 1000 spectra from in-situ measurements. The data loading and processing in xraylarch were too time-consuming, not to mention also for demeter. The goal was to develop a tool capable of processing data within a reasonable timeframe. While this project does not seek to replace xraylarch, it does aim to provide a phenomenally fast core API for xraylarch's backend to augment its capacity.
 
-Additionally, this project seeks to leverage Rust's ecosystem to create a generalized library compatible with other languages such as Python and Javascript. This will facilitate a shift away from exclusive Python-based analysis. Essentially, this library can be integrated into native GUI applications using modern frameworks like [tauri](https://tauri.studio/en/).
+Additionally, this project seeks to leverage Rust's ecosystem to create a generalized library compatible with other languages such as Python and Javascript. This will facilitate a shift away from exclusive Python-based analysis.
 
 ## Key Features
 
@@ -15,13 +15,16 @@ Additionally, this project seeks to leverage Rust's ecosystem to create a genera
 - [x] Optimization on AUTOBK. The AUTOBK process were optimized with providing an analytical Jacobian to speed up the minimization process by Leverberg-Marquardt algorithm.
 - [x] FEFF85L path-based EXAFS fitting in Rust core (`xfeffdat` parsing, `path2chi`, `ff2chi`, single-dataset R-space fit with shared expression variables).
 - [x] FEFF85L pure-Rust module execution workflow (`resolve_feff_commands`, `run_feff`, `run_feff_and_load_paths`) starting from a provided FEFF executable path.
-- [x] Optional FEFF10 pipeline execution backend (`FeffExecutionMode::Feff10Pipeline`, feature `feff10-runner`) that can emit `feffNNNN.dat` paths for fitting workflows.
+- [x] Optional FEFFRS pipeline backend (`FeffExecutionMode::Feff10Pipeline`, feature `feff10-runner`) using the published prebuilt FEFF modules.
+- [x] Optional pure-Rust ReFEFF backend (`FeffExecutionMode::RefeffPipeline`, feature `refeff-runner`) using ReFEFF's EXAFS-only in-memory API.
 
 ## FEFF Fitting MVP Boundaries
 
 - Rust core only in this release (`crates/xraytsubaki`).
 - FEFF85L execution path supports deterministic module resolution (`feff8l_rdinp`, `feff8l_pot`, `feff8l_xsph`, `feff8l_pathfinder`, `feff8l_genfmt`, `feff8l_ff2x`) and output discovery.
-- FEFF10 execution path is available behind crate feature `feff10-runner`; it auto-enforces `PRINT` `ipr6 >= 3` to ensure `feffNNNN.dat` output generation.
+- FEFFRS and ReFEFF are independent feature flags and can be enabled separately or together.
+- Both execution paths auto-enforce `PRINT` `ipr6 >= 3` to ensure `feffNNNN.dat` output generation.
+- ReFEFF is compiled with its minimal `exafs` engine feature and persists only fitting path files by default. Set `FeffRunRequest::keep_all_outputs` to write its complete EXAFS artifact set.
 - Existing parse-only workflows with pre-generated `feffNNNN.dat` files remain supported.
 - Single-dataset R-space fitting only.
 - `FeffFlavor::Feff10` parsing remains reserved and returns typed unsupported errors in this MVP.
@@ -32,7 +35,6 @@ See `crates/xraytsubaki/doc/feff-fitting-mvp.md` for details and FEFF10 follow-u
 
 - [ ] EXAFS helper funtions (rebinning and more)
 - [ ] Develop a Python wrapper for the library.
-- [ ] Create a GUI application using Dioxus.
 - [ ] Develop a web assembly version of the library for web application usage.
 
 ## Licensing

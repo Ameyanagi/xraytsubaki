@@ -35,7 +35,11 @@ pub(crate) fn panel_grid(count: usize) -> Result<(usize, usize), PlotError> {
 
 fn append_trace(plot: Plot, trace: TraceData) -> Plot {
     let style = trace_style(&trace);
-    let mut series = plot.line(&trace.x, &trace.y);
+    // ruviz uses nalgebra 0.34 for its optional Data1D bridge while the
+    // analysis core uses 0.32, so cross the plotting boundary as slices.
+    let x = trace.x.as_slice();
+    let y = trace.y.as_slice();
+    let mut series = plot.line(&x, &y);
     if !trace.label.is_empty() {
         series = series.label(trace.label);
     }
@@ -71,7 +75,9 @@ fn append_trace_group(plot: Plot, group_label: String, traces: Vec<TraceData>) -
         }
 
         for trace in traces {
-            group = group.line(&trace.x, &trace.y);
+            let x = trace.x.as_slice();
+            let y = trace.y.as_slice();
+            group = group.line(&x, &y);
         }
         group
     })

@@ -74,6 +74,9 @@ pub enum FittingError {
     #[error("FEFF10 pipeline failed: {reason}")]
     Feff10PipelineFailed { reason: String },
 
+    #[error("ReFEFF pipeline failed: {reason}")]
+    RefeffPipelineFailed { reason: String },
+
     #[error("FEFF execution produced no path output files (feffNNNN.dat) in '{workspace}'")]
     NoPathOutputs { workspace: String },
 

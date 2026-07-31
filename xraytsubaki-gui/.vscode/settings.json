@@ -1,5 +1,0 @@
-{
-  "html-css-class-completion.CustomizedLanguages": {
-    "rust": ["class\\s*[:=]\\s*\"([\\w- ]*$)"]
-  }
-}

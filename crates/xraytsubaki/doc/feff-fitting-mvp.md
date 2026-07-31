@@ -60,8 +60,10 @@ This explicit dispatch behavior is intentional to keep caller contracts stable w
 ## FEFF Execution Compatibility
 
 - `FeffExecutionMode::Feff85LModules`: supported.
-- `FeffExecutionMode::Feff10Pipeline`: supported when crate feature `feff10-runner` is enabled.
+- `FeffExecutionMode::Feff10Pipeline`: FEFFRS backend, supported when crate feature `feff10-runner` is enabled.
+- `FeffExecutionMode::RefeffPipeline`: pure-Rust in-memory backend compiled with ReFEFF's minimal `exafs` engine feature, supported when crate feature `refeff-runner` is enabled.
 - FEFF10 execution auto-raises `PRINT` `ipr6` to at least `3` so `feffNNNN.dat` files are generated for existing fitting path loading.
+- ReFEFF writes only `feffNNNN.dat` by default; `FeffRunRequest::keep_all_outputs = true` writes every generated FEFF artifact.
 
 ## FEFF10 Follow-up Path
 

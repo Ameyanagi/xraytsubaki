@@ -38,14 +38,16 @@ flate2 = { workspace = true }
 pest = { workspace = true }
 pest_derive = { workspace = true }
 thiserror = { workspace = true }
-ruviz = { workspace = true, optional = true, features = ["nalgebra_support", "svg", "typst-math"] }
-feff10 = { version = "0.2.0", features = ["prebuilt"], optional = true }
+ruviz = { workspace = true, optional = true, features = ["svg", "typst-math"] }
+refeff = { workspace = true, optional = true }
+feff10 = { version = "0.2.2", features = ["prebuilt"], optional = true }
 
 [features]
 default = ["trust-region"]
 trust-region = ["dep:apex-solver", "dep:nalgebra-apex"]
 ndarray-compat = ["ndarray"]
 plotting = ["ruviz"]
+refeff-runner = ["dep:refeff"]
 feff10-runner = ["dep:feff10"]
 
 [dev-dependencies]

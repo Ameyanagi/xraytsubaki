@@ -240,6 +240,7 @@ fn select_matching_feff10_path() -> FeffPathModel {
         mode: FeffExecutionMode::Feff10Pipeline,
         timeout_sec: Some(180),
         use_sfconv: false,
+        keep_all_outputs: false,
     };
 
     let run_result = run_feff(&request).expect("FEFF10 pipeline run failed");

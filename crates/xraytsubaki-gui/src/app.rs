@@ -16,13 +16,17 @@ use std::time::{Duration, Instant};
 
 use futures::StreamExt;
 use gpui::{
-    ClickEvent, Context, Entity, FocusHandle, Focusable, IntoElement, KeyBinding, MouseDownEvent,
-    ParentElement, PathPromptOptions, Render, ScrollStrategy, SharedString, Styled,
-    UniformListScrollHandle, Window, actions, canvas, div, fill, point, prelude::*, px, size,
-    uniform_list,
+    ClickEvent, Context, Entity, FocusHandle, Focusable, IntoElement, KeyBinding, ParentElement,
+    PathPromptOptions, Render, ScrollStrategy, SharedString, Styled, UniformListScrollHandle,
+    Window, actions, div, prelude::*, px, uniform_list,
 };
 use lru::LruCache;
-use ruviz_gpui::{RuvizPlot, plot_builder};
+use ruviz::core::{Annotation, AnnotationId};
+use ruviz::data::Observable;
+use ruviz::render::{Color as PlotColor, LineStyle};
+use ruviz_gpui::{
+    InteractionOptions, PlotPointerEvent, PlotPointerEventKind, RuvizPlot, plot_builder,
+};
 use xraytsubaki::prelude::XASSpectrum;
 
 use rayon::prelude::*;
@@ -42,8 +46,8 @@ use crate::params::{
 };
 use crate::plotting::{
     QuadTrace, TraceLayout, ViewOptions, build_fit_k, build_fit_r, build_fit_residual_k,
-    build_fit_residual_r, build_frame_chik, build_heatmap, build_quadrants_multi, build_trend,
-    chik_label, middle_truncate, trace_rgba,
+    build_fit_residual_r, build_frame_chik_source, build_heatmap, build_quadrants_multi,
+    build_trend, chik_label, middle_truncate, trace_rgba,
 };
 use crate::project::{PROJECT_VERSION, ParamOverride, ProjectFile};
 use crate::theme::{Theme, ThemeMode};
@@ -54,6 +58,9 @@ use crate::widgets::text_input::{InputEvent, TextInput};
 /// worst case; browsing a million-file catalog stays bounded.
 const PROCESSED_CACHE_CAPACITY: usize = 1024;
 const JOB_ERROR_CAPACITY: usize = 200;
+/// Import-preview column width. Wide enough for a 4-decimal energy value
+/// (`21912.2534`) so cells clip rather than wrapping a number onto two lines.
+const IMPORT_COL_W: f32 = 88.;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Workspace {
@@ -334,15 +341,6 @@ const MAX_FRAMES: usize = 192;
 const K_GRID_BINS: usize = 256;
 const K_GRID_MAX: f64 = 15.0;
 
-// ruviz uses matplotlib-like proportional margins by default. The heatmap
-// cursor overlay uses the same approximate top/bottom fractions for both
-// drawing and pointer hit mapping; this deliberately remains approximate so
-// it does not depend on ruviz-gpui internals.
-const HEATMAP_TOP_MARGIN: f32 = 0.12;
-const HEATMAP_BOTTOM_MARGIN: f32 = 0.11;
-const HEATMAP_LEFT_MARGIN: f32 = 0.125;
-const HEATMAP_RIGHT_WITH_COLORBAR: f32 = 0.20;
-
 /// Downsampled overview of one scan, valid for one params fingerprint.
 struct OperandoData {
     scan: usize,
@@ -368,13 +366,75 @@ struct JobError {
     message: String,
 }
 
+/// A selection that failed to load while earlier results are still on screen.
+#[derive(Clone)]
+struct StalePlots {
+    /// The entry the user selected (and which the plots are *not* showing).
+    requested: SharedString,
+    message: SharedString,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TrendDomain {
+    Sampled,
+    FullScan,
+}
+
+struct TrendSnapshot {
+    values: Vec<f64>,
+    name: String,
+    domain: TrendDomain,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ChikRowKey {
+    Sampled {
+        scan: usize,
+        overview_fingerprint: u64,
+        row: usize,
+    },
+    Exact {
+        entry: usize,
+        params_fingerprint: u64,
+    },
+}
+
+struct RetainedChikSeries {
+    values: Observable<Vec<f64>>,
+    key: ChikRowKey,
+}
+
+impl RetainedChikSeries {
+    fn new(key: ChikRowKey, values: Vec<f64>) -> Self {
+        Self {
+            values: Observable::new(values),
+            key,
+        }
+    }
+
+    fn replace_if_changed(&mut self, key: ChikRowKey, values: Vec<f64>) -> bool {
+        if self.key == key {
+            return false;
+        }
+        self.values.set(values);
+        self.key = key;
+        true
+    }
+}
+
 struct OperandoPlots {
     /// Scan the plots currently show; a different scan gets fresh viewports
     /// instead of inheriting the previous scan's pan/zoom.
     scan: usize,
     heatmap: Entity<RuvizPlot>,
     chik: Entity<RuvizPlot>,
+    chik_series: RetainedChikSeries,
     trend: Entity<RuvizPlot>,
+    trend_domain: TrendDomain,
+    heatmap_cursor: Option<AnnotationId>,
+    trend_cursor: Option<AnnotationId>,
+    last_trend_cursor: Option<usize>,
+    _heatmap_subscription: gpui::Subscription,
 }
 
 struct FitPlots {
@@ -382,27 +442,6 @@ struct FitPlots {
     k_residual: Entity<RuvizPlot>,
     r: Entity<RuvizPlot>,
     r_residual: Entity<RuvizPlot>,
-}
-
-/// Swap a plot's data while keeping the user's pan/zoom. ruviz-gpui's
-/// `set_plot` replaces the whole interactive session and unconditionally
-/// resets its interaction state, so the visible bounds are captured first and
-/// re-applied afterwards whenever the user had deviated from the default view.
-fn set_plot_keep_view(entity: &Entity<RuvizPlot>, plot: ruviz::prelude::Plot, cx: &mut gpui::App) {
-    entity.update(cx, |rp, cx| {
-        let saved = rp
-            .interactive_session()
-            .viewport_snapshot()
-            .ok()
-            .filter(|snapshot| snapshot.visible_bounds != snapshot.base_bounds)
-            .map(|snapshot| snapshot.visible_bounds);
-        rp.set_plot(plot, cx);
-        if let Some(bounds) = saved {
-            // restore_visible_bounds marks the session dirty itself; the
-            // set_plot notify above schedules the re-render.
-            rp.interactive_session().restore_visible_bounds(bounds);
-        }
-    });
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -547,7 +586,13 @@ pub struct StudioApp {
     spectrum_fingerprint: u64,
     spectrum: Option<Arc<XASSpectrum>>,
     spectrum_label: SharedString,
+    /// Set when the newest selection failed to load. The plots still show the
+    /// previous spectrum, so the mismatch has to be stated in the UI rather
+    /// than left to a status-bar line the user may not read.
+    stale_plots: Option<StalePlots>,
     quadrants: Vec<(SharedString, Entity<RuvizPlot>)>,
+    /// Explore-only plot work is deferred while Operando or Fit is visible.
+    explore_plots_dirty: bool,
     /// Shared Explore legend strip entries (truncated label, stable color),
     /// rebuilt with the quadrant plots; empty for a single trace.
     legend_entries: Vec<(SharedString, gpui::Rgba)>,
@@ -651,6 +696,93 @@ fn nearest_sample_pos(full_pos: usize, full_len: usize, sample_len: usize) -> us
     ((numerator + denominator / 2) / denominator) as usize
 }
 
+/// Map ruviz's full-scan data-space y coordinate to the nearest frame.
+fn frame_from_data_y(y: f64, scan_len: usize) -> Option<usize> {
+    if scan_len == 0 || !y.is_finite() {
+        return None;
+    }
+    Some(y.round().clamp(0.0, scan_len.saturating_sub(1) as f64) as usize)
+}
+
+/// Resolve a click inside the heatmap's data extent. This intentionally does
+/// not require a cell hit because failed frames are represented by masked NaN
+/// rows, which ruviz excludes from hit testing.
+fn frame_from_heatmap_position(
+    x: f64,
+    y: f64,
+    grid: &[f64],
+    scan_len: usize,
+    row_count: usize,
+) -> Option<usize> {
+    if scan_len == 0 || row_count == 0 || !x.is_finite() || !y.is_finite() {
+        return None;
+    }
+    let kmin = grid.first().copied()?;
+    let kmax = grid.last().copied()?.max(kmin + 1e-9);
+    if x < kmin || x > kmax {
+        return None;
+    }
+
+    let last_frame = scan_len.saturating_sub(1) as f64;
+    let row_step = if row_count > 1 {
+        last_frame / (row_count - 1) as f64
+    } else {
+        1.0
+    };
+    let half_step = row_step / 2.0;
+    if y < -half_step || y > last_frame + half_step {
+        return None;
+    }
+    frame_from_data_y(y, scan_len)
+}
+
+fn cursor_color(theme: &Theme) -> PlotColor {
+    let accent = theme.accent;
+    PlotColor::new(
+        (accent.r * 255.0).round() as u8,
+        (accent.g * 255.0).round() as u8,
+        (accent.b * 255.0).round() as u8,
+    )
+}
+
+fn heatmap_cursor_annotation(frame: usize, theme: &Theme) -> Annotation {
+    Annotation::hline_styled(frame as f64, cursor_color(theme), 2.0, LineStyle::Solid)
+}
+
+fn trend_cursor_annotation(frame: usize, theme: &Theme) -> Annotation {
+    Annotation::vline_styled(frame as f64, cursor_color(theme), 2.0, LineStyle::Solid)
+}
+
+fn trend_cursor_position(
+    domain: TrendDomain,
+    time_pos: usize,
+    scan_len: usize,
+    sample_len: usize,
+) -> usize {
+    match domain {
+        TrendDomain::FullScan => time_pos,
+        TrendDomain::Sampled => nearest_sample_pos(time_pos, scan_len, sample_len),
+    }
+}
+
+fn set_cursor_annotation(
+    entity: &Entity<RuvizPlot>,
+    id: &mut Option<AnnotationId>,
+    annotation: Annotation,
+    cx: &mut gpui::App,
+) -> anyhow::Result<()> {
+    if let Some(current) = *id {
+        entity.update(cx, |plot, cx| {
+            plot.update_annotation(current, annotation, cx)
+        })?;
+        return Ok(());
+    }
+
+    let new_id = entity.update(cx, |plot, cx| plot.add_annotation(annotation, cx))?;
+    *id = Some(new_id);
+    Ok(())
+}
+
 /// Resolve a virtualized file row defensively. A stale filtered index must
 /// never be allowed to address a newly reconciled, shorter catalog.
 fn catalog_row_index(filtered: Option<&[usize]>, row: usize, catalog_len: usize) -> Option<usize> {
@@ -665,6 +797,17 @@ fn scan_entry_offset(scan_start: usize, scan_len: usize, entry: usize) -> Option
     entry
         .checked_sub(scan_start)
         .filter(|&offset| offset < scan_len)
+}
+
+fn should_rebuild_explore(workspace: Workspace, dirty: &mut bool, invalidated: bool) -> bool {
+    if workspace == Workspace::Explore {
+        let rebuild = invalidated || *dirty;
+        *dirty = false;
+        rebuild
+    } else {
+        *dirty |= invalidated;
+        false
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -702,8 +845,9 @@ fn scan_list_row(
 #[cfg(test)]
 mod thin_tests {
     use super::{
-        ScanListRow, catalog_row_index, nearest_sample_pos, scan_entry_offset, scan_list_row,
-        thin_even,
+        ChikRowKey, RetainedChikSeries, ScanListRow, Workspace, catalog_row_index,
+        frame_from_data_y, frame_from_heatmap_position, nearest_sample_pos, scan_entry_offset,
+        scan_list_row, should_rebuild_explore, thin_even,
     };
 
     #[test]
@@ -728,6 +872,108 @@ mod thin_tests {
         assert_eq!(nearest_sample_pos(999, 1_000, 192), 191);
         assert_eq!(nearest_sample_pos(500, 1_000, 192), 96);
         assert_eq!(nearest_sample_pos(42, 100, 1), 0);
+    }
+
+    #[test]
+    fn heatmap_data_coordinates_map_to_full_scan_frames() {
+        assert_eq!(frame_from_data_y(0.0, 1_000), Some(0));
+        assert_eq!(frame_from_data_y(500.49, 1_000), Some(500));
+        assert_eq!(frame_from_data_y(500.5, 1_000), Some(501));
+        assert_eq!(frame_from_data_y(999.0, 1_000), Some(999));
+        assert_eq!(frame_from_data_y(-20.0, 1_000), Some(0));
+        assert_eq!(frame_from_data_y(2_000.0, 1_000), Some(999));
+    }
+
+    #[test]
+    fn heatmap_data_coordinates_reject_unmappable_values() {
+        assert_eq!(frame_from_data_y(0.0, 0), None);
+        assert_eq!(frame_from_data_y(f64::NAN, 300), None);
+        assert_eq!(frame_from_data_y(f64::INFINITY, 300), None);
+    }
+
+    #[test]
+    fn heatmap_position_maps_masked_rows_but_rejects_blank_space() {
+        let grid = [2.0, 8.0];
+        assert_eq!(
+            frame_from_heatmap_position(5.0, 500.0, &grid, 1_000, 192),
+            Some(500)
+        );
+        assert_eq!(
+            frame_from_heatmap_position(1.0, 500.0, &grid, 1_000, 192),
+            None
+        );
+        assert_eq!(
+            frame_from_heatmap_position(5.0, 1_100.0, &grid, 1_000, 192),
+            None
+        );
+        assert_eq!(frame_from_heatmap_position(5.0, 0.0, &grid, 0, 0), None);
+    }
+
+    #[test]
+    fn retained_chik_series_suppresses_duplicate_provenance() {
+        let sampled = ChikRowKey::Sampled {
+            scan: 2,
+            overview_fingerprint: 11,
+            row: 4,
+        };
+        let mut series = RetainedChikSeries::new(sampled, vec![1.0]);
+        assert!(!series.replace_if_changed(sampled, vec![2.0]));
+        assert_eq!(series.values.version(), 0);
+        assert_eq!(&*series.values.read(), &[1.0]);
+
+        let exact = ChikRowKey::Exact {
+            entry: 14,
+            params_fingerprint: 21,
+        };
+        assert!(series.replace_if_changed(exact, vec![3.0]));
+        assert_eq!(series.values.version(), 1);
+        assert!(!series.replace_if_changed(exact, vec![4.0]));
+        assert_eq!(series.values.version(), 1);
+
+        let changed_params = ChikRowKey::Exact {
+            entry: 14,
+            params_fingerprint: 22,
+        };
+        assert!(series.replace_if_changed(changed_params, vec![5.0]));
+        assert_eq!(series.values.version(), 2);
+    }
+
+    #[test]
+    fn replacement_chik_series_uses_a_fresh_observable() {
+        let key = ChikRowKey::Sampled {
+            scan: 0,
+            overview_fingerprint: 1,
+            row: 0,
+        };
+        let old = RetainedChikSeries::new(key, vec![1.0]);
+        let old_source = old.values.clone();
+        let replacement = RetainedChikSeries::new(key, vec![2.0]);
+
+        old_source.set(vec![3.0]);
+        assert_eq!(&*old_source.read(), &[3.0]);
+        assert_eq!(&*replacement.values.read(), &[2.0]);
+        assert_eq!(replacement.values.version(), 0);
+    }
+
+    #[test]
+    fn explore_rebuilds_immediately_or_consumes_hidden_dirty_state() {
+        let mut dirty = false;
+        assert!(!should_rebuild_explore(
+            Workspace::Operando,
+            &mut dirty,
+            true
+        ));
+        assert!(dirty);
+        assert!(!should_rebuild_explore(Workspace::Fit, &mut dirty, false));
+        assert!(dirty);
+        assert!(should_rebuild_explore(
+            Workspace::Explore,
+            &mut dirty,
+            false
+        ));
+        assert!(!dirty);
+        assert!(should_rebuild_explore(Workspace::Explore, &mut dirty, true));
+        assert!(!dirty);
     }
 
     #[test]
@@ -1064,7 +1310,9 @@ impl StudioApp {
             spectrum_fingerprint: 0,
             spectrum: None,
             spectrum_label: label.clone(),
+            stale_plots: None,
             quadrants: Vec::new(),
+            explore_plots_dirty: false,
             legend_entries: Vec::new(),
             maximized: None,
             data_tab: DataTab::Files,
@@ -1122,7 +1370,7 @@ impl StudioApp {
             match event {
                 FieldEvent::Changed(Some(v)) => {
                     this.view.offset_frac = v.clamp(0.05, 5.0);
-                    this.rebuild_plots(cx);
+                    this.invalidate_explore_plots(cx);
                     cx.notify();
                 }
                 FieldEvent::Changed(None) => {}
@@ -1537,34 +1785,46 @@ impl StudioApp {
             (ParamKey::ImpIrCol, "Ir col", "3", COL),
             (ParamKey::AlignTarget, "ref E0 target", "e.g. 22117", FLOAT),
             (ParamKey::E0, "E0 (eV)", "auto", FLOAT),
+            // These four are eV *relative to E0* — the thing newcomers get
+            // wrong. The label carries the unit; the "relative to E0" part is
+            // stated once in the panel footer, since a 260px panel leaves
+            // ~132px for a label and "(eV rel. E0)" does not fit.
             (
                 ParamKey::PreEdgeStart,
-                "pre-edge start",
+                "pre-edge start (eV)",
                 "auto (-200)",
                 FLOAT,
             ),
-            (ParamKey::PreEdgeEnd, "pre-edge end", "auto (-30)", FLOAT),
-            (ParamKey::NormStart, "norm start", "auto (150)", FLOAT),
-            (ParamKey::NormEnd, "norm end", "auto (2000)", FLOAT),
+            (
+                ParamKey::PreEdgeEnd,
+                "pre-edge end (eV)",
+                "auto (-30)",
+                FLOAT,
+            ),
+            (ParamKey::NormStart, "norm start (eV)", "auto (150)", FLOAT),
+            (ParamKey::NormEnd, "norm end (eV)", "auto (2000)", FLOAT),
             (ParamKey::NormPolyorder, "poly order", "auto (2)", INT),
             (ParamKey::NVictoreen, "victoreen n", "auto (0)", INT),
             (ParamKey::Rbkg, "rbkg (Å)", "auto (1.0)", FLOAT),
-            (ParamKey::BkgKmin, "k min", "auto (0)", FLOAT),
-            (ParamKey::BkgKmax, "k max", "auto (full)", FLOAT),
-            (ParamKey::BkgKstep, "k step", "auto (0.05)", FLOAT),
+            // Scoped names: the AUTOBK and FFT k-ranges are different
+            // parameters with different values, and identical "k min"/"k max"
+            // labels in two sections read as a contradiction.
+            (ParamKey::BkgKmin, "bkg k min (Å⁻¹)", "auto (0)", FLOAT),
+            (ParamKey::BkgKmax, "bkg k max (Å⁻¹)", "auto (full)", FLOAT),
+            (ParamKey::BkgKstep, "k step (Å⁻¹)", "auto (0.05)", FLOAT),
             (ParamKey::BkgNknots, "spline knots", "auto", INT),
             (ParamKey::BkgKweight, "bkg k-weight", "auto (1)", INT),
             (ParamKey::BkgClampLo, "clamp lo", "auto (0)", INT),
             (ParamKey::BkgClampHi, "clamp hi", "auto (1)", INT),
-            (ParamKey::BkgDk, "window dk", "auto (0.1)", FLOAT),
+            (ParamKey::BkgDk, "window dk (Å⁻¹)", "auto (0.1)", FLOAT),
             (ParamKey::BkgNfft, "nfft", "auto (2048)", INT),
-            (ParamKey::FftKmin, "k min", "auto (2)", FLOAT),
-            (ParamKey::FftKmax, "k max", "auto (15)", FLOAT),
-            (ParamKey::FftDk, "dk", "auto (1)", FLOAT),
+            (ParamKey::FftKmin, "fft k min (Å⁻¹)", "auto (2)", FLOAT),
+            (ParamKey::FftKmax, "fft k max (Å⁻¹)", "auto (15)", FLOAT),
+            (ParamKey::FftDk, "dk (Å⁻¹)", "auto (1)", FLOAT),
             (ParamKey::FftKweight, "k-weight", "auto (2)", FLOAT),
-            (ParamKey::FftDk2, "dk2", "auto", FLOAT),
-            (ParamKey::FftRmax, "R max out", "auto (10)", FLOAT),
-            (ParamKey::FftKstep, "k step", "auto", FLOAT),
+            (ParamKey::FftDk2, "dk2 (Å⁻¹)", "auto", FLOAT),
+            (ParamKey::FftRmax, "R max out (Å)", "auto (10)", FLOAT),
+            (ParamKey::FftKstep, "k step (Å⁻¹)", "auto", FLOAT),
             (ParamKey::FftNfft, "nfft", "auto (2048)", INT),
         ];
         specs
@@ -1943,6 +2203,13 @@ impl StudioApp {
                     Err(e) => {
                         app.status = format!("failed to process {label}: {e}").into();
                         app.record_job_error(label.to_string(), e.to_string());
+                        // The plots keep the previous spectrum; flag the
+                        // mismatch so the canvas can't be misread as the
+                        // selected entry.
+                        app.stale_plots = Some(StalePlots {
+                            requested: label.clone(),
+                            message: e.to_string().into(),
+                        });
                     }
                 }
                 cx.notify();
@@ -1965,6 +2232,8 @@ impl StudioApp {
         self.spectrum_label = label;
         self.spectrum_path = path;
         self.spectrum_fingerprint = fingerprint;
+        // Plots are about to match the selection again.
+        self.stale_plots = None;
         // Surface the auto-determined E0 in the field placeholder.
         if self.effective_params(ix).e0.is_none()
             && let Some(e0) = sp.get_e0()
@@ -1976,8 +2245,8 @@ impl StudioApp {
             field.update(cx, |f, cx| f.set_placeholder(format!("auto ({e0:.1})"), cx));
         }
         self.spectrum = Some(sp.clone());
-        self.refresh_operando_frame_plot(ix, &sp, cx);
-        self.rebuild_plots(cx);
+        self.refresh_operando_frame_plot(ix, fingerprint, &sp);
+        self.invalidate_explore_plots(cx);
     }
 
     // ---- operando ----------------------------------------------------------
@@ -2140,27 +2409,57 @@ impl StudioApp {
             return;
         };
         let scan_ix = data.scan;
-        let sample_pos = nearest_sample_pos(self.time_pos, scan.len, data.matrix.len());
-        let cursor_ix = scan.start + self.time_pos.min(scan.len.saturating_sub(1));
+        let scan_len = data.scan_len.min(scan.len);
+        let sample_pos = nearest_sample_pos(self.time_pos, scan_len, data.matrix.len());
+        let cursor_ix = scan.start + self.time_pos.min(scan_len.saturating_sub(1));
         let cursor_fingerprint = self.effective_fingerprint(cursor_ix);
-        let grid = data.grid.clone();
-        let sampled_row = data.matrix.get(sample_pos).cloned().unwrap_or_default();
-        let row = self
+        let exact_row = self
             .cache
             .peek(&(cursor_ix, cursor_fingerprint))
-            .and_then(|sp| resample_chik(sp, &grid))
-            .unwrap_or(sampled_row);
-        let heatmap = build_heatmap(&data.matrix, &data.grid, scan.len, &self.theme);
-        let chik = build_frame_chik(&grid, &row, data.kweight, &self.theme);
-        let (trend_values, trend_cursor) = self.trend_series();
-        let trend_name = self.trend_name();
-        let trend = build_trend(&trend_values, trend_cursor, &trend_name, &self.theme);
+            .and_then(|sp| resample_chik(sp, &data.grid));
+        let (chik_key, row) = match exact_row {
+            Some(row) => (
+                ChikRowKey::Exact {
+                    entry: cursor_ix,
+                    params_fingerprint: cursor_fingerprint,
+                },
+                row,
+            ),
+            None => (
+                ChikRowKey::Sampled {
+                    scan: scan_ix,
+                    overview_fingerprint: data.fingerprint,
+                    row: sample_pos,
+                },
+                data.matrix.get(sample_pos).cloned().unwrap_or_default(),
+            ),
+        };
+        let chik_series = RetainedChikSeries::new(chik_key, row);
+        let heatmap = build_heatmap(&data.matrix, &data.grid, data.scan_len, &self.theme);
+        let chik = build_frame_chik_source(
+            &data.grid,
+            chik_series.values.clone(),
+            data.kweight,
+            &self.theme,
+        );
+        let trend_snapshot = self.trend_snapshot();
+        let trend = build_trend(&trend_snapshot.values, &trend_snapshot.name, &self.theme);
         match &mut self.operando_plots {
             Some(plots) => {
                 if plots.scan == scan_ix {
-                    set_plot_keep_view(&plots.heatmap, heatmap, cx);
-                    set_plot_keep_view(&plots.chik, chik, cx);
-                    set_plot_keep_view(&plots.trend, trend, cx);
+                    plots
+                        .heatmap
+                        .update(cx, |rp, cx| rp.set_plot_keep_view(heatmap, cx));
+                    plots
+                        .chik
+                        .update(cx, |rp, cx| rp.set_plot_keep_view(chik, cx));
+                    if plots.trend_domain == trend_snapshot.domain {
+                        plots
+                            .trend
+                            .update(cx, |rp, cx| rp.set_plot_keep_view(trend, cx));
+                    } else {
+                        plots.trend.update(cx, |rp, cx| rp.set_plot(trend, cx));
+                    }
                 } else {
                     // New scan: fresh viewports, the old zoom is meaningless.
                     plots.scan = scan_ix;
@@ -2168,15 +2467,134 @@ impl StudioApp {
                     plots.chik.update(cx, |rp, cx| rp.set_plot(chik, cx));
                     plots.trend.update(cx, |rp, cx| rp.set_plot(trend, cx));
                 }
+                plots.chik_series = chik_series;
+                plots.trend_domain = trend_snapshot.domain;
+                plots.heatmap_cursor = None;
+                plots.trend_cursor = None;
+                plots.last_trend_cursor = None;
             }
             None => {
+                let heatmap_interaction = InteractionOptions {
+                    hover: false,
+                    selection: false,
+                    tooltips: false,
+                    ..InteractionOptions::default()
+                };
+                let heatmap = plot_builder(heatmap)
+                    .interaction_options(heatmap_interaction)
+                    .build(cx);
+                let chik = plot_builder(chik).interactive().build(cx);
+                let trend = plot_builder(trend).interactive().build(cx);
+                let subscription = cx.subscribe(
+                    &heatmap,
+                    |this: &mut Self, _, event: &PlotPointerEvent, cx| {
+                        if event.kind != PlotPointerEventKind::Click
+                            || event.mouse_button != Some(gpui::MouseButton::Left)
+                        {
+                            return;
+                        }
+                        let Some(position) = event.data_position else {
+                            return;
+                        };
+                        let Some(data) = this.operando.as_ref() else {
+                            return;
+                        };
+                        let Some(frame) = frame_from_heatmap_position(
+                            position.x,
+                            position.y,
+                            &data.grid,
+                            data.scan_len,
+                            data.matrix.len(),
+                        ) else {
+                            return;
+                        };
+                        this.set_time_pos(frame, cx);
+                    },
+                );
                 self.operando_plots = Some(OperandoPlots {
                     scan: scan_ix,
-                    heatmap: plot_builder(heatmap).interactive().build(cx),
-                    chik: plot_builder(chik).interactive().build(cx),
-                    trend: plot_builder(trend).interactive().build(cx),
+                    heatmap,
+                    chik,
+                    chik_series,
+                    trend,
+                    trend_domain: trend_snapshot.domain,
+                    heatmap_cursor: None,
+                    trend_cursor: None,
+                    last_trend_cursor: None,
+                    _heatmap_subscription: subscription,
                 });
             }
+        }
+        self.update_operando_cursor_annotations(cx);
+    }
+
+    fn rebuild_operando_trend(&mut self, cx: &mut Context<Self>) {
+        if self.operando_plots.is_none() {
+            return;
+        }
+        let snapshot = self.trend_snapshot();
+        let trend = build_trend(&snapshot.values, &snapshot.name, &self.theme);
+        let plots = self
+            .operando_plots
+            .as_mut()
+            .expect("operando plots checked above");
+
+        if plots.trend_domain == snapshot.domain {
+            plots
+                .trend
+                .update(cx, |rp, cx| rp.set_plot_keep_view(trend, cx));
+        } else {
+            plots.trend.update(cx, |rp, cx| rp.set_plot(trend, cx));
+        }
+        plots.trend_domain = snapshot.domain;
+        plots.trend_cursor = None;
+        plots.last_trend_cursor = None;
+        self.update_operando_cursor_annotations(cx);
+    }
+
+    fn fit_model_changed(&mut self, cx: &mut Context<Self>) {
+        if self.batch_fit.is_some() && self.operando_plots.is_some() {
+            self.rebuild_operando_trend(cx);
+        }
+        cx.notify();
+    }
+
+    fn update_operando_cursor_annotations(&mut self, cx: &mut Context<Self>) {
+        let heatmap_annotation = heatmap_cursor_annotation(self.time_pos, &self.theme);
+        let scan_len = self.operando_scan_len().unwrap_or_default();
+        let sample_len = self
+            .operando
+            .as_ref()
+            .map(|data| data.e0s.len())
+            .unwrap_or_default();
+        let mut errors = Vec::new();
+        if let Some(plots) = &mut self.operando_plots {
+            if let Err(error) = set_cursor_annotation(
+                &plots.heatmap,
+                &mut plots.heatmap_cursor,
+                heatmap_annotation,
+                cx,
+            ) {
+                errors.push(("heatmap cursor", error));
+            }
+
+            let trend_cursor =
+                trend_cursor_position(plots.trend_domain, self.time_pos, scan_len, sample_len);
+            if plots.last_trend_cursor != Some(trend_cursor) {
+                let trend_annotation = trend_cursor_annotation(trend_cursor, &self.theme);
+                match set_cursor_annotation(
+                    &plots.trend,
+                    &mut plots.trend_cursor,
+                    trend_annotation,
+                    cx,
+                ) {
+                    Ok(()) => plots.last_trend_cursor = Some(trend_cursor),
+                    Err(error) => errors.push(("trend cursor", error)),
+                }
+            }
+        }
+        for (label, error) in errors {
+            self.record_job_error(label, error.to_string());
         }
     }
 
@@ -2186,10 +2604,7 @@ impl StudioApp {
     }
 
     fn operando_scan_len(&self) -> Option<usize> {
-        self.operando
-            .as_ref()
-            .and_then(|data| self.catalog.scans.get(data.scan))
-            .map(|scan| scan.len)
+        self.operando.as_ref().map(|data| data.scan_len)
     }
 
     fn step_time_percent(&mut self, direction: isize, cx: &mut Context<Self>) {
@@ -2222,7 +2637,7 @@ impl StudioApp {
         let scan = self.catalog.scans.get(data.scan)?;
         let scan_ix = data.scan;
         let scan_start = scan.start;
-        let scan_len = scan.len;
+        let scan_len = data.scan_len.min(scan.len);
         let pos = pos.min(scan_len.saturating_sub(1));
         let ix = scan_start + pos;
         if pos == self.time_pos {
@@ -2230,23 +2645,46 @@ impl StudioApp {
         }
         self.time_pos = pos;
         let sample_pos = nearest_sample_pos(pos, scan_len, data.matrix.len());
-        let grid = data.grid.clone();
-        let sampled_row = data.matrix.get(sample_pos).cloned().unwrap_or_default();
         let fingerprint = self.effective_fingerprint(ix);
-        let row = self
-            .cache
-            .peek(&(ix, fingerprint))
-            .and_then(|sp| resample_chik(sp, &grid))
-            .unwrap_or(sampled_row);
-        let chik = build_frame_chik(&grid, &row, data.kweight, &self.theme);
-        let (trend_values, trend_cursor) = self.trend_series();
-        let trend_name = self.trend_name();
-        let trend = build_trend(&trend_values, trend_cursor, &trend_name, &self.theme);
-        if let Some(plots) = &self.operando_plots {
-            // Scrub steps swap data only; the user's zoom survives.
-            set_plot_keep_view(&plots.chik, chik, cx);
-            set_plot_keep_view(&plots.trend, trend, cx);
+        let current_key = self
+            .operando_plots
+            .as_ref()
+            .map(|plots| plots.chik_series.key);
+        let sampled_key = ChikRowKey::Sampled {
+            scan: scan_ix,
+            overview_fingerprint: data.fingerprint,
+            row: sample_pos,
+        };
+        let cached = self.cache.peek(&(ix, fingerprint)).cloned();
+        let row_update = if let Some(sp) = cached {
+            let exact_key = ChikRowKey::Exact {
+                entry: ix,
+                params_fingerprint: fingerprint,
+            };
+            if current_key == Some(exact_key) {
+                None
+            } else if let Some(row) = resample_chik(&sp, &data.grid) {
+                Some((exact_key, row))
+            } else if current_key == Some(sampled_key) {
+                None
+            } else {
+                Some((
+                    sampled_key,
+                    data.matrix.get(sample_pos).cloned().unwrap_or_default(),
+                ))
+            }
+        } else if current_key == Some(sampled_key) {
+            None
+        } else {
+            Some((
+                sampled_key,
+                data.matrix.get(sample_pos).cloned().unwrap_or_default(),
+            ))
+        };
+        if let Some((key, row)) = row_update {
+            self.replace_operando_chik(key, row);
         }
+        self.update_operando_cursor_annotations(cx);
         self.status = format!("frame {}/{} · {}", pos + 1, scan_len, self.catalog.name(ix)).into();
         Some((scan_ix, ix))
     }
@@ -2261,7 +2699,7 @@ impl StudioApp {
         let Some(scan) = self.catalog.scans.get(data.scan) else {
             return;
         };
-        let Some(offset) = scan_entry_offset(scan.start, scan.len, ix) else {
+        let Some(offset) = scan_entry_offset(scan.start, data.scan_len.min(scan.len), ix) else {
             return;
         };
         if offset != self.time_pos {
@@ -2276,7 +2714,13 @@ impl StudioApp {
         let Some(scan) = self.catalog.scans.get(scan_ix) else {
             return;
         };
-        let offset = self.time_pos.min(scan.len.saturating_sub(1));
+        let scan_len = self
+            .operando
+            .as_ref()
+            .filter(|data| data.scan == scan_ix)
+            .map(|data| data.scan_len.min(scan.len))
+            .unwrap_or(scan.len);
+        let offset = self.time_pos.min(scan_len.saturating_sub(1));
         let ix = scan.start + offset;
         self.reveal_time_selection(scan_ix, offset, ix);
         self.selection.clear();
@@ -2310,9 +2754,15 @@ impl StudioApp {
         }
     }
 
+    fn replace_operando_chik(&mut self, key: ChikRowKey, row: Vec<f64>) -> bool {
+        self.operando_plots
+            .as_mut()
+            .is_some_and(|plots| plots.chik_series.replace_if_changed(key, row))
+    }
+
     /// Replace the sampled placeholder with the actual processed cursor
     /// frame when its generation-counted load completes.
-    fn refresh_operando_frame_plot(&mut self, ix: usize, sp: &XASSpectrum, cx: &mut Context<Self>) {
+    fn refresh_operando_frame_plot(&mut self, ix: usize, fingerprint: u64, sp: &XASSpectrum) {
         let Some(data) = &self.operando else {
             return;
         };
@@ -2324,13 +2774,21 @@ impl StudioApp {
         {
             return;
         }
+        let key = ChikRowKey::Exact {
+            entry: ix,
+            params_fingerprint: fingerprint,
+        };
+        if self
+            .operando_plots
+            .as_ref()
+            .is_some_and(|plots| plots.chik_series.key == key)
+        {
+            return;
+        }
         let Some(row) = resample_chik(sp, &data.grid) else {
             return;
         };
-        let chik = build_frame_chik(&data.grid, &row, data.kweight, &self.theme);
-        if let Some(plots) = &self.operando_plots {
-            set_plot_keep_view(&plots.chik, chik, cx);
-        }
+        self.replace_operando_chik(key, row);
     }
 
     /// Selection (plus active) thinned evenly to MAX_OVERLAY, active always
@@ -2371,7 +2829,7 @@ impl StudioApp {
             missing.push((ix, fingerprint, source, self.effective_params(ix).clone()));
         }
         if missing.is_empty() {
-            self.rebuild_plots(cx);
+            self.invalidate_explore_plots(cx);
             cx.notify();
             return;
         }
@@ -2417,7 +2875,7 @@ impl StudioApp {
                 } else {
                     format!("overlay of {total} spectra ready").into()
                 };
-                app.rebuild_plots(cx);
+                app.invalidate_explore_plots(cx);
                 cx.notify();
             })
             .ok();
@@ -2425,7 +2883,13 @@ impl StudioApp {
         .detach();
     }
 
-    fn rebuild_plots(&mut self, cx: &mut Context<Self>) {
+    fn invalidate_explore_plots(&mut self, cx: &mut Context<Self>) {
+        if should_rebuild_explore(self.workspace, &mut self.explore_plots_dirty, true) {
+            self.rebuild_explore_plots(cx);
+        }
+    }
+
+    fn rebuild_explore_plots(&mut self, cx: &mut Context<Self>) {
         let (indices, total) = self.compare_indices();
         let mut traces: Vec<QuadTrace> = Vec::new();
         for ix in indices {
@@ -2497,7 +2961,7 @@ impl StudioApp {
         } else {
             for ((slot, entity), (title, plot)) in self.quadrants.iter_mut().zip(titled) {
                 *slot = SharedString::from(title);
-                set_plot_keep_view(entity, plot, cx);
+                entity.update(cx, |rp, cx| rp.set_plot_keep_view(plot, cx));
             }
         }
     }
@@ -2530,7 +2994,10 @@ impl StudioApp {
         if let Some(input) = &self.roi_input {
             input.update(cx, |f, cx| f.set_theme(theme, cx));
         }
-        self.rebuild_plots(cx);
+        if let Some(input) = &self.filter_input {
+            input.update(cx, |f, cx| f.set_theme(theme, cx));
+        }
+        self.invalidate_explore_plots(cx);
         self.rebuild_operando_plots(cx);
         self.rebuild_fit_plots(cx);
         cx.notify();
@@ -2832,9 +3299,22 @@ impl StudioApp {
                             if !app.filter_text.is_empty() {
                                 app.apply_filter(cx);
                             }
-                            if app.active_scan.is_some() {
-                                if let Some(operando) = &mut app.operando {
-                                    operando.scan_len = usize::MAX;
+                            if let Some(scan_ix) = app.active_scan {
+                                let invalid_fingerprint =
+                                    app.catalog.scans.get(scan_ix).map(|scan| {
+                                        scan_fingerprint(
+                                            &app.params,
+                                            &app.overrides,
+                                            scan.start,
+                                            scan.len,
+                                        ) ^ 1
+                                    });
+                                if let (Some(operando), Some(fingerprint)) =
+                                    (&mut app.operando, invalid_fingerprint)
+                                {
+                                    // Force a final overview refresh without exposing an
+                                    // invalid length to the scrubber or cursor mapping.
+                                    operando.fingerprint = fingerprint;
                                 }
                                 if app.workspace == Workspace::Operando {
                                     app.ensure_operando(cx);
@@ -2946,7 +3426,7 @@ impl StudioApp {
     fn clear_selection(&mut self, cx: &mut Context<Self>) {
         if !self.selection.is_empty() {
             self.selection.clear();
-            self.rebuild_plots(cx);
+            self.invalidate_explore_plots(cx);
             self.sync_param_fields(cx);
             cx.notify();
         }
@@ -3123,7 +3603,7 @@ impl StudioApp {
             self.selected = None;
         }
         self.cache.clear();
-        self.rebuild_plots(cx);
+        self.invalidate_explore_plots(cx);
         self.sync_param_fields(cx);
         cx.notify();
     }
@@ -3253,7 +3733,7 @@ impl StudioApp {
                             RangeKey::Rmax => r.rmax = *v,
                             RangeKey::Kweight => r.kweight = *v,
                         }
-                        cx.notify();
+                        this.fit_model_changed(cx);
                     }
                 })
                 .detach();
@@ -3334,8 +3814,8 @@ impl StudioApp {
             } else {
                 var.spec.max = value;
             }
+            self.fit_model_changed(cx);
         }
-        cx.notify();
     }
 
     /// A variable field committed: a number sets the value; anything else is
@@ -3362,7 +3842,7 @@ impl StudioApp {
                 }
             }
         }
-        cx.notify();
+        self.fit_model_changed(cx);
     }
 
     /// A path parameter cell committed: store the expression and auto-create
@@ -3391,8 +3871,8 @@ impl StudioApp {
                 PathParam::Sigma2 => spec.sigma2 = text,
                 PathParam::DeltaR => spec.deltar = text,
             }
+            self.fit_model_changed(cx);
         }
-        cx.notify();
     }
 
     fn add_fit_path_dialog(&mut self, cx: &mut Context<Self>) {
@@ -3408,7 +3888,7 @@ impl StudioApp {
                     for file in paths {
                         app.push_fit_path(file, cx);
                     }
-                    cx.notify();
+                    app.fit_model_changed(cx);
                 })
                 .ok();
             }
@@ -3545,6 +4025,7 @@ impl StudioApp {
                             if let Some(provenance) = &mut app.fit_provenance {
                                 provenance.model_fingerprint = model_fingerprint;
                             }
+                            app.fit_model_changed(cx);
                         }
                     }
                     Err(e) => {
@@ -3569,10 +4050,18 @@ impl StudioApp {
         let r_res = build_fit_residual_r(result, &self.theme);
         match &self.fit_plots {
             Some(plots) => {
-                set_plot_keep_view(&plots.k, k_plot, cx);
-                set_plot_keep_view(&plots.k_residual, k_res, cx);
-                set_plot_keep_view(&plots.r, r_plot, cx);
-                set_plot_keep_view(&plots.r_residual, r_res, cx);
+                plots
+                    .k
+                    .update(cx, |rp, cx| rp.set_plot_keep_view(k_plot, cx));
+                plots
+                    .k_residual
+                    .update(cx, |rp, cx| rp.set_plot_keep_view(k_res, cx));
+                plots
+                    .r
+                    .update(cx, |rp, cx| rp.set_plot_keep_view(r_plot, cx));
+                plots
+                    .r_residual
+                    .update(cx, |rp, cx| rp.set_plot_keep_view(r_res, cx));
             }
             None => {
                 self.fit_plots = Some(FitPlots {
@@ -3698,6 +4187,7 @@ impl StudioApp {
             trend_param: 0,
         });
         self.status = format!("batch fit 0/{total} ...").into();
+        self.rebuild_operando_trend(cx);
         cx.notify();
 
         // Frames fit under their effective params: global set plus the
@@ -3881,7 +4371,7 @@ impl StudioApp {
                     )
                     .into()
                 };
-                app.rebuild_operando_plots(cx);
+                app.rebuild_operando_trend(cx);
                 cx.notify();
             })
             .ok();
@@ -3899,54 +4389,50 @@ impl StudioApp {
         }
     }
 
-    /// The operando trend series: fitted parameter when a batch fit exists
-    /// for the current scan/params, otherwise E0.
-    /// Trend values and cursor row; `trend_name` provides the plot's ylabel.
-    fn trend_series(&self) -> (Vec<f64>, usize) {
-        if let (Some(bf), Some(data)) = (&self.batch_fit, &self.operando)
-            && bf.scan == data.scan
-            && bf.fingerprint == data.fingerprint
-            && bf.model_fingerprint == self.fit_model_fingerprint()
-            && let Some(name) = bf.varying_names.get(bf.trend_param)
+    fn active_batch_trend(&self) -> Option<(&BatchFitData, &str)> {
+        let bf = self.batch_fit.as_ref()?;
+        let data = self.operando.as_ref()?;
+        if bf.scan != data.scan
+            || bf.fingerprint != data.fingerprint
+            || bf.model_fingerprint != self.fit_model_fingerprint()
         {
+            return None;
+        }
+        let name = bf.varying_names.get(bf.trend_param)?;
+        Some((bf, name))
+    }
+
+    /// Resolve the displayed trend data, label, and coordinate domain together
+    /// so the retained plot and its cursor cannot diverge.
+    fn trend_snapshot(&self) -> TrendSnapshot {
+        if let Some((bf, name)) = self.active_batch_trend() {
             let scan_len = self
-                .catalog
-                .scans
-                .get(bf.scan)
-                .map(|scan| scan.len)
+                .operando
+                .as_ref()
+                .map(|data| data.scan_len)
                 .unwrap_or_default();
             let mut values = vec![f64::NAN; scan_len];
             for row in &bf.rows {
-                if let (Some(slot), Some(v)) = (values.get_mut(row.frame), row.value_of(name)) {
-                    *slot = v;
+                if let (Some(slot), Some(value)) = (values.get_mut(row.frame), row.value_of(name)) {
+                    *slot = value;
                 }
             }
-            return (values, self.time_pos);
+            return TrendSnapshot {
+                values,
+                name: name.to_string(),
+                domain: TrendDomain::FullScan,
+            };
         }
-        let values = self
-            .operando
-            .as_ref()
-            .map(|d| d.e0s.clone())
-            .unwrap_or_default();
-        let cursor = self
-            .operando_scan_len()
-            .map(|len| nearest_sample_pos(self.time_pos, len, values.len()))
-            .unwrap_or_default();
-        (values, cursor)
-    }
 
-    /// Name of the trend quantity (mirrors trend_series' selection) without
-    /// materializing the full values vector; used by the plot ylabel.
-    fn trend_name(&self) -> String {
-        if let (Some(bf), Some(data)) = (&self.batch_fit, &self.operando)
-            && bf.scan == data.scan
-            && bf.fingerprint == data.fingerprint
-            && bf.model_fingerprint == self.fit_model_fingerprint()
-            && let Some(name) = bf.varying_names.get(bf.trend_param)
-        {
-            return name.clone();
+        TrendSnapshot {
+            values: self
+                .operando
+                .as_ref()
+                .map(|data| data.e0s.clone())
+                .unwrap_or_default(),
+            name: "E0 (eV)".to_string(),
+            domain: TrendDomain::Sampled,
         }
-        "E0 (eV)".to_string()
     }
 
     fn cycle_trend_param(&mut self, cx: &mut Context<Self>) {
@@ -3954,7 +4440,7 @@ impl StudioApp {
             && !bf.varying_names.is_empty()
         {
             bf.trend_param = (bf.trend_param + 1) % bf.varying_names.len();
-            self.rebuild_operando_plots(cx);
+            self.rebuild_operando_trend(cx);
             cx.notify();
         }
     }
@@ -4155,6 +4641,7 @@ impl StudioApp {
                                 row.spec.enabled = false;
                             }
                         }
+                        app.fit_model_changed(cx);
                         app.status = format!("FEFF10 done — imported {n} paths").into();
                     }
                     Err(e) => {
@@ -4327,8 +4814,11 @@ impl StudioApp {
 
     fn set_workspace(&mut self, workspace: Workspace, cx: &mut Context<Self>) {
         self.workspace = workspace;
-        if workspace == Workspace::Operando {
+        if should_rebuild_explore(workspace, &mut self.explore_plots_dirty, false) {
+            self.rebuild_explore_plots(cx);
+        } else if workspace == Workspace::Operando {
             self.ensure_operando(cx);
+            self.rebuild_operando_trend(cx);
         }
         cx.notify();
     }
@@ -4354,7 +4844,7 @@ impl StudioApp {
             return;
         }
         self.maximized = maximized;
-        self.rebuild_plots(cx);
+        self.invalidate_explore_plots(cx);
         cx.notify();
     }
 
@@ -4381,18 +4871,24 @@ impl StudioApp {
     ) -> impl IntoElement + use<> {
         let t = self.theme;
         let active = self.workspace == ws;
+        // Full words, not two-letter stubs; the active item also carries an
+        // accent edge so it stays legible in the light theme, where an
+        // accent-on-raised fill is nearly invisible.
         div()
             .id(id)
-            .w(px(40.))
-            .h(px(40.))
-            .my_1()
-            .rounded_md()
+            .w_full()
+            .h(px(38.))
             .flex()
             .items_center()
             .justify_center()
-            .text_sm()
-            .when(active, |d| d.bg(t.raised).text_color(t.accent))
-            .when(!active, |d| d.text_color(t.text_muted))
+            .text_xs()
+            .border_l_2()
+            .when(active, |d| {
+                d.bg(t.raised).text_color(t.accent).border_color(t.accent)
+            })
+            .when(!active, |d| {
+                d.text_color(t.text_muted).border_color(t.surface)
+            })
             .hover(|d| d.bg(t.raised))
             .cursor_pointer()
             .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
@@ -4412,16 +4908,16 @@ impl StudioApp {
         let t = self.theme;
         div()
             .id(id)
-            .w(px(40.))
-            .h(px(28.))
-            .my_0p5()
-            .rounded_md()
+            .w_full()
+            .h(px(26.))
             .flex()
             .items_center()
             .justify_center()
             .text_xs()
+            .border_l_2()
             .text_color(if open { t.accent } else { t.text_muted })
-            .when(open, |d| d.bg(t.raised))
+            .when(open, |d| d.bg(t.raised).border_color(t.accent))
+            .when(!open, |d| d.border_color(t.surface))
             .hover(|d| d.bg(t.raised).text_color(t.text))
             .cursor_pointer()
             .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
@@ -4434,21 +4930,20 @@ impl StudioApp {
     fn icon_rail(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
         div()
-            .w(px(48.))
+            .w(px(72.))
             .h_full()
             .min_h_0()
             .min_w_0()
             .flex_none()
             .flex()
             .flex_col()
-            .items_center()
             .pt_2()
             .bg(t.surface)
             .border_r_1()
             .border_color(t.border)
-            .child(self.rail_button("ws-explore", "Ex", Workspace::Explore, cx))
-            .child(self.rail_button("ws-operando", "Op", Workspace::Operando, cx))
-            .child(self.rail_button("ws-fit", "Ft", Workspace::Fit, cx))
+            .child(self.rail_button("ws-explore", "Explore", Workspace::Explore, cx))
+            .child(self.rail_button("ws-operando", "Operando", Workspace::Operando, cx))
+            .child(self.rail_button("ws-fit", "Fit", Workspace::Fit, cx))
             .child(div().flex_1())
             .child(self.panel_toggle_button(
                 "toggle-data-panel",
@@ -4459,7 +4954,7 @@ impl StudioApp {
             ))
             .child(self.panel_toggle_button(
                 "toggle-context-panel",
-                "Ctx",
+                "Context",
                 self.context_panel_open,
                 |this| this.context_panel_open = !this.context_panel_open,
                 cx,
@@ -4991,7 +5486,7 @@ impl StudioApp {
                             cx,
                             |this, cx| {
                                 this.view.show_pre = !this.view.show_pre;
-                                this.rebuild_plots(cx);
+                                this.invalidate_explore_plots(cx);
                                 cx.notify();
                             },
                         ))
@@ -5002,7 +5497,7 @@ impl StudioApp {
                             cx,
                             |this, cx| {
                                 this.view.show_post = !this.view.show_post;
-                                this.rebuild_plots(cx);
+                                this.invalidate_explore_plots(cx);
                                 cx.notify();
                             },
                         ))
@@ -5013,7 +5508,7 @@ impl StudioApp {
                             cx,
                             |this, cx| {
                                 this.view.show_e0 = !this.view.show_e0;
-                                this.rebuild_plots(cx);
+                                this.invalidate_explore_plots(cx);
                                 cx.notify();
                             },
                         ))
@@ -5024,7 +5519,7 @@ impl StudioApp {
                             cx,
                             |this, cx| {
                                 this.view.show_ranges = !this.view.show_ranges;
-                                this.rebuild_plots(cx);
+                                this.invalidate_explore_plots(cx);
                                 cx.notify();
                             },
                         ));
@@ -5037,7 +5532,7 @@ impl StudioApp {
                             cx,
                             |this, cx| {
                                 this.view.show_krange = !this.view.show_krange;
-                                this.rebuild_plots(cx);
+                                this.invalidate_explore_plots(cx);
                                 cx.notify();
                             },
                         ))
@@ -5048,7 +5543,7 @@ impl StudioApp {
                             cx,
                             |this, cx| {
                                 this.view.show_kwin = !this.view.show_kwin;
-                                this.rebuild_plots(cx);
+                                this.invalidate_explore_plots(cx);
                                 cx.notify();
                             },
                         ));
@@ -5061,7 +5556,7 @@ impl StudioApp {
                             cx,
                             |this, cx| {
                                 this.view.flat = !this.view.flat;
-                                this.rebuild_plots(cx);
+                                this.invalidate_explore_plots(cx);
                                 cx.notify();
                             },
                         ))
@@ -5072,7 +5567,7 @@ impl StudioApp {
                             cx,
                             |this, cx| {
                                 this.view.show_e0 = !this.view.show_e0;
-                                this.rebuild_plots(cx);
+                                this.invalidate_explore_plots(cx);
                                 cx.notify();
                             },
                         ));
@@ -5084,7 +5579,7 @@ impl StudioApp {
                         cx,
                         |this, cx| {
                             this.view.show_re = !this.view.show_re;
-                            this.rebuild_plots(cx);
+                            this.invalidate_explore_plots(cx);
                             cx.notify();
                         },
                     ));
@@ -5103,13 +5598,24 @@ impl StudioApp {
         action: fn(&mut Self, &mut Context<Self>),
     ) -> impl IntoElement + use<> {
         let t = self.theme;
+        // A bordered pill that fills when on: these are toggles, and colour
+        // alone (muted vs accent text) read as static labels.
         div()
             .id(id)
-            .px_2()
+            .px_1p5()
             .rounded_sm()
             .text_xs()
             .cursor_pointer()
-            .text_color(if on { t.accent } else { t.text_muted })
+            .border_1()
+            .when(on, |d| {
+                d.bg(gpui::Rgba {
+                    a: 0.18,
+                    ..t.accent
+                })
+                .border_color(t.accent)
+                .text_color(t.accent)
+            })
+            .when(!on, |d| d.border_color(t.border).text_color(t.text_muted))
             .hover(|d| d.bg(t.raised))
             .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                 action(this, cx);
@@ -5129,8 +5635,14 @@ impl StudioApp {
         cx: &mut Context<Self>,
     ) -> Option<gpui::AnyElement> {
         self.override_target()?;
+        // Only the divergent case carries information. Printing "global" on
+        // every section repeated a redundant word four times down the panel
+        // and made the one section that *had* diverged harder to spot.
+        if !self.section_overridden(section) {
+            return None;
+        }
         let t = self.theme;
-        let chip = if self.section_overridden(section) {
+        Some(
             div()
                 .id(id)
                 .px_1()
@@ -5145,16 +5657,8 @@ impl StudioApp {
                     this.reset_section_override(section, cx);
                 }))
                 .child("override ✕")
-                .into_any_element()
-        } else {
-            div()
-                .px_1()
-                .text_xs()
-                .text_color(t.text_muted)
-                .child("global")
-                .into_any_element()
-        };
-        Some(chip)
+                .into_any_element(),
+        )
     }
 
     fn view_options_row(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -5179,7 +5683,7 @@ impl StudioApp {
                         TraceLayout::Overlay => TraceLayout::Waterfall,
                         TraceLayout::Waterfall => TraceLayout::Overlay,
                     };
-                    this.rebuild_plots(cx);
+                    this.invalidate_explore_plots(cx);
                     cx.notify();
                 },
             ));
@@ -5190,14 +5694,14 @@ impl StudioApp {
             .child(
                 self.view_chip("view-legend", "legend", self.view.legend, cx, |this, cx| {
                     this.view.legend = !this.view.legend;
-                    this.rebuild_plots(cx);
+                    this.invalidate_explore_plots(cx);
                     cx.notify();
                 }),
             )
             .child(
                 self.view_chip("view-grid", "grid", self.view.grid, cx, |this, cx| {
                     this.view.grid = !this.view.grid;
-                    this.rebuild_plots(cx);
+                    this.invalidate_explore_plots(cx);
                     cx.notify();
                 }),
             );
@@ -5294,57 +5798,6 @@ impl StudioApp {
             .children(show_strip.then(|| self.legend_strip()))
     }
 
-    /// Cursor line and pointer navigation over the heatmap. The y hit area
-    /// approximates ruviz's proportional plot margins (documented by the
-    /// HEATMAP_* constants) and maps directly into full-scan coordinates.
-    fn heatmap_cursor_overlay(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let entity = cx.entity();
-        let frames = self.operando_scan_len().unwrap_or(0).max(1);
-        let time_pos = self.time_pos.min(frames - 1);
-        let accent = self.theme.accent;
-        canvas(
-            move |_, _, _| (),
-            move |bounds, _, window, _| {
-                let plot_top = bounds.top() + bounds.size.height * HEATMAP_TOP_MARGIN;
-                let plot_height = (bounds.size.height
-                    * (1.0 - HEATMAP_TOP_MARGIN - HEATMAP_BOTTOM_MARGIN))
-                    .max(px(1.));
-                let fraction = if frames > 1 {
-                    time_pos as f32 / (frames - 1) as f32
-                } else {
-                    0.0
-                };
-                let cursor_y = plot_top + plot_height * fraction;
-                let line_left = bounds.left() + bounds.size.width * HEATMAP_LEFT_MARGIN;
-                let line_width =
-                    bounds.size.width * (1.0 - HEATMAP_LEFT_MARGIN - HEATMAP_RIGHT_WITH_COLORBAR);
-                window.paint_quad(fill(
-                    gpui::Bounds::new(
-                        point(line_left, cursor_y - px(1.)),
-                        size(line_width.max(px(1.)), px(2.)),
-                    ),
-                    accent,
-                ));
-
-                let entity = entity.clone();
-                window.on_mouse_event(move |ev: &MouseDownEvent, _, window, app| {
-                    if ev.button != gpui::MouseButton::Left || !bounds.contains(&ev.position) {
-                        return;
-                    }
-                    let fraction = ((ev.position.y - plot_top) / plot_height).clamp(0.0, 1.0);
-                    let frame = (fraction * (frames - 1) as f32).round() as usize;
-                    let focus = entity.read(app).operando_focus.clone();
-                    window.focus(&focus, app);
-                    entity.update(app, |this, cx| this.set_time_pos(frame, cx));
-                    app.stop_propagation();
-                });
-            },
-        )
-        .absolute()
-        .inset_0()
-        .size_full()
-    }
-
     /// Scrub strip: clickable segments mapping linearly onto the full scan.
     fn time_scrubber(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         const SEGMENTS: usize = 96;
@@ -5386,26 +5839,79 @@ impl StudioApp {
     fn operando_center(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
         let Some(plots) = &self.operando_plots else {
-            let hint: SharedString = if self.active_scan.is_some() {
-                self.status.clone()
+            // `status` is a data readout ("Ru_QAS.dat · 645 points · E0 …"),
+            // not guidance — showing it alone filled the canvas with a line
+            // that tells the user nothing about what to do next.
+            let (hint, detail): (SharedString, Option<SharedString>) = if self.operando_running {
+                (
+                    "Building scan overview...".into(),
+                    Some(self.status.clone()),
+                )
+            } else if self.active_scan.is_some() {
+                (
+                    "No scan overview for this selection — pick a scan in the Scans tab".into(),
+                    Some(self.status.clone()),
+                )
             } else if self.catalog.scans.is_empty() {
-                "Open a folder, then pick a scan in the Scans tab".into()
+                (
+                    "Open a folder, then pick a scan in the Scans tab".into(),
+                    None,
+                )
             } else {
-                "Pick a scan in the Scans tab".into()
+                ("Pick a scan in the Scans tab".into(), None)
             };
             return div()
                 .flex_1()
                 .min_h_0()
                 .min_w_0()
                 .flex()
+                .flex_col()
                 .items_center()
                 .justify_center()
-                .text_color(t.text_muted)
-                .child(hint)
+                .gap_1()
+                .child(div().text_sm().text_color(t.text).child(hint))
+                .children(detail.map(|d| div().text_xs().text_color(t.text_muted).child(d)))
                 .into_any_element();
         };
         let frames = self.operando_scan_len().unwrap_or(0);
         let frame_label: SharedString = format!("frame {} / {frames}", self.time_pos + 1).into();
+        // A one-frame scan makes a degenerate heatmap (a single row stretched
+        // over a synthetic frame axis) and a one-point trend. Still worth
+        // rendering — an in-progress acquisition starts at one frame — but the
+        // view has to say why it looks empty rather than leave it ambiguous.
+        let single_frame_notice = (frames <= 1).then(|| {
+            div()
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap_2()
+                .px_3()
+                .py_1()
+                .bg(t.raised)
+                .border_b_1()
+                .border_color(t.warn)
+                .child(div().flex_none().text_xs().text_color(t.warn).child("⚠"))
+                .child(
+                    div()
+                        .flex_none()
+                        .text_xs()
+                        .text_color(t.warn)
+                        .child("single frame"),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_xs()
+                        .text_color(t.text_muted)
+                        .child(
+                            "the overview heatmap and trend need more than one frame — \
+                             they fill in as further frames are indexed",
+                        ),
+                )
+        });
         let kw = self.operando.as_ref().map(|d| d.kweight).unwrap_or(2.0);
         let overview_label: SharedString =
             format!("scan overview · frame vs {} · k (1/Å)", chik_label(kw)).into();
@@ -5452,56 +5958,16 @@ impl StudioApp {
             .min_h_0()
             .min_w_0()
             .flex()
+            .flex_col()
+            .children(single_frame_notice)
             .child(
-                // Left: heatmap overview + scrubber.
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .min_w_0()
-                    .m_1()
-                    .flex()
-                    .flex_col()
-                    .rounded_md()
-                    .bg(t.raised)
-                    .border_1()
-                    .border_color(t.border)
-                    .child(
-                        div()
-                            .px_2()
-                            .py_1()
-                            .text_xs()
-                            .text_color(t.text_muted)
-                            .child(overview_label),
-                    )
-                    .child(
-                        div()
-                            .relative()
-                            .flex_1()
-                            .min_h_0()
-                            .min_w_0()
-                            .p_1()
-                            .child(plots.heatmap.clone())
-                            .child(self.heatmap_cursor_overlay(cx)),
-                    )
-                    .child(self.time_scrubber(cx))
-                    .child(
-                        div()
-                            .px_2()
-                            .py_1()
-                            .text_xs()
-                            .text_color(t.text_muted)
-                            .child(frame_label),
-                    ),
-            )
-            .child(
-                // Right: frame chi(k) + E0 trend.
                 div()
                     .flex_1()
                     .min_h_0()
                     .min_w_0()
                     .flex()
-                    .flex_col()
                     .child(
+                        // Left: heatmap overview + scrubber.
                         div()
                             .flex_1()
                             .min_h_0()
@@ -5519,7 +5985,7 @@ impl StudioApp {
                                     .py_1()
                                     .text_xs()
                                     .text_color(t.text_muted)
-                                    .child(chik_header),
+                                    .child(overview_label),
                             )
                             .child(
                                 div()
@@ -5527,36 +5993,83 @@ impl StudioApp {
                                     .min_h_0()
                                     .min_w_0()
                                     .p_1()
-                                    .child(plots.chik.clone()),
+                                    .child(plots.heatmap.clone()),
+                            )
+                            .child(self.time_scrubber(cx))
+                            .child(
+                                div()
+                                    .px_2()
+                                    .py_1()
+                                    .text_xs()
+                                    .text_color(t.text_muted)
+                                    .child(frame_label),
                             ),
                     )
                     .child(
+                        // Right: frame chi(k) + E0 trend.
                         div()
                             .flex_1()
                             .min_h_0()
                             .min_w_0()
-                            .m_1()
                             .flex()
                             .flex_col()
-                            .rounded_md()
-                            .bg(t.raised)
-                            .border_1()
-                            .border_color(t.border)
                             .child(
                                 div()
-                                    .px_2()
-                                    .py_1()
-                                    .text_xs()
-                                    .text_color(t.text_muted)
-                                    .child(trend_header),
+                                    .flex_1()
+                                    .min_h_0()
+                                    .min_w_0()
+                                    .m_1()
+                                    .flex()
+                                    .flex_col()
+                                    .rounded_md()
+                                    .bg(t.raised)
+                                    .border_1()
+                                    .border_color(t.border)
+                                    .child(
+                                        div()
+                                            .px_2()
+                                            .py_1()
+                                            .text_xs()
+                                            .text_color(t.text_muted)
+                                            .child(chik_header),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_h_0()
+                                            .min_w_0()
+                                            .p_1()
+                                            .child(plots.chik.clone()),
+                                    ),
                             )
                             .child(
                                 div()
                                     .flex_1()
                                     .min_h_0()
                                     .min_w_0()
-                                    .p_1()
-                                    .child(plots.trend.clone()),
+                                    .m_1()
+                                    .flex()
+                                    .flex_col()
+                                    .rounded_md()
+                                    .bg(t.raised)
+                                    .border_1()
+                                    .border_color(t.border)
+                                    .child(
+                                        div()
+                                            .px_2()
+                                            .py_1()
+                                            .text_xs()
+                                            .text_color(t.text_muted)
+                                            .child(trend_header),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_h_0()
+                                            .min_w_0()
+                                            .p_1()
+                                            .child(plots.trend.clone()),
+                                    ),
                             ),
                     ),
             )
@@ -5931,11 +6444,14 @@ impl StudioApp {
                     div()
                         .id("add-path")
                         .px_2()
+                        .py_0p5()
                         .rounded_sm()
                         .text_xs()
+                        .border_1()
+                        .border_color(t.border)
                         .text_color(t.accent)
                         .cursor_pointer()
-                        .hover(|d| d.bg(t.raised))
+                        .hover(|d| d.bg(t.raised).border_color(t.accent))
                         .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
                             this.add_fit_path_dialog(cx);
                         }))
@@ -5979,7 +6495,7 @@ impl StudioApp {
                             .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                                 if let Some(p) = this.fit_paths.get_mut(i) {
                                     p.spec.enabled = !p.spec.enabled;
-                                    cx.notify();
+                                    this.fit_model_changed(cx);
                                 }
                             }))
                             .child(if enabled { "✓" } else { "✗" }),
@@ -6051,6 +6567,8 @@ impl StudioApp {
 
         // FEFF10 generation.
         panel = panel.child(self.section_header("FEFF10"));
+        // Bordered, so an action is distinguishable from the accent-coloured
+        // section headings it sits between.
         let feff_button = |id: &'static str, label: SharedString| {
             div()
                 .id(id)
@@ -6058,9 +6576,11 @@ impl StudioApp {
                 .py_0p5()
                 .rounded_sm()
                 .text_xs()
+                .border_1()
+                .border_color(t.border)
                 .text_color(t.accent)
                 .cursor_pointer()
-                .hover(|d| d.bg(t.raised))
+                .hover(|d| d.bg(t.raised).border_color(t.accent))
                 .child(label)
         };
         // Crystal form (Atoms-lite).
@@ -6223,7 +6743,7 @@ impl StudioApp {
                                                 } else {
                                                     v.spec.vary = !v.spec.vary;
                                                 }
-                                                cx.notify();
+                                                this.fit_model_changed(cx);
                                             }
                                         },
                                     ))
@@ -6250,29 +6770,56 @@ impl StudioApp {
         for (_, field) in &self.fit_range_fields {
             panel = panel.child(field.clone());
         }
+        // A fit needs at least one enabled path; presenting a live primary
+        // button that can only fail is worse than showing why it is blocked.
+        let can_fit = self.fit_paths.iter().any(|p| p.spec.enabled);
         panel = panel.child(
-            div().px_3().py_2().child(
-                div()
-                    .id("run-fit")
-                    .w_full()
-                    .py_1()
-                    .rounded_md()
-                    .flex()
-                    .justify_center()
-                    .text_sm()
-                    .bg(t.accent)
-                    .text_color(t.bg)
-                    .cursor_pointer()
-                    .hover(|d| d.bg(t.text))
-                    .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                        this.run_fit_now(cx);
-                    }))
-                    .child(if self.fit_running {
-                        "fitting ..."
-                    } else {
-                        "Run Fit"
-                    }),
-            ),
+            div()
+                .px_3()
+                .py_2()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(
+                    div()
+                        .id("run-fit")
+                        .w_full()
+                        .py_1()
+                        .rounded_md()
+                        .flex()
+                        .justify_center()
+                        .text_sm()
+                        .when(can_fit, |d| {
+                            d.bg(t.accent)
+                                .text_color(t.bg)
+                                .cursor_pointer()
+                                .hover(|d| d.bg(t.text))
+                                .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                                    this.run_fit_now(cx);
+                                }))
+                        })
+                        // Outlined rather than filled: `raised` is pure white
+                        // in the light theme, which would make a disabled
+                        // button brighter than the panel around it.
+                        .when(!can_fit, |d| {
+                            d.border_1().border_color(t.border).text_color(t.text_muted)
+                        })
+                        .child(if self.fit_running {
+                            "fitting ..."
+                        } else {
+                            "Run Fit"
+                        }),
+                )
+                .children((!can_fit).then(|| {
+                    div()
+                        .text_xs()
+                        .text_color(t.text_muted)
+                        .child(if self.fit_paths.is_empty() {
+                            "add a FEFF path to enable fitting"
+                        } else {
+                            "enable at least one path to fit"
+                        })
+                })),
         );
 
         // Batch over the active scan.
@@ -6550,7 +7097,7 @@ impl StudioApp {
                                 this.adv_open[3] = !this.adv_open[3];
                                 cx.notify();
                             }))
-                            .child(if open { "▾ less" } else { "▸ columns" }),
+                            .child(if open { "▾ less" } else { "▸ more" }),
                     ),
             );
             // mode selector (always visible)
@@ -6631,7 +7178,7 @@ impl StudioApp {
             // The preview stays compact but shows enough real rows to verify
             // delimiter/header detection and the role assignments at a glance.
             if let Some(preview) = &self.import_preview {
-                let table_width = px(preview.column_count as f32 * 72.);
+                let table_width = px(preview.column_count as f32 * IMPORT_COL_W);
                 let header_status = if preview.names.is_some() {
                     "header names found"
                 } else {
@@ -6648,92 +7195,108 @@ impl StudioApp {
                             preview.column_count, preview.auto_mode
                         )),
                 );
-                let mut header = div().flex();
-                for column in 0..preview.column_count {
-                    let name = preview
-                        .names
-                        .as_ref()
-                        .and_then(|names| names.get(column))
-                        .cloned()
-                        .unwrap_or_else(|| format!("col {column}"));
-                    let mut roles = Vec::new();
-                    if preview.resolved.energy_col == column {
-                        roles.push("E");
-                    }
-                    if preview.resolved.i0_col == column {
-                        roles.push("I0");
-                    }
-                    if preview.resolved.it_col == column {
-                        roles.push("It");
-                    }
-                    if preview.resolved.ir_col == column {
-                        roles.push("Ir");
-                    }
-                    if preview.resolved.fluor_cols.contains(&column) {
-                        roles.push("ROI");
-                    }
-                    if preview.resolved.mu_col == Some(column) {
-                        roles.push("mu");
-                    }
-                    let assigned = !roles.is_empty();
-                    header = header.child(
-                        div()
-                            .w(px(72.))
-                            .flex_none()
-                            .px_1()
-                            .py_0p5()
-                            .flex()
-                            .flex_col()
-                            .border_r_1()
-                            .border_color(t.border)
-                            .when(assigned, |cell| cell.bg(t.raised))
-                            .child(div().text_xs().text_color(t.text).child(name))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(if assigned { t.accent } else { t.text_muted })
-                                    .child(if assigned {
-                                        roles.join("/")
-                                    } else {
-                                        "—".into()
-                                    }),
-                            ),
-                    );
-                }
-                let mut table = div()
-                    .min_w(table_width)
-                    .mb_1()
-                    .border_1()
-                    .border_color(t.border)
-                    .flex()
-                    .flex_col()
-                    .child(header);
-                for row in &preview.rows {
-                    let mut line = div().flex().border_t_1().border_color(t.border);
-                    for value in row {
-                        line = line.child(
+                // The column table is a diagnostic, not a parameter — behind
+                // the disclosure it stops permanently occupying the top of the
+                // panel and pushing the actual parameters down. The one-line
+                // summary above stays visible so detection can still be
+                // sanity-checked at a glance.
+                if open {
+                    let mut header = div().flex();
+                    for column in 0..preview.column_count {
+                        let name = preview
+                            .names
+                            .as_ref()
+                            .and_then(|names| names.get(column))
+                            .cloned()
+                            .unwrap_or_else(|| format!("col {column}"));
+                        let mut roles = Vec::new();
+                        if preview.resolved.energy_col == column {
+                            roles.push("E");
+                        }
+                        if preview.resolved.i0_col == column {
+                            roles.push("I0");
+                        }
+                        if preview.resolved.it_col == column {
+                            roles.push("It");
+                        }
+                        if preview.resolved.ir_col == column {
+                            roles.push("Ir");
+                        }
+                        if preview.resolved.fluor_cols.contains(&column) {
+                            roles.push("ROI");
+                        }
+                        if preview.resolved.mu_col == Some(column) {
+                            roles.push("mu");
+                        }
+                        let assigned = !roles.is_empty();
+                        header = header.child(
                             div()
-                                .w(px(72.))
+                                .w(px(IMPORT_COL_W))
                                 .flex_none()
                                 .px_1()
                                 .py_0p5()
-                                .text_xs()
-                                .text_color(t.text_muted)
+                                .flex()
+                                .flex_col()
                                 .border_r_1()
                                 .border_color(t.border)
-                                .child(format!("{value:.4}")),
+                                .when(assigned, |cell| cell.bg(t.raised))
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .overflow_hidden()
+                                        .whitespace_nowrap()
+                                        .text_color(t.text)
+                                        .child(name),
+                                )
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(if assigned { t.accent } else { t.text_muted })
+                                        .child(if assigned {
+                                            roles.join("/")
+                                        } else {
+                                            "—".into()
+                                        }),
+                                ),
                         );
                     }
-                    table = table.child(line);
+                    let mut table = div()
+                        .min_w(table_width)
+                        .mb_1()
+                        .border_1()
+                        .border_color(t.border)
+                        .flex()
+                        .flex_col()
+                        .child(header);
+                    for row in &preview.rows {
+                        let mut line = div().flex().border_t_1().border_color(t.border);
+                        for value in row {
+                            line = line.child(
+                                div()
+                                    .w(px(IMPORT_COL_W))
+                                    .flex_none()
+                                    .px_1()
+                                    .py_0p5()
+                                    .text_xs()
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
+                                    .text_color(t.text_muted)
+                                    .border_r_1()
+                                    .border_color(t.border)
+                                    .child(format!("{value:.4}")),
+                            );
+                        }
+                        table = table.child(line);
+                    }
+                    sections = sections.child(
+                        div()
+                            .id("import-preview-horizontal")
+                            .mx_3()
+                            .min_w_0()
+                            .overflow_x_scroll()
+                            .child(table),
+                    );
                 }
-                sections = sections.child(
-                    div()
-                        .id("import-preview-horizontal")
-                        .mx_3()
-                        .min_w_0()
-                        .overflow_x_scroll()
-                        .child(table),
-                );
             } else {
                 sections = sections.child(
                     div()
@@ -7120,7 +7683,10 @@ impl StudioApp {
                 .py_2()
                 .text_xs()
                 .text_color(t.text_muted)
-                .child("Enter/Tab/blur commits · empty = auto"),
+                .child(
+                    "Enter/Tab/blur commits · empty = auto · pre-edge and norm bounds are eV \
+                     relative to E0",
+                ),
         );
 
         div()
@@ -7214,6 +7780,65 @@ impl StudioApp {
                     ),
             )
             .child(list)
+    }
+
+    /// Banner shown when the selected entry failed to load and the plots are
+    /// therefore showing a *different* spectrum than the one selected.
+    fn stale_plots_banner(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+        let t = self.theme;
+        let stale = self.stale_plots.as_ref()?;
+        let headline: SharedString = format!(
+            "{} could not be loaded — plots still show {}",
+            stale.requested, self.spectrum_label
+        )
+        .into();
+        let detail = stale.message.clone();
+        Some(
+            div()
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap_2()
+                .px_3()
+                .py_1()
+                .bg(t.raised)
+                .border_b_1()
+                .border_color(t.error)
+                .child(div().text_xs().text_color(t.error).child("⚠"))
+                .child(
+                    div()
+                        .flex_none()
+                        .text_xs()
+                        .text_color(t.error)
+                        .child(headline),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_xs()
+                        .text_color(t.text_muted)
+                        .child(detail),
+                )
+                .child(
+                    div()
+                        .id("stale-dismiss")
+                        .flex_none()
+                        .px_1()
+                        .rounded_sm()
+                        .text_xs()
+                        .text_color(t.text_muted)
+                        .cursor_pointer()
+                        .hover(|d| d.text_color(t.text))
+                        .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                            this.stale_plots = None;
+                            cx.notify();
+                        }))
+                        .child("✕"),
+                ),
+        )
     }
 
     fn status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -7425,6 +8050,7 @@ impl Render for StudioApp {
                             .min_w_0()
                             .flex()
                             .flex_col()
+                            .children(self.stale_plots_banner(cx))
                             .child(center),
                     )
                     .children(context_panel),

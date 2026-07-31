@@ -22,7 +22,10 @@ pub enum FitSpace {
 pub enum FeffExecutionMode {
     #[default]
     Feff85LModules,
+    /// FEFFRS backend (`feff10-runner` feature), using bundled FEFF binaries.
     Feff10Pipeline,
+    /// Pure-Rust ReFEFF backend (`refeff-runner` feature).
+    RefeffPipeline,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -177,6 +180,9 @@ pub struct FeffRunRequest {
     pub mode: FeffExecutionMode,
     pub timeout_sec: Option<u64>,
     pub use_sfconv: bool,
+    /// Persist every generated FEFF artifact. ReFEFF otherwise keeps only
+    /// `feffNNNN.dat` path files needed by fitting.
+    pub keep_all_outputs: bool,
 }
 
 impl Default for FeffRunRequest {
@@ -188,6 +194,7 @@ impl Default for FeffRunRequest {
             mode: FeffExecutionMode::Feff85LModules,
             timeout_sec: None,
             use_sfconv: false,
+            keep_all_outputs: false,
         }
     }
 }

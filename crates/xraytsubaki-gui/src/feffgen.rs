@@ -1,6 +1,5 @@
-//! FEFF10 helper: create a feff.inp workspace from a template and run the
-//! in-crate FEFF10 pipeline (core `feff10-runner` feature) to generate
-//! feffNNNN.dat path files for fitting.
+//! FEFF10 helper: create a feff.inp workspace and run the selected embedded
+//! FEFFRS or pure-Rust ReFEFF backend to generate fitting path files.
 
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -282,113 +281,65 @@ pub fn new_workspace() -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-/// Locate the standalone `feff10-rs` CLI (github.com/Ameyanagi/feff10-rs;
-/// prebuilt macOS/Linux/Windows release binaries exist). Preferred over the
-/// embedded pipeline: it exec's a clean process, so the fork-based stages
-/// are safe regardless of the GUI runtime. Override with `XTS_FEFF10_BIN`.
-fn find_feff10_cli() -> Option<PathBuf> {
-    if std::env::var_os("XTS_FEFF10_DISABLE_CLI").is_some() {
-        return None;
-    }
-    if let Ok(path) = std::env::var("XTS_FEFF10_BIN") {
-        let p = PathBuf::from(path);
-        if p.is_file() {
-            return Some(p);
-        }
-    }
-    for name in ["feff10-rs", "feff10"] {
-        if let Ok(out) = std::process::Command::new("which").arg(name).output()
-            && out.status.success()
-        {
-            let p = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim().to_string());
-            if p.is_file() {
-                return Some(p);
-            }
-        }
-        if let Ok(home) = std::env::var("HOME") {
-            let p = PathBuf::from(home).join(".cargo/bin").join(name);
-            if p.is_file() {
-                return Some(p);
-            }
-        }
-    }
-    None
-}
-
-/// feffNNNN.dat files in a workspace, sorted.
-fn discover_path_files(workspace: &Path) -> Vec<PathBuf> {
-    let mut paths: Vec<PathBuf> = std::fs::read_dir(workspace)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| {
-            p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
-                n.len() == 12
-                    && n.starts_with("feff")
-                    && n.ends_with(".dat")
-                    && n[4..8].chars().all(|c| c.is_ascii_digit())
-            })
-        })
-        .collect();
-    paths.sort();
-    paths
-}
-
-/// Run FEFF10: the standalone `feff10-rs` CLI when installed, else the
-/// embedded pipeline (fork-safe in this GUI since feff10 0.2.1: main()
-/// installs `feff10::worker::init()`, so stages run in re-exec'd worker
-/// processes). Blocking — call on the background executor.
+/// Compatibility entry point used by the GUI background executor.
+///
+/// ReFEFF runs in-process; FEFFRS uses its embedded worker pipeline. Neither
+/// route requires a separately installed command-line executable.
 pub fn run_feff10_subprocess(workspace: &Path) -> Result<Vec<PathBuf>, String> {
-    if let Some(cli) = find_feff10_cli() {
-        let output = std::process::Command::new(&cli)
-            .arg("run")
-            .arg("--quiet")
-            .arg("--timeout")
-            .arg("600")
-            .arg(workspace)
-            .output()
-            .map_err(|e| format!("failed to launch {}: {e}", cli.display()))?;
-        if !output.status.success() {
-            let err = String::from_utf8_lossy(&output.stderr);
-            return Err(format!(
-                "feff10-rs failed: {}",
-                err.trim().lines().last().unwrap_or("unknown error")
-            ));
-        }
-        let paths = discover_path_files(workspace);
-        if paths.is_empty() {
-            return Err(
-                "feff10-rs produced no feffNNNN.dat path files (check the PRINT card)".into(),
-            );
-        }
-        return Ok(paths);
-    }
-
-    // Fallback: embedded pipeline (StageIsolation::Auto picks worker
-    // processes here because main() installed the feff10 worker hook).
     run_feff10(workspace)
 }
 
-/// Run the embedded FEFF10 pipeline on `workspace/feff.inp`; returns the
-/// generated feffNNNN.dat files.
+/// Run the selected embedded FEFF10-compatible backend on
+/// `workspace/feff.inp`; returns the generated feffNNNN.dat files. A build
+/// containing both backends defaults to ReFEFF and accepts
+/// `XTS_FEFF_BACKEND=feffrs` as a runtime override.
 pub fn run_feff10(workspace: &Path) -> Result<Vec<PathBuf>, String> {
+    let mode = selected_feff_mode()?;
     let request = FeffRunRequest {
         executable_path: PathBuf::new(),
         workspace_dir: workspace.to_path_buf(),
         feffinp: Some(workspace.join("feff.inp")),
-        mode: FeffExecutionMode::Feff10Pipeline,
+        mode,
         timeout_sec: Some(600),
         use_sfconv: false,
+        keep_all_outputs: false,
     };
     run_feff(&request)
         .map(|result| result.path_files)
         .map_err(|e| e.to_string())
 }
 
-/// FEFF stages inherit the spawning process's cwd and use fixed-name
-/// scratch files, so concurrent runs interfere; tests that invoke FEFF
-/// serialize on this lock (the GUI itself runs one calculation at a time).
+fn selected_feff_mode() -> Result<FeffExecutionMode, String> {
+    #[cfg(all(feature = "refeff-runner", feature = "feff10-runner"))]
+    {
+        return match std::env::var("XTS_FEFF_BACKEND")
+            .unwrap_or_else(|_| "refeff".to_string())
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "refeff" => Ok(FeffExecutionMode::RefeffPipeline),
+            "feffrs" | "feff10" => Ok(FeffExecutionMode::Feff10Pipeline),
+            value => Err(format!(
+                "unknown XTS_FEFF_BACKEND '{value}' (expected 'refeff' or 'feffrs')"
+            )),
+        };
+    }
+    #[cfg(all(feature = "refeff-runner", not(feature = "feff10-runner")))]
+    {
+        return Ok(FeffExecutionMode::RefeffPipeline);
+    }
+    #[cfg(all(feature = "feff10-runner", not(feature = "refeff-runner")))]
+    {
+        return Ok(FeffExecutionMode::Feff10Pipeline);
+    }
+    #[cfg(not(any(feature = "refeff-runner", feature = "feff10-runner")))]
+    {
+        Err("GUI was built without a FEFF backend feature".to_string())
+    }
+}
+
+/// Serialize expensive FEFF calculations in tests. The GUI itself runs one
+/// calculation at a time.
 #[cfg(test)]
 pub(crate) static FEFF_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -442,21 +393,15 @@ mod tests {
         assert!(inp.contains(" 2   8   O"));
     }
 
-    /// The subprocess route (external feff10-rs CLI when present, else the
-    /// embedded worker) must produce path files.
+    /// The legacy-named background route must produce path files through
+    /// embedded refeff.
     #[test]
     fn subprocess_route_runs() {
         let _guard = feff_lock();
         let ws = new_workspace().expect("workspace");
         let paths = run_feff10_subprocess(&ws).expect("subprocess run");
         assert!(!paths.is_empty());
-        println!(
-            "subprocess route ({}): {} path files",
-            find_feff10_cli()
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|| "embedded worker".into()),
-            paths.len()
-        );
+        println!("embedded refeff route: {} path files", paths.len());
     }
 
     /// Template must parse and produce path files via the FEFF10 pipeline.

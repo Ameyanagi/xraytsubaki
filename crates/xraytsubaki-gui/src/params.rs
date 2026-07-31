@@ -884,8 +884,8 @@ mod tests {
         assert_eq!(resolved.mode, DetectionMode::Transmission);
     }
 
-    fn fixture(dir: &std::path::Path) -> std::path::PathBuf {
-        let path = dir.join("import_fixture.dat");
+    fn fixture(dir: &std::path::Path, name: &str) -> std::path::PathBuf {
+        let path = dir.join(name);
         std::fs::write(
             &path,
             "# energy i0 it ir if1 if2\n\
@@ -900,7 +900,7 @@ mod tests {
     #[test]
     fn detection_modes_compute_expected_mu() {
         let dir = std::env::temp_dir();
-        let path = fixture(&dir);
+        let path = fixture(&dir, "detection_modes_fixture.dat");
         let mut import = ImportConfig::default();
 
         let (e, mu) = load_mu(&path, &import).unwrap();
@@ -928,7 +928,7 @@ mod tests {
     #[test]
     fn bad_column_is_reported() {
         let dir = std::env::temp_dir();
-        let path = fixture(&dir);
+        let path = fixture(&dir, "bad_column_fixture.dat");
         let import = ImportConfig {
             mode: DetectionMode::Transmission,
             i0_col: Some(9),

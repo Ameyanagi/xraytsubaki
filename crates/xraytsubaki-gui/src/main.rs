@@ -20,9 +20,9 @@ use gpui::{App, AppContext, Bounds, Size, WindowBounds, WindowOptions, px};
 use crate::app::StudioApp;
 
 fn main() {
-    // FEFF10 fork-safety hook: stages run in re-exec'd single-stage worker
-    // processes (this call never returns in worker invocations). Must come
-    // before any GUI initialization.
+    // FEFFRS uses re-executed worker processes for its bundled FEFF stages.
+    // This is compiled only when that optional backend is included.
+    #[cfg(feature = "feff10-runner")]
     feff10::worker::init();
 
     // Optional positional arg: a data file to auto-load on launch. Enables

@@ -23,6 +23,35 @@ const FEFF85L_MODULES: [(&str, &str); 6] = [
 ];
 #[cfg(feature = "feff10-runner")]
 const FEFF10_MODULE_PREFIX: &str = "feff10::";
+#[cfg(feature = "refeff-runner")]
+const REFEFF_MODULE_PREFIX: &str = "refeff::";
+#[cfg(feature = "refeff-runner")]
+const REFEFF_MODULES: [&str; 24] = [
+    "rdinp",
+    "atomic",
+    "pot",
+    "ldos",
+    "screen",
+    "crpa",
+    "opconsat",
+    "xsph",
+    "fms",
+    "mkgtr",
+    "path",
+    "genfmt",
+    "ff2x",
+    "sfconv",
+    "compton",
+    "eels",
+    "eelsmdff",
+    "rhorrp",
+    "dmdw",
+    "band",
+    "fullspectrum",
+    "rixs",
+    "self",
+    "wpot",
+];
 const NO_EXTERNAL_MODULES: [(&str, &str); 0] = [];
 
 pub fn resolve_feff_commands(
@@ -31,6 +60,7 @@ pub fn resolve_feff_commands(
     match request.mode {
         FeffExecutionMode::Feff85LModules => resolve_feff85l_commands(request),
         FeffExecutionMode::Feff10Pipeline => resolve_feff10_commands(request.mode),
+        FeffExecutionMode::RefeffPipeline => resolve_refeff_commands(request.mode),
     }
 }
 
@@ -38,6 +68,7 @@ pub fn run_feff(request: &FeffRunRequest) -> Result<FeffRunResult, FittingError>
     match request.mode {
         FeffExecutionMode::Feff85LModules => run_feff85l_modules(request),
         FeffExecutionMode::Feff10Pipeline => run_feff10_pipeline(request),
+        FeffExecutionMode::RefeffPipeline => run_refeff_pipeline(request),
     }
 }
 
@@ -140,8 +171,7 @@ fn resolve_feff10_commands(mode: FeffExecutionMode) -> Result<FeffResolvedComman
 fn resolve_feff10_commands(mode: FeffExecutionMode) -> Result<FeffResolvedCommands, FittingError> {
     Err(FittingError::UnsupportedExecutionMode {
         mode,
-        reason: "enable the 'feff10-runner' crate feature to use FEFF10 pipeline execution"
-            .to_string(),
+        reason: "enable the 'feff10-runner' crate feature to use the FEFFRS pipeline".to_string(),
     })
 }
 
@@ -244,8 +274,186 @@ fn ensure_other_card_present(other_cards: &mut Vec<String>, keyword: &str) {
 fn run_feff10_pipeline(request: &FeffRunRequest) -> Result<FeffRunResult, FittingError> {
     Err(FittingError::UnsupportedExecutionMode {
         mode: request.mode,
-        reason: "enable the 'feff10-runner' crate feature to use FEFF10 pipeline execution"
-            .to_string(),
+        reason: "enable the 'feff10-runner' crate feature to use the FEFFRS pipeline".to_string(),
+    })
+}
+
+#[cfg(feature = "refeff-runner")]
+fn resolve_refeff_commands(mode: FeffExecutionMode) -> Result<FeffResolvedCommands, FittingError> {
+    let modules = REFEFF_MODULES
+        .iter()
+        .map(|module| FeffModuleCommand {
+            module: (*module).to_string(),
+            executable: PathBuf::from(format!("{REFEFF_MODULE_PREFIX}{module}")),
+        })
+        .collect();
+
+    Ok(FeffResolvedCommands { mode, modules })
+}
+
+#[cfg(not(feature = "refeff-runner"))]
+fn resolve_refeff_commands(mode: FeffExecutionMode) -> Result<FeffResolvedCommands, FittingError> {
+    Err(FittingError::UnsupportedExecutionMode {
+        mode,
+        reason:
+            "enable the 'refeff-runner' crate feature to use pure-Rust FEFF10 pipeline execution"
+                .to_string(),
+    })
+}
+
+#[cfg(feature = "refeff-runner")]
+fn run_refeff_pipeline(request: &FeffRunRequest) -> Result<FeffRunResult, FittingError> {
+    let workspace_dir = validate_workspace_dir(&request.workspace_dir)?;
+    let feffinp_path = resolve_feffinp_path(request, &workspace_dir)?;
+    let original_input =
+        fs::read_to_string(&feffinp_path).map_err(|error| FittingError::IOFailed {
+            action: "read FEFF input for refeff".to_string(),
+            path: feffinp_path.display().to_string(),
+            reason: error.to_string(),
+        })?;
+    let prepared_input = prepare_refeff_input(&original_input, request.use_sfconv);
+
+    // Refeff executes in-process and does not bundle or spawn FEFF executables.
+    // Its memory facade uses a private temporary compatibility workspace; only
+    // the path files needed by XrayTsubaki are materialized for the caller.
+    // Its current facade has no cancellable timeout boundary, so timeout_sec is
+    // retained for request compatibility but is not enforced by this backend.
+    let result = refeff::Runner::new()
+        .run_in_memory(refeff::MemoryRunRequest::new(prepared_input.into_bytes()))
+        .map_err(|error| FittingError::RefeffPipelineFailed {
+            reason: error.to_string(),
+        })?;
+
+    let resolved = FeffResolvedCommands {
+        mode: request.mode,
+        modules: result
+            .report
+            .stages
+            .iter()
+            .map(|stage| FeffModuleCommand {
+                module: stage.name.clone(),
+                executable: PathBuf::from(format!("{REFEFF_MODULE_PREFIX}{}", stage.name)),
+            })
+            .collect(),
+    };
+
+    let mut path_files = Vec::new();
+    for artifact in result.artifacts.iter() {
+        let Some(file_name) = artifact.path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let is_path_file = is_feff_path_file_name(file_name);
+        if !is_path_file && (!request.keep_all_outputs || artifact.path == Path::new("feff.inp")) {
+            continue;
+        }
+        let destination = if request.keep_all_outputs {
+            workspace_dir.join(artifact.path)
+        } else {
+            workspace_dir.join(file_name)
+        };
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent).map_err(|error| FittingError::IOFailed {
+                action: "create ReFEFF output directory".to_string(),
+                path: parent.display().to_string(),
+                reason: error.to_string(),
+            })?;
+        }
+        fs::write(&destination, artifact.bytes).map_err(|error| FittingError::IOFailed {
+            action: "write ReFEFF output".to_string(),
+            path: destination.display().to_string(),
+            reason: error.to_string(),
+        })?;
+        if is_path_file {
+            path_files.push(destination);
+        }
+    }
+    path_files.sort();
+
+    if path_files.is_empty() {
+        return Err(FittingError::NoPathOutputs {
+            workspace: workspace_dir.display().to_string(),
+        });
+    }
+
+    Ok(FeffRunResult {
+        mode: request.mode,
+        workspace_dir,
+        feffinp_path,
+        resolved,
+        logs: Vec::new(),
+        path_files,
+    })
+}
+
+#[cfg(feature = "refeff-runner")]
+fn prepare_refeff_input(input: &str, use_sfconv: bool) -> String {
+    let mut output = Vec::new();
+    let mut found_print = false;
+    let mut found_sfconv = false;
+    let mut additions_inserted = false;
+
+    for line in input.lines() {
+        let trimmed = line.trim_start();
+        let active = !trimmed.starts_with('*') && !trimmed.starts_with('#');
+        let keyword = active
+            .then(|| trimmed.split_whitespace().next())
+            .flatten()
+            .unwrap_or_default();
+
+        if keyword.eq_ignore_ascii_case("PRINT") {
+            let mut flags: Vec<i32> = trimmed
+                .split('*')
+                .next()
+                .unwrap_or_default()
+                .split_whitespace()
+                .skip(1)
+                .filter_map(|value| value.parse().ok())
+                .collect();
+            flags.resize(6, 0);
+            flags[5] = flags[5].max(3);
+            output.push(format!(
+                "PRINT {} {} {} {} {} {}",
+                flags[0], flags[1], flags[2], flags[3], flags[4], flags[5]
+            ));
+            found_print = true;
+            continue;
+        }
+        if keyword.eq_ignore_ascii_case("SFCONV") {
+            found_sfconv = true;
+        }
+        if keyword.eq_ignore_ascii_case("END") && !additions_inserted {
+            if !found_print {
+                output.push("PRINT 0 0 0 0 0 3".to_string());
+            }
+            if use_sfconv && !found_sfconv {
+                output.push("SFCONV".to_string());
+            }
+            additions_inserted = true;
+        }
+        output.push(line.to_string());
+    }
+
+    if !additions_inserted {
+        if !found_print {
+            output.push("PRINT 0 0 0 0 0 3".to_string());
+        }
+        if use_sfconv && !found_sfconv {
+            output.push("SFCONV".to_string());
+        }
+    }
+
+    let mut prepared = output.join("\n");
+    prepared.push('\n');
+    prepared
+}
+
+#[cfg(not(feature = "refeff-runner"))]
+fn run_refeff_pipeline(request: &FeffRunRequest) -> Result<FeffRunResult, FittingError> {
+    Err(FittingError::UnsupportedExecutionMode {
+        mode: request.mode,
+        reason:
+            "enable the 'refeff-runner' crate feature to use pure-Rust FEFF10 pipeline execution"
+                .to_string(),
     })
 }
 
@@ -271,7 +479,9 @@ pub fn load_paths_from_run_result(
 fn required_modules(mode: FeffExecutionMode) -> &'static [(&'static str, &'static str)] {
     match mode {
         FeffExecutionMode::Feff85LModules => &FEFF85L_MODULES,
-        FeffExecutionMode::Feff10Pipeline => &NO_EXTERNAL_MODULES,
+        FeffExecutionMode::Feff10Pipeline | FeffExecutionMode::RefeffPipeline => {
+            &NO_EXTERNAL_MODULES
+        }
     }
 }
 
@@ -775,6 +985,7 @@ mod tests {
             mode: FeffExecutionMode::Feff85LModules,
             timeout_sec: Some(30),
             use_sfconv: false,
+            keep_all_outputs: false,
         }
     }
 
@@ -807,21 +1018,39 @@ mod tests {
         assert!(!is_feff10_log_file_name("log.txt"));
     }
 
+    #[cfg(feature = "refeff-runner")]
+    #[test]
+    fn test_prepare_refeff_input_enables_path_output_and_sfconv_once() {
+        let input = "TITLE test\nPRINT 1 0 0 0 0 0\nEXAFS 20\nEND\n";
+        let prepared = prepare_refeff_input(input, true);
+
+        assert!(prepared.contains("PRINT 1 0 0 0 0 3"));
+        assert_eq!(
+            prepared
+                .lines()
+                .filter(|line| line.trim().eq_ignore_ascii_case("SFCONV"))
+                .count(),
+            1
+        );
+    }
+
     #[cfg(feature = "feff10-runner")]
     #[test]
     fn test_ensure_other_card_present_adds_card_once() {
         let mut cards = vec!["EXAFS 20".to_string()];
         ensure_other_card_present(&mut cards, "SFCONV");
         ensure_other_card_present(&mut cards, "sfconv");
-        let count = cards
-            .iter()
-            .filter(|line| {
-                line.split_whitespace()
-                    .next()
-                    .is_some_and(|first| first.eq_ignore_ascii_case("SFCONV"))
-            })
-            .count();
-        assert_eq!(count, 1);
+        assert_eq!(
+            cards
+                .iter()
+                .filter(|line| {
+                    line.split_whitespace()
+                        .next()
+                        .is_some_and(|first| first.eq_ignore_ascii_case("SFCONV"))
+                })
+                .count(),
+            1
+        );
     }
 
     #[cfg(unix)]
@@ -861,6 +1090,7 @@ mod tests {
             mode: FeffExecutionMode::Feff10Pipeline,
             timeout_sec: None,
             use_sfconv: false,
+            keep_all_outputs: false,
         };
 
         let err = resolve_feff_commands(&request).unwrap_err();
@@ -884,6 +1114,7 @@ mod tests {
             mode: FeffExecutionMode::Feff10Pipeline,
             timeout_sec: None,
             use_sfconv: false,
+            keep_all_outputs: false,
         };
 
         let err = run_feff(&request).unwrap_err();

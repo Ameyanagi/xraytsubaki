@@ -5465,6 +5465,7 @@ version = "0.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "520080814a7a6b4a6e9070823bb24b4531daac8c4627e08ba5de8c5ef2f2752d"
 dependencies = [
+ "approx 0.5.1",
  "matrixmultiply 0.3.10",
  "num-complex 0.4.6",
  "num-integer",
@@ -5472,6 +5473,7 @@ dependencies = [
  "portable-atomic",
  "portable-atomic-util",
  "rawpointer 0.2.1",
+ "rayon",
 ]
 
 [[package]]
@@ -7052,6 +7054,75 @@ dependencies = [
 ]
 
 [[package]]
+name = "refeff"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dce533816fbd14d3230241201b66d7740917a42dc081ccc7511abe945744825f"
+dependencies = [
+ "refeff-core",
+ "refeff-engine",
+ "refeff-io",
+ "tempfile",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "refeff-core"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e245b9bc81078bf4d3606784d32345e8931a7c56d2ae2141e3be9a76cfb42e9"
+dependencies = [
+ "ndarray 0.17.2",
+ "num-complex 0.4.6",
+ "rayon",
+ "refeff-linalg",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "refeff-engine"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "89593848a36b568344a85147b35061080d9b9ae73b7916ef27b8ef8b88304c72"
+dependencies = [
+ "anyhow",
+ "ndarray 0.17.2",
+ "num-complex 0.4.6",
+ "rayon",
+ "refeff-core",
+ "refeff-io",
+ "refeff-linalg",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "refeff-io"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3deb6bb69c1976b047c19df7b93fe2e9a34c2a5235faf33d75a1233419039375"
+dependencies = [
+ "ndarray 0.17.2",
+ "num-complex 0.4.6",
+ "rayon",
+ "refeff-core",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "refeff-linalg"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a645801ddd24336e2db804903c36caaf869a803330b210d381a4a9ad84a9248c"
+dependencies = [
+ "faer",
+ "ndarray 0.17.2",
+ "num-complex 0.4.6",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "refineable"
 version = "0.1.0"
 source = "git+https://github.com/zed-industries/zed?rev=3060e4170ea5ef0e6886b9ac1853aaead9ddd59f#3060e4170ea5ef0e6886b9ac1853aaead9ddd59f"
@@ -7395,9 +7466,9 @@ dependencies = [
 
 [[package]]
 name = "ruviz"
-version = "0.4.20"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08cc2441fba93cedd0f03c70438b854aec0c0b6b086d1e632e62c5e3bd9fb03c"
+checksum = "852f0f9f42b74f7bb09f048a6fd4a51b0635273ed82100295eea86f1dd3ae32f"
 dependencies = [
  "anyhow",
  "cosmic-text 0.16.0",
@@ -7405,7 +7476,6 @@ dependencies = [
  "glam 0.32.1",
  "image 0.25.9",
  "log",
- "nalgebra 0.34.1",
  "ndarray 0.17.2",
  "num_cpus",
  "palette",
@@ -7425,9 +7495,9 @@ dependencies = [
 
 [[package]]
 name = "ruviz-gpui"
-version = "0.4.20"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "63ffba06bd2170d558fc13585fbfcff284b85d2b5eee01bc72bc2fb3799e196c"
+checksum = "15e94272453303a62a8e41aaae48d543729f46c26c48bc5c5fef058d75810fdb"
 dependencies = [
  "arboard",
  "core-foundation 0.10.0",
@@ -10757,6 +10827,7 @@ dependencies = [
  "polyfit-rs",
  "pprof",
  "rayon",
+ "refeff",
  "rusty-fitpack",
  "ruviz",
  "semver",

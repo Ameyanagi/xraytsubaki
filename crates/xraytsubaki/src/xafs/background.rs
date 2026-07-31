@@ -548,6 +548,11 @@ impl AUTOBK {
                     }
                     Err(linear_err) => {
                         if fallback_enabled {
+                            // LinearDirect skips building the basis, so the
+                            // fallback would otherwise recompute it on every
+                            // iteration. Build it once here instead.
+                            let mut spline_opt = spline_opt;
+                            spline_opt.ensure_precomputed_basis();
                             Self::solve_nonlinear_problem(spline_opt, fallback_solver)
                         } else {
                             Err(linear_err)
@@ -1050,6 +1055,29 @@ impl Default for AUTOBKSpline {
 }
 
 impl AUTOBKSpline {
+    /// Whether `precomputed_basis` matches this spline's current shape.
+    /// A `Default`-constructed spline has an empty basis and fails this.
+    fn basis_cache_is_valid(&self) -> bool {
+        self.precomputed_basis.nrows() == self.kout.len()
+            && self.precomputed_basis.ncols() == self.coefs.len()
+    }
+
+    /// Build `precomputed_basis` unless it is already valid. Used when a
+    /// solver that skipped the precomputation hands the spline to one that
+    /// needs it.
+    fn ensure_precomputed_basis(&mut self) {
+        if self.basis_cache_is_valid() {
+            return;
+        }
+        self.precomputed_basis = -splev_jacobian(
+            self.knots.data.as_vec().clone(),
+            self.coefs.data.as_vec().clone(),
+            self.order,
+            self.kout.data.as_vec().clone(),
+            3,
+        );
+    }
+
     fn chi_for_coefs(&self, coefs: &DVector<f64>) -> DVector<f64> {
         let (_, chi) = spline_eval_nalgebra(
             &self.kraw,
@@ -1148,9 +1176,7 @@ impl AUTOBKSpline {
         // The guard keeps a `Default`-constructed spline (which has an empty
         // basis) correct rather than silently wrong.
         let fallback;
-        let spline_jacobian: &DMatrix<f64> = if self.precomputed_basis.nrows() == self.kout.len()
-            && self.precomputed_basis.ncols() == self.coefs.len()
-        {
+        let spline_jacobian: &DMatrix<f64> = if self.basis_cache_is_valid() {
             &self.precomputed_basis
         } else {
             fallback = -splev_jacobian(

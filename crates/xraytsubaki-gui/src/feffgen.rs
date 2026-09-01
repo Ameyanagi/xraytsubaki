@@ -326,7 +326,7 @@ fn selected_feff_mode() -> Result<FeffExecutionMode, String> {
     }
     #[cfg(all(feature = "refeff-runner", not(feature = "feff10-runner")))]
     {
-        return Ok(FeffExecutionMode::RefeffPipeline);
+        Ok(FeffExecutionMode::RefeffPipeline)
     }
     #[cfg(all(feature = "feff10-runner", not(feature = "refeff-runner")))]
     {

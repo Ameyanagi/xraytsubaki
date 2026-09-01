@@ -45,14 +45,17 @@ use crate::params::{
     resample_chik,
 };
 use crate::plotting::{
-    QuadTrace, TraceLayout, ViewOptions, build_fit_k, build_fit_r, build_fit_residual_k,
-    build_fit_residual_r, build_frame_chik_source, build_heatmap, build_quadrants_multi,
-    build_trend, chik_label, middle_truncate, trace_rgba,
+    QuadTrace, ViewOptions, build_fit_k, build_fit_r, build_fit_residual_k, build_fit_residual_r,
+    build_frame_chik_source, build_heatmap, build_quadrants_multi, build_trend, chik_label,
+    middle_truncate, trace_rgba,
 };
 use crate::project::{PROJECT_VERSION, ParamOverride, ProjectFile};
-use crate::theme::{Theme, ThemeMode};
+use crate::theme::Theme;
 use crate::widgets::numeric_field::{FieldEvent, FieldKind, NumericField};
 use crate::widgets::text_input::{InputEvent, TextInput};
+
+mod shell;
+use shell::{Stage, StageView, handles::HandleState, thumbnails::ThumbData, tools::ToolState};
 
 /// Processed spectra kept in RAM. ~100-300 KB each, so 1024 ≈ a few hundred MB
 /// worst case; browsing a million-file catalog stays bounded.
@@ -102,11 +105,14 @@ enum ParamKey {
     FftRmax,
     FftKstep,
     FftNfft,
+    BftRmin,
+    BftRmax,
+    BftDr,
 }
 
 /// Enum-valued parameters edited with cycling chips.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum EnumParam {
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum EnumParam {
     ImportMode,
     BkgWindow,
     BkgSolver,
@@ -177,6 +183,10 @@ fn copy_section(dst: &mut PipelineParams, src: &PipelineParams, section: ParamSe
             dst.fft_window = src.fft_window;
             dst.fft_kstep = src.fft_kstep;
             dst.fft_nfft = src.fft_nfft;
+            dst.bft_rmin = src.bft_rmin;
+            dst.bft_rmax = src.bft_rmax;
+            dst.bft_dr = src.bft_dr;
+            dst.bft_window = src.bft_window;
         }
     }
 }
@@ -240,6 +250,9 @@ fn param_field_value(key: ParamKey, p: &PipelineParams) -> Option<f64> {
         ParamKey::FftRmax => p.fft_rmax,
         ParamKey::FftKstep => p.fft_kstep,
         ParamKey::FftNfft => p.fft_nfft.map(|v| v as f64),
+        ParamKey::BftRmin => p.bft_rmin,
+        ParamKey::BftRmax => p.bft_rmax,
+        ParamKey::BftDr => p.bft_dr,
     }
 }
 
@@ -264,17 +277,15 @@ actions!(
         FrameJumpFwd,
         FrameFirst,
         FrameLast,
-        WorkspaceExplore,
-        WorkspaceOperando,
-        WorkspaceFit,
+        StageData,
+        StageNormalize,
+        StageBackground,
+        StageTransform,
+        StageFit,
+        StageSeries,
         ToggleDataPanel,
         ToggleContextPanel,
         FocusFilter,
-        Maximize1,
-        Maximize2,
-        Maximize3,
-        Maximize4,
-        RestoreGrid,
         ExploreEscape,
     ]
 );
@@ -303,17 +314,15 @@ pub fn studio_keybindings() -> Vec<KeyBinding> {
         KeyBinding::new("shift-right", FrameJumpFwd, Some("Operando && !TextInput")),
         KeyBinding::new("home", FrameFirst, Some("Operando && !TextInput")),
         KeyBinding::new("end", FrameLast, Some("Operando && !TextInput")),
-        KeyBinding::new("cmd-1", WorkspaceExplore, Some("Studio")),
-        KeyBinding::new("cmd-2", WorkspaceOperando, Some("Studio")),
-        KeyBinding::new("cmd-3", WorkspaceFit, Some("Studio")),
+        KeyBinding::new("cmd-1", StageData, Some("Studio")),
+        KeyBinding::new("cmd-2", StageNormalize, Some("Studio")),
+        KeyBinding::new("cmd-3", StageBackground, Some("Studio")),
+        KeyBinding::new("cmd-4", StageTransform, Some("Studio")),
+        KeyBinding::new("cmd-5", StageFit, Some("Studio")),
+        KeyBinding::new("cmd-6", StageSeries, Some("Studio")),
         KeyBinding::new("cmd-b", ToggleDataPanel, Some("Studio && !TextInput")),
         KeyBinding::new("cmd-j", ToggleContextPanel, Some("Studio && !TextInput")),
         KeyBinding::new("cmd-p", FocusFilter, Some("Studio && !TextInput")),
-        KeyBinding::new("1", Maximize1, Some("Explore && !TextInput")),
-        KeyBinding::new("2", Maximize2, Some("Explore && !TextInput")),
-        KeyBinding::new("3", Maximize3, Some("Explore && !TextInput")),
-        KeyBinding::new("4", Maximize4, Some("Explore && !TextInput")),
-        KeyBinding::new("0", RestoreGrid, Some("Explore && !TextInput")),
         KeyBinding::new("escape", ExploreEscape, Some("Explore && !TextInput")),
     ]
 }
@@ -330,7 +339,7 @@ const NO_ENTRY: usize = usize::MAX;
 const DERIVED_BASE: usize = usize::MAX / 2;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum DataTab {
+pub(crate) enum DataTab {
     Files,
     Scans,
 }
@@ -526,6 +535,13 @@ enum FeffFormKey {
 pub struct StudioApp {
     theme: Theme,
     workspace: Workspace,
+    /// Pipeline stage shown by the shell (drives `workspace`).
+    stage: Stage,
+    stage_view: StageView,
+    /// Ripple-strip thumbnails of the current group.
+    thumbs: Option<Arc<[ThumbData; 4]>>,
+    handles: HandleState,
+    tools: ToolState,
     data_panel_open: bool,
     context_panel_open: bool,
     catalog: Catalog,
@@ -1156,9 +1172,8 @@ mod keybinding_tests {
     use gpui::{Action, KeyBinding, KeyContext};
 
     use super::{
-        ExploreEscape, FocusFilter, FrameFirst, FrameLast, Maximize1, Maximize2, Maximize3,
-        Maximize4, RestoreGrid, ToggleContextPanel, ToggleDataPanel, WorkspaceExplore,
-        studio_keybindings,
+        ExploreEscape, FocusFilter, FrameFirst, FrameLast, StageData, StageSeries,
+        ToggleContextPanel, ToggleDataPanel, studio_keybindings,
     };
 
     fn binding<A: Action + 'static>(bindings: &[KeyBinding]) -> &KeyBinding {
@@ -1180,11 +1195,6 @@ mod keybinding_tests {
             binding::<ToggleDataPanel>(&bindings),
             binding::<ToggleContextPanel>(&bindings),
             binding::<FocusFilter>(&bindings),
-            binding::<Maximize1>(&bindings),
-            binding::<Maximize2>(&bindings),
-            binding::<Maximize3>(&bindings),
-            binding::<Maximize4>(&bindings),
-            binding::<RestoreGrid>(&bindings),
             binding::<ExploreEscape>(&bindings),
         ];
         for binding in protected {
@@ -1193,14 +1203,19 @@ mod keybinding_tests {
             assert!(predicate.depth_of(&editing_context).is_none());
         }
 
-        // Workspace switching is intentionally global and non-editing.
-        assert!(
-            binding::<WorkspaceExplore>(&bindings)
-                .predicate()
-                .unwrap()
-                .depth_of(&editing_context)
-                .is_some()
-        );
+        // Stage switching (⌘1–⌘6) is intentionally global and non-editing.
+        for binding in [
+            binding::<StageData>(&bindings),
+            binding::<StageSeries>(&bindings),
+        ] {
+            assert!(
+                binding
+                    .predicate()
+                    .unwrap()
+                    .depth_of(&editing_context)
+                    .is_some()
+            );
+        }
     }
 
     #[test]
@@ -1263,13 +1278,30 @@ impl StudioApp {
             .unwrap_or_else(|| path.display().to_string())
             .into();
 
-        let theme = Theme::dark();
+        let theme = match std::env::var("XTS_THEME").ok().as_deref() {
+            Some("light") => Theme::light(),
+            _ => Theme::dark(),
+        };
         let params = PipelineParams::default();
         let param_fields = Self::build_param_fields(theme, cx);
+        // Scripted launches (screenshots) can pick the initial stage.
+        let initial_stage = match std::env::var("XTS_STAGE").ok().as_deref() {
+            Some("data") => Stage::Data,
+            Some("background") => Stage::Background,
+            Some("transform") => Stage::Transform,
+            Some("fit") => Stage::Fit,
+            Some("series") => Stage::Series,
+            _ => Stage::Normalize,
+        };
 
         let mut app = Self {
             theme,
-            workspace: Workspace::Explore,
+            workspace: initial_stage.workspace(),
+            stage: initial_stage,
+            stage_view: StageView::default(),
+            thumbs: None,
+            handles: HandleState::default(),
+            tools: ToolState::default(),
             data_panel_open: true,
             context_panel_open: true,
             catalog: Catalog::default(),
@@ -1778,7 +1810,7 @@ impl StudioApp {
         const COL: FieldKind = FieldKind::Integer { min: Some(0) };
         const INT: FieldKind = FieldKind::Integer { min: None };
         const FLOAT: FieldKind = FieldKind::Float;
-        let specs: [(ParamKey, &str, &str, FieldKind); 30] = [
+        let specs: [(ParamKey, &str, &str, FieldKind); 33] = [
             (ParamKey::ImpEnergyCol, "energy col", "0", COL),
             (ParamKey::ImpI0Col, "I0 col", "1", COL),
             (ParamKey::ImpItCol, "It col", "2", COL),
@@ -1826,6 +1858,9 @@ impl StudioApp {
             (ParamKey::FftRmax, "R max out (Å)", "auto (10)", FLOAT),
             (ParamKey::FftKstep, "k step (Å⁻¹)", "auto", FLOAT),
             (ParamKey::FftNfft, "nfft", "auto (2048)", INT),
+            (ParamKey::BftRmin, "R min (Å)", "auto (1)", FLOAT),
+            (ParamKey::BftRmax, "R max (Å)", "auto (3)", FLOAT),
+            (ParamKey::BftDr, "dR (Å)", "auto (1)", FLOAT),
         ];
         specs
             .into_iter()
@@ -1883,6 +1918,9 @@ impl StudioApp {
             ParamKey::FftRmax => p.fft_rmax = value,
             ParamKey::FftKstep => p.fft_kstep = value,
             ParamKey::FftNfft => p.fft_nfft = int,
+            ParamKey::BftRmin => p.bft_rmin = value,
+            ParamKey::BftRmax => p.bft_rmax = value,
+            ParamKey::BftDr => p.bft_dr = value,
         }
         self.schedule_recompute(cx);
         if matches!(
@@ -2890,6 +2928,10 @@ impl StudioApp {
     }
 
     fn rebuild_explore_plots(&mut self, cx: &mut Context<Self>) {
+        // Stage-dependent view flags (also correct on a scripted first launch).
+        self.view.flat = self.stage_view.e_quantity == shell::EQuantity::Flat;
+        self.view.show_re = self.stage_view.show_re;
+        self.view.show_bkg = self.stage_view.show_bkg && self.stage == Stage::Background;
         let (indices, total) = self.compare_indices();
         let mut traces: Vec<QuadTrace> = Vec::new();
         for ix in indices {
@@ -2918,9 +2960,12 @@ impl StudioApp {
                 active: true,
             });
         }
-        if total > MAX_OVERLAY {
+        if self.stage_view.scope == shell::PlotScope::Current && traces.iter().any(|t| t.active) {
+            traces.retain(|t| t.active);
+        }
+        if total > MAX_OVERLAY && self.stage_view.scope == shell::PlotScope::Marked {
             self.status = format!(
-                "showing {} of {total} selected — the Operando heatmap shows the full set",
+                "showing {} of {total} marked — the Series heatmap shows the full set",
                 traces.len()
             )
             .into();
@@ -2943,13 +2988,26 @@ impl StudioApp {
         };
         let in_plot_legend = self.maximized.is_some();
         let plots = build_quadrants_multi(&traces, &self.view, &self.theme, in_plot_legend);
-        let [t0, t1, t2, t3] = plots.titles;
-        let titled = [
+        let [t0, t1, t2, t3, t4] = plots.titles;
+        let mut titled = [
             (t0, plots.mu_e),
             (t1, plots.norm),
             (t2, plots.chi_k),
             (t3, plots.chi_r),
+            (t4, plots.chi_q),
         ];
+        // Stage handles (range regions, E0 / Rbkg lines) are baked into the
+        // base plot; see shell::handles. The figure aspect follows the card
+        // layout (ruviz-gpui fits the figure aspect inside the container).
+        let stacked = self.stage_plots().len() > 1;
+        let (fig_w, fig_h) = if stacked { (820, 280) } else { (820, 580) };
+        for (index, (_, plot)) in titled.iter_mut().enumerate() {
+            let mut decorated = std::mem::take(plot).size_px(fig_w, fig_h);
+            for annotation in self.handle_decor(index) {
+                decorated = decorated.annotate(annotation);
+            }
+            *plot = decorated;
+        }
         if self.quadrants.is_empty() {
             self.quadrants = titled
                 .into_iter()
@@ -2964,12 +3022,20 @@ impl StudioApp {
                 entity.update(cx, |rp, cx| rp.set_plot_keep_view(plot, cx));
             }
         }
+        // Ripple strip: the current group only.
+        if let Some(active) = traces.iter().find(|t| t.active).or_else(|| traces.first()) {
+            let fit_r = (self.fit_ranges.rmin, self.fit_ranges.rmax);
+            self.thumbs = Some(Arc::new(shell::thumbnails::thumb_data(&active.sp, fit_r)));
+        }
     }
 
     fn toggle_theme(&mut self, cx: &mut Context<Self>) {
         self.theme = self.theme.toggled();
         let theme = self.theme;
         for (_, field) in &self.param_fields {
+            field.update(cx, |f, cx| f.set_theme(theme, cx));
+        }
+        for (_, field) in &self.tools.fields {
             field.update(cx, |f, cx| f.set_theme(theme, cx));
         }
         for (_, field) in &self.fit_range_fields {
@@ -4848,779 +4914,12 @@ impl StudioApp {
         cx.notify();
     }
 
-    fn maximize_quadrant(&mut self, index: usize, cx: &mut Context<Self>) {
-        if self.quadrants.len() == 4 {
-            self.set_maximized(Some(index), cx);
-        }
-    }
-
     fn explore_escape(&mut self, cx: &mut Context<Self>) {
         if self.maximized.is_some() {
             self.set_maximized(None, cx);
         } else {
             self.clear_selection(cx);
         }
-    }
-
-    fn rail_button(
-        &self,
-        id: &'static str,
-        label: &'static str,
-        ws: Workspace,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement + use<> {
-        let t = self.theme;
-        let active = self.workspace == ws;
-        // Full words, not two-letter stubs; the active item also carries an
-        // accent edge so it stays legible in the light theme, where an
-        // accent-on-raised fill is nearly invisible.
-        div()
-            .id(id)
-            .w_full()
-            .h(px(38.))
-            .flex()
-            .items_center()
-            .justify_center()
-            .text_xs()
-            .border_l_2()
-            .when(active, |d| {
-                d.bg(t.raised).text_color(t.accent).border_color(t.accent)
-            })
-            .when(!active, |d| {
-                d.text_color(t.text_muted).border_color(t.surface)
-            })
-            .hover(|d| d.bg(t.raised))
-            .cursor_pointer()
-            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                this.set_workspace(ws, cx);
-            }))
-            .child(label)
-    }
-
-    fn panel_toggle_button(
-        &self,
-        id: &'static str,
-        label: &'static str,
-        open: bool,
-        toggle: fn(&mut Self),
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement + use<> {
-        let t = self.theme;
-        div()
-            .id(id)
-            .w_full()
-            .h(px(26.))
-            .flex()
-            .items_center()
-            .justify_center()
-            .text_xs()
-            .border_l_2()
-            .text_color(if open { t.accent } else { t.text_muted })
-            .when(open, |d| d.bg(t.raised).border_color(t.accent))
-            .when(!open, |d| d.border_color(t.surface))
-            .hover(|d| d.bg(t.raised).text_color(t.text))
-            .cursor_pointer()
-            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                toggle(this);
-                cx.notify();
-            }))
-            .child(label)
-    }
-
-    fn icon_rail(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let t = self.theme;
-        div()
-            .w(px(72.))
-            .h_full()
-            .min_h_0()
-            .min_w_0()
-            .flex_none()
-            .flex()
-            .flex_col()
-            .pt_2()
-            .bg(t.surface)
-            .border_r_1()
-            .border_color(t.border)
-            .child(self.rail_button("ws-explore", "Explore", Workspace::Explore, cx))
-            .child(self.rail_button("ws-operando", "Operando", Workspace::Operando, cx))
-            .child(self.rail_button("ws-fit", "Fit", Workspace::Fit, cx))
-            .child(div().flex_1())
-            .child(self.panel_toggle_button(
-                "toggle-data-panel",
-                "Data",
-                self.data_panel_open,
-                |this| this.data_panel_open = !this.data_panel_open,
-                cx,
-            ))
-            .child(self.panel_toggle_button(
-                "toggle-context-panel",
-                "Context",
-                self.context_panel_open,
-                |this| this.context_panel_open = !this.context_panel_open,
-                cx,
-            ))
-            .pb_2()
-    }
-
-    fn file_list(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let t = self.theme;
-        let entity = cx.entity();
-        let active = self.selected;
-        let selection = self.selection.clone();
-        let filtered = self.filtered.clone();
-        let count = filtered
-            .as_ref()
-            .map(|f| f.len())
-            .unwrap_or(self.catalog.len());
-        uniform_list("catalog-files", count, move |range, _window, app| {
-            let mut rows = Vec::with_capacity(range.len());
-            for row in range {
-                let (ix, name) = {
-                    let state = entity.read(app);
-                    let Some(ix) = catalog_row_index(
-                        filtered.as_deref().map(Vec::as_slice),
-                        row,
-                        state.catalog.len(),
-                    ) else {
-                        continue;
-                    };
-                    let name: SharedString = state.catalog.name(ix).to_string().into();
-                    (ix, name)
-                };
-                let is_active = active == Some(ix);
-                let in_set = selection.contains(&ix);
-                let entity = entity.clone();
-                rows.push(
-                    div()
-                        .id(ix)
-                        .h(px(24.))
-                        .px_3()
-                        .flex()
-                        .items_center()
-                        .text_sm()
-                        .overflow_hidden()
-                        .when(is_active, |d| d.bg(t.raised).text_color(t.accent))
-                        .when(!is_active && in_set, |d| d.bg(t.raised).text_color(t.text))
-                        .when(!is_active && !in_set, |d| d.text_color(t.text))
-                        .hover(|d| d.bg(t.raised))
-                        .cursor_pointer()
-                        .on_click(move |ev: &ClickEvent, window, app| {
-                            let modifiers = ev.modifiers();
-                            let focus = entity.read(app).data_focus.clone();
-                            window.focus(&focus, app);
-                            entity.update(app, |this, cx| this.click_entry(ix, modifiers, cx));
-                        })
-                        .child(name),
-                );
-            }
-            rows
-        })
-        .track_scroll(&self.file_scroll)
-        .flex_1()
-        .min_h_0()
-    }
-
-    fn scan_list(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let t = self.theme;
-        let entity = cx.entity();
-        let active = self.active_scan;
-        let selected = self.selected;
-        let expanded_scan = self.expanded_scan;
-        let expanded = expanded_scan.and_then(|scan_ix| {
-            self.catalog
-                .scans
-                .get(scan_ix)
-                .map(|scan| (scan_ix, scan.len))
-        });
-        let count = self.catalog.scans.len() + expanded.map(|(_, len)| len).unwrap_or(0);
-        uniform_list("catalog-scans", count, move |range, _window, app| {
-            let mut rows = Vec::with_capacity(range.len());
-            for row in range {
-                let Some(item) = scan_list_row(row, entity.read(app).catalog.scans.len(), expanded)
-                else {
-                    continue;
-                };
-                match item {
-                    ScanListRow::Header(scan_ix) => {
-                        let label: SharedString = {
-                            let scan = &entity.read(app).catalog.scans[scan_ix];
-                            format!("{} · {} spectra", scan.label, scan.len).into()
-                        };
-                        let is_active = active == Some(scan_ix);
-                        let is_expanded = expanded_scan == Some(scan_ix);
-                        let row_entity = entity.clone();
-                        let button_entity = entity.clone();
-                        rows.push(
-                            div()
-                                .id(("scan-header", scan_ix))
-                                .h(px(24.))
-                                .px_2()
-                                .gap_1()
-                                .flex()
-                                .items_center()
-                                .text_sm()
-                                .overflow_hidden()
-                                .when(is_active, |d| d.bg(t.raised).text_color(t.accent))
-                                .when(!is_active, |d| d.text_color(t.text))
-                                .hover(|d| d.bg(t.raised))
-                                .cursor_pointer()
-                                .on_click(move |ev: &ClickEvent, _window, app| {
-                                    let modifiers = ev.modifiers();
-                                    let double = ev.click_count() >= 2;
-                                    row_entity.update(app, |this, cx| {
-                                        if modifiers.shift || modifiers.platform {
-                                            this.select_scan_range(scan_ix, cx);
-                                        } else if double {
-                                            this.open_scan(scan_ix, cx);
-                                        } else {
-                                            this.active_scan = Some(scan_ix);
-                                            this.expanded_scan = (this.expanded_scan
-                                                != Some(scan_ix))
-                                            .then_some(scan_ix);
-                                            cx.notify();
-                                        }
-                                    });
-                                })
-                                .child(if is_expanded { "▾" } else { "▸" })
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .overflow_hidden()
-                                        .whitespace_nowrap()
-                                        .child(label),
-                                )
-                                .child(
-                                    div()
-                                        .id(("scan-operando", scan_ix))
-                                        .flex_none()
-                                        .px_1()
-                                        .rounded_sm()
-                                        .text_xs()
-                                        .text_color(t.accent)
-                                        .border_1()
-                                        .border_color(t.border)
-                                        .hover(|d| d.bg(t.surface))
-                                        .cursor_pointer()
-                                        .on_click(move |_: &ClickEvent, _window, app| {
-                                            app.stop_propagation();
-                                            button_entity.update(app, |this, cx| {
-                                                this.open_scan(scan_ix, cx)
-                                            });
-                                        })
-                                        .child("operando"),
-                                ),
-                        );
-                    }
-                    ScanListRow::Member { scan, offset } => {
-                        let catalog_ix = {
-                            let scan = &entity.read(app).catalog.scans[scan];
-                            scan.start + offset
-                        };
-                        let label: SharedString =
-                            entity.read(app).catalog.name(catalog_ix).to_string().into();
-                        let is_active = selected == Some(catalog_ix);
-                        let member_entity = entity.clone();
-                        rows.push(
-                            div()
-                                .id(("scan-member", catalog_ix))
-                                .h(px(24.))
-                                .pl_6()
-                                .pr_2()
-                                .flex()
-                                .items_center()
-                                .text_sm()
-                                .overflow_hidden()
-                                .when(is_active, |d| d.bg(t.raised).text_color(t.accent))
-                                .when(!is_active, |d| d.text_color(t.text))
-                                .hover(|d| d.bg(t.raised))
-                                .cursor_pointer()
-                                .on_click(move |ev: &ClickEvent, window, app| {
-                                    let modifiers = ev.modifiers();
-                                    let focus = member_entity.read(app).data_focus.clone();
-                                    window.focus(&focus, app);
-                                    member_entity.update(app, |this, cx| {
-                                        this.active_scan = Some(scan);
-                                        this.click_entry(catalog_ix, modifiers, cx);
-                                    });
-                                })
-                                .child(label),
-                        );
-                    }
-                }
-            }
-            rows
-        })
-        .track_scroll(&self.scan_scroll)
-        .flex_1()
-        .min_h_0()
-    }
-
-    fn data_tab_button(
-        &self,
-        id: &'static str,
-        label: &'static str,
-        tab: DataTab,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement + use<> {
-        let t = self.theme;
-        let active = self.data_tab == tab;
-        div()
-            .id(id)
-            .flex_1()
-            .py_1()
-            .flex()
-            .justify_center()
-            .text_xs()
-            .cursor_pointer()
-            .when(active, |d| {
-                d.text_color(t.accent).border_b_2().border_color(t.accent)
-            })
-            .when(!active, |d| d.text_color(t.text_muted))
-            .hover(|d| d.bg(t.raised))
-            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                this.data_tab = tab;
-                cx.notify();
-            }))
-            .child(label)
-    }
-
-    fn data_panel(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let t = self.theme;
-        let footer: SharedString = if self.catalog.is_empty() && !self.catalog.scanning {
-            "no folder open".into()
-        } else if let Some(filtered) = &self.filtered {
-            format!("{} of {} files", filtered.len(), self.catalog.len()).into()
-        } else {
-            format!(
-                "{} files{}",
-                self.catalog.len(),
-                if self.catalog.scanning {
-                    " · scanning..."
-                } else {
-                    ""
-                }
-            )
-            .into()
-        };
-        div()
-            .id("data-panel")
-            .key_context("DataPanel")
-            .track_focus(&self.data_focus)
-            .on_action(cx.listener(|this: &mut Self, _: &NavUp, _window, cx| {
-                this.nav_move(-1, false, cx);
-            }))
-            .on_action(cx.listener(|this: &mut Self, _: &NavDown, _window, cx| {
-                this.nav_move(1, false, cx);
-            }))
-            .on_action(
-                cx.listener(|this: &mut Self, _: &NavExtendUp, _window, cx| {
-                    this.nav_move(-1, true, cx);
-                }),
-            )
-            .on_action(
-                cx.listener(|this: &mut Self, _: &NavExtendDown, _window, cx| {
-                    this.nav_move(1, true, cx);
-                }),
-            )
-            .on_action(
-                cx.listener(|this: &mut Self, _: &ClearCompare, _window, cx| {
-                    this.clear_selection(cx);
-                }),
-            )
-            .w(px(220.))
-            .h_full()
-            .min_h_0()
-            .min_w_0()
-            .flex_none()
-            .flex()
-            .flex_col()
-            .bg(t.surface)
-            .border_r_1()
-            .border_color(t.border)
-            .child(
-                div()
-                    .px_3()
-                    .py_2()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .child(div().text_xs().text_color(t.text_muted).child("DATA"))
-                    .child(
-                        div()
-                            .id("open-folder")
-                            .px_2()
-                            .rounded_sm()
-                            .text_xs()
-                            .text_color(t.accent)
-                            .cursor_pointer()
-                            .hover(|d| d.bg(t.raised))
-                            .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                                this.open_folder(cx);
-                            }))
-                            .child("Open Folder..."),
-                    ),
-            )
-            .child(div().px_2().pb_1().children(self.filter_input.clone()))
-            .child(
-                div()
-                    .flex()
-                    .border_b_1()
-                    .border_color(t.border)
-                    .child(self.data_tab_button("tab-files", "Files", DataTab::Files, cx))
-                    .child(self.data_tab_button("tab-scans", "Scans", DataTab::Scans, cx)),
-            )
-            .child(if self.catalog.is_empty() {
-                div().into_any_element()
-            } else {
-                let cmd = |id: &'static str,
-                           label: &'static str,
-                           enabled: bool,
-                           action: fn(&mut Self, &mut Context<Self>)| {
-                    div()
-                        .id(id)
-                        .px_1()
-                        .rounded_sm()
-                        .text_xs()
-                        .text_color(if enabled { t.accent } else { t.text_muted })
-                        .when(enabled, |d| d.cursor_pointer().hover(|d| d.bg(t.raised)))
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                            action(this, cx);
-                        }))
-                        .child(label)
-                };
-                div()
-                    .px_2()
-                    .py_1()
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .border_b_1()
-                    .border_color(t.border)
-                    .child(cmd(
-                        "sel-scan",
-                        "scan",
-                        self.selected.is_some(),
-                        |this, cx| this.select_active_scan(cx),
-                    ))
-                    .child(cmd(
-                        "sel-tenth",
-                        "1/10th",
-                        self.selection.len() > 1,
-                        |this, cx| this.thin_selection(cx),
-                    ))
-                    .child(cmd(
-                        "sel-merge",
-                        "merge",
-                        self.selection
-                            .iter()
-                            .filter(|&&ix| ix < DERIVED_BASE)
-                            .count()
-                            >= 2,
-                        |this, cx| this.merge_selection(cx),
-                    ))
-                    .child(cmd(
-                        "sel-filter",
-                        "filter→sel",
-                        self.filtered.is_some(),
-                        |this, cx| this.select_filter_results(cx),
-                    ))
-                    .child(div().flex_1())
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(if self.selection.is_empty() {
-                                t.text_muted
-                            } else {
-                                t.accent
-                            })
-                            .child(SharedString::from(format!("{}", self.selection.len()))),
-                    )
-                    .child(cmd(
-                        "sel-clear",
-                        "clear",
-                        !self.selection.is_empty(),
-                        |this, cx| this.clear_selection(cx),
-                    ))
-                    .into_any_element()
-            })
-            .child(if self.catalog.is_empty() {
-                div()
-                    .flex_1()
-                    .flex()
-                    .flex_col()
-                    .child(
-                        div()
-                            .px_3()
-                            .py_1()
-                            .text_sm()
-                            .text_color(t.accent)
-                            .bg(t.raised)
-                            .child(self.spectrum_label.clone()),
-                    )
-                    .into_any_element()
-            } else {
-                let list = match self.data_tab {
-                    DataTab::Files => self.file_list(cx).into_any_element(),
-                    DataTab::Scans => self.scan_list(cx).into_any_element(),
-                };
-                let mut column = div().flex_1().min_h_0().flex().flex_col();
-                if !self.derived.is_empty() {
-                    let mut block = div().flex().flex_col().border_b_1().border_color(t.border);
-                    for (i, d) in self.derived.iter().enumerate() {
-                        let ix = DERIVED_BASE + i;
-                        let is_active = self.selected == Some(ix);
-                        let in_set = self.selection.contains(&ix);
-                        let label: SharedString = d.label.clone().into();
-                        block = block.child(
-                            div()
-                                .h(px(24.))
-                                .px_3()
-                                .flex()
-                                .items_center()
-                                .gap_1()
-                                .when(is_active, |d| d.bg(t.raised))
-                                .hover(|d| d.bg(t.raised))
-                                .child(
-                                    div()
-                                        .id(("derived", i))
-                                        .flex_1()
-                                        .overflow_hidden()
-                                        .whitespace_nowrap()
-                                        .text_sm()
-                                        .text_color(if is_active {
-                                            t.accent
-                                        } else if in_set {
-                                            t.text
-                                        } else {
-                                            t.warn
-                                        })
-                                        .cursor_pointer()
-                                        .on_click(cx.listener(
-                                            move |this, ev: &ClickEvent, _window, cx| {
-                                                this.click_entry(ix, ev.modifiers(), cx);
-                                            },
-                                        ))
-                                        .child(label),
-                                )
-                                .child(
-                                    div()
-                                        .id(("derived-x", i))
-                                        .px_1()
-                                        .text_xs()
-                                        .text_color(t.text_muted)
-                                        .cursor_pointer()
-                                        .hover(|d| d.text_color(t.error))
-                                        .on_click(cx.listener(
-                                            move |this, _: &ClickEvent, _window, cx| {
-                                                this.remove_derived(i, cx);
-                                            },
-                                        ))
-                                        .child("✕"),
-                                ),
-                        );
-                    }
-                    column = column.child(block);
-                }
-                column.child(list).into_any_element()
-            })
-            .child(
-                div()
-                    .px_3()
-                    .py_2()
-                    .text_xs()
-                    .text_color(if self.catalog.scanning {
-                        t.warn
-                    } else {
-                        t.text_muted
-                    })
-                    .border_t_1()
-                    .border_color(t.border)
-                    .child(footer),
-            )
-    }
-
-    fn quadrant(&self, index: usize, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let t = self.theme;
-        let (title, plot) = &self.quadrants[index];
-        let maximized = self.maximized == Some(index);
-        div()
-            .flex_1()
-            .min_h_0()
-            .min_w_0()
-            .m_1()
-            .flex()
-            .flex_col()
-            .rounded_md()
-            .bg(t.raised)
-            .border_1()
-            .border_color(t.border)
-            .child({
-                let mut header = div().flex().items_center().gap_2().pr_2().child(
-                    div()
-                        .id(SharedString::from(format!("quad-{index}")))
-                        .flex_1()
-                        .px_2()
-                        .py_1()
-                        .text_xs()
-                        .text_color(if maximized { t.accent } else { t.text_muted })
-                        .cursor_pointer()
-                        .hover(|d| d.text_color(t.text))
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                            let next = if this.maximized == Some(index) {
-                                None
-                            } else {
-                                Some(index)
-                            };
-                            this.set_maximized(next, cx);
-                        }))
-                        .child(title.clone()),
-                );
-                // Per-plot diagnostics live on the quadrant they affect.
-                if index == 0 {
-                    header = header
-                        .child(self.view_chip(
-                            "view-pre",
-                            "pre",
-                            self.view.show_pre,
-                            cx,
-                            |this, cx| {
-                                this.view.show_pre = !this.view.show_pre;
-                                this.invalidate_explore_plots(cx);
-                                cx.notify();
-                            },
-                        ))
-                        .child(self.view_chip(
-                            "view-post",
-                            "post",
-                            self.view.show_post,
-                            cx,
-                            |this, cx| {
-                                this.view.show_post = !this.view.show_post;
-                                this.invalidate_explore_plots(cx);
-                                cx.notify();
-                            },
-                        ))
-                        .child(self.view_chip(
-                            "view-e0",
-                            "E0",
-                            self.view.show_e0,
-                            cx,
-                            |this, cx| {
-                                this.view.show_e0 = !this.view.show_e0;
-                                this.invalidate_explore_plots(cx);
-                                cx.notify();
-                            },
-                        ))
-                        .child(self.view_chip(
-                            "view-ranges",
-                            "ranges",
-                            self.view.show_ranges,
-                            cx,
-                            |this, cx| {
-                                this.view.show_ranges = !this.view.show_ranges;
-                                this.invalidate_explore_plots(cx);
-                                cx.notify();
-                            },
-                        ));
-                } else if index == 2 {
-                    header = header
-                        .child(self.view_chip(
-                            "view-krange",
-                            "FT range",
-                            self.view.show_krange,
-                            cx,
-                            |this, cx| {
-                                this.view.show_krange = !this.view.show_krange;
-                                this.invalidate_explore_plots(cx);
-                                cx.notify();
-                            },
-                        ))
-                        .child(self.view_chip(
-                            "view-kwin",
-                            "FT window",
-                            self.view.show_kwin,
-                            cx,
-                            |this, cx| {
-                                this.view.show_kwin = !this.view.show_kwin;
-                                this.invalidate_explore_plots(cx);
-                                cx.notify();
-                            },
-                        ));
-                } else if index == 1 {
-                    header = header
-                        .child(self.view_chip(
-                            "view-flat",
-                            if self.view.flat { "flat" } else { "norm" },
-                            !self.view.flat,
-                            cx,
-                            |this, cx| {
-                                this.view.flat = !this.view.flat;
-                                this.invalidate_explore_plots(cx);
-                                cx.notify();
-                            },
-                        ))
-                        .child(self.view_chip(
-                            "view-e0-norm",
-                            "E0",
-                            self.view.show_e0,
-                            cx,
-                            |this, cx| {
-                                this.view.show_e0 = !this.view.show_e0;
-                                this.invalidate_explore_plots(cx);
-                                cx.notify();
-                            },
-                        ));
-                } else if index == 3 {
-                    header = header.child(self.view_chip(
-                        "view-re",
-                        "Re",
-                        self.view.show_re,
-                        cx,
-                        |this, cx| {
-                            this.view.show_re = !this.view.show_re;
-                            this.invalidate_explore_plots(cx);
-                            cx.notify();
-                        },
-                    ));
-                }
-                header
-            })
-            .child(div().flex_1().min_h_0().min_w_0().p_1().child(plot.clone()))
-    }
-
-    fn view_chip(
-        &self,
-        id: &'static str,
-        label: &'static str,
-        on: bool,
-        cx: &mut Context<Self>,
-        action: fn(&mut Self, &mut Context<Self>),
-    ) -> impl IntoElement + use<> {
-        let t = self.theme;
-        // A bordered pill that fills when on: these are toggles, and colour
-        // alone (muted vs accent text) read as static labels.
-        div()
-            .id(id)
-            .px_1p5()
-            .rounded_sm()
-            .text_xs()
-            .cursor_pointer()
-            .border_1()
-            .when(on, |d| {
-                d.bg(gpui::Rgba {
-                    a: 0.18,
-                    ..t.accent
-                })
-                .border_color(t.accent)
-                .text_color(t.accent)
-            })
-            .when(!on, |d| d.border_color(t.border).text_color(t.text_muted))
-            .hover(|d| d.bg(t.raised))
-            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                action(this, cx);
-            }))
-            .child(label)
     }
 
     /// Section-header chip (doc: per-spectrum override vs. global
@@ -5661,53 +4960,6 @@ impl StudioApp {
         )
     }
 
-    fn view_options_row(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let t = self.theme;
-        let waterfall = self.view.layout == TraceLayout::Waterfall;
-        let mut row = div()
-            .min_w_0()
-            .px_2()
-            .py_1()
-            .flex()
-            .items_center()
-            .gap_2()
-            .text_xs()
-            .text_color(t.text_muted)
-            .child(self.view_chip(
-                "view-layout",
-                if waterfall { "waterfall" } else { "overlay" },
-                waterfall,
-                cx,
-                |this, cx| {
-                    this.view.layout = match this.view.layout {
-                        TraceLayout::Overlay => TraceLayout::Waterfall,
-                        TraceLayout::Waterfall => TraceLayout::Overlay,
-                    };
-                    this.invalidate_explore_plots(cx);
-                    cx.notify();
-                },
-            ));
-        if waterfall && let Some(field) = &self.view_offset_field {
-            row = row.child(div().w(px(72.)).child(field.clone()));
-        }
-        row = row
-            .child(
-                self.view_chip("view-legend", "legend", self.view.legend, cx, |this, cx| {
-                    this.view.legend = !this.view.legend;
-                    this.invalidate_explore_plots(cx);
-                    cx.notify();
-                }),
-            )
-            .child(
-                self.view_chip("view-grid", "grid", self.view.grid, cx, |this, cx| {
-                    this.view.grid = !this.view.grid;
-                    this.invalidate_explore_plots(cx);
-                    cx.notify();
-                }),
-            );
-        row
-    }
-
     /// One shared legend strip for the whole 2x2 grid (color chip +
     /// middle-truncated name per overlaid trace, in stable selection order).
     fn legend_strip(&self) -> impl IntoElement + use<> {
@@ -5737,65 +4989,6 @@ impl StudioApp {
             .min_w_0()
             .overflow_x_scroll()
             .child(row)
-    }
-
-    fn explore_center(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let t = self.theme;
-        if self.quadrants.len() != 4 {
-            return div()
-                .flex_1()
-                .min_h_0()
-                .min_w_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(t.text_muted)
-                .child(self.status.clone());
-        }
-        if let Some(index) = self.maximized {
-            return div()
-                .flex_1()
-                .min_h_0()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .child(self.view_options_row(cx))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_h_0()
-                        .min_w_0()
-                        .flex()
-                        .child(self.quadrant(index, cx)),
-                );
-        }
-        let show_strip = self.view.legend && !self.legend_entries.is_empty();
-        div()
-            .flex_1()
-            .min_h_0()
-            .min_w_0()
-            .flex()
-            .flex_col()
-            .child(self.view_options_row(cx))
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .min_w_0()
-                    .flex()
-                    .child(self.quadrant(0, cx))
-                    .child(self.quadrant(1, cx)),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .min_w_0()
-                    .flex()
-                    .child(self.quadrant(2, cx))
-                    .child(self.quadrant(3, cx)),
-            )
-            .children(show_strip.then(|| self.legend_strip()))
     }
 
     /// Scrub strip: clickable segments mapping linearly onto the full scan.
@@ -7053,7 +6246,9 @@ impl StudioApp {
             .child(label)
     }
 
-    fn context_panel(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    /// Import section rows (detection mode, column preview, role pickers,
+    /// reference alignment) — the M1 import UI unchanged.
+    pub(crate) fn import_rows(&self, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
         let t = self.theme;
         let field = |key: ParamKey| {
             self.param_fields
@@ -7061,15 +6256,7 @@ impl StudioApp {
                 .find(|(k, _)| *k == key)
                 .map(|(_, f)| f.clone())
         };
-        let mut sections = div()
-            .id("params-scroll")
-            .flex_1()
-            .min_h_0()
-            .min_w_0()
-            .flex()
-            .flex_col()
-            .overflow_y_scroll();
-
+        let mut sections = div().flex().flex_col();
         // ---- Import (configure once, applies to the whole catalog) ----
         {
             let open = self.adv_open[3];
@@ -7494,221 +6681,96 @@ impl StudioApp {
             }
         }
 
-        // (title, basic keys, advanced keys, fold index)
-        let groups: [(&'static str, &[ParamKey], &[ParamKey], usize); 3] = [
-            (
-                "Normalization",
-                &[
-                    ParamKey::E0,
-                    ParamKey::PreEdgeStart,
-                    ParamKey::PreEdgeEnd,
-                    ParamKey::NormStart,
-                    ParamKey::NormEnd,
-                ],
-                &[ParamKey::NormPolyorder, ParamKey::NVictoreen],
-                0,
-            ),
-            (
-                "Background (AUTOBK)",
-                &[ParamKey::Rbkg, ParamKey::BkgKmin, ParamKey::BkgKmax],
-                &[
-                    ParamKey::BkgKstep,
-                    ParamKey::BkgNknots,
-                    ParamKey::BkgKweight,
-                    ParamKey::BkgClampLo,
-                    ParamKey::BkgClampHi,
-                    ParamKey::BkgDk,
-                    ParamKey::BkgNfft,
-                ],
-                1,
-            ),
-            (
-                "FFT",
-                &[
-                    ParamKey::FftKmin,
-                    ParamKey::FftKmax,
-                    ParamKey::FftDk,
-                    ParamKey::FftKweight,
-                ],
-                &[
-                    ParamKey::FftDk2,
-                    ParamKey::FftRmax,
-                    ParamKey::FftKstep,
-                    ParamKey::FftNfft,
-                ],
-                2,
-            ),
-        ];
-        for (title, basics, advanced, fold) in groups {
-            let open = self.adv_open[fold];
-            let section = match fold {
-                0 => ParamSection::Norm,
-                1 => ParamSection::Bkg,
-                _ => ParamSection::Fft,
-            };
-            sections = sections.child(
-                div()
-                    .px_3()
-                    .pt_3()
-                    .pb_1()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(div().text_xs().text_color(t.accent).child(title))
-                    .children(self.override_chip(
-                        SharedString::from(format!("ovr-{fold}")),
-                        section,
-                        cx,
-                    ))
-                    .child(div().flex_1())
-                    .child(
-                        div()
-                            .id(SharedString::from(format!("adv-{fold}")))
-                            .px_1()
-                            .rounded_sm()
-                            .text_xs()
-                            .text_color(if open { t.accent } else { t.text_muted })
-                            .cursor_pointer()
-                            .hover(|d| d.bg(t.raised))
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                                this.adv_open[fold] = !this.adv_open[fold];
-                                cx.notify();
-                            }))
-                            .child(if open { "▾ less" } else { "▸ more" }),
-                    ),
-            );
-            for &key in basics {
-                if let Some(f) = field(key) {
-                    sections = sections.child(f);
-                }
-            }
-            if open {
-                for &key in advanced {
-                    if let Some(f) = field(key) {
-                        sections = sections.child(f);
-                    }
-                }
-                let enum_rows: &[(&'static str, EnumParam)] = match fold {
-                    1 => &[
-                        ("window", EnumParam::BkgWindow),
-                        ("solver", EnumParam::BkgSolver),
-                    ],
-                    2 => &[("window", EnumParam::FftWindow)],
-                    _ => &[],
-                };
-                for &(label, which) in enum_rows {
-                    let options = self.enum_options(which);
-                    let selected = self.enum_selected_index(which);
-                    let expanded = self.open_enum == Some(which);
-                    let current: SharedString = options[selected].clone().into();
-                    sections = sections.child(
-                        div()
-                            .px_3()
-                            .py_0p5()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .text_sm()
-                                    .text_color(t.text_muted)
-                                    .child(label),
-                            )
-                            .child(
-                                div()
-                                    .id(SharedString::from(format!("enum-{fold}-{label}")))
-                                    .px_2()
-                                    .py_0p5()
-                                    .rounded_sm()
-                                    .text_xs()
-                                    .bg(t.bg)
-                                    .border_1()
-                                    .border_color(if expanded { t.accent } else { t.border })
-                                    .text_color(t.text)
-                                    .cursor_pointer()
-                                    .hover(|d| d.border_color(t.accent))
-                                    .on_click(cx.listener(
-                                        move |this, _: &ClickEvent, _window, cx| {
-                                            this.open_enum = if this.open_enum == Some(which) {
-                                                None
-                                            } else {
-                                                Some(which)
-                                            };
-                                            cx.notify();
-                                        },
-                                    ))
-                                    .child(format!("{current} ▾")),
-                            ),
-                    );
-                    if expanded {
-                        let mut list = div()
-                            .mx_3()
-                            .mb_1()
-                            .rounded_sm()
-                            .border_1()
-                            .border_color(t.border)
-                            .bg(t.bg)
-                            .flex()
-                            .flex_col();
-                        for (i, option) in options.iter().enumerate() {
-                            let option: SharedString = option.clone().into();
-                            let is_sel = i == selected;
-                            list = list.child(
-                                div()
-                                    .id(SharedString::from(format!("enum-opt-{fold}-{label}-{i}")))
-                                    .px_2()
-                                    .py_0p5()
-                                    .text_xs()
-                                    .cursor_pointer()
-                                    .when(is_sel, |d| d.bg(t.raised).text_color(t.accent))
-                                    .when(!is_sel, |d| d.text_color(t.text))
-                                    .hover(|d| d.bg(t.raised))
-                                    .on_click(cx.listener(
-                                        move |this, _: &ClickEvent, _window, cx| {
-                                            this.set_enum_param(which, i, cx);
-                                        },
-                                    ))
-                                    .child(option),
-                            );
-                        }
-                        sections = sections.child(list);
-                    }
-                }
-            }
-        }
-        sections = sections.child(
+        vec![sections.into_any_element()]
+    }
+
+    /// Enum parameter row with a dropdown list (0 = auto).
+    pub(crate) fn enum_row(
+        &self,
+        label: &'static str,
+        which: EnumParam,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let t = self.theme;
+        let options = self.enum_options(which);
+        let selected = self.enum_selected_index(which);
+        let expanded = self.open_enum == Some(which);
+        let current: SharedString = options[selected].clone().into();
+        let mut col = div().flex().flex_col().child(
             div()
                 .px_3()
-                .py_2()
-                .text_xs()
-                .text_color(t.text_muted)
+                .py_0p5()
+                .flex()
+                .items_center()
+                .gap_2()
                 .child(
-                    "Enter/Tab/blur commits · empty = auto · pre-edge and norm bounds are eV \
-                     relative to E0",
+                    div()
+                        .flex_1()
+                        .text_sm()
+                        .text_color(t.text_muted)
+                        .child(label),
+                )
+                .child(
+                    div()
+                        .id(SharedString::from(format!("enum-{label}-{which:?}")))
+                        .w(px(96.))
+                        .px_2()
+                        .py_0p5()
+                        .rounded_sm()
+                        .text_xs()
+                        .bg(t.bg)
+                        .border_1()
+                        .border_color(if expanded { t.accent } else { t.border })
+                        .text_color(t.text)
+                        .cursor_pointer()
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .hover(|d| d.border_color(t.accent))
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                            this.open_enum = if this.open_enum == Some(which) {
+                                None
+                            } else {
+                                Some(which)
+                            };
+                            cx.notify();
+                        }))
+                        .child(format!("{current} ▾")),
                 ),
         );
-
-        div()
-            .w(px(260.))
-            .h_full()
-            .min_h_0()
-            .min_w_0()
-            .flex_none()
-            .flex()
-            .flex_col()
-            .bg(t.surface)
-            .border_l_1()
-            .border_color(t.border)
-            .child(
-                div()
-                    .px_3()
-                    .py_2()
-                    .text_xs()
-                    .text_color(t.text_muted)
-                    .child("PARAMETERS"),
-            )
-            .child(sections)
+        if expanded {
+            let mut list = div()
+                .mx_3()
+                .mb_1()
+                .rounded_sm()
+                .border_1()
+                .border_color(t.border)
+                .bg(t.bg)
+                .flex()
+                .flex_col();
+            for (i, option) in options.iter().enumerate() {
+                let option: SharedString = option.clone().into();
+                let is_sel = i == selected;
+                list = list.child(
+                    div()
+                        .id(SharedString::from(format!(
+                            "enum-opt-{label}-{which:?}-{i}"
+                        )))
+                        .px_2()
+                        .py_0p5()
+                        .text_xs()
+                        .cursor_pointer()
+                        .when(is_sel, |d| d.bg(t.raised).text_color(t.accent))
+                        .when(!is_sel, |d| d.text_color(t.text))
+                        .hover(|d| d.bg(t.raised))
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                            this.set_enum_param(which, i, cx);
+                        }))
+                        .child(option),
+                );
+            }
+            col = col.child(list);
+        }
+        col.into_any_element()
     }
 
     fn problems_panel(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -7843,12 +6905,7 @@ impl StudioApp {
 
     fn status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
-        let theme_label = match self.theme.mode {
-            ThemeMode::Dark => "dark",
-            ThemeMode::Light => "light",
-        };
         let jobs = self.running_job_count();
-        let selection = self.selection_count();
         let errors = self.job_errors.len();
         let mut bar = div()
             .h(px(28.))
@@ -7878,7 +6935,6 @@ impl StudioApp {
                 self.cache.len(),
                 PROCESSED_CACHE_CAPACITY
             ))
-            .child(format!("{selection} selected"))
             .child(
                 div()
                     .id("problems-toggle")
@@ -7912,83 +6968,51 @@ impl StudioApp {
         }
         bar.child(
             div()
-                .id("open-project")
-                .px_2()
-                .rounded_sm()
-                .cursor_pointer()
-                .hover(|d| d.bg(t.raised).text_color(t.text))
-                .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                    this.open_project(cx);
-                }))
-                .child("open project"),
-        )
-        .child(
-            div()
-                .id("save-project")
-                .px_2()
-                .rounded_sm()
-                .cursor_pointer()
-                .hover(|d| d.bg(t.raised).text_color(t.text))
-                .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                    this.save_project(cx);
-                }))
-                .child("save project"),
-        )
-        .child(
-            div()
-                .id("theme-toggle")
-                .px_2()
-                .rounded_sm()
-                .cursor_pointer()
-                .hover(|d| d.bg(t.raised).text_color(t.text))
-                .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                    this.toggle_theme(cx);
-                }))
-                .child(format!("theme: {theme_label}")),
+                .font_family(shell::MONO)
+                .whitespace_nowrap()
+                .child(format!(
+                    "current: {} · {} marked",
+                    self.current_group_label(),
+                    self.selection.len()
+                )),
         )
     }
 }
 
 impl Render for StudioApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = self.theme;
         let key_context = match self.workspace {
             Workspace::Explore => "Studio Explore",
             Workspace::Operando => "Studio OperandoWorkspace",
             Workspace::Fit => "Studio FitWorkspace",
         };
-        let center = match self.workspace {
-            Workspace::Explore => self.explore_center(cx).into_any_element(),
-            Workspace::Operando => self.operando_center(cx).into_any_element(),
-            Workspace::Fit => self.fit_center(cx).into_any_element(),
-        };
-        let data_panel = self
-            .data_panel_open
-            .then(|| self.data_panel(cx).into_any_element());
-        let context_panel = if self.context_panel_open {
-            Some(match self.workspace {
-                Workspace::Fit => self.fit_panel(cx).into_any_element(),
-                _ => self.context_panel(cx).into_any_element(),
-            })
-        } else {
-            None
-        };
         div()
             .id("root")
             .key_context(key_context)
+            .on_action(cx.listener(|this: &mut Self, _: &StageData, _window, cx| {
+                this.set_stage(Stage::Data, cx);
+            }))
             .on_action(
-                cx.listener(|this: &mut Self, _: &WorkspaceExplore, _window, cx| {
-                    this.set_workspace(Workspace::Explore, cx);
+                cx.listener(|this: &mut Self, _: &StageNormalize, _window, cx| {
+                    this.set_stage(Stage::Normalize, cx);
                 }),
             )
             .on_action(
-                cx.listener(|this: &mut Self, _: &WorkspaceOperando, _window, cx| {
-                    this.set_workspace(Workspace::Operando, cx);
+                cx.listener(|this: &mut Self, _: &StageBackground, _window, cx| {
+                    this.set_stage(Stage::Background, cx);
                 }),
             )
             .on_action(
-                cx.listener(|this: &mut Self, _: &WorkspaceFit, _window, cx| {
-                    this.set_workspace(Workspace::Fit, cx);
+                cx.listener(|this: &mut Self, _: &StageTransform, _window, cx| {
+                    this.set_stage(Stage::Transform, cx);
+                }),
+            )
+            .on_action(cx.listener(|this: &mut Self, _: &StageFit, _window, cx| {
+                this.set_stage(Stage::Fit, cx);
+            }))
+            .on_action(
+                cx.listener(|this: &mut Self, _: &StageSeries, _window, cx| {
+                    this.set_stage(Stage::Series, cx);
                 }),
             )
             .on_action(
@@ -8006,23 +7030,6 @@ impl Render for StudioApp {
             .on_action(cx.listener(|this: &mut Self, _: &FocusFilter, window, cx| {
                 this.focus_filter(window, cx);
             }))
-            .on_action(cx.listener(|this: &mut Self, _: &Maximize1, _window, cx| {
-                this.maximize_quadrant(0, cx);
-            }))
-            .on_action(cx.listener(|this: &mut Self, _: &Maximize2, _window, cx| {
-                this.maximize_quadrant(1, cx);
-            }))
-            .on_action(cx.listener(|this: &mut Self, _: &Maximize3, _window, cx| {
-                this.maximize_quadrant(2, cx);
-            }))
-            .on_action(cx.listener(|this: &mut Self, _: &Maximize4, _window, cx| {
-                this.maximize_quadrant(3, cx);
-            }))
-            .on_action(
-                cx.listener(|this: &mut Self, _: &RestoreGrid, _window, cx| {
-                    this.set_maximized(None, cx);
-                }),
-            )
             .on_action(
                 cx.listener(|this: &mut Self, _: &ExploreEscape, _window, cx| {
                     this.explore_escape(cx);
@@ -8031,34 +7038,6 @@ impl Render for StudioApp {
             .size_full()
             .min_h_0()
             .min_w_0()
-            .flex()
-            .flex_col()
-            .bg(t.bg)
-            .text_color(t.text)
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .min_w_0()
-                    .flex()
-                    .child(self.icon_rail(cx))
-                    .children(data_panel)
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_h_0()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .children(self.stale_plots_banner(cx))
-                            .child(center),
-                    )
-                    .children(context_panel),
-            )
-            .children(
-                self.problems_open
-                    .then(|| self.problems_panel(cx).into_any_element()),
-            )
-            .child(self.status_bar(cx))
+            .child(self.shell_root(cx))
     }
 }

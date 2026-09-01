@@ -158,6 +158,11 @@ impl NumericField {
             .update(cx, |i, cx| i.set_placeholder(placeholder, cx));
     }
 
+    /// Last committed value (`None` = auto).
+    pub fn value(&self) -> Option<f64> {
+        self.value
+    }
+
     /// Programmatically set value (None = auto/empty); does not emit.
     pub fn set_value(&mut self, value: Option<f64>, cx: &mut Context<Self>) {
         self.value = value;

@@ -10,6 +10,7 @@ use ruviz::data::Observable;
 use ruviz::plots::heatmap::{HeatmapConfig, HeatmapOrigin};
 use ruviz::prelude::Plot;
 use ruviz::render::{Color, LineStyle};
+use xraytsubaki::prelude::BackgroundMethod;
 use xraytsubaki::prelude::NormalizationMethod;
 use xraytsubaki::prelude::XASSpectrum;
 
@@ -24,8 +25,10 @@ pub struct QuadrantPlots {
     pub norm: Plot,
     pub chi_k: Plot,
     pub chi_r: Plot,
+    /// Back-transform chi(q) with the active trace's k-weighted chi(k) behind it.
+    pub chi_q: Plot,
     /// Card-header plot titles for each quadrant.
-    pub titles: [String; 4],
+    pub titles: [String; 5],
 }
 
 /// One spectrum in a comparison overlay.
@@ -61,6 +64,8 @@ pub struct ViewOptions {
     pub show_kwin: bool,
     /// |chi(R)| quadrant: also plot Re[chi(R)] of the active trace.
     pub show_re: bool,
+    /// AUTOBK background spline over mu(E) (Background stage).
+    pub show_bkg: bool,
 }
 
 impl Default for ViewOptions {
@@ -78,6 +83,7 @@ impl Default for ViewOptions {
             show_krange: false,
             show_kwin: false,
             show_re: false,
+            show_bkg: false,
         }
     }
 }
@@ -272,6 +278,21 @@ fn add_mu_diagnostics(mut plot: Plot, sp: &XASSpectrum, view: &ViewOptions, shif
             .label("post-edge")
             .into();
     }
+    if view.show_bkg
+        && let (Some(energy), Some(BackgroundMethod::AUTOBK(autobk))) =
+            (sp.energy.as_ref(), sp.background.as_ref())
+        && let Some(bkg) = autobk.get_bkg()
+    {
+        let x = vecs(energy);
+        let n = x.len().min(bkg.len());
+        let y: Vec<f64> = bkg.iter().take(n).map(|v| v + shift).collect();
+        plot = plot
+            .line(&x[..n], &y)
+            .line_width(1.5)
+            .color(Color::from_rgb(232, 121, 47))
+            .label("background μ₀(E)")
+            .into();
+    }
     let e0 = sp.get_e0();
     if view.show_e0
         && let Some(e0) = e0
@@ -427,6 +448,34 @@ pub fn build_quadrants_multi(
                 .into();
         }
     }
+    let (mut chi_q, chiq_shift) = build_multi(
+        traces,
+        view,
+        theme,
+        in_plot_legend,
+        "q (Å⁻¹)",
+        "χ(q)",
+        |sp| {
+            let q = sp.get_q().map(|v| vecs(&v))?;
+            let c = sp.get_chiq().map(|v| vecs(&v))?;
+            let n = q.len().min(c.len());
+            Some((q[..n].to_vec(), c[..n].to_vec()))
+        },
+    );
+    if let Some(active) = traces.iter().find(|t| t.active).or_else(|| traces.first())
+        && let (Some(k), Some(chi)) = (active.sp.get_k(), active.sp.get_chi_kweighted())
+    {
+        let x = vecs(&k);
+        let n = x.len().min(chi.len());
+        let y: Vec<f64> = chi.iter().take(n).map(|v| v + chiq_shift).collect();
+        chi_q = chi_q
+            .line(&x[..n], &y)
+            .line_width(1.0)
+            .line_style(LineStyle::Dashed)
+            .color(Color::from_gray(150))
+            .label(chik_label.clone())
+            .into();
+    }
     let titles = [
         "μ(E)".to_string(),
         norm_label.to_string(),
@@ -436,12 +485,14 @@ pub fn build_quadrants_multi(
         } else {
             "|χ(R)|".to_string()
         },
+        "χ(q)".to_string(),
     ];
     QuadrantPlots {
         mu_e,
         norm,
         chi_k,
         chi_r,
+        chi_q,
         titles,
     }
 }

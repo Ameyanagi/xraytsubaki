@@ -445,6 +445,25 @@ pub struct PipelineParams {
     pub fft_window: Option<FTWindow>,
     pub fft_kstep: Option<f64>,
     pub fft_nfft: Option<i32>,
+    // Back FT (R -> q).
+    pub bft_rmin: Option<f64>,
+    pub bft_rmax: Option<f64>,
+    pub bft_dr: Option<f64>,
+    pub bft_window: Option<FTWindow>,
+}
+
+/// Human label for a window choice (`None` = the core default).
+pub fn window_label(window: Option<FTWindow>) -> &'static str {
+    match window {
+        Some(FTWindow::Hanning) => "Hanning",
+        Some(FTWindow::Parzen) => "Parzen",
+        Some(FTWindow::Welch) => "Welch",
+        Some(FTWindow::Gaussian) => "Gaussian",
+        Some(FTWindow::Sine) => "Sine",
+        Some(FTWindow::KaiserBessel) => "Kaiser",
+        Some(FTWindow::FHanning) => "FHanning",
+        None => "Kaiser",
+    }
 }
 
 /// Cycle order for the window selector chips.
@@ -494,6 +513,9 @@ impl PipelineParams {
             self.fft_dk2,
             self.fft_rmax,
             self.fft_kstep,
+            self.bft_rmin,
+            self.bft_rmax,
+            self.bft_dr,
         ] {
             v.map(f64::to_bits).hash(&mut hasher);
         }
@@ -510,8 +532,8 @@ impl PipelineParams {
             v.hash(&mut hasher);
         }
         format!(
-            "{:?}|{:?}|{:?}",
-            self.bkg_window, self.bkg_solver, self.fft_window
+            "{:?}|{:?}|{:?}|{:?}",
+            self.bkg_window, self.bkg_solver, self.fft_window, self.bft_window
         )
         .hash(&mut hasher);
         hasher.finish()
@@ -756,6 +778,25 @@ pub fn process_arrays(
     }
     sp.xftf = Some(xftf);
     sp.fft().map_err(|e| e.to_string())?;
+
+    // Back transform (chi(q)); failures here never block the pipeline.
+    let mut xftr = XrayFFTR::default();
+    if params.bft_rmin.is_some() {
+        xftr.rmin = params.bft_rmin;
+    }
+    if params.bft_rmax.is_some() {
+        xftr.rmax = params.bft_rmax;
+    }
+    if params.bft_dr.is_some() {
+        xftr.dr = params.bft_dr;
+    }
+    if params.bft_window.is_some() {
+        xftr.window = params.bft_window;
+    }
+    sp.xftr = Some(xftr);
+    if sp.ifft().is_err() {
+        sp.xftr = None;
+    }
 
     Ok(sp)
 }

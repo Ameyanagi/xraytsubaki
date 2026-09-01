@@ -554,18 +554,13 @@ pub fn build_frame_chik_source(
         .into()
 }
 
-/// Shade the k/R window the fit actually used (from the result, so the bands
-/// stay truthful when the panel ranges have been edited since).
-fn shade_range(plot: Plot, lo: Option<f64>, hi: Option<f64>) -> Plot {
-    match (lo, hi) {
-        (Some(lo), Some(hi)) if hi > lo => plot.axvspan(lo, hi),
-        _ => plot,
-    }
-}
-
-/// k-space fit overlay: k-weighted data vs model, per-path contributions,
-/// and the shaded fit range.
-pub fn build_fit_k(result: &xraytsubaki::prelude::FeffFitResult, theme: &Theme) -> Plot {
+/// k-space fit overlay: k-weighted data vs model and, optionally, the
+/// per-path contributions. The fit range is drawn by the handle decor.
+pub fn build_fit_k(
+    result: &xraytsubaki::prelude::FeffFitResult,
+    theme: &Theme,
+    show_paths: bool,
+) -> Plot {
     let k = vecs(&result.k);
     let kw = result.kweight;
     let weight = |chi: &nalgebra::DVector<f64>| -> Vec<f64> {
@@ -579,30 +574,46 @@ pub fn build_fit_k(result: &xraytsubaki::prelude::FeffFitResult, theme: &Theme) 
     let mut plot: Plot = Plot::new()
         .theme(theme.plot_theme())
         .line(&k, &data)
+        .color(trace_color(theme, 0))
         .label("data")
         .line(&k, &model)
+        .color(FIT_COLOR)
+        .line_width(1.6)
         .label("fit")
         .into();
-    if result.path_contributions.len() > 1 {
-        for path in &result.path_contributions {
+    if show_paths && result.path_contributions.len() > 1 {
+        for (i, path) in result.path_contributions.iter().enumerate() {
             let y = weight(&path.chi);
             plot = plot
                 .line(&k, &y)
+                .color(trace_color(theme, i + 2))
                 .line_width(1.0)
                 .line_style(LineStyle::Dashed)
                 .label(&path.label)
                 .into();
         }
     }
-    shade_range(plot, result.kmin, result.kmax)
-        .legend_position(ruviz::core::LegendPosition::UpperRight)
+    plot.legend_position(ruviz::core::LegendPosition::UpperRight)
         .xlabel(K_AXIS)
         .ylabel(chik_label(kw))
 }
 
-/// R-space fit overlay: |chi(R)| of data vs model, per-path contributions,
-/// and the shaded fit range.
-pub fn build_fit_r(result: &xraytsubaki::prelude::FeffFitResult, theme: &Theme) -> Plot {
+/// Fit trace colour (orange in both themes, distinct from the data trace).
+const FIT_COLOR: Color = Color {
+    r: 232,
+    g: 121,
+    b: 47,
+    a: 255,
+};
+
+/// R-space fit overlay: |χ(R)| of data vs model, optionally Re[χ(R)] and
+/// the per-path contributions stacked below the data (Artemis style).
+pub fn build_fit_r(
+    result: &xraytsubaki::prelude::FeffFitResult,
+    theme: &Theme,
+    show_paths: bool,
+    show_re: bool,
+) -> Plot {
     let r = vecs(&result.r);
     let data_mag = fit_data_chir_mag(result);
     let model_mag = vecs(&result.model_chir_mag);
@@ -610,29 +621,78 @@ pub fn build_fit_r(result: &xraytsubaki::prelude::FeffFitResult, theme: &Theme) 
     let r = r[..n].to_vec();
     let data_mag = data_mag[..n].to_vec();
     let model_mag = model_mag[..n].to_vec();
+    let peak = data_mag.iter().fold(0.0f64, |m, v| m.max(*v)).max(1e-12);
     let mut plot: Plot = Plot::new()
         .theme(theme.plot_theme())
         .line(&r, &data_mag)
-        .label("data")
+        .color(trace_color(theme, 0))
+        .label("|χ(R)| data")
         .line(&r, &model_mag)
+        .color(FIT_COLOR)
+        .line_width(1.6)
         .label("fit")
         .into();
-    if result.path_contributions.len() > 1 {
-        for path in &result.path_contributions {
-            let m = path.chir_mag.iter().take(n).copied().collect::<Vec<f64>>();
+    if show_re {
+        let re_d: Vec<f64> = result.data_chir_re.iter().take(n).copied().collect();
+        let re_m: Vec<f64> = result.model_chir_re.iter().take(n).copied().collect();
+        let r_d = r[..re_d.len()].to_vec();
+        let r_m = r[..re_m.len()].to_vec();
+        plot = plot
+            .line(&r_d, &re_d)
+            .color(trace_color(theme, 0))
+            .line_width(1.0)
+            .line_style(LineStyle::Dotted)
+            .label("Re data")
+            .line(&r_m, &re_m)
+            .color(FIT_COLOR)
+            .line_width(1.0)
+            .line_style(LineStyle::Dotted)
+            .label("Re fit")
+            .into();
+    }
+    if show_paths && result.path_contributions.len() > 1 {
+        // Each path sits on its own baseline below zero so the shells read
+        // as a stack rather than a tangle.
+        for (i, path) in result.path_contributions.iter().enumerate() {
+            let offset = -peak * (0.35 + 0.3 * i as f64);
+            let m: Vec<f64> = path.chir_mag.iter().take(n).map(|v| v + offset).collect();
             let x = r[..m.len()].to_vec();
             plot = plot
                 .line(&x, &m)
+                .color(trace_color(theme, i + 2))
                 .line_width(1.0)
-                .line_style(LineStyle::Dashed)
                 .label(&path.label)
                 .into();
         }
     }
-    shade_range(plot, result.rmin, result.rmax)
-        .legend_position(ruviz::core::LegendPosition::UpperRight)
+    plot.legend_position(ruviz::core::LegendPosition::UpperRight)
         .xlabel(R_AXIS)
         .ylabel(chir_label(result.kweight))
+}
+
+/// q-space view: back-transformed data vs model over the fit's R-window.
+pub fn build_fit_q(result: &xraytsubaki::prelude::FeffFitResult, theme: &Theme) -> Plot {
+    let q = vecs(&result.q);
+    let n = q
+        .len()
+        .min(result.data_chiq.len())
+        .min(result.model_chiq.len());
+    let q = q[..n].to_vec();
+    let data: Vec<f64> = result.data_chiq.iter().take(n).copied().collect();
+    let model: Vec<f64> = result.model_chiq.iter().take(n).copied().collect();
+    let plot: Plot = Plot::new()
+        .theme(theme.plot_theme())
+        .line(&q, &data)
+        .color(trace_color(theme, 0))
+        .label("data")
+        .line(&q, &model)
+        .color(FIT_COLOR)
+        .line_width(1.6)
+        .label("fit")
+        .into();
+    plot.legend_position(ruviz::core::LegendPosition::UpperRight)
+        .xlabel("q (Å⁻¹)")
+        .ylabel(format!("Re χ(q) · kw {:.0}", result.kweight))
 }
 
 fn fit_data_chir_mag(result: &xraytsubaki::prelude::FeffFitResult) -> Vec<f64> {
@@ -661,10 +721,9 @@ pub fn build_fit_residual_k(result: &xraytsubaki::prelude::FeffFitResult, theme:
         .line_width(1.0)
         .color(Color::from_gray(150))
         .into();
-    shade_range(plot, result.kmin, result.kmax)
-        .hline_styled(0.0, Color::from_gray(120), 0.8, LineStyle::Dashed)
+    plot.hline_styled(0.0, Color::from_gray(120), 0.8, LineStyle::Dashed)
         .xlabel(K_AXIS)
-        .ylabel(chik_label(kw))
+        .ylabel("residual")
 }
 
 /// Residual strip under the R-space fit: |chi(R)| data - model.
@@ -681,10 +740,9 @@ pub fn build_fit_residual_r(result: &xraytsubaki::prelude::FeffFitResult, theme:
         .line_width(1.0)
         .color(Color::from_gray(150))
         .into();
-    shade_range(plot, result.rmin, result.rmax)
-        .hline_styled(0.0, Color::from_gray(120), 0.8, LineStyle::Dashed)
+    plot.hline_styled(0.0, Color::from_gray(120), 0.8, LineStyle::Dashed)
         .xlabel(R_AXIS)
-        .ylabel(chir_label(result.kweight))
+        .ylabel("residual")
 }
 
 /// Parameter-vs-frame trend. The moving cursor is a dynamic annotation owned

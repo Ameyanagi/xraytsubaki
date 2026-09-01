@@ -18,6 +18,36 @@ pub struct FitPathSpec {
     pub sigma2: String,
     pub deltar: String,
     pub enabled: bool,
+    /// Optional cumulant / lifetime terms (empty = the core default of 0).
+    #[serde(default)]
+    pub ei: String,
+    #[serde(default)]
+    pub third: String,
+    #[serde(default)]
+    pub fourth: String,
+}
+
+impl FitPathSpec {
+    /// Standard parameterization for path number `i` (Artemis: shared amp
+    /// and enot, per-path sigma2 and delr).
+    pub fn standard(file: PathBuf, i: usize) -> Self {
+        let label = file
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| file.display().to_string());
+        Self {
+            file,
+            label,
+            s02: "amp".into(),
+            e0: "de0".into(),
+            sigma2: format!("sig2_{i}"),
+            deltar: format!("dr_{i}"),
+            enabled: true,
+            ei: String::new(),
+            third: String::new(),
+            fourth: String::new(),
+        }
+    }
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -59,14 +89,53 @@ pub fn expr_identifiers(expr: &str) -> Vec<String> {
     out
 }
 
-#[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
+/// Space the residual is evaluated in.
+#[derive(
+    Clone, Copy, PartialEq, Eq, Hash, Debug, Default, serde::Serialize, serde::Deserialize,
+)]
+pub enum FitSpaceSpec {
+    #[default]
+    R,
+    K,
+    Q,
+}
+
+impl FitSpaceSpec {
+    pub const ALL: [FitSpaceSpec; 3] = [FitSpaceSpec::R, FitSpaceSpec::K, FitSpaceSpec::Q];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            FitSpaceSpec::R => "R",
+            FitSpaceSpec::K => "k",
+            FitSpaceSpec::Q => "q",
+        }
+    }
+
+    fn core(self) -> FitSpace {
+        match self {
+            FitSpaceSpec::R => FitSpace::R,
+            FitSpaceSpec::K => FitSpace::K,
+            FitSpaceSpec::Q => FitSpace::Q,
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct FitRanges {
     pub kmin: f64,
     pub kmax: f64,
     pub rmin: f64,
     pub rmax: f64,
+    /// Plot / primary k-weight.
     pub kweight: f64,
+    /// k-weights fit simultaneously (Artemis default 1, 2, 3). Empty means
+    /// `kweight` alone.
+    pub kweights: Vec<f64>,
+    pub fitspace: FitSpaceSpec,
+    /// Scale each residual block by the noise estimated from the high-R
+    /// part of χ(R) (Larch `estimate_noise`), so χ² is meaningful.
+    pub noise: bool,
 }
 
 impl Default for FitRanges {
@@ -77,8 +146,147 @@ impl Default for FitRanges {
             rmin: 1.0,
             rmax: 3.0,
             kweight: 2.0,
+            kweights: vec![1.0, 2.0, 3.0],
+            fitspace: FitSpaceSpec::R,
+            noise: false,
         }
     }
+}
+
+impl FitRanges {
+    /// The k-weights actually fit (falls back to the primary weight).
+    pub fn effective_kweights(&self) -> Vec<f64> {
+        if self.kweights.is_empty() {
+            vec![self.kweight]
+        } else {
+            let mut ks = self.kweights.clone();
+            ks.sort_by(|a, b| a.total_cmp(b));
+            ks
+        }
+    }
+
+    pub fn toggle_kweight(&mut self, kw: f64) {
+        if let Some(pos) = self.kweights.iter().position(|k| (*k - kw).abs() < 1e-9) {
+            if self.kweights.len() > 1 {
+                self.kweights.remove(pos);
+            }
+        } else {
+            self.kweights.push(kw);
+        }
+        self.kweights.sort_by(|a, b| a.total_cmp(b));
+    }
+
+    /// Nidp = 2ΔkΔR/π + 1 (Larch), the information content of the fit.
+    pub fn n_idp(&self) -> f64 {
+        2.0 * (self.kmax - self.kmin) * (self.rmax - self.rmin) / std::f64::consts::PI + 1.0
+    }
+
+    fn transform(&self) -> FeffFitTransform {
+        FeffFitTransform {
+            kmin: self.kmin,
+            kmax: self.kmax,
+            kweight: self.kweight,
+            kweights: self.effective_kweights(),
+            rmin: self.rmin,
+            rmax: self.rmax,
+            fitspace: self.fitspace.core(),
+            ..FeffFitTransform::default()
+        }
+    }
+}
+
+/// One completed fit, kept so the model can be compared with and restored
+/// from earlier runs (Artemis' fit history).
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct FitHistoryEntry {
+    pub id: usize,
+    /// Group the fit was run on.
+    pub group: String,
+    pub r_factor: f64,
+    pub reduced_chi_square: f64,
+    pub chi_square: f64,
+    pub n_idp: f64,
+    pub n_vary: usize,
+    pub paths: Vec<FitPathSpec>,
+    pub vars: Vec<FitVarSpec>,
+    pub ranges: FitRanges,
+    /// Fitted values (name, value, stderr) for the varying parameters.
+    pub values: Vec<(String, f64, Option<f64>)>,
+}
+
+impl FitHistoryEntry {
+    pub fn from_result(
+        id: usize,
+        group: String,
+        paths: Vec<FitPathSpec>,
+        vars: Vec<FitVarSpec>,
+        ranges: FitRanges,
+        result: &FeffFitResult,
+    ) -> Self {
+        let values = result
+            .varying_names
+            .iter()
+            .filter_map(|name| {
+                result
+                    .variables
+                    .get(name)
+                    .map(|v| (name.clone(), v.value, v.stderr))
+            })
+            .collect();
+        Self {
+            id,
+            group,
+            r_factor: result.r_factor,
+            reduced_chi_square: result.reduced_chi_square,
+            chi_square: result.chi_square,
+            n_idp: result.n_idp,
+            n_vary: result.n_vary,
+            paths,
+            vars,
+            ranges,
+            values,
+        }
+    }
+
+    /// One-line description of what distinguishes this fit.
+    pub fn summary(&self) -> String {
+        let enabled = self.paths.iter().filter(|p| p.enabled).count();
+        let kws = self
+            .ranges
+            .effective_kweights()
+            .iter()
+            .map(|k| format!("{k:.0}"))
+            .collect::<Vec<_>>()
+            .join("");
+        format!(
+            "{enabled} paths · {} vars · {} kw{kws} · k {:.1}–{:.1} · R {:.1}–{:.1}",
+            self.n_vary,
+            self.ranges.fitspace.label(),
+            self.ranges.kmin,
+            self.ranges.kmax,
+            self.ranges.rmin,
+            self.ranges.rmax
+        )
+    }
+}
+
+/// Pairs of varying parameters whose correlation exceeds `threshold`.
+pub fn high_correlations(result: &FeffFitResult, threshold: f64) -> Vec<(String, String, f64)> {
+    let Some(corr) = result.correlation.as_ref() else {
+        return Vec::new();
+    };
+    let names = &result.varying_names;
+    let mut out = Vec::new();
+    for i in 0..names.len().min(corr.len()) {
+        for j in (i + 1)..names.len().min(corr[i].len()) {
+            let c = corr[i][j];
+            if c.abs() >= threshold {
+                out.push((names[i].clone(), names[j].clone(), c));
+            }
+        }
+    }
+    out.sort_by(|a, b| b.2.abs().total_cmp(&a.2.abs()));
+    out
 }
 
 fn spec(text: &str) -> PathParamSpec {
@@ -94,21 +302,39 @@ pub fn run_fit(
     chi: DVector<f64>,
     paths: &[FitPathSpec],
     vars: &[FitVarSpec],
-    ranges: FitRanges,
+    ranges: &FitRanges,
 ) -> Result<FeffFitResult, String> {
+    let kweights = ranges.effective_kweights();
     let mut fit = FeffFit::new()
         .data(&k, &chi)
         .krange(ranges.kmin, ranges.kmax)
         .rrange(ranges.rmin, ranges.rmax)
-        .kweight(ranges.kweight);
+        .kweight(kweights[0])
+        .kweights(&kweights)
+        .fitspace(ranges.fitspace.core());
+    if ranges.noise {
+        let noise =
+            xraytsubaki::xafs::fitting::transform::estimate_noise(&k, &chi, &ranges.transform())
+                .map_err(|e| format!("noise estimate: {e}"))?;
+        fit = fit.epsilon_ks(&noise.epsilon_k);
+    }
     let mut any = false;
     for p in paths.iter().filter(|p| p.enabled) {
-        let model = feffpath(&p.file.to_string_lossy(), FeffFlavor::Feff85L)
+        let mut model = feffpath(&p.file.to_string_lossy(), FeffFlavor::Feff85L)
             .map_err(|e| format!("{}: {e}", p.label))?
             .set_s02(spec(&p.s02))
             .set_e0(spec(&p.e0))
             .set_sigma2(spec(&p.sigma2))
             .set_deltar(spec(&p.deltar));
+        if !p.ei.trim().is_empty() {
+            model = model.set_ei(spec(&p.ei));
+        }
+        if !p.third.trim().is_empty() {
+            model = model.set_third(spec(&p.third));
+        }
+        if !p.fourth.trim().is_empty() {
+            model = model.set_fourth(spec(&p.fourth));
+        }
         fit = fit.add_path(model);
         any = true;
     }
@@ -256,6 +482,7 @@ pub fn batch_csv(
 }
 
 /// "value ± stderr" lines for the varying parameters, plus fit statistics.
+#[cfg(test)]
 pub fn result_summary(result: &FeffFitResult) -> Vec<String> {
     let mut lines = vec![
         format!("R-factor  {:.5}", result.r_factor),
@@ -392,13 +619,8 @@ mod tests {
         for (i, file) in files.iter().enumerate() {
             let n = i + 1;
             paths.push(FitPathSpec {
-                file: file.clone(),
                 label: format!("path{n}"),
-                s02: "amp".into(),
-                e0: "de0".into(),
-                sigma2: format!("sig2_{n}"),
-                deltar: format!("dr_{n}"),
-                enabled: true,
+                ..FitPathSpec::standard(file.clone(), n)
             });
             vars.push(FitVarSpec {
                 name: format!("sig2_{n}"),
@@ -426,8 +648,10 @@ mod tests {
             rmin: 1.8,
             rmax: 3.0,
             kweight: 2.0,
+            kweights: vec![2.0],
+            ..FitRanges::default()
         };
-        let result = run_fit(k, chi, &paths, &vars, ranges).expect("fit");
+        let result = run_fit(k, chi, &paths, &vars, &ranges).expect("fit");
         println!("Ru hcp fit: R-factor {:.4}", result.r_factor);
         for line in result_summary(&result) {
             println!("  {line}");

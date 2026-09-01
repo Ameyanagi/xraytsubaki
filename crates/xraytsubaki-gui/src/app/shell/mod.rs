@@ -7,6 +7,7 @@
 //! keeps state and jobs, the shell keeps presentation.
 
 pub mod center;
+pub mod fit;
 pub mod groups_panel;
 pub mod handles;
 pub mod inspector;
@@ -108,6 +109,15 @@ pub enum TfView {
     Both,
 }
 
+/// Fit stage main view.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FitView {
+    Both,
+    K,
+    R,
+    Q,
+}
+
 /// Per-stage view state that is presentation only (never persisted).
 #[derive(Clone, Copy, Debug)]
 pub struct StageView {
@@ -117,6 +127,11 @@ pub struct StageView {
     pub tf_view: TfView,
     pub show_bkg: bool,
     pub show_re: bool,
+    pub fit_view: FitView,
+    pub fit_show_paths: bool,
+    pub fit_show_re: bool,
+    pub fit_show_feff: bool,
+    pub fit_show_batch: bool,
 }
 
 impl Default for StageView {
@@ -128,6 +143,11 @@ impl Default for StageView {
             tf_view: TfView::Both,
             show_bkg: true,
             show_re: false,
+            fit_view: FitView::Both,
+            fit_show_paths: true,
+            fit_show_re: false,
+            fit_show_feff: false,
+            fit_show_batch: false,
         }
     }
 }
@@ -287,7 +307,7 @@ impl StudioApp {
     pub(crate) fn shell_root(&mut self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
         let center = match self.stage {
-            Stage::Fit => self.fit_center(cx).into_any_element(),
+            Stage::Fit => self.fit_stage_center(cx).into_any_element(),
             Stage::Series => self.operando_center(cx).into_any_element(),
             _ => self.stage_center(cx).into_any_element(),
         };

@@ -12,21 +12,13 @@ use crate::app::{DERIVED_BASE, EnumParam, ParamKey, ParamSection, StudioApp};
 impl StudioApp {
     pub(crate) fn inspector(&mut self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
-        if self.stage == Stage::Fit {
-            return div()
-                .flex_none()
-                .h_full()
-                .min_h_0()
-                .child(self.fit_panel(cx))
-                .into_any_element();
-        }
         let body = match self.stage {
             Stage::Data => self.data_inspector(cx).into_any_element(),
             Stage::Normalize => self.normalize_inspector(cx).into_any_element(),
             Stage::Background => self.background_inspector(cx).into_any_element(),
             Stage::Transform => self.transform_inspector(cx).into_any_element(),
             Stage::Series => self.series_inspector(cx).into_any_element(),
-            Stage::Fit => unreachable!(),
+            Stage::Fit => self.fit_inspector(cx).into_any_element(),
         };
         div()
             .w(px(312.))
@@ -55,6 +47,9 @@ impl StudioApp {
     }
 
     fn inspector_header(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        if self.stage == Stage::Fit {
+            return self.fit_inspector_header(cx).into_any_element();
+        }
         let t = self.theme;
         let label = self.current_group_label();
         let marked = self
@@ -120,7 +115,7 @@ impl StudioApp {
                         .child("Reset"),
                 );
         }
-        header
+        header.into_any_element()
     }
 
     /// Copy the displayed parameter set onto every marked catalog group.
@@ -161,7 +156,7 @@ impl StudioApp {
         cx.notify();
     }
 
-    fn field(&self, key: ParamKey) -> Option<gpui::AnyElement> {
+    pub(crate) fn field(&self, key: ParamKey) -> Option<gpui::AnyElement> {
         self.param_fields
             .iter()
             .find(|(k, _)| *k == key)
@@ -169,7 +164,7 @@ impl StudioApp {
     }
 
     /// Section: uppercase label, optional override chip, then rows.
-    fn section(
+    pub(crate) fn section(
         &self,
         title: &'static str,
         section: Option<ParamSection>,
@@ -204,7 +199,7 @@ impl StudioApp {
     }
 
     /// Key/value result card.
-    fn result_card(&self, rows: Vec<(String, String)>) -> impl IntoElement + use<> {
+    pub(crate) fn result_card(&self, rows: Vec<(String, String)>) -> impl IntoElement + use<> {
         let t = self.theme;
         let mut card = div().mx_3().mt_1().flex().flex_col().gap_1();
         for (k, v) in rows {
@@ -221,7 +216,7 @@ impl StudioApp {
         card
     }
 
-    fn note(&self, text: &'static str) -> impl IntoElement + use<> {
+    pub(crate) fn note(&self, text: &'static str) -> impl IntoElement + use<> {
         let t = self.theme;
         div()
             .mx_3()

@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::fitting::{FitPathSpec, FitRanges, FitVarSpec};
+use crate::fitting::{FitHistoryEntry, FitPathSpec, FitRanges, FitVarSpec};
 use crate::params::DerivedSpectrum;
 use crate::params::PipelineParams;
 
@@ -36,6 +36,8 @@ pub struct ProjectFile {
     pub fit_ranges: FitRanges,
     pub feff_workspace: Option<PathBuf>,
     pub derived: Vec<DerivedSpectrum>,
+    /// Completed fits (model snapshot + statistics), oldest first.
+    pub fit_history: Vec<FitHistoryEntry>,
 }
 
 pub const PROJECT_VERSION: u32 = 1;
@@ -72,13 +74,8 @@ mod tests {
                 },
             }],
             fit_paths: vec![FitPathSpec {
-                file: PathBuf::from("/tmp/feff0001.dat"),
-                label: "feff0001.dat".into(),
-                s02: "amp".into(),
-                e0: "de0".into(),
-                sigma2: "sig2_1".into(),
                 deltar: "dr_1*1.02".into(),
-                enabled: true,
+                ..FitPathSpec::standard(PathBuf::from("/tmp/feff0001.dat"), 1)
             }],
             fit_vars: vec![FitVarSpec {
                 name: "amp".into(),
@@ -91,6 +88,7 @@ mod tests {
             fit_ranges: FitRanges::default(),
             feff_workspace: None,
             derived: Vec::new(),
+            fit_history: Vec::new(),
         };
         let path = std::env::temp_dir().join("xts-test.xtproj");
         save(&path, &project).unwrap();

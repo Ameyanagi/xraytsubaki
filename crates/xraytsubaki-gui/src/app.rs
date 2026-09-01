@@ -36,8 +36,8 @@ use xraytsubaki::prelude::FeffFitResult;
 use crate::catalog::{Catalog, ScanEvent, index_cache_path, load_index, start_scan, write_index};
 use crate::fitting::expr_identifiers;
 use crate::fitting::{
-    BatchFitRow, FitPathSpec, FitRanges, FitVarSpec, PathMeta, batch_csv, path_meta,
-    result_summary, run_fit,
+    BatchFitRow, FitHistoryEntry, FitPathSpec, FitRanges, FitVarSpec, PathMeta, batch_csv,
+    path_meta, run_fit,
 };
 use crate::params::{
     AUTOBK_SOLVERS, DerivedSpectrum, DetectionMode, FT_WINDOWS, ImportPreview, PipelineParams,
@@ -45,9 +45,9 @@ use crate::params::{
     resample_chik,
 };
 use crate::plotting::{
-    QuadTrace, ViewOptions, build_fit_k, build_fit_r, build_fit_residual_k, build_fit_residual_r,
-    build_frame_chik_source, build_heatmap, build_quadrants_multi, build_trend, chik_label,
-    middle_truncate, trace_rgba,
+    QuadTrace, ViewOptions, build_fit_k, build_fit_q, build_fit_r, build_fit_residual_k,
+    build_fit_residual_r, build_frame_chik_source, build_heatmap, build_quadrants_multi,
+    build_trend, chik_label, middle_truncate, trace_rgba,
 };
 use crate::project::{PROJECT_VERSION, ParamOverride, ProjectFile};
 use crate::theme::Theme;
@@ -74,7 +74,7 @@ pub enum Workspace {
 
 /// Which pipeline parameter a context-panel field edits.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum ParamKey {
+pub(crate) enum ParamKey {
     ImpEnergyCol,
     ImpI0Col,
     ImpItCol,
@@ -133,7 +133,7 @@ enum ImportRole {
 /// Context-panel section a parameter belongs to, for the per-section
 /// global/override chips.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum ParamSection {
+pub(crate) enum ParamSection {
     Import,
     Norm,
     Bkg,
@@ -467,15 +467,16 @@ struct OperandoPlots {
     _heatmap_subscription: gpui::Subscription,
 }
 
-struct FitPlots {
-    k: Entity<RuvizPlot>,
-    k_residual: Entity<RuvizPlot>,
-    r: Entity<RuvizPlot>,
-    r_residual: Entity<RuvizPlot>,
+pub(crate) struct FitPlots {
+    pub(crate) k: Entity<RuvizPlot>,
+    pub(crate) k_residual: Entity<RuvizPlot>,
+    pub(crate) r: Entity<RuvizPlot>,
+    pub(crate) r_residual: Entity<RuvizPlot>,
+    pub(crate) q: Entity<RuvizPlot>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum RangeKey {
+pub(crate) enum RangeKey {
     Kmin,
     Kmax,
     Rmin,
@@ -516,34 +517,96 @@ struct BatchFitData {
 }
 
 /// A fit variable row: spec + its editable value/expression field.
-struct FitVar {
-    spec: FitVarSpec,
-    field: Entity<TextInput>,
-    min_field: Entity<TextInput>,
-    max_field: Entity<TextInput>,
+pub(crate) struct FitVar {
+    pub(crate) spec: FitVarSpec,
+    pub(crate) field: Entity<TextInput>,
+    pub(crate) min_field: Entity<TextInput>,
+    pub(crate) max_field: Entity<TextInput>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum PathParam {
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum PathParam {
     S02,
     E0,
     Sigma2,
     DeltaR,
+    Ei,
+    Third,
+    Fourth,
+}
+
+impl PathParam {
+    pub(crate) const ALL: [PathParam; 7] = [
+        PathParam::S02,
+        PathParam::E0,
+        PathParam::DeltaR,
+        PathParam::Sigma2,
+        PathParam::Ei,
+        PathParam::Third,
+        PathParam::Fourth,
+    ];
+
+    /// The four Artemis path parameters everyone edits; the cumulant /
+    /// lifetime terms sit behind a "more" fold.
+    pub(crate) fn is_primary(self) -> bool {
+        matches!(
+            self,
+            PathParam::S02 | PathParam::E0 | PathParam::DeltaR | PathParam::Sigma2
+        )
+    }
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            PathParam::S02 => "S₀²",
+            PathParam::E0 => "ΔE₀",
+            PathParam::Sigma2 => "σ²",
+            PathParam::DeltaR => "ΔR",
+            PathParam::Ei => "Ei",
+            PathParam::Third => "C₃",
+            PathParam::Fourth => "C₄",
+        }
+    }
+
+    fn get(self, spec: &FitPathSpec) -> &str {
+        match self {
+            PathParam::S02 => &spec.s02,
+            PathParam::E0 => &spec.e0,
+            PathParam::Sigma2 => &spec.sigma2,
+            PathParam::DeltaR => &spec.deltar,
+            PathParam::Ei => &spec.ei,
+            PathParam::Third => &spec.third,
+            PathParam::Fourth => &spec.fourth,
+        }
+    }
+
+    fn set(self, spec: &mut FitPathSpec, text: String) {
+        match self {
+            PathParam::S02 => spec.s02 = text,
+            PathParam::E0 => spec.e0 = text,
+            PathParam::Sigma2 => spec.sigma2 = text,
+            PathParam::DeltaR => spec.deltar = text,
+            PathParam::Ei => spec.ei = text,
+            PathParam::Third => spec.third = text,
+            PathParam::Fourth => spec.fourth = text,
+        }
+    }
 }
 
 /// An imported FEFF path with editable parameter-expression cells.
-struct FitPathRow {
-    spec: FitPathSpec,
-    meta: Option<PathMeta>,
-    fields: Vec<(PathParam, Entity<TextInput>)>,
+pub(crate) struct FitPathRow {
+    pub(crate) spec: FitPathSpec,
+    pub(crate) meta: Option<PathMeta>,
+    pub(crate) fields: Vec<(PathParam, Entity<TextInput>)>,
     /// Collapsed rows show one metadata line; expanding reveals the
     /// parameter-expression cells.
-    expanded: bool,
+    pub(crate) expanded: bool,
+    /// Cumulant / lifetime cells shown.
+    pub(crate) more: bool,
 }
 
 /// Crystal-form fields for Atoms-lite feff.inp generation.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum FeffFormKey {
+pub(crate) enum FeffFormKey {
     Element,
     Element2,
     Structure,
@@ -654,6 +717,11 @@ pub struct StudioApp {
     fit_vars: Vec<FitVar>,
     fit_range_fields: Vec<(RangeKey, Entity<NumericField>)>,
     fit_ranges: FitRanges,
+    /// Completed fits, oldest first (Artemis' history); results of this
+    /// session's fits are kept for re-display.
+    fit_history: Vec<FitHistoryEntry>,
+    fit_history_results: BTreeMap<usize, Arc<FeffFitResult>>,
+    fit_history_selected: Option<usize>,
     fit_result: Option<Arc<FeffFitResult>>,
     fit_provenance: Option<FitProvenance>,
     fit_plots: Option<FitPlots>,
@@ -1266,9 +1334,12 @@ fn default_data_file() -> PathBuf {
 fn default_for(param: PathParam) -> f64 {
     match param {
         PathParam::S02 => 0.9,
-        PathParam::E0 => 0.0,
         PathParam::Sigma2 => 0.003,
-        PathParam::DeltaR => 0.0,
+        PathParam::E0
+        | PathParam::DeltaR
+        | PathParam::Ei
+        | PathParam::Third
+        | PathParam::Fourth => 0.0,
     }
 }
 
@@ -1384,6 +1455,9 @@ impl StudioApp {
             fit_vars: Vec::new(),
             fit_range_fields: Vec::new(),
             fit_ranges: FitRanges::default(),
+            fit_history: Vec::new(),
+            fit_history_results: BTreeMap::new(),
+            fit_history_selected: None,
             fit_result: None,
             fit_provenance: None,
             fit_plots: None,
@@ -1408,7 +1482,7 @@ impl StudioApp {
             job_errors: Vec::new(),
             problems_open: false,
         };
-        app.fit_range_fields = Self::build_range_fields(theme, app.fit_ranges, cx);
+        app.fit_range_fields = Self::build_range_fields(theme, &app.fit_ranges.clone(), cx);
         let offset_field = cx.new(|cx| {
             NumericField::new(
                 "offset",
@@ -1691,6 +1765,9 @@ impl StudioApp {
             row.spec.e0.hash(&mut hasher);
             row.spec.sigma2.hash(&mut hasher);
             row.spec.deltar.hash(&mut hasher);
+            row.spec.ei.hash(&mut hasher);
+            row.spec.third.hash(&mut hasher);
+            row.spec.fourth.hash(&mut hasher);
             row.spec.enabled.hash(&mut hasher);
         }
         for var in &self.fit_vars {
@@ -1706,6 +1783,11 @@ impl StudioApp {
         self.fit_ranges.rmin.to_bits().hash(&mut hasher);
         self.fit_ranges.rmax.to_bits().hash(&mut hasher);
         self.fit_ranges.kweight.to_bits().hash(&mut hasher);
+        for kw in &self.fit_ranges.kweights {
+            kw.to_bits().hash(&mut hasher);
+        }
+        self.fit_ranges.fitspace.hash(&mut hasher);
+        self.fit_ranges.noise.hash(&mut hasher);
         hasher.finish()
     }
 
@@ -3790,7 +3872,7 @@ impl StudioApp {
 
     fn build_range_fields(
         theme: Theme,
-        ranges: FitRanges,
+        ranges: &FitRanges,
         cx: &mut Context<Self>,
     ) -> Vec<(RangeKey, Entity<NumericField>)> {
         let specs: [(RangeKey, &str, f64); 5] = [
@@ -3825,6 +3907,7 @@ impl StudioApp {
                             RangeKey::Kweight => r.kweight = *v,
                         }
                         this.fit_model_changed(cx);
+                        this.rebuild_fit_plots(cx);
                     }
                 })
                 .detach();
@@ -3946,7 +4029,7 @@ impl StudioApp {
         cx: &mut Context<Self>,
     ) {
         let text = text.trim().to_string();
-        if text.is_empty() {
+        if text.is_empty() && param.is_primary() {
             return;
         }
         if text.parse::<f64>().is_err() {
@@ -3955,13 +4038,7 @@ impl StudioApp {
             }
         }
         if let Some(row) = self.fit_paths.get_mut(path_ix) {
-            let spec = &mut row.spec;
-            match param {
-                PathParam::S02 => spec.s02 = text,
-                PathParam::E0 => spec.e0 = text,
-                PathParam::Sigma2 => spec.sigma2 = text,
-                PathParam::DeltaR => spec.deltar = text,
-            }
+            param.set(&mut row.spec, text);
             self.fit_model_changed(cx);
         }
     }
@@ -3991,25 +4068,11 @@ impl StudioApp {
     /// Every parameter cell accepts a number or an expression.
     fn push_fit_path(&mut self, file: PathBuf, cx: &mut Context<Self>) {
         let i = self.fit_paths.len() + 1;
-        let label = file
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| file.display().to_string());
-        let sigma2 = format!("sig2_{i}");
-        let deltar = format!("dr_{i}");
+        let spec = FitPathSpec::standard(file, i);
         self.ensure_fit_var("amp", 0.9, cx);
         self.ensure_fit_var("de0", 0.0, cx);
-        self.ensure_fit_var(&sigma2, 0.003, cx);
-        self.ensure_fit_var(&deltar, 0.0, cx);
-        let spec = FitPathSpec {
-            file,
-            label,
-            s02: "amp".into(),
-            e0: "de0".into(),
-            sigma2,
-            deltar,
-            enabled: true,
-        };
+        self.ensure_fit_var(&spec.sigma2, 0.003, cx);
+        self.ensure_fit_var(&spec.deltar, 0.0, cx);
         self.add_path_row(spec, cx);
     }
 
@@ -4018,30 +4081,38 @@ impl StudioApp {
         let meta = path_meta(&spec.file);
         let theme = self.theme;
         let path_ix = self.fit_paths.len();
-        let fields = [
-            (PathParam::S02, spec.s02.clone()),
-            (PathParam::E0, spec.e0.clone()),
-            (PathParam::Sigma2, spec.sigma2.clone()),
-            (PathParam::DeltaR, spec.deltar.clone()),
-        ]
-        .into_iter()
-        .map(|(param, initial)| {
-            let field = cx.new(|cx| TextInput::new("expr", initial, theme, cx));
-            cx.subscribe(&field, move |this: &mut Self, _field, event, cx| {
-                let InputEvent::Committed(text) = event else {
-                    return;
-                };
-                this.set_path_param(path_ix, param, text, cx);
+        let fields = PathParam::ALL
+            .into_iter()
+            .map(|param| (param, param.get(&spec).to_string()))
+            .map(|(param, initial)| {
+                let placeholder = if param.is_primary() { "expr" } else { "0" };
+                let field = cx.new(|cx| {
+                    TextInput::new(placeholder, initial, theme, cx).with_style(
+                        crate::widgets::text_input::InputStyle {
+                            mono: true,
+                            ..Default::default()
+                        },
+                    )
+                });
+                cx.subscribe(&field, move |this: &mut Self, _field, event, cx| {
+                    let InputEvent::Committed(text) = event else {
+                        return;
+                    };
+                    this.set_path_param(path_ix, param, text, cx);
+                })
+                .detach();
+                (param, field)
             })
-            .detach();
-            (param, field)
-        })
-        .collect();
+            .collect();
+        let more = [&spec.ei, &spec.third, &spec.fourth]
+            .iter()
+            .any(|s| !s.trim().is_empty());
         self.fit_paths.push(FitPathRow {
             spec,
             meta,
             fields,
             expanded: false,
+            more,
         });
     }
 
@@ -4072,11 +4143,12 @@ impl StudioApp {
         cx.notify();
         let paths: Vec<FitPathSpec> = self.fit_paths.iter().map(|r| r.spec.clone()).collect();
         let vars: Vec<FitVarSpec> = self.fit_vars.iter().map(|v| v.spec.clone()).collect();
-        let ranges = self.fit_ranges;
+        let ranges = self.fit_ranges.clone();
         let started = Instant::now();
+        let history_inputs = (paths.clone(), vars.clone(), ranges.clone());
         let job = cx
             .background_executor()
-            .spawn(async move { run_fit(k, chi, &paths, &vars, ranges) });
+            .spawn(async move { run_fit(k, chi, &paths, &vars, &ranges) });
         cx.spawn(async move |this, cx| {
             let result = job.await;
             this.update(cx, |app, cx| {
@@ -4099,6 +4171,11 @@ impl StudioApp {
                         .into();
                         let result = Arc::new(result);
                         app.fit_result = Some(result.clone());
+                        app.push_fit_history(
+                            provenance.label.to_string(),
+                            history_inputs,
+                            result.clone(),
+                        );
                         app.rebuild_fit_plots(cx);
                         // Reflect fitted values back into the variable fields.
                         if !stale {
@@ -4131,14 +4208,99 @@ impl StudioApp {
         .detach();
     }
 
-    fn rebuild_fit_plots(&mut self, cx: &mut Context<Self>) {
-        let Some(result) = &self.fit_result else {
+    /// Record a completed fit in the history (model snapshot + stats).
+    fn push_fit_history(
+        &mut self,
+        group: String,
+        inputs: (Vec<FitPathSpec>, Vec<FitVarSpec>, FitRanges),
+        result: Arc<FeffFitResult>,
+    ) {
+        let id = self.fit_history.last().map(|e| e.id + 1).unwrap_or(1);
+        let (paths, vars, ranges) = inputs;
+        self.fit_history.push(FitHistoryEntry::from_result(
+            id, group, paths, vars, ranges, &result,
+        ));
+        self.fit_history_results.insert(id, result);
+        self.fit_history_selected = Some(id);
+    }
+
+    /// Restore the model of a history entry (paths, variables, ranges) and
+    /// show its result again when it was fit in this session.
+    pub(crate) fn restore_fit_history(&mut self, id: usize, cx: &mut Context<Self>) {
+        let Some(entry) = self.fit_history.iter().find(|e| e.id == id).cloned() else {
             return;
         };
-        let k_plot = build_fit_k(result, &self.theme);
-        let r_plot = build_fit_r(result, &self.theme);
-        let k_res = build_fit_residual_k(result, &self.theme);
-        let r_res = build_fit_residual_r(result, &self.theme);
+        self.fit_paths.clear();
+        self.fit_vars.clear();
+        for spec in entry.paths {
+            self.add_path_row(spec, cx);
+        }
+        for saved in entry.vars {
+            self.ensure_fit_var(&saved.name, saved.value, cx);
+            if let Some(var) = self.fit_vars.iter_mut().find(|v| v.spec.name == saved.name) {
+                var.spec = saved.clone();
+                let text = match &saved.expr {
+                    Some(expr) => expr.clone(),
+                    None => format!("{}", saved.value),
+                };
+                var.field.update(cx, |f, cx| f.set_text(text, cx));
+                var.min_field.update(cx, |f, cx| {
+                    f.set_text(saved.min.map(|v| v.to_string()).unwrap_or_default(), cx)
+                });
+                var.max_field.update(cx, |f, cx| {
+                    f.set_text(saved.max.map(|v| v.to_string()).unwrap_or_default(), cx)
+                });
+            }
+        }
+        self.fit_ranges = entry.ranges;
+        self.sync_range_fields(cx);
+        self.fit_history_selected = Some(id);
+        if let Some(result) = self.fit_history_results.get(&id).cloned() {
+            self.fit_result = Some(result);
+            self.fit_provenance = Some(FitProvenance {
+                label: entry.group.clone().into(),
+                path: self.spectrum_path.clone(),
+                params_fingerprint: self.spectrum_fingerprint,
+                model_fingerprint: self.fit_model_fingerprint(),
+            });
+            self.rebuild_fit_plots(cx);
+        }
+        self.status = format!("restored fit {id} ({})", entry.group).into();
+        self.fit_model_changed(cx);
+    }
+
+    /// Push `fit_ranges` into the range fields (never emits).
+    pub(crate) fn sync_range_fields(&mut self, cx: &mut Context<Self>) {
+        let ranges = self.fit_ranges.clone();
+        for (key, field) in &self.fit_range_fields {
+            let value = match key {
+                RangeKey::Kmin => ranges.kmin,
+                RangeKey::Kmax => ranges.kmax,
+                RangeKey::Rmin => ranges.rmin,
+                RangeKey::Rmax => ranges.rmax,
+                RangeKey::Kweight => ranges.kweight,
+            };
+            field.update(cx, |f, cx| f.set_value(Some(value), cx));
+        }
+    }
+
+    pub(crate) fn rebuild_fit_plots(&mut self, cx: &mut Context<Self>) {
+        let Some(result) = self.fit_result.clone() else {
+            return;
+        };
+        let v = self.stage_view;
+        let mut k_plot = build_fit_k(&result, &self.theme, v.fit_show_paths);
+        let mut r_plot = build_fit_r(&result, &self.theme, v.fit_show_paths, v.fit_show_re);
+        let q_plot = build_fit_q(&result, &self.theme);
+        let k_res = build_fit_residual_k(&result, &self.theme);
+        let r_res = build_fit_residual_r(&result, &self.theme);
+        // Fit ranges as draggable regions, drawn into the base plots.
+        for a in self.handle_decor(shell::handles::PLOT_FIT_K) {
+            k_plot = k_plot.annotate(a);
+        }
+        for a in self.handle_decor(shell::handles::PLOT_FIT_R) {
+            r_plot = r_plot.annotate(a);
+        }
         match &self.fit_plots {
             Some(plots) => {
                 plots
@@ -4153,6 +4315,9 @@ impl StudioApp {
                 plots
                     .r_residual
                     .update(cx, |rp, cx| rp.set_plot_keep_view(r_res, cx));
+                plots
+                    .q
+                    .update(cx, |rp, cx| rp.set_plot_keep_view(q_plot, cx));
             }
             None => {
                 self.fit_plots = Some(FitPlots {
@@ -4160,6 +4325,7 @@ impl StudioApp {
                     k_residual: plot_builder(k_res).interactive().build(cx),
                     r: plot_builder(r_plot).interactive().build(cx),
                     r_residual: plot_builder(r_res).interactive().build(cx),
+                    q: plot_builder(q_plot).interactive().build(cx),
                 });
             }
         }
@@ -4292,7 +4458,7 @@ impl StudioApp {
         );
         let paths: Vec<FitPathSpec> = self.fit_paths.iter().map(|r| r.spec.clone()).collect();
         let vars: Vec<FitVarSpec> = self.fit_vars.iter().map(|v| v.spec.clone()).collect();
-        let ranges = self.fit_ranges;
+        let ranges = self.fit_ranges.clone();
         let (tx, mut rx) = futures::channel::mpsc::unbounded::<BatchFitEvent>();
 
         let job_cancel = cancel.clone();
@@ -4316,7 +4482,7 @@ impl StudioApp {
                         let chi = sp
                             .get_chi()
                             .ok_or_else(|| "processed spectrum has no chi(k)".to_string())?;
-                        let result = run_fit(k, chi, &paths, &vars, ranges)?;
+                        let result = run_fit(k, chi, &paths, &vars, &ranges)?;
                         Ok(BatchFitRow::from_result(*frame, *ix, &result))
                     })();
                     if job_cancel.load(Ordering::Relaxed)
@@ -4523,16 +4689,6 @@ impl StudioApp {
                 .unwrap_or_default(),
             name: "E0 (eV)".to_string(),
             domain: TrendDomain::Sampled,
-        }
-    }
-
-    fn cycle_trend_param(&mut self, cx: &mut Context<Self>) {
-        if let Some(bf) = &mut self.batch_fit
-            && !bf.varying_names.is_empty()
-        {
-            bf.trend_param = (bf.trend_param + 1) % bf.varying_names.len();
-            self.rebuild_operando_trend(cx);
-            cx.notify();
         }
     }
 
@@ -4769,9 +4925,10 @@ impl StudioApp {
             overrides,
             fit_paths: self.fit_paths.iter().map(|r| r.spec.clone()).collect(),
             fit_vars: self.fit_vars.iter().map(|v| v.spec.clone()).collect(),
-            fit_ranges: self.fit_ranges,
+            fit_ranges: self.fit_ranges.clone(),
             feff_workspace: self.feff_workspace.clone(),
             derived: self.derived.clone(),
+            fit_history: self.fit_history.clone(),
         }
     }
 
@@ -4869,17 +5026,9 @@ impl StudioApp {
             }
         }
         self.fit_ranges = project.fit_ranges;
-        let ranges = self.fit_ranges;
-        for (key, field) in &self.fit_range_fields {
-            let value = match key {
-                RangeKey::Kmin => ranges.kmin,
-                RangeKey::Kmax => ranges.kmax,
-                RangeKey::Rmin => ranges.rmin,
-                RangeKey::Rmax => ranges.rmax,
-                RangeKey::Kweight => ranges.kweight,
-            };
-            field.update(cx, |f, cx| f.set_value(Some(value), cx));
-        }
+        self.fit_history = project.fit_history;
+        self.fit_history_results.clear();
+        self.sync_range_fields(cx);
         self.feff_workspace = project.feff_workspace;
         self.derived = project.derived;
 
@@ -5478,118 +5627,6 @@ impl StudioApp {
             )
     }
 
-    fn fit_center(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let t = self.theme;
-        if self.fit_plots.is_none() && self.batch_fit.is_none() {
-            let hint: SharedString = if self.fit_paths.is_empty() {
-                "Add a FEFF path (.dat) in the panel, then Run Fit".into()
-            } else if self.fit_running {
-                "fitting ...".into()
-            } else {
-                "Run Fit to see data vs model".into()
-            };
-            return div()
-                .flex_1()
-                .min_h_0()
-                .min_w_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(t.text_muted)
-                .child(hint)
-                .into_any_element();
-        }
-        let card = |title: SharedString, plot: Entity<RuvizPlot>| {
-            div()
-                .min_h_0()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .rounded_md()
-                .bg(t.raised)
-                .border_1()
-                .border_color(t.border)
-                .child(
-                    div()
-                        .px_2()
-                        .py_1()
-                        .text_xs()
-                        .text_color(t.text_muted)
-                        .child(title),
-                )
-                .child(div().flex_1().min_h_0().min_w_0().p_1().child(plot))
-        };
-        // Data-vs-model overlay with a residual strip beneath (doc: Fit
-        // workspace "below, a residual strip").
-        let column = |title: SharedString, main: Entity<RuvizPlot>, residual: Entity<RuvizPlot>| {
-            div()
-                .flex_1()
-                .min_h_0()
-                .min_w_0()
-                .m_1()
-                .flex()
-                .flex_col()
-                .gap_1()
-                .child(card(title, main).flex_1().min_h_0().min_w_0())
-                .child(
-                    card("residual".into(), residual)
-                        .flex_1()
-                        .min_h(px(80.))
-                        .max_h(px(140.))
-                        .min_w_0(),
-                )
-        };
-        let mut center = div().flex_1().min_h_0().min_w_0().flex().flex_col();
-        if let Some(provenance) = &self.fit_provenance {
-            let stale = self.fit_is_stale();
-            let badge: SharedString = if stale {
-                format!(
-                    "fitted: {} · stale — active spectrum or fit inputs changed",
-                    provenance.label
-                )
-                .into()
-            } else {
-                format!("fitted: {}", provenance.label).into()
-            };
-            center = center.child(
-                div()
-                    .mx_1()
-                    .mt_1()
-                    .px_2()
-                    .py_1()
-                    .rounded_sm()
-                    .border_1()
-                    .border_color(if stale { t.error } else { t.accent })
-                    .text_xs()
-                    .text_color(if stale { t.error } else { t.accent })
-                    .child(badge),
-            );
-        }
-        if let Some(plots) = &self.fit_plots {
-            center = center.child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .min_w_0()
-                    .flex()
-                    .child(column(
-                        "fit in k-space".into(),
-                        plots.k.clone(),
-                        plots.k_residual.clone(),
-                    ))
-                    .child(column(
-                        "fit in R-space".into(),
-                        plots.r.clone(),
-                        plots.r_residual.clone(),
-                    )),
-            );
-        }
-        if self.batch_fit.is_some() {
-            center = center.child(self.batch_results_table(cx));
-        }
-        center.into_any_element()
-    }
-
     fn batch_problems_list(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
         let entity = cx.entity();
@@ -5636,639 +5673,6 @@ impl StudioApp {
             rows
         })
         .h(px(160.))
-    }
-
-    fn fit_panel(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let t = self.theme;
-        let mut panel = div()
-            .id("fit-scroll")
-            .flex_1()
-            .min_h_0()
-            .min_w_0()
-            .flex()
-            .flex_col()
-            .overflow_y_scroll();
-
-        // Paths.
-        panel = panel.child(
-            div()
-                .px_3()
-                .pt_3()
-                .pb_1()
-                .flex()
-                .justify_between()
-                .child(div().text_xs().text_color(t.accent).child("FEFF paths"))
-                .child(
-                    div()
-                        .id("add-path")
-                        .px_2()
-                        .py_0p5()
-                        .rounded_sm()
-                        .text_xs()
-                        .border_1()
-                        .border_color(t.border)
-                        .text_color(t.accent)
-                        .cursor_pointer()
-                        .hover(|d| d.bg(t.raised).border_color(t.accent))
-                        .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                            this.add_fit_path_dialog(cx);
-                        }))
-                        .child("Add Path..."),
-                ),
-        );
-        if self.fit_paths.is_empty() {
-            panel = panel.child(
-                div()
-                    .px_3()
-                    .py_1()
-                    .text_xs()
-                    .text_color(t.text_muted)
-                    .child("no paths imported"),
-            );
-        }
-        for (i, row) in self.fit_paths.iter().enumerate() {
-            let label: SharedString = row.spec.label.clone().into();
-            let enabled = row.spec.enabled;
-            let expanded = row.expanded;
-            let meta_line: SharedString = match &row.meta {
-                Some(m) => {
-                    format!("R {:.3} Å · deg {:.0} · {} legs", m.reff, m.degen, m.nleg).into()
-                }
-                None => "".into(),
-            };
-            let mut path_card = div().px_2().flex().flex_col().child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .child(
-                        // enable/disable toggle
-                        div()
-                            .id(("fit-path-en", i))
-                            .px_1()
-                            .text_sm()
-                            .cursor_pointer()
-                            .text_color(if enabled { t.success } else { t.text_muted })
-                            .hover(|d| d.bg(t.raised))
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                                if let Some(p) = this.fit_paths.get_mut(i) {
-                                    p.spec.enabled = !p.spec.enabled;
-                                    this.fit_model_changed(cx);
-                                }
-                            }))
-                            .child(if enabled { "✓" } else { "✗" }),
-                    )
-                    .child(
-                        // header: click to expand/collapse the editor
-                        div()
-                            .id(("fit-path", i))
-                            .flex_1()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .overflow_hidden()
-                            .cursor_pointer()
-                            .hover(|d| d.bg(t.raised))
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                                if let Some(p) = this.fit_paths.get_mut(i) {
-                                    p.expanded = !p.expanded;
-                                    cx.notify();
-                                }
-                            }))
-                            .child(
-                                div()
-                                    .flex_none()
-                                    .text_sm()
-                                    .text_color(if enabled { t.text } else { t.text_muted })
-                                    .child(label),
-                            )
-                            .child(div().flex_1())
-                            .child(
-                                div()
-                                    .min_w_0()
-                                    .overflow_hidden()
-                                    .whitespace_nowrap()
-                                    .text_xs()
-                                    .text_color(t.text_muted)
-                                    .child(meta_line),
-                            ),
-                    ),
-            );
-            if expanded {
-                for (param, field) in &row.fields {
-                    let cell_label = match param {
-                        PathParam::S02 => "s02",
-                        PathParam::E0 => "e0",
-                        PathParam::Sigma2 => "σ²",
-                        PathParam::DeltaR => "Δr",
-                    };
-                    path_card = path_card.child(
-                        div()
-                            .pl_4()
-                            .py_0p5()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .w(px(28.))
-                                    .text_xs()
-                                    .text_color(t.text_muted)
-                                    .child(cell_label),
-                            )
-                            .child(div().flex_1().child(field.clone())),
-                    );
-                }
-            }
-            panel = panel.child(path_card);
-        }
-
-        // FEFF10 generation.
-        panel = panel.child(self.section_header("FEFF10"));
-        // Bordered, so an action is distinguishable from the accent-coloured
-        // section headings it sits between.
-        let feff_button = |id: &'static str, label: SharedString| {
-            div()
-                .id(id)
-                .px_2()
-                .py_0p5()
-                .rounded_sm()
-                .text_xs()
-                .border_1()
-                .border_color(t.border)
-                .text_color(t.accent)
-                .cursor_pointer()
-                .hover(|d| d.bg(t.raised).border_color(t.accent))
-                .child(label)
-        };
-        // Crystal form (Atoms-lite).
-        for (key, field) in &self.feff_form {
-            let label = match key {
-                FeffFormKey::Element => "element",
-                FeffFormKey::Element2 => "element 2",
-                FeffFormKey::Structure => "structure",
-                FeffFormKey::LatticeA => "a (Å)",
-                FeffFormKey::LatticeC => "c (Å)",
-                FeffFormKey::Edge => "edge",
-                FeffFormKey::Rmax => "rmax (Å)",
-            };
-            panel = panel.child(
-                div()
-                    .px_3()
-                    .py_0p5()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .w(px(72.))
-                            .text_xs()
-                            .text_color(t.text_muted)
-                            .child(label),
-                    )
-                    .child(div().flex_1().child(field.clone())),
-            );
-        }
-        panel = panel.child(
-            div().px_3().py_1().child(
-                div()
-                    .id("feff-generate")
-                    .w_full()
-                    .py_1()
-                    .rounded_md()
-                    .flex()
-                    .justify_center()
-                    .text_xs()
-                    .bg(t.raised)
-                    .text_color(t.accent)
-                    .cursor_pointer()
-                    .hover(|d| d.bg(t.border))
-                    .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                        this.generate_feff_inp(cx);
-                    }))
-                    .child("Generate feff.inp from structure"),
-            ),
-        );
-        panel = panel.child(
-            div()
-                .px_3()
-                .flex()
-                .flex_col()
-                .gap_1()
-                .child(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .gap_2()
-                        .child(feff_button("feff-new", "New feff.inp...".into()).on_click(
-                            cx.listener(|this, _: &ClickEvent, _window, cx| {
-                                this.new_feff_inp(cx);
-                            }),
-                        ))
-                        .child(
-                            feff_button("feff-choose", "Choose feff.inp...".into()).on_click(
-                                cx.listener(|this, _: &ClickEvent, _window, cx| {
-                                    this.choose_feff_inp(cx);
-                                }),
-                            ),
-                        )
-                        .child(
-                            feff_button(
-                                "feff-run",
-                                if self.feff_running {
-                                    "running...".into()
-                                } else {
-                                    "Run FEFF10".into()
-                                },
-                            )
-                            .on_click(cx.listener(
-                                |this, _: &ClickEvent, _window, cx| {
-                                    this.run_feff10_now(cx);
-                                },
-                            )),
-                        ),
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(t.text_muted)
-                        .child(SharedString::from(match &self.feff_workspace {
-                            Some(ws) => format!("workspace: {}", ws.display()),
-                            None => "no workspace".to_string(),
-                        })),
-                ),
-        );
-
-        // Variables.
-        panel = panel.child(self.section_header("Variables"));
-        for var in &self.fit_vars {
-            let name: SharedString = var.spec.name.clone().into();
-            let vary = var.spec.vary;
-            let is_expr = var.spec.expr.is_some();
-            let var_name = var.spec.name.clone();
-            let badge: &'static str = if is_expr {
-                "expr"
-            } else if vary {
-                "vary"
-            } else {
-                "fixed"
-            };
-            panel = panel.child(
-                div()
-                    .px_3()
-                    .py_0p5()
-                    .flex()
-                    .flex_col()
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .w(px(56.))
-                                    .text_sm()
-                                    .text_color(t.text_muted)
-                                    .child(name),
-                            )
-                            .child(div().flex_1().child(var.field.clone()))
-                            .child(
-                                div()
-                                    .id(SharedString::from(format!("vary-{var_name}")))
-                                    .px_1()
-                                    .rounded_sm()
-                                    .text_xs()
-                                    .cursor_pointer()
-                                    .text_color(if is_expr {
-                                        t.warn
-                                    } else if vary {
-                                        t.accent
-                                    } else {
-                                        t.text_muted
-                                    })
-                                    .hover(|d| d.bg(t.raised))
-                                    .on_click(cx.listener(
-                                        move |this, _: &ClickEvent, _window, cx| {
-                                            if let Some(v) = this
-                                                .fit_vars
-                                                .iter_mut()
-                                                .find(|v| v.spec.name == var_name)
-                                            {
-                                                if v.spec.expr.is_some() {
-                                                    // expr -> back to a plain varying value
-                                                    v.spec.expr = None;
-                                                    v.spec.vary = true;
-                                                } else {
-                                                    v.spec.vary = !v.spec.vary;
-                                                }
-                                                this.fit_model_changed(cx);
-                                            }
-                                        },
-                                    ))
-                                    .child(badge),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .pl(px(58.))
-                            .pt_0p5()
-                            .flex()
-                            .items_center()
-                            .gap_1()
-                            .child(div().text_xs().text_color(t.text_muted).child("min"))
-                            .child(div().flex_1().child(var.min_field.clone()))
-                            .child(div().text_xs().text_color(t.text_muted).child("max"))
-                            .child(div().flex_1().child(var.max_field.clone())),
-                    ),
-            );
-        }
-
-        // Ranges + run.
-        panel = panel.child(self.section_header("Fit ranges"));
-        for (_, field) in &self.fit_range_fields {
-            panel = panel.child(field.clone());
-        }
-        // A fit needs at least one enabled path; presenting a live primary
-        // button that can only fail is worse than showing why it is blocked.
-        let can_fit = self.fit_paths.iter().any(|p| p.spec.enabled);
-        panel = panel.child(
-            div()
-                .px_3()
-                .py_2()
-                .flex()
-                .flex_col()
-                .gap_1()
-                .child(
-                    div()
-                        .id("run-fit")
-                        .w_full()
-                        .py_1()
-                        .rounded_md()
-                        .flex()
-                        .justify_center()
-                        .text_sm()
-                        .when(can_fit, |d| {
-                            d.bg(t.accent)
-                                .text_color(t.bg)
-                                .cursor_pointer()
-                                .hover(|d| d.bg(t.text))
-                                .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                                    this.run_fit_now(cx);
-                                }))
-                        })
-                        // Outlined rather than filled: `raised` is pure white
-                        // in the light theme, which would make a disabled
-                        // button brighter than the panel around it.
-                        .when(!can_fit, |d| {
-                            d.border_1().border_color(t.border).text_color(t.text_muted)
-                        })
-                        .child(if self.fit_running {
-                            "fitting ..."
-                        } else {
-                            "Run Fit"
-                        }),
-                )
-                .children((!can_fit).then(|| {
-                    div()
-                        .text_xs()
-                        .text_color(t.text_muted)
-                        .child(if self.fit_paths.is_empty() {
-                            "add a FEFF path to enable fitting"
-                        } else {
-                            "enable at least one path to fit"
-                        })
-                })),
-        );
-
-        // Batch over the active scan.
-        panel = panel.child(self.section_header("Batch"));
-        let batch_label: SharedString = if self.batch_running {
-            let (done, total) = self.batch_progress;
-            format!("Cancel batch fit ({done}/{total})").into()
-        } else {
-            "Run batch fit".into()
-        };
-        panel = panel.child(
-            div()
-                .px_3()
-                .pb_1()
-                .flex()
-                .flex_col()
-                .gap_1()
-                .child(
-                    div()
-                        .id("batch-preview")
-                        .px_1()
-                        .py_0p5()
-                        .rounded_sm()
-                        .border_1()
-                        .border_color(t.border)
-                        .text_xs()
-                        .text_color(if self.batch_preview {
-                            t.accent
-                        } else {
-                            t.text_muted
-                        })
-                        .cursor_pointer()
-                        .hover(|div| div.bg(t.raised))
-                        .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                            this.toggle_batch_preview(cx);
-                        }))
-                        .child(if self.batch_preview {
-                            "preview ✓ · sampled frames"
-                        } else {
-                            "preview off · full scan default"
-                        }),
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(t.text_muted)
-                        .child(self.batch_scope_line()),
-                )
-                .child(
-                    div()
-                        .id("batch-fit")
-                        .w_full()
-                        .py_1()
-                        .rounded_md()
-                        .flex()
-                        .justify_center()
-                        .text_xs()
-                        .bg(if self.batch_running {
-                            t.error
-                        } else {
-                            t.raised
-                        })
-                        .text_color(if self.batch_running { t.bg } else { t.accent })
-                        .cursor_pointer()
-                        .hover(|d| d.bg(t.border))
-                        .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                            if this.batch_running {
-                                this.cancel_batch_fit(cx);
-                            } else {
-                                this.run_batch_fit(cx);
-                            }
-                        }))
-                        .child(batch_label),
-                ),
-        );
-        if let Some(bf) = &self.batch_fit {
-            let batch_stale = self.batch_fit_is_stale();
-            let scope = if bf.preview { "preview" } else { "full scan" };
-            let summary: SharedString = format!(
-                "{scope} · {} / {} fitted · trend: {}",
-                bf.rows.len(),
-                bf.total,
-                bf.varying_names
-                    .get(bf.trend_param)
-                    .cloned()
-                    .unwrap_or_default()
-            )
-            .into();
-            panel = panel.child(
-                div()
-                    .px_3()
-                    .pb_1()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_xs()
-                            .text_color(t.text_muted)
-                            .child(summary),
-                    )
-                    .child(
-                        div()
-                            .id("trend-cycle")
-                            .px_1()
-                            .rounded_sm()
-                            .text_xs()
-                            .text_color(t.accent)
-                            .cursor_pointer()
-                            .hover(|d| d.bg(t.raised))
-                            .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                                this.cycle_trend_param(cx);
-                            }))
-                            .child("next param"),
-                    )
-                    .child(
-                        div()
-                            .id("batch-csv")
-                            .px_1()
-                            .rounded_sm()
-                            .text_xs()
-                            .text_color(if batch_stale { t.text_muted } else { t.accent })
-                            .when(!batch_stale, |button| {
-                                button.cursor_pointer().hover(|d| d.bg(t.raised)).on_click(
-                                    cx.listener(|this, _: &ClickEvent, _window, cx| {
-                                        this.export_batch_csv(cx);
-                                    }),
-                                )
-                            })
-                            .child(if batch_stale { "CSV stale" } else { "CSV..." }),
-                    ),
-            );
-            let problem_count = bf.problems.len();
-            panel = panel.child(
-                div()
-                    .id("batch-problems-toggle")
-                    .mx_3()
-                    .mb_1()
-                    .px_1()
-                    .py_0p5()
-                    .rounded_sm()
-                    .border_1()
-                    .border_color(if problem_count > 0 { t.error } else { t.border })
-                    .text_xs()
-                    .text_color(if problem_count > 0 {
-                        t.error
-                    } else {
-                        t.text_muted
-                    })
-                    .cursor_pointer()
-                    .hover(|div| div.bg(t.raised))
-                    .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                        this.toggle_batch_problems(cx);
-                    }))
-                    .child(SharedString::from(format!(
-                        "{} problems {}",
-                        problem_count,
-                        if bf.problems_open { "▾" } else { "▸" }
-                    ))),
-            );
-            if bf.problems_open {
-                panel = panel.child(div().mx_3().mb_1().child(self.batch_problems_list(cx)));
-            }
-        }
-
-        // Results.
-        if let Some(result) = &self.fit_result {
-            panel = panel.child(self.section_header("Results"));
-            if let Some(provenance) = &self.fit_provenance {
-                let stale = self.fit_is_stale();
-                panel = panel.child(
-                    div()
-                        .mx_3()
-                        .mb_1()
-                        .px_1()
-                        .py_0p5()
-                        .rounded_sm()
-                        .border_1()
-                        .border_color(if stale { t.error } else { t.accent })
-                        .text_xs()
-                        .text_color(if stale { t.error } else { t.accent })
-                        .child(SharedString::from(format!(
-                            "fitted: {}{}",
-                            provenance.label,
-                            if stale { " · stale" } else { "" }
-                        ))),
-                );
-            }
-            for line in result_summary(result) {
-                panel = panel.child(
-                    div()
-                        .px_3()
-                        .py_0p5()
-                        .text_xs()
-                        .text_color(t.text)
-                        .child(SharedString::from(line)),
-                );
-            }
-        }
-
-        div()
-            .w(px(260.))
-            .h_full()
-            .min_h_0()
-            .min_w_0()
-            .flex_none()
-            .flex()
-            .flex_col()
-            .bg(t.surface)
-            .border_l_1()
-            .border_color(t.border)
-            .child(
-                div()
-                    .px_3()
-                    .py_2()
-                    .text_xs()
-                    .text_color(t.text_muted)
-                    .child("FIT MODEL"),
-            )
-            .child(panel)
-    }
-
-    fn section_header(&self, label: &'static str) -> impl IntoElement + use<> {
-        div()
-            .px_3()
-            .pt_3()
-            .pb_1()
-            .text_xs()
-            .text_color(self.theme.accent)
-            .child(label)
     }
 
     /// Import section rows (detection mode, column preview, role pickers,

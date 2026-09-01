@@ -16,9 +16,16 @@ use ruviz::core::Annotation;
 use ruviz::render::{Color as PlotColor, LineStyle};
 use xraytsubaki::prelude::{BackgroundMethod, NormalizationMethod};
 
+use gpui::Entity;
+use ruviz_gpui::RuvizPlot;
+
 use super::Stage;
 use super::center::{PLOT_CHIK, PLOT_CHIR, PLOT_MU, PLOT_NORM};
 use crate::app::{ParamKey, StudioApp};
+
+/// Virtual plot indices for the Fit stage plots (not quadrants).
+pub const PLOT_FIT_K: usize = 100;
+pub const PLOT_FIT_R: usize = 101;
 
 /// Pixel distance within which a handle arms.
 const ARM_PX: f64 = 7.0;
@@ -33,11 +40,16 @@ pub enum HandleKey {
     FftKmin,
     FftKmax,
     Rbkg,
+    FitKmin,
+    FitKmax,
+    FitRmin,
+    FitRmax,
 }
 
 impl HandleKey {
-    fn param(self) -> ParamKey {
-        match self {
+    /// Pipeline parameter the handle edits (`None` for fit ranges).
+    fn param(self) -> Option<ParamKey> {
+        Some(match self {
             HandleKey::E0 => ParamKey::E0,
             HandleKey::PreStart => ParamKey::PreEdgeStart,
             HandleKey::PreEnd => ParamKey::PreEdgeEnd,
@@ -46,7 +58,10 @@ impl HandleKey {
             HandleKey::FftKmin => ParamKey::FftKmin,
             HandleKey::FftKmax => ParamKey::FftKmax,
             HandleKey::Rbkg => ParamKey::Rbkg,
-        }
+            HandleKey::FitKmin | HandleKey::FitKmax | HandleKey::FitRmin | HandleKey::FitRmax => {
+                return None;
+            }
+        })
     }
 
     /// Values are stored relative to E₀ for the normalization ranges.
@@ -65,6 +80,8 @@ impl HandleKey {
             }
             HandleKey::FftKmin | HandleKey::FftKmax => 0.1,
             HandleKey::Rbkg => 0.05,
+            HandleKey::FitKmin | HandleKey::FitKmax => 0.1,
+            HandleKey::FitRmin | HandleKey::FitRmax => 0.05,
         }
     }
 
@@ -92,6 +109,30 @@ pub struct HandleState {
 impl StudioApp {
     /// Handles the stage exposes on a given plot, with their current data x.
     fn handle_specs(&self, plot: usize) -> (Vec<(HandleKey, f64)>, Vec<Span>) {
+        if self.stage == Stage::Fit {
+            let r = &self.fit_ranges;
+            return match plot {
+                PLOT_FIT_K => (
+                    vec![(HandleKey::FitKmin, r.kmin), (HandleKey::FitKmax, r.kmax)],
+                    vec![Span {
+                        lo: Some(HandleKey::FitKmin),
+                        hi: Some(HandleKey::FitKmax),
+                        fixed_lo: 0.0,
+                        accent: true,
+                    }],
+                ),
+                PLOT_FIT_R => (
+                    vec![(HandleKey::FitRmin, r.rmin), (HandleKey::FitRmax, r.rmax)],
+                    vec![Span {
+                        lo: Some(HandleKey::FitRmin),
+                        hi: Some(HandleKey::FitRmax),
+                        fixed_lo: 0.0,
+                        accent: true,
+                    }],
+                ),
+                _ => (Vec::new(), Vec::new()),
+            };
+        }
         let Some(sp) = self.spectrum.as_deref() else {
             return (Vec::new(), Vec::new());
         };
@@ -199,7 +240,7 @@ impl StudioApp {
 
     /// Static annotations (spans + handle lines) to bake into plot `plot`.
     pub(crate) fn handle_decor(&self, plot: usize) -> Vec<Annotation> {
-        if !self.stage.is_processing() {
+        if !self.stage.is_processing() && self.stage != Stage::Fit {
             return Vec::new();
         }
         let (specs, spans) = self.handle_specs(plot);
@@ -247,16 +288,34 @@ impl StudioApp {
 
     /// Pointer moved over plot `plot` (window coordinates). Arms the nearest
     /// handle, or drags the active one.
+    /// The interactive plot behind a handle plot index.
+    pub(crate) fn plot_entity(&self, plot: usize) -> Option<Entity<RuvizPlot>> {
+        match plot {
+            PLOT_FIT_K => self.fit_plots.as_ref().map(|p| p.k.clone()),
+            PLOT_FIT_R => self.fit_plots.as_ref().map(|p| p.r.clone()),
+            _ => self.quadrants.get(plot).map(|(_, e)| e.clone()),
+        }
+    }
+
+    /// Redraw the plot that carries handle `plot` (hot/cold line width and
+    /// dragged geometry live in the baked plot).
+    fn redraw_handle_plot(&mut self, plot: usize, cx: &mut Context<Self>) {
+        if plot >= PLOT_FIT_K {
+            self.rebuild_fit_plots(cx);
+        } else {
+            self.rebuild_explore_plots(cx);
+        }
+    }
+
     pub(crate) fn plot_pointer_move(
         &mut self,
         plot: usize,
         position: Point<Pixels>,
         cx: &mut Context<Self>,
     ) {
-        let Some((_, entity)) = self.quadrants.get(plot) else {
+        let Some(entity) = self.plot_entity(plot) else {
             return;
         };
-        let entity = entity.clone();
         if let Some((drag_plot, key)) = self.handles.dragging {
             if drag_plot != plot {
                 return;
@@ -298,8 +357,7 @@ impl StudioApp {
         let armed = nearest.map(|(key, _)| (plot, key));
         if armed != self.handles.armed {
             self.handles.armed = armed;
-            // Hot/cold line width lives in the baked plot.
-            self.rebuild_explore_plots(cx);
+            self.redraw_handle_plot(plot, cx);
             cx.notify();
         }
     }
@@ -317,16 +375,37 @@ impl StudioApp {
             (x / step).round() * step
         };
         let value = match key {
-            HandleKey::Rbkg | HandleKey::FftKmin => value.max(0.0),
+            HandleKey::Rbkg | HandleKey::FftKmin | HandleKey::FitKmin | HandleKey::FitRmin => {
+                value.max(0.0)
+            }
             _ => value,
         };
-        let current = crate::app::param_field_value(key.param(), self.ui_params());
+        let Some(param) = key.param() else {
+            // Fit ranges: model state, not pipeline params.
+            let r = &mut self.fit_ranges;
+            let slot = match key {
+                HandleKey::FitKmin => &mut r.kmin,
+                HandleKey::FitKmax => &mut r.kmax,
+                HandleKey::FitRmin => &mut r.rmin,
+                HandleKey::FitRmax => &mut r.rmax,
+                _ => return,
+            };
+            if *slot == value {
+                return;
+            }
+            *slot = value;
+            self.sync_range_fields(cx);
+            self.fit_model_changed(cx);
+            self.rebuild_fit_plots(cx);
+            return;
+        };
+        let current = crate::app::param_field_value(param, self.ui_params());
         if current == Some(value) {
             return;
         }
         // Params first (debounced recompute), then an immediate visual
         // update from the cached spectrum so the region follows the pointer.
-        self.apply_param(key.param(), Some(value), cx);
+        self.apply_param(param, Some(value), cx);
         self.sync_param_fields(cx);
         self.rebuild_explore_plots(cx);
     }
@@ -379,9 +458,9 @@ impl StudioApp {
     }
 
     fn end_handle_drag(&mut self, cx: &mut Context<Self>) {
-        if self.handles.dragging.take().is_some() {
+        if let Some((plot, _)) = self.handles.dragging.take() {
             self.handles.armed = None;
-            self.rebuild_explore_plots(cx);
+            self.redraw_handle_plot(plot, cx);
             cx.notify();
         }
     }

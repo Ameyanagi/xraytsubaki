@@ -2,9 +2,12 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 
+pub mod athena;
 pub mod xafs_bson;
 pub mod xafs_json;
 pub mod xasdatatype;
+
+pub use athena::{AthenaGroup, AthenaParams, AthenaProject, AthenaValue};
 
 use crate::xafs::errors::IOError;
 use crate::xafs::xasspectrum::XASSpectrum;

@@ -139,6 +139,21 @@ pub enum IOError {
 
     #[error("compression error: {message}")]
     CompressionError { message: String },
+
+    #[error("failed to write file {path}: {kind}")]
+    WriteFailed {
+        path: String,
+        kind: std::io::ErrorKind,
+    },
+
+    #[error("not an Athena project file: {reason}")]
+    NotAthenaProject { reason: String },
+
+    #[error("Athena project parse error at line {line}: {message}")]
+    AthenaParse { line: usize, message: String },
+
+    #[error("cannot export to Athena project: {reason}")]
+    AthenaExport { reason: String },
 }
 
 /// Errors related to mathematical operations.

@@ -12,6 +12,7 @@ pub use crate::xafs::fitting::{
     FitWarning, Param, PathContribution, PathParamSpec,
 };
 pub use crate::xafs::io;
+pub use crate::xafs::io::athena::{AthenaGroup, AthenaParams, AthenaProject, AthenaValue};
 pub use crate::xafs::lmutils::LMParameters;
 // pub use crate::xafs::mathutils;
 pub use crate::xafs::normalization::{Normalization, NormalizationMethod};
@@ -22,3 +23,8 @@ pub use crate::xafs::xrayfft::{FFTUtils, XrayFFTF, XrayFFTR};
 
 #[cfg(feature = "plotting")]
 pub use crate::plot::{PlotError, PlotXAS, XASPlotBuilder};
+pub use crate::xafs::tools::{
+    difference, merge_spectra, DiffSpace, EdgeFeature, MergeConfig, MergeGrid, MergeWeight,
+    RebinConfig, RebinMethod, RebinOutput,
+};
+pub use crate::xafs::xafsutils::ConvolveForm;

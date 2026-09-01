@@ -252,6 +252,56 @@ impl From<Box<dyn std::error::Error>> for BackgroundError {
     }
 }
 
+/// Errors raised by the linear-combination-fitting / PCA analysis module.
+#[derive(Error, Debug, Clone)]
+pub enum AnalysisError {
+    #[error("missing array for analysis: {field}")]
+    MissingArray { field: String },
+
+    #[error("no standards / spectra supplied")]
+    NoSpectra,
+
+    #[error("insufficient spectra: need at least {min}, got {actual}")]
+    InsufficientSpectra { min: usize, actual: usize },
+
+    #[error("fit range [{lo}, {hi}] selects only {n_points} points (need at least {min})")]
+    EmptyRange {
+        lo: f64,
+        hi: f64,
+        n_points: usize,
+        min: usize,
+    },
+
+    #[error(
+        "weight constraints are infeasible: sum-to-one target {target} not within [{lo}, {hi}]"
+    )]
+    InfeasibleConstraints { target: f64, lo: f64, hi: f64 },
+
+    #[error("{count} standard combinations requested, exceeding the cap of {max}")]
+    TooManyCombinations { count: usize, max: usize },
+
+    #[error("requested {requested} components but the model has only {available}")]
+    TooManyComponents { requested: usize, available: usize },
+
+    #[error("linear algebra failed: {reason}")]
+    LinearAlgebra { reason: String },
+
+    #[error(transparent)]
+    Xafs(#[from] super::XAFSError),
+}
+
+impl From<DataError> for AnalysisError {
+    fn from(value: DataError) -> Self {
+        Self::Xafs(value.into())
+    }
+}
+
+impl From<MathError> for AnalysisError {
+    fn from(value: MathError) -> Self {
+        Self::Xafs(value.into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

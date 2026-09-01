@@ -17,6 +17,7 @@ use easyfft::dyn_size::realfft::DynRealDft;
 // External dependencies
 
 // load dependencies
+pub mod analysis;
 #[cfg(feature = "ndarray-compat")]
 #[path = "background_ndarray.rs"]
 pub mod background;
@@ -59,7 +60,9 @@ use normalization::Normalization;
 use xafsutils::XAFSUtils;
 
 // Re-export error types for public API
-pub use errors::{BackgroundError, DataError, FFTError, IOError, MathError, NormalizationError};
+pub use errors::{
+    AnalysisError, BackgroundError, DataError, FFTError, IOError, MathError, NormalizationError,
+};
 pub use fitting::errors::FittingError;
 
 /// Top-level error type that aggregates all domain-specific errors.

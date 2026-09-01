@@ -23,6 +23,11 @@ pub use crate::xafs::xrayfft::{FFTUtils, XrayFFTF, XrayFFTR};
 
 #[cfg(feature = "plotting")]
 pub use crate::plot::{PlotError, PlotXAS, XASPlotBuilder};
+pub use crate::xafs::analysis::{
+    lcf, lcf_combinatorial, pca_train, AnalysisSpace, LcfComponent, LcfConfig, LcfResult, LcfSpace,
+    PcaConfig, PcaFit, PcaModel,
+};
+pub use crate::xafs::errors::AnalysisError;
 pub use crate::xafs::tools::{
     difference, merge_spectra, DiffSpace, EdgeFeature, MergeConfig, MergeGrid, MergeWeight,
     RebinConfig, RebinMethod, RebinOutput,

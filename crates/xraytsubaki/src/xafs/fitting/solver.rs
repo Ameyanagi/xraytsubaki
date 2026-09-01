@@ -21,14 +21,15 @@ use rayon::prelude::*;
 use super::errors::FittingError;
 use super::path_model::ff2chi;
 use super::transform::{
-    apply_r_transform, compute_n_idp, data_residual_in_r_space, residual_in_r_space,
-    validate_transform, TransformOutput,
+    apply_dataset_transform, apply_kweight_transform, compute_n_idp, epsilon_r_for_kweight,
+    residual_for_dataset, resolve_epsilon_ks, validate_transform, DatasetTransform,
 };
 #[cfg(feature = "trust-region")]
 use super::types::FeffFitJacobianMode;
 use super::types::{
     DatasetResult, FeffBatchExecutionStrategy, FeffBatchOptions, FeffFitDataset, FeffFitOptions,
-    FeffFitResult, FeffFitSolverMethod, FitVariables, PathContribution, PathParamSpec,
+    FeffFitResult, FeffFitSolverMethod, FitVariables, KweightResult, PathContribution,
+    PathParamSpec,
 };
 use super::variables::try_extract_symbols;
 
@@ -134,14 +135,9 @@ pub fn feffit_joint_with_options(
         .zip(solved.data_transforms.iter())
         .zip(model_evaluations)
     {
-        let ds_residual = residual_in_r_space(
-            data_transform,
-            &model_eval.model_transform,
-            &dataset.transform,
-            dataset.epsilon_k,
-        )?;
-        let ds_data_residual =
-            data_residual_in_r_space(data_transform, &dataset.transform, dataset.epsilon_k)?;
+        let ds_residual =
+            dataset_residual(dataset, data_transform, Some(&model_eval.model_transform))?;
+        let ds_data_residual = dataset_residual(dataset, data_transform, None)?;
         let ds_raw_chi_square = ds_residual.dot(&ds_residual);
         let ds_n_data = ds_residual.len();
         let ds_n_vary = dataset_vary_count(dataset, &solved.variables, &solved.variable_names)?;
@@ -160,21 +156,61 @@ pub fn feffit_joint_with_options(
             model_diff_norm / data_norm
         };
 
+        let transform = &dataset.transform;
+        let q = larch_q_grid(transform, &dataset.k);
         let path_contributions = model_eval
             .path_chi
             .iter()
             .filter_map(|(label, chi)| {
-                let transformed = apply_r_transform(&dataset.k, chi, &dataset.transform).ok()?;
+                let transformed = apply_kweight_transform(
+                    &dataset.k,
+                    chi,
+                    transform,
+                    transform.primary_kweight(),
+                )
+                .ok()?;
                 Some(PathContribution {
                     label: label.clone(),
                     chi: chi.clone(),
-                    chir_re: transformed.chir_re,
-                    chir_im: transformed.chir_im,
-                    chir_mag: transformed.chir_mag,
+                    chir_re: transformed.r_space.chir_re,
+                    chir_im: transformed.r_space.chir_im,
+                    chir_mag: transformed.r_space.chir_mag,
+                    chiq: truncate(&transformed.chiq, q.len()),
                 })
             })
             .collect::<Vec<_>>();
 
+        let epsilon_ks = resolve_epsilon_ks(dataset);
+        let kweight_results = data_transform
+            .blocks
+            .iter()
+            .zip(model_eval.model_transform.blocks.iter())
+            .enumerate()
+            .map(|(index, (data_block, model_block))| {
+                let epsilon_k = epsilon_ks.get(index).copied().unwrap_or(1.0);
+                KweightResult {
+                    kweight: data_block.kweight,
+                    epsilon_k,
+                    epsilon_r: epsilon_r_for_kweight(transform, data_block.kweight, epsilon_k),
+                    n_data: data_block.residual_len(transform.fitspace),
+                    kwin: data_block.r_space.kwin.clone(),
+                    data_chik: data_block.chik.clone(),
+                    model_chik: model_block.chik.clone(),
+                    data_chir_re: data_block.r_space.chir_re.clone(),
+                    data_chir_im: data_block.r_space.chir_im.clone(),
+                    data_chir_mag: data_block.r_space.chir_mag.clone(),
+                    model_chir_re: model_block.r_space.chir_re.clone(),
+                    model_chir_im: model_block.r_space.chir_im.clone(),
+                    model_chir_mag: model_block.r_space.chir_mag.clone(),
+                    q: q.clone(),
+                    data_chiq: truncate(&data_block.chiq, q.len()),
+                    model_chiq: truncate(&model_block.chiq, q.len()),
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let data_primary = data_transform.primary();
+        let model_primary = model_eval.model_transform.primary();
         datasets_out.push(DatasetResult {
             n_data: ds_n_data,
             chi_square: ds_chi_square,
@@ -184,19 +220,25 @@ pub fn feffit_joint_with_options(
             k: dataset.k.clone(),
             data_chi: dataset.chi.clone(),
             model_chi: model_eval.model_chi,
-            kweight: dataset.transform.kweight,
-            kmin: Some(dataset.transform.kmin),
-            kmax: Some(dataset.transform.kmax),
-            kwin: data_transform.kwin.clone(),
-            r: model_eval.model_transform.r.clone(),
-            rmin: Some(dataset.transform.rmin),
-            rmax: Some(dataset.transform.rmax),
-            data_chir_re: data_transform.chir_re.clone(),
-            data_chir_im: data_transform.chir_im.clone(),
-            model_chir_re: model_eval.model_transform.chir_re,
-            model_chir_im: model_eval.model_transform.chir_im,
-            model_chir_mag: model_eval.model_transform.chir_mag,
+            kweight: transform.primary_kweight(),
+            kmin: Some(transform.kmin),
+            kmax: Some(transform.kmax),
+            kwin: data_primary.r_space.kwin.clone(),
+            r: model_primary.r_space.r.clone(),
+            rmin: Some(transform.rmin),
+            rmax: Some(transform.rmax),
+            data_chir_re: data_primary.r_space.chir_re.clone(),
+            data_chir_im: data_primary.r_space.chir_im.clone(),
+            model_chir_re: model_primary.r_space.chir_re.clone(),
+            model_chir_im: model_primary.r_space.chir_im.clone(),
+            model_chir_mag: model_primary.r_space.chir_mag.clone(),
             path_contributions,
+            fitspace: transform.fitspace,
+            kweights: transform.effective_kweights(),
+            q: q.clone(),
+            data_chiq: truncate(&data_primary.chiq, q.len()),
+            model_chiq: truncate(&model_primary.chiq, q.len()),
+            kweight_results,
         });
     }
 
@@ -235,6 +277,38 @@ fn solve_fit_problem(
         }
         FeffFitSolverMethod::TrustRegionDogLeg => solve_fit_problem_apex(problem, options),
     }
+}
+
+/// Residual of one dataset in its fit space; `model = None` gives the transformed data alone.
+fn dataset_residual(
+    dataset: &FeffFitDataset,
+    data_transform: &DatasetTransform,
+    model_transform: Option<&DatasetTransform>,
+) -> Result<DVector<f64>, FittingError> {
+    residual_for_dataset(
+        data_transform,
+        model_transform,
+        &dataset.transform,
+        &resolve_epsilon_ks(dataset),
+    )
+}
+
+/// Larch output q grid: `linspace(0, kmax + 2, int(1.05 + (kmax + 2) / kstep))`.
+fn larch_q_grid(transform: &super::types::FeffFitTransform, k: &DVector<f64>) -> DVector<f64> {
+    let kstep = transform
+        .kstep
+        .unwrap_or_else(|| if k.len() > 1 { k[1] - k[0] } else { 0.05 })
+        .max(1.0e-12);
+    let qmax_out = transform.kmax + 2.0;
+    let n = ((1.05 + qmax_out / kstep) as usize)
+        .min(transform.nfft / 2)
+        .max(2);
+    DVector::from_iterator(n, (0..n).map(|i| qmax_out * i as f64 / (n - 1) as f64))
+}
+
+fn truncate(values: &DVector<f64>, len: usize) -> DVector<f64> {
+    let len = len.min(values.len());
+    DVector::from_iterator(len, values.iter().take(len).copied())
 }
 
 fn dataset_vary_count(
@@ -396,13 +470,13 @@ fn validate_dataset(dataset: &FeffFitDataset) -> Result<(), FittingError> {
 struct ModelEvaluation {
     model_chi: DVector<f64>,
     path_chi: Vec<(String, DVector<f64>)>,
-    model_transform: TransformOutput,
+    model_transform: DatasetTransform,
 }
 
 #[derive(Clone)]
 struct FeffFitMultiProblem {
     datasets: Vec<FeffFitDataset>,
-    data_transforms: Vec<TransformOutput>,
+    data_transforms: Vec<DatasetTransform>,
     variables: FitVariables,
     variable_names: Vec<String>,
     residual_len: usize,
@@ -416,7 +490,7 @@ impl FeffFitMultiProblem {
     ) -> Result<Self, FittingError> {
         let mut data_transforms = Vec::with_capacity(datasets.len());
         for dataset in &datasets {
-            data_transforms.push(apply_r_transform(
+            data_transforms.push(apply_dataset_transform(
                 &dataset.k,
                 &dataset.chi,
                 &dataset.transform,
@@ -440,7 +514,7 @@ impl FeffFitMultiProblem {
         vars: &FitVariables,
     ) -> Result<ModelEvaluation, FittingError> {
         let model = ff2chi(&dataset.paths, vars, &dataset.k)?;
-        let model_transform = apply_r_transform(&dataset.k, &model.chi, &dataset.transform)?;
+        let model_transform = apply_dataset_transform(&dataset.k, &model.chi, &dataset.transform)?;
         Ok(ModelEvaluation {
             model_chi: model.chi,
             path_chi: model.path_chi,
@@ -464,12 +538,8 @@ impl FeffFitMultiProblem {
             .zip(self.data_transforms.iter())
             .zip(models)
         {
-            let ds_residual = residual_in_r_space(
-                data_transform,
-                &model.model_transform,
-                &dataset.transform,
-                dataset.epsilon_k,
-            )?;
+            let ds_residual =
+                dataset_residual(dataset, data_transform, Some(&model.model_transform))?;
             residual.extend(ds_residual.iter().copied());
         }
         if residual.is_empty() {
@@ -497,12 +567,8 @@ impl FeffFitMultiProblem {
                 .zip(self.data_transforms.iter())
                 .zip(models)
             {
-                let ds_residual = residual_in_r_space(
-                    data_transform,
-                    &model.model_transform,
-                    &dataset.transform,
-                    dataset.epsilon_k,
-                )?;
+                let ds_residual =
+                    dataset_residual(dataset, data_transform, Some(&model.model_transform))?;
                 residual.extend(ds_residual.iter().copied());
             }
             Ok::<_, FittingError>(DVector::from_vec(residual))
@@ -527,7 +593,7 @@ impl FeffFitMultiProblem {
 #[derive(Clone)]
 struct FeffSpectrumFactor {
     dataset: FeffFitDataset,
-    data_transform: TransformOutput,
+    data_transform: DatasetTransform,
     variables: FitVariables,
     variable_names: Vec<String>,
     residual_len: usize,
@@ -544,11 +610,10 @@ impl FeffSpectrumFactor {
         }
 
         match FeffFitMultiProblem::evaluate_dataset_model(&self.dataset, &vars).and_then(|model| {
-            residual_in_r_space(
+            dataset_residual(
+                &self.dataset,
                 &self.data_transform,
-                &model.model_transform,
-                &self.dataset.transform,
-                self.dataset.epsilon_k,
+                Some(&model.model_transform),
             )
         }) {
             Ok(residual) => residual,
@@ -712,12 +777,13 @@ fn solve_fit_problem_apex(
     {
         let factor_names =
             dataset_varying_names(&dataset, &problem.variables, &problem.variable_names)?;
-        let residual_len = residual_in_r_space(
+        let residual_len = dataset_residual(
+            &dataset,
             &data_transform,
-            &FeffFitMultiProblem::evaluate_dataset_model(&dataset, &problem.variables)?
-                .model_transform,
-            &dataset.transform,
-            dataset.epsilon_k,
+            Some(
+                &FeffFitMultiProblem::evaluate_dataset_model(&dataset, &problem.variables)?
+                    .model_transform,
+            ),
         )?
         .len();
         let factor = FeffSpectrumFactor {
@@ -861,6 +927,7 @@ mod tests {
             epsilon_k: Some(1.0),
             transform: Default::default(),
             paths: vec![path],
+            ..FeffFitDataset::default()
         };
 
         let mut initial = FitVariables::new();
@@ -921,6 +988,7 @@ mod tests {
             epsilon_k: Some(1.0),
             transform: Default::default(),
             paths: vec![path1],
+            ..FeffFitDataset::default()
         };
         let ds2 = FeffFitDataset {
             k: k2,
@@ -928,6 +996,7 @@ mod tests {
             epsilon_k: Some(1.0),
             transform: Default::default(),
             paths: vec![path2],
+            ..FeffFitDataset::default()
         };
 
         let mut initial = FitVariables::new();

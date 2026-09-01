@@ -6,7 +6,8 @@ use super::errors::FittingError;
 use super::solver;
 use super::types::{
     FeffFitDataset, FeffFitJacobianMode, FeffFitOptions, FeffFitResult, FeffFitSolverMethod,
-    FeffFlavor, FeffPathModel, FitVariable, FitVariables, FitWarning, Param, PathParamSpec,
+    FeffFlavor, FeffPathModel, FitSpace, FitVariable, FitVariables, FitWarning, Param,
+    PathParamSpec,
 };
 use super::variables::try_extract_symbols;
 use crate::xafs::xafsutils::FTWindow;
@@ -141,6 +142,28 @@ impl FeffFit {
 
     pub fn dr(mut self, value: f64) -> Self {
         self.default_dataset = self.default_dataset.dr(value);
+        self.has_default = true;
+        self
+    }
+
+    /// Fit several k-weights simultaneously (Larch `kweight=(1,2,3)`); the residual
+    /// concatenates one transformed block per k-weight.
+    pub fn kweights(mut self, values: &[f64]) -> Self {
+        self.default_dataset = self.default_dataset.kweights(values);
+        self.has_default = true;
+        self
+    }
+
+    /// Select the fit space (`FitSpace::R` by default, or `K` / `Q`).
+    pub fn fitspace(mut self, value: FitSpace) -> Self {
+        self.default_dataset = self.default_dataset.fitspace(value);
+        self.has_default = true;
+        self
+    }
+
+    /// Per-k-weight noise estimates aligned with `kweights` (Larch multi-kweight `epsilon_k`).
+    pub fn epsilon_ks(mut self, values: &[f64]) -> Self {
+        self.default_dataset = self.default_dataset.epsilon_ks(values);
         self.has_default = true;
         self
     }

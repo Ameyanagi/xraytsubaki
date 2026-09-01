@@ -13,9 +13,16 @@ pub enum FeffFlavor {
     Feff10,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// Space in which the fit residual is evaluated (Larch `fitspace`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum FitSpace {
+    /// Real and imaginary parts of the windowed chi(R) between `rmin..rmax` (default).
+    #[default]
     R,
+    /// `k^w * chi(k)` between `kmin..kmax` (no k-window, Larch semantics).
+    K,
+    /// Real part of the back-transformed chi(q) between `kmin..kmax`.
+    Q,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -620,6 +627,9 @@ pub struct FeffFitTransform {
     pub dr2: Option<f64>,
     pub rwindow: FTWindow,
     pub fitspace: FitSpace,
+    /// Simultaneous k-weights (Larch `kweight=(1,2,3)`). Empty means "use `kweight`".
+    /// The residual concatenates one transformed block per k-weight.
+    pub kweights: Vec<f64>,
 }
 
 impl Default for FeffFitTransform {
@@ -639,7 +649,24 @@ impl Default for FeffFitTransform {
             dr2: None,
             rwindow: FTWindow::Hanning,
             fitspace: FitSpace::R,
+            kweights: Vec::new(),
         }
+    }
+}
+
+impl FeffFitTransform {
+    /// k-weights actually used by the fit: `kweights` when non-empty, otherwise `[kweight]`.
+    pub fn effective_kweights(&self) -> Vec<f64> {
+        if self.kweights.is_empty() {
+            vec![self.kweight]
+        } else {
+            self.kweights.clone()
+        }
+    }
+
+    /// First effective k-weight (Larch `get_kweight()`), used for the primary plot arrays.
+    pub fn primary_kweight(&self) -> f64 {
+        self.kweights.first().copied().unwrap_or(self.kweight)
     }
 }
 
@@ -651,6 +678,9 @@ pub struct FeffFitDataset {
     pub epsilon_k: Option<f64>,
     pub transform: FeffFitTransform,
     pub paths: Vec<FeffPathModel>,
+    /// Per-k-weight noise estimates, aligned with `transform.effective_kweights()`.
+    /// Empty means "use `epsilon_k` for every k-weight block".
+    pub epsilon_ks: Vec<f64>,
 }
 
 impl Default for FeffFitDataset {
@@ -661,6 +691,7 @@ impl Default for FeffFitDataset {
             epsilon_k: None,
             transform: FeffFitTransform::default(),
             paths: Vec::new(),
+            epsilon_ks: Vec::new(),
         }
     }
 }
@@ -722,6 +753,24 @@ impl FeffFitDataset {
         self.transform.dr = value;
         self
     }
+
+    /// Fit several k-weights simultaneously (Larch `kweight=(1,2,3)`).
+    pub fn kweights(mut self, values: &[f64]) -> Self {
+        self.transform.kweights = values.to_vec();
+        self
+    }
+
+    /// Select the fit space (R, K or Q).
+    pub fn fitspace(mut self, value: FitSpace) -> Self {
+        self.transform.fitspace = value;
+        self
+    }
+
+    /// Per-k-weight noise estimates (aligned with `kweights`).
+    pub fn epsilon_ks(mut self, values: &[f64]) -> Self {
+        self.epsilon_ks = values.to_vec();
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -732,6 +781,8 @@ pub struct PathContribution {
     pub chir_re: DVector<f64>,
     pub chir_im: DVector<f64>,
     pub chir_mag: DVector<f64>,
+    /// Real part of chi(q) (Larch `chiq_re`) on the same grid as `DatasetResult::q`.
+    pub chiq: DVector<f64>,
 }
 
 impl Default for PathContribution {
@@ -742,6 +793,58 @@ impl Default for PathContribution {
             chir_re: DVector::zeros(0),
             chir_im: DVector::zeros(0),
             chir_mag: DVector::zeros(0),
+            chiq: DVector::zeros(0),
+        }
+    }
+}
+
+/// Transformed data/model arrays for one k-weight of a (possibly multi-k-weight) fit.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct KweightResult {
+    pub kweight: f64,
+    /// Noise estimate in k used for this block (1.0 when the dataset carries none).
+    pub epsilon_k: f64,
+    /// Noise estimate in R derived from `epsilon_k` (Larch `epsilon_r`).
+    pub epsilon_r: f64,
+    /// Number of residual points contributed by this block.
+    pub n_data: usize,
+    pub kwin: DVector<f64>,
+    /// `k^w * chi(k)` (no window) for data and model.
+    pub data_chik: DVector<f64>,
+    pub model_chik: DVector<f64>,
+    pub data_chir_re: DVector<f64>,
+    pub data_chir_im: DVector<f64>,
+    pub data_chir_mag: DVector<f64>,
+    pub model_chir_re: DVector<f64>,
+    pub model_chir_im: DVector<f64>,
+    pub model_chir_mag: DVector<f64>,
+    /// q grid (`0..kmax+2`, Larch convention) for the back-transformed arrays.
+    pub q: DVector<f64>,
+    /// Real part of chi(q) (Larch `chiq_re`) after the R-window.
+    pub data_chiq: DVector<f64>,
+    pub model_chiq: DVector<f64>,
+}
+
+impl Default for KweightResult {
+    fn default() -> Self {
+        Self {
+            kweight: 2.0,
+            epsilon_k: 1.0,
+            epsilon_r: 1.0,
+            n_data: 0,
+            kwin: DVector::zeros(0),
+            data_chik: DVector::zeros(0),
+            model_chik: DVector::zeros(0),
+            data_chir_re: DVector::zeros(0),
+            data_chir_im: DVector::zeros(0),
+            data_chir_mag: DVector::zeros(0),
+            model_chir_re: DVector::zeros(0),
+            model_chir_im: DVector::zeros(0),
+            model_chir_mag: DVector::zeros(0),
+            q: DVector::zeros(0),
+            data_chiq: DVector::zeros(0),
+            model_chiq: DVector::zeros(0),
         }
     }
 }
@@ -770,6 +873,18 @@ pub struct DatasetResult {
     pub model_chir_im: DVector<f64>,
     pub model_chir_mag: DVector<f64>,
     pub path_contributions: Vec<PathContribution>,
+    /// Space the residual was evaluated in.
+    pub fitspace: FitSpace,
+    /// All k-weights used by the fit (primary arrays above use the first one).
+    pub kweights: Vec<f64>,
+    /// q grid for `data_chiq`/`model_chiq` (Larch: `0..kmax+2`).
+    pub q: DVector<f64>,
+    /// Real part of the back-transformed chi(q) of the data (primary k-weight).
+    pub data_chiq: DVector<f64>,
+    /// Real part of the back-transformed chi(q) of the model (primary k-weight).
+    pub model_chiq: DVector<f64>,
+    /// Per-k-weight transformed arrays, aligned with `kweights`.
+    pub kweight_results: Vec<KweightResult>,
 }
 
 impl Default for DatasetResult {
@@ -796,6 +911,12 @@ impl Default for DatasetResult {
             model_chir_im: DVector::zeros(0),
             model_chir_mag: DVector::zeros(0),
             path_contributions: Vec::new(),
+            fitspace: FitSpace::R,
+            kweights: Vec::new(),
+            q: DVector::zeros(0),
+            data_chiq: DVector::zeros(0),
+            model_chiq: DVector::zeros(0),
+            kweight_results: Vec::new(),
         }
     }
 }
@@ -856,6 +977,16 @@ pub struct FeffFitResult {
     pub datasets: Vec<DatasetResult>,
     pub n_idp: f64,
     pub warnings: Vec<FitWarning>,
+    /// Fit space of the primary dataset.
+    pub fitspace: FitSpace,
+    /// k-weights of the primary dataset (primary arrays use the first one).
+    pub kweights: Vec<f64>,
+    /// q grid of the primary dataset for `data_chiq`/`model_chiq`.
+    pub q: DVector<f64>,
+    pub data_chiq: DVector<f64>,
+    pub model_chiq: DVector<f64>,
+    /// Per-k-weight transformed arrays of the primary dataset.
+    pub kweight_results: Vec<KweightResult>,
 }
 
 impl Default for FeffFitResult {
@@ -889,6 +1020,12 @@ impl Default for FeffFitResult {
             datasets: Vec::new(),
             n_idp: 0.0,
             warnings: Vec::new(),
+            fitspace: FitSpace::R,
+            kweights: Vec::new(),
+            q: DVector::zeros(0),
+            data_chiq: DVector::zeros(0),
+            model_chiq: DVector::zeros(0),
+            kweight_results: Vec::new(),
         }
     }
 }
@@ -916,6 +1053,12 @@ impl FeffFitResult {
             self.model_chir_im = dataset.model_chir_im.clone();
             self.model_chir_mag = dataset.model_chir_mag.clone();
             self.path_contributions = dataset.path_contributions.clone();
+            self.fitspace = dataset.fitspace;
+            self.kweights = dataset.kweights.clone();
+            self.q = dataset.q.clone();
+            self.data_chiq = dataset.data_chiq.clone();
+            self.model_chiq = dataset.model_chiq.clone();
+            self.kweight_results = dataset.kweight_results.clone();
         }
     }
 }

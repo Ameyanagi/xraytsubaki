@@ -9,7 +9,7 @@ pub use crate::xafs::fitting::{
     FeffFit, FeffFitDataset, FeffFitJacobianMode, FeffFitOptions, FeffFitResult,
     FeffFitSolverMethod, FeffFitTransform, FeffFlavor, FeffModuleCommand, FeffPathModel,
     FeffResolvedCommands, FeffRunRequest, FeffRunResult, FitSpace, FitVariable, FitVariables,
-    FitWarning, Param, PathContribution, PathParamSpec,
+    FitWarning, KweightResult, NoiseEstimate, Param, PathContribution, PathParamSpec,
 };
 pub use crate::xafs::io;
 pub use crate::xafs::io::athena::{AthenaGroup, AthenaParams, AthenaProject, AthenaValue};

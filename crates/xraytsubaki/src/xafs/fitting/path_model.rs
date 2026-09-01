@@ -377,4 +377,108 @@ mod tests {
         let err = interp_cubic_spline_clamped(&xin, &yin, &xout).unwrap_err();
         assert!(matches!(err, FittingError::InvalidFeffData { .. }));
     }
+
+    /// Larch `_calc_chi` evaluated directly (no spline) from pre-interpolated FEFF arrays.
+    #[allow(clippy::too_many_arguments)]
+    fn larch_cchi(
+        reff: f64,
+        degen: f64,
+        s02: f64,
+        e0: f64,
+        ei: f64,
+        deltar: f64,
+        sigma2: f64,
+        third: f64,
+        fourth: f64,
+        k: f64,
+        pha: f64,
+        amp: f64,
+        rep: f64,
+        lam: f64,
+    ) -> Complex64 {
+        let en = k * k - e0 * ETOK;
+        let q = en.signum() * en.abs().sqrt();
+        let pp = Complex64::new(rep, 1.0 / lam).powi(2) + Complex64::new(0.0, ei * ETOK);
+        let p = pp.sqrt();
+        let exponent = Complex64::new(-2.0 * reff * p.im, 0.0)
+            - 2.0 * pp * (sigma2 - pp * fourth / 3.0)
+            + Complex64::new(0.0, 1.0)
+                * (Complex64::new(2.0 * q * reff + pha, 0.0)
+                    + 2.0 * p * (deltar - 2.0 * sigma2 / reff - 2.0 * pp * third / 3.0));
+        degen * s02 * amp * exponent.exp() / (q * (reff + deltar).powi(2))
+    }
+
+    #[test]
+    fn test_cumulants_and_ei_follow_larch_formula() {
+        let pathfile = format!("{TOP_DIR}/tests/testfiles/feffcu01.dat");
+        let path = feffpath(pathfile, FeffFlavor::Feff85L).unwrap();
+        // Evaluate on the FEFF k grid so the spline interpolation is the identity and the
+        // Larch formula can be evaluated point-wise from the tabulated arrays.
+        let k = path.feff.k.clone();
+        let base = PathParams {
+            degen: 12.0,
+            s02: 0.9,
+            e0: 0.0,
+            ei: 0.0,
+            deltar: 0.01,
+            sigma2: 0.004,
+            third: 0.0,
+            fourth: 0.0,
+        };
+        let (_, chi_base) = calc_path_chi(&path, &base, &k).unwrap();
+
+        for (label, params) in [
+            (
+                "third",
+                PathParams {
+                    third: 2.0e-4,
+                    ..base
+                },
+            ),
+            (
+                "fourth",
+                PathParams {
+                    fourth: 5.0e-5,
+                    ..base
+                },
+            ),
+            ("ei", PathParams { ei: 1.5, ..base }),
+        ] {
+            let (_, chi) = calc_path_chi(&path, &params, &k).unwrap();
+            let mut max_change = 0.0_f64;
+            let mut max_err = 0.0_f64;
+            for i in 1..k.len() {
+                if k[i] < 3.0 {
+                    continue;
+                }
+                let expected = larch_cchi(
+                    path.feff.reff,
+                    params.degen,
+                    params.s02,
+                    params.e0,
+                    params.ei,
+                    params.deltar,
+                    params.sigma2,
+                    params.third,
+                    params.fourth,
+                    k[i],
+                    path.feff.pha[i],
+                    path.feff.amp[i],
+                    path.feff.rep[i],
+                    path.feff.lam[i],
+                )
+                .im;
+                max_err = max_err.max((chi[i] - expected).abs());
+                max_change = max_change.max((chi[i] - chi_base[i]).abs());
+            }
+            assert!(
+                max_err < 1.0e-6,
+                "{label}: max deviation from Larch formula {max_err}"
+            );
+            assert!(
+                max_change > 1.0e-3,
+                "{label}: parameter had no effect on chi(k)"
+            );
+        }
+    }
 }

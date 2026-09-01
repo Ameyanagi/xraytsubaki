@@ -33,12 +33,12 @@ impl XAFSUtils for f64 {
         if *self < 0.0 {
             0.0
         } else {
-            self.sqrt() * constants::KTOE
+            (self * constants::ETOK).sqrt()
         }
     }
 
     fn ktoe(&self) -> Self {
-        self.powi(2) * constants::ETOK
+        self.powi(2) * constants::KTOE
     }
 }
 
@@ -58,13 +58,13 @@ impl XAFSUtils for DVector<f64> {
             if x < 0.0 {
                 0.0
             } else {
-                x.sqrt() * constants::KTOE
+                (x * constants::ETOK).sqrt()
             }
         })
     }
 
     fn ktoe(&self) -> Self {
-        self.map(|x| x.powi(2) * constants::ETOK)
+        self.map(|x| x.powi(2) * constants::KTOE)
     }
 }
 
@@ -451,6 +451,20 @@ pub fn find_e0(energy: &DVector<f64>, mu: &DVector<f64>) -> Result<f64, Box<dyn 
     Ok(e0)
 }
 
+pub use super::tools::{RebinConfig, RebinMethod, RebinOutput};
+
+/// Rebin `(energy, mu)` onto Athena's standard three-region grid.
+///
+/// Thin wrapper around [`super::tools::rebin`]; see [`RebinConfig`] for the
+/// region boundaries and steps.
+pub fn rebin(
+    energy: &DVector<f64>,
+    mu: &DVector<f64>,
+    cfg: &RebinConfig,
+) -> Result<RebinOutput, super::XAFSError> {
+    super::tools::rebin(energy, mu, cfg)
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub enum FTWindow {
     #[default]
@@ -692,6 +706,19 @@ mod tests {
             FTWindow::KaiserBessel,
             TEST_TOL_FTWINDOW,
         );
+    }
+
+    #[test]
+    fn test_etok_ktoe_round_trip() {
+        // k = sqrt(E * ETOK): 3.0 Å⁻¹ ↔ 34.29 eV (Larch convention).
+        assert_abs_diff_eq!(3.0_f64.ktoe(), 9.0 * constants::KTOE, epsilon = TEST_TOL);
+        assert_abs_diff_eq!(3.0_f64.ktoe().etok(), 3.0, epsilon = TEST_TOL);
+        assert_abs_diff_eq!(
+            100.0_f64.etok(),
+            (100.0 * constants::ETOK).sqrt(),
+            epsilon = TEST_TOL
+        );
+        assert_abs_diff_eq!((-5.0_f64).etok(), 0.0, epsilon = TEST_TOL);
     }
 
     #[test]

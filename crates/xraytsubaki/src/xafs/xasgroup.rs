@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 
 // load dependencies
 use super::errors::DataError;
+use super::tools::{merge_spectra, MergeConfig};
 use super::xasspectrum;
 use super::XAFSError;
 
@@ -244,12 +245,26 @@ impl XASGroup {
         Ok(&mut self.spectra[index])
     }
 
-    pub fn merge(&mut self, _master: usize, _slave: &[usize]) -> Result<&mut Self, XAFSError> {
-        // This feature is not implemented yet
-        Err(DataError::NotImplemented {
-            feature: "spectrum merge".to_string(),
+    /// Merge the spectra at `indices` into a new spectrum (see
+    /// [`merge_spectra`]). The first index is the master whose grid and
+    /// stage configurations are used by default. The merged spectrum is
+    /// returned and *not* added to the group.
+    pub fn merge(&self, indices: &[usize], cfg: &MergeConfig) -> Result<XASSpectrum, XAFSError> {
+        if self.spectra.is_empty() {
+            return Err(DataError::EmptyGroup.into());
         }
-        .into())
+        let members = indices
+            .iter()
+            .map(|&index| {
+                self.spectra
+                    .get(index)
+                    .ok_or(XAFSError::Data(DataError::IndexOutOfRange {
+                        index,
+                        length: self.spectra.len(),
+                    }))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        merge_spectra(&members, cfg)
     }
 
     fn collect_seq_errors<F>(&mut self, mut op: F) -> Result<&mut Self, BatchProcessError>

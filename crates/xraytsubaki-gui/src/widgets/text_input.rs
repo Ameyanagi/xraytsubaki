@@ -41,6 +41,8 @@ actions!(
         Commit,
         NextField,
         PrevField,
+        StepUp,
+        StepDown,
     ]
 );
 
@@ -69,7 +71,21 @@ pub fn text_input_keybindings() -> Vec<KeyBinding> {
         KeyBinding::new("enter", Commit, None),
         KeyBinding::new("tab", NextField, None),
         KeyBinding::new("shift-tab", PrevField, None),
+        KeyBinding::new("up", StepUp, Some("TextInput")),
+        KeyBinding::new("down", StepDown, Some("TextInput")),
     ]
+}
+
+/// Presentation options of a [`TextInput`].
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub struct InputStyle {
+    /// Right-align the text (numbers line up on their last digit).
+    pub align_right: bool,
+    /// Monospace, tabular digits.
+    pub mono: bool,
+    /// Draw the placeholder in the accent colour (an "auto" value that the
+    /// core computes, not an empty field).
+    pub placeholder_accent: bool,
 }
 
 pub enum InputEvent {
@@ -79,6 +95,8 @@ pub enum InputEvent {
     /// Programmatic `set_text` deliberately does not emit, so subscribers
     /// can reset the field without feedback loops.
     Edited(SharedString),
+    /// ↑ / ↓ pressed: +1 / −1 step (numeric fields interpret it).
+    Step(i32),
 }
 
 impl EventEmitter<InputEvent> for TextInput {}
@@ -100,6 +118,7 @@ pub struct TextInput {
     /// a blur, which commits like Enter. (Focus changes always redraw the
     /// window, so render observes every transition.)
     was_focused: bool,
+    style: InputStyle,
 }
 
 impl TextInput {
@@ -123,12 +142,23 @@ impl TextInput {
             is_selecting: false,
             error: false,
             was_focused: false,
+            style: InputStyle::default(),
         }
+    }
+
+    /// Presentation options (alignment, mono, accent placeholder).
+    pub fn with_style(mut self, style: InputStyle) -> Self {
+        self.style = style;
+        self
     }
 
     #[allow(dead_code)]
     pub fn text(&self) -> &str {
         &self.content
+    }
+
+    pub fn placeholder_text(&self) -> &str {
+        &self.placeholder
     }
 
     pub fn set_text(&mut self, text: impl Into<SharedString>, cx: &mut Context<Self>) {
@@ -175,6 +205,14 @@ impl TextInput {
     fn prev_field(&mut self, _: &PrevField, window: &mut Window, cx: &mut Context<Self>) {
         cx.emit(InputEvent::Committed(self.content.clone()));
         window.focus_prev(cx);
+    }
+
+    fn step_up(&mut self, _: &StepUp, _: &mut Window, cx: &mut Context<Self>) {
+        cx.emit(InputEvent::Step(1));
+    }
+
+    fn step_down(&mut self, _: &StepDown, _: &mut Window, cx: &mut Context<Self>) {
+        cx.emit(InputEvent::Step(-1));
     }
     fn left(&mut self, _: &Left, _: &mut Window, cx: &mut Context<Self>) {
         if self.selected_range.is_empty() {
@@ -603,6 +641,8 @@ struct PrepaintState {
     line: Option<ShapedLine>,
     cursor: Option<PaintQuad>,
     selection: Option<PaintQuad>,
+    /// Bounds the text was laid out in (shifted for right alignment).
+    text_bounds: Bounds<Pixels>,
 }
 
 impl IntoElement for TextElement {
@@ -654,7 +694,12 @@ impl Element for TextElement {
         let style = window.text_style();
 
         let (display_text, text_color) = if content.is_empty() {
-            (input.placeholder.clone(), input.theme.text_muted.into())
+            let color = if input.style.placeholder_accent {
+                input.theme.accent
+            } else {
+                input.theme.text_muted
+            };
+            (input.placeholder.clone(), color.into())
         } else {
             (content, style.color)
         };
@@ -699,6 +744,18 @@ impl Element for TextElement {
             .text_system()
             .shape_line(display_text, font_size, &runs, None);
 
+        // Right-aligned text starts at the right edge minus its width; the
+        // bounds handed to the paint / hit-test helpers are shifted the same
+        // way so every `bounds.left() + x` stays correct.
+        let bounds = if input.style.align_right {
+            let shift = (bounds.size.width - line.width).max(px(0.));
+            Bounds::new(
+                point(bounds.left() + shift, bounds.top()),
+                size(bounds.size.width - shift, bounds.size.height),
+            )
+        } else {
+            bounds
+        };
         let cursor_pos = line.x_for_index(cursor);
         let (selection, cursor) = if selected_range.is_empty() {
             (
@@ -737,6 +794,7 @@ impl Element for TextElement {
             line: Some(line),
             cursor,
             selection,
+            text_bounds: bounds,
         }
     }
 
@@ -760,6 +818,7 @@ impl Element for TextElement {
             window.paint_quad(selection)
         }
         let line = prepaint.line.take().unwrap();
+        let bounds = prepaint.text_bounds;
         line.paint(
             bounds.origin,
             window.line_height(),
@@ -816,6 +875,9 @@ impl Render for TextInput {
             .on_action(cx.listener(Self::commit))
             .on_action(cx.listener(Self::next_field))
             .on_action(cx.listener(Self::prev_field))
+            .on_action(cx.listener(Self::step_up))
+            .on_action(cx.listener(Self::step_down))
+            .when(self.style.mono, |d| d.font_family("Menlo"))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))

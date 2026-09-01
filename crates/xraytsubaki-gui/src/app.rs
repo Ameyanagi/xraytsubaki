@@ -140,6 +140,27 @@ enum ParamSection {
     Fft,
 }
 
+/// Stepper / ↑↓ increment per parameter: energies in whole eV, k in half
+/// wave-numbers, R and dk in tenths, counts in ones.
+fn param_step(key: ParamKey) -> f64 {
+    match key {
+        ParamKey::E0 => 0.5,
+        ParamKey::PreEdgeStart
+        | ParamKey::PreEdgeEnd
+        | ParamKey::NormStart
+        | ParamKey::NormEnd
+        | ParamKey::AlignTarget => 5.0,
+        ParamKey::BkgKmin | ParamKey::BkgKmax | ParamKey::FftKmin | ParamKey::FftKmax => 0.5,
+        ParamKey::Rbkg | ParamKey::BkgDk | ParamKey::FftDk | ParamKey::FftDk2 | ParamKey::BftDr => {
+            0.1
+        }
+        ParamKey::BftRmin | ParamKey::BftRmax => 0.1,
+        ParamKey::BkgKstep | ParamKey::FftKstep => 0.01,
+        ParamKey::FftKweight => 1.0,
+        _ => 1.0,
+    }
+}
+
 /// Copy one section's fields from `src` over `dst`. Reset-to-global is
 /// `copy_section(override, global, section)`; the single field list here
 /// also powers `section_differs`.
@@ -1418,7 +1439,9 @@ impl StudioApp {
         cx.subscribe(&filter_input, |this: &mut Self, _f, event, cx| {
             // Per-keystroke filtering (doc "Search-first"): Edited and
             // Committed both re-run the (background) match.
-            let (InputEvent::Committed(text) | InputEvent::Edited(text)) = event;
+            let (InputEvent::Committed(text) | InputEvent::Edited(text)) = event else {
+                return;
+            };
             let text = text.trim().to_string();
             if text != this.filter_text {
                 this.filter_text = text;
@@ -1865,8 +1888,10 @@ impl StudioApp {
         specs
             .into_iter()
             .map(|(key, label, placeholder, kind)| {
-                let field =
-                    cx.new(|cx| NumericField::new(label, placeholder, None, kind, theme, cx));
+                let step = param_step(key);
+                let field = cx.new(|cx| {
+                    NumericField::new(label, placeholder, None, kind, theme, cx).with_step(step)
+                });
                 cx.subscribe(
                     &field,
                     move |this: &mut Self, _field, event, cx| match event {

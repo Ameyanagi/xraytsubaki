@@ -7,12 +7,12 @@
 use std::time::Duration;
 
 use gpui::{
-    Context, Entity, EventEmitter, IntoElement, ParentElement, Render, SharedString, Styled,
-    Window, div, prelude::*, px,
+    ClickEvent, Context, Entity, EventEmitter, IntoElement, ParentElement, Render, SharedString,
+    Styled, Window, div, prelude::*, px,
 };
 
 use crate::theme::Theme;
-use crate::widgets::text_input::{InputEvent, TextInput};
+use crate::widgets::text_input::{InputEvent, InputStyle, TextInput};
 
 /// How long the rejected-input border stays lit.
 const ERROR_FLASH: Duration = Duration::from_millis(1400);
@@ -50,13 +50,32 @@ fn parse_commit(text: &str, kind: FieldKind) -> Result<Option<f64>, ()> {
 
 pub struct NumericField {
     label: SharedString,
+    /// Unit shown outside the box (parsed from a trailing "(unit)" in the
+    /// label, e.g. "k min (Å⁻¹)").
+    unit: SharedString,
     input: Entity<TextInput>,
     value: Option<f64>,
     kind: FieldKind,
     theme: Theme,
+    /// Increment of the ▲▼ steppers and the ↑/↓ keys.
+    step: f64,
     /// Bumped per rejected commit so an old flash-clear timer never
     /// extinguishes a newer error.
     error_epoch: u64,
+}
+
+/// "pre-edge start (eV)" → ("pre-edge start", "eV").
+fn split_unit(label: &str) -> (String, String) {
+    let label = label.trim();
+    if let Some(open) = label.rfind(" (")
+        && label.ends_with(')')
+    {
+        let unit = &label[open + 2..label.len() - 1];
+        if !unit.is_empty() && unit.chars().count() <= 6 {
+            return (label[..open].to_string(), unit.to_string());
+        }
+    }
+    (label.to_string(), String::new())
 }
 
 pub enum FieldEvent {
@@ -80,13 +99,23 @@ impl NumericField {
         theme: Theme,
         cx: &mut Context<Self>,
     ) -> Self {
-        let input = cx.new(|cx| TextInput::new(placeholder, format_value(value), theme, cx));
+        let input = cx.new(|cx| {
+            TextInput::new(placeholder, format_value(value), theme, cx).with_style(InputStyle {
+                align_right: true,
+                mono: true,
+                placeholder_accent: true,
+            })
+        });
         cx.subscribe(&input, |this: &mut Self, input, event, cx| {
             let text = match event {
                 InputEvent::Committed(text) => text,
                 InputEvent::Edited(_) => {
                     // typing resumed — stop flashing a previous rejection
                     input.update(cx, |i, cx| i.set_error(false, cx));
+                    return;
+                }
+                InputEvent::Step(direction) => {
+                    this.nudge(*direction, cx);
                     return;
                 }
             };
@@ -133,14 +162,56 @@ impl NumericField {
             }
         })
         .detach();
+        let (label, unit) = split_unit(&label.into());
         Self {
             label: label.into(),
+            unit: unit.into(),
             input,
             value,
             kind,
             theme,
+            step: match kind {
+                FieldKind::Float => 1.0,
+                FieldKind::Integer { .. } => 1.0,
+            },
             error_epoch: 0,
         }
+    }
+
+    /// Increment used by the steppers and ↑/↓.
+    pub fn with_step(mut self, step: f64) -> Self {
+        self.step = step;
+        self
+    }
+
+    /// Step the value (from `auto` the step starts at the displayed
+    /// placeholder value when it parses, else at zero) and emit.
+    fn nudge(&mut self, direction: i32, cx: &mut Context<Self>) {
+        let base = self.value.or_else(|| self.placeholder_value(cx));
+        let raw = base.unwrap_or(0.0) + direction as f64 * self.step;
+        // Snap to the step grid so 0.1-steps don't accumulate 0.30000000004.
+        let snapped = (raw / self.step).round() * self.step;
+        let value = match self.kind {
+            FieldKind::Float => Some((snapped * 1e9).round() / 1e9),
+            FieldKind::Integer { min } => {
+                let rounded = snapped.round();
+                Some(min.map_or(rounded, |m| rounded.max(m as f64)))
+            }
+        };
+        self.set_value(value, cx);
+        cx.emit(FieldEvent::Changed(value));
+    }
+
+    /// The number inside an "auto (−200)" placeholder, if any.
+    fn placeholder_value(&self, cx: &Context<Self>) -> Option<f64> {
+        let text = self.input.read(cx).placeholder_text();
+        let open = text.find('(')?;
+        let close = text[open..].find(')')? + open;
+        text[open + 1..close]
+            .replace('−', "-")
+            .trim()
+            .parse::<f64>()
+            .ok()
     }
 
     pub fn set_theme(&mut self, theme: Theme, cx: &mut Context<Self>) {
@@ -173,28 +244,106 @@ impl NumericField {
 }
 
 impl Render for NumericField {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = self.theme;
+        let overridden = self.value.is_some();
+        let stepper = |id: &'static str, glyph: &'static str, dir: i32| {
+            div()
+                .id(id)
+                .w(px(14.))
+                .h(px(11.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_size(px(7.))
+                .text_color(t.text_muted)
+                .cursor_pointer()
+                .hover(|d| d.bg(t.raised).text_color(t.text))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
+                    this.nudge(dir, cx);
+                }))
+                .child(glyph)
+        };
         div()
             .px_3()
             .py_0p5()
             .flex()
             .items_center()
-            .gap_2()
+            .gap_1p5()
             .child(
                 div()
                     .flex_1()
-                    .text_sm()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .text_size(px(12.))
                     .text_color(t.text_muted)
                     .child(self.label.clone()),
             )
-            .child(div().w(px(96.)).child(self.input.clone()))
+            .child(
+                div()
+                    .id("reset-auto")
+                    .flex_none()
+                    .w(px(16.))
+                    .text_size(px(10.))
+                    .text_color(if overridden { t.accent } else { t.border })
+                    .when(overridden, |d| {
+                        d.cursor_pointer()
+                            .hover(|d| d.text_color(t.text))
+                            .on_click(cx.listener(|this, _: &ClickEvent, _w, cx| {
+                                this.set_value(None, cx);
+                                cx.emit(FieldEvent::Changed(None));
+                            }))
+                    })
+                    .child(if overridden { "↺" } else { "" }),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .rounded_sm()
+                    .child(div().w(px(84.)).child(self.input.clone()))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .child(stepper("step-up", "▲", 1))
+                            .child(stepper("step-down", "▼", -1)),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .w(px(26.))
+                    .font_family("Menlo")
+                    .text_size(px(10.5))
+                    .text_color(t.text_muted)
+                    .child(self.unit.clone()),
+            )
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{FieldKind, parse_commit};
+
+    #[test]
+    fn unit_is_split_from_label() {
+        assert_eq!(
+            super::split_unit("k min (Å⁻¹)"),
+            ("k min".into(), "Å⁻¹".into())
+        );
+        assert_eq!(
+            super::split_unit("poly order"),
+            ("poly order".into(), String::new())
+        );
+        assert_eq!(
+            super::split_unit("ref E0 target"),
+            ("ref E0 target".into(), String::new())
+        );
+    }
 
     #[test]
     fn parses_auto_and_floats() {

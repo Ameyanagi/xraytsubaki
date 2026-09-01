@@ -1631,19 +1631,6 @@ dependencies = [
 
 [[package]]
 name = "core-graphics2"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e4583956b9806b69f73fcb23aee05eb3620efc282972f08f6a6db7504f8334d"
-dependencies = [
- "bitflags 2.11.0",
- "block",
- "cfg-if",
- "core-foundation 0.10.0",
- "libc",
-]
-
-[[package]]
-name = "core-graphics2"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4416167a69126e617f8d0a214af0e3c1dbdeffcb100ddf72dcd1a1ac9893c146"
@@ -1669,26 +1656,13 @@ dependencies = [
 
 [[package]]
 name = "core-video"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d45e71d5be22206bed53c3c3cb99315fc4c3d31b8963808c6bc4538168c4f8ef"
-dependencies = [
- "block",
- "core-foundation 0.10.0",
- "core-graphics2 0.4.1",
- "io-surface",
- "libc",
-]
-
-[[package]]
-name = "core-video"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "139679cc63eb9504bdbe37e37874b0247136177655f0008588781e90863afa62"
 dependencies = [
  "block",
  "core-foundation 0.10.0",
- "core-graphics2 0.5.2",
+ "core-graphics2",
  "io-surface",
  "libc",
  "metal",
@@ -3546,7 +3520,7 @@ dependencies = [
  "core-foundation-sys",
  "core-graphics 0.24.0",
  "core-text",
- "core-video 0.5.2",
+ "core-video",
  "ctor 0.4.3",
  "derive_more",
  "embed-resource",
@@ -3651,7 +3625,7 @@ dependencies = [
  "core-foundation-sys",
  "core-graphics 0.24.0",
  "core-text",
- "core-video 0.5.2",
+ "core-video",
  "ctor 0.4.3",
  "derive_more",
  "dispatch2",
@@ -5132,7 +5106,7 @@ dependencies = [
  "anyhow",
  "bindgen",
  "core-foundation 0.10.0",
- "core-video 0.5.2",
+ "core-video",
  "ctor 0.4.3",
  "foreign-types",
  "metal",
@@ -7466,21 +7440,21 @@ dependencies = [
 
 [[package]]
 name = "ruviz"
-version = "0.5.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "852f0f9f42b74f7bb09f048a6fd4a51b0635273ed82100295eea86f1dd3ae32f"
+checksum = "1c46be69124b301d1cab76e70b1f19f7b997a1e4c63647424cc3ac7f4e57b6c9"
 dependencies = [
- "anyhow",
  "cosmic-text 0.16.0",
  "ctor 0.8.0",
  "glam 0.32.1",
  "image 0.25.9",
  "log",
  "ndarray 0.17.2",
- "num_cpus",
  "palette",
+ "png 0.18.1",
  "rayon",
  "swash",
+ "sys-locale",
  "thiserror 2.0.18",
  "tiny-skia 0.12.0",
  "tiny-skia-path 0.12.0",
@@ -7495,13 +7469,13 @@ dependencies = [
 
 [[package]]
 name = "ruviz-gpui"
-version = "0.5.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15e94272453303a62a8e41aaae48d543729f46c26c48bc5c5fef058d75810fdb"
+checksum = "5b8dfad9c0df1acb534753ec9bf2bc5c7d2a394e4a2b32aa607387ce0b9b5983"
 dependencies = [
  "arboard",
  "core-foundation 0.10.0",
- "core-video 0.4.3",
+ "core-video",
  "futures",
  "gpui",
  "image 0.25.9",

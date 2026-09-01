@@ -44,10 +44,10 @@ fn append_trace(plot: Plot, trace: TraceData) -> Plot {
         series = series.label(trace.label);
     }
     if let Some((r, g, b)) = trace.color {
-        series = series.color(Color::new(r, g, b));
+        series = series.color(Color::from_rgb(r, g, b));
     }
     if let Some(style) = style {
-        series = series.style(style);
+        series = series.line_style(style);
     }
     series.into()
 }
@@ -62,7 +62,7 @@ fn append_trace_group(plot: Plot, group_label: String, traces: Vec<TraceData>) -
         let mut group = group.group_label(group_label);
         if let Some(first) = traces.first() {
             if let Some((r, g, b)) = first.color {
-                group = group.color(Color::new(r, g, b));
+                group = group.color(Color::from_rgb(r, g, b));
             }
             if first.dashed {
                 let style = if is_window_group {

@@ -738,7 +738,7 @@ fn frame_from_heatmap_position(
 
 fn cursor_color(theme: &Theme) -> PlotColor {
     let accent = theme.accent;
-    PlotColor::new(
+    PlotColor::from_rgb(
         (accent.r * 255.0).round() as u8,
         (accent.g * 255.0).round() as u8,
         (accent.b * 255.0).round() as u8,

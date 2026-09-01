@@ -243,8 +243,8 @@ fn build_multi(
 fn add_mu_diagnostics(mut plot: Plot, sp: &XASSpectrum, view: &ViewOptions, shift: f64) -> Plot {
     let trend = Color::from_gray(150);
     let e0_color = Color::ORANGE;
-    let pre_color = Color::new(90, 140, 200);
-    let norm_color = Color::new(90, 180, 120);
+    let pre_color = Color::from_rgb(90, 140, 200);
+    let norm_color = Color::from_rgb(90, 180, 120);
 
     if view.show_pre
         && let (Some(energy), Some(pre)) = (sp.energy.as_ref(), sp.get_pre_edge())
@@ -405,7 +405,8 @@ pub fn build_quadrants_multi(
             && let Some(xftf) = active.sp.xftf.as_ref()
         {
             for v in [xftf.kmin, xftf.kmax].into_iter().flatten() {
-                chi_k = chi_k.vline_styled(v, Color::new(90, 140, 200), 1.0, LineStyle::Dashed);
+                chi_k =
+                    chi_k.vline_styled(v, Color::from_rgb(90, 140, 200), 1.0, LineStyle::Dashed);
             }
         }
         // Re part of chi(R) for phase-agreement checks (doc: "|χ(R)| (+Re
@@ -475,14 +476,12 @@ pub fn build_heatmap(matrix: &[Vec<f64>], grid: &[f64], scan_len: usize, theme: 
         .theme(theme.plot_theme())
         .xlabel(K_AXIS)
         .ylabel("frame")
-        .heatmap(
+        .heatmap_with(
             matrix,
-            Some(
-                HeatmapConfig::new()
-                    .colorbar(true)
-                    .origin(HeatmapOrigin::Lower)
-                    .extent(kmin, kmax, ymin, ymax),
-            ),
+            HeatmapConfig::new()
+                .colorbar(true)
+                .origin(HeatmapOrigin::Lower)
+                .extent(kmin, kmax, ymin, ymax),
         )
         .ylim(view_max, view_min)
         .into()
@@ -545,7 +544,7 @@ pub fn build_fit_k(result: &xraytsubaki::prelude::FeffFitResult, theme: &Theme) 
         }
     }
     shade_range(plot, result.kmin, result.kmax)
-        .legend(ruviz::core::position::Position::TopRight)
+        .legend_position(ruviz::core::LegendPosition::UpperRight)
         .xlabel(K_AXIS)
         .ylabel(chik_label(kw))
 }
@@ -580,7 +579,7 @@ pub fn build_fit_r(result: &xraytsubaki::prelude::FeffFitResult, theme: &Theme) 
         }
     }
     shade_range(plot, result.rmin, result.rmax)
-        .legend(ruviz::core::position::Position::TopRight)
+        .legend_position(ruviz::core::LegendPosition::UpperRight)
         .xlabel(R_AXIS)
         .ylabel(chir_label(result.kweight))
 }
@@ -660,10 +659,12 @@ pub fn build_trend(values: &[f64], ylabel: &str, theme: &Theme) -> Plot {
             let ys = &values[start..end];
             plot = if end - start == 1 {
                 plot.scatter(&xs, &ys)
-                    .color(Color::new(31, 119, 180))
+                    .color(Color::from_rgb(31, 119, 180))
                     .into()
             } else {
-                plot.line(&xs, &ys).color(Color::new(31, 119, 180)).into()
+                plot.line(&xs, &ys)
+                    .color(Color::from_rgb(31, 119, 180))
+                    .into()
             };
         }
         start = end.saturating_add(1);

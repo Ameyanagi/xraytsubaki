@@ -3391,19 +3391,15 @@ impl StudioApp {
             (t3, plots.chi_r),
             (t4, plots.chi_q),
         ];
-        // Stage handles (range regions, E0 / Rbkg lines) are baked into the
-        // base plot; see shell::handles. The figure aspect follows the card
-        // layout (ruviz-gpui fits the figure aspect inside the container).
+        // The figure aspect follows the card layout (ruviz-gpui fits the
+        // figure aspect inside the container). Stage handles (range regions,
+        // E0 / Rbkg lines) live in the session overlay; see shell::handles.
         let analysis_card = self.stage == Stage::Data && self.analysis.plot.is_some();
         let stacked = self.stage_plots().len() > 1 || analysis_card;
         let fallback = if stacked { (820, 280) } else { (820, 580) };
         for (index, (_, plot)) in titled.iter_mut().enumerate() {
             let (fig_w, fig_h) = self.card_px.get(&index).copied().unwrap_or(fallback);
-            let mut decorated = std::mem::take(plot).size_px(fig_w, fig_h);
-            for annotation in self.handle_decor(index) {
-                decorated = decorated.annotate(annotation);
-            }
-            *plot = decorated;
+            *plot = std::mem::take(plot).size_px(fig_w, fig_h);
         }
         if self.quadrants.is_empty() {
             self.quadrants = titled
@@ -3418,6 +3414,11 @@ impl StudioApp {
                 *slot = SharedString::from(title);
                 entity.update(cx, |rp, cx| rp.set_plot_keep_view(plot, cx));
             }
+        }
+        // Every quadrant session was replaced: re-add the handle overlays.
+        for index in 0..self.quadrants.len() {
+            self.forget_handle_annotations(index);
+            self.sync_handle_annotations(index, cx);
         }
         // Ripple strip: the current group only.
         if let Some(active) = traces.iter().find(|t| t.active).or_else(|| traces.first()) {
@@ -4621,12 +4622,6 @@ impl StudioApp {
         let q_plot = q_plot.size_px(qw_px, qh_px);
         let k_res = k_res.size_px(krw, krh);
         let r_res = r_res.size_px(rrw, rrh);
-        for a in self.handle_decor(shell::handles::PLOT_FIT_K) {
-            k_plot = k_plot.annotate(a);
-        }
-        for a in self.handle_decor(shell::handles::PLOT_FIT_R) {
-            r_plot = r_plot.annotate(a);
-        }
         match &self.fit_plots {
             Some(plots) => {
                 plots
@@ -4654,6 +4649,12 @@ impl StudioApp {
                     q: plot_builder(q_plot).interactive().build(cx),
                 });
             }
+        }
+        // Fit-range handles live in the session overlay; the sessions were
+        // just replaced, so re-add them.
+        for plot in [shell::handles::PLOT_FIT_K, shell::handles::PLOT_FIT_R] {
+            self.forget_handle_annotations(plot);
+            self.sync_handle_annotations(plot, cx);
         }
     }
 

@@ -71,6 +71,9 @@ xraytsubaki = { version = "0.1.0", path = "crates/xraytsubaki" }
 
 [patch.crates-io]
 gpui = { git = "https://github.com/zed-industries/zed", rev = "3060e4170ea5ef0e6886b9ac1853aaead9ddd59f" }
+# TEMP until ruviz 0.12.1 is on crates.io (overlay shear fix, ruviz v0.12.1 = 254b3c0)
+ruviz = { path = "/Users/ryuichi/dev/ruviz" }
+ruviz-gpui = { path = "/Users/ryuichi/dev/ruviz/adapters/gpui" }
 
 [workspace.dependencies.enterpolation]
 version = "0.2.1"

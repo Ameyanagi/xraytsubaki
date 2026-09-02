@@ -1,15 +1,15 @@
 //! Direct manipulation on plots: range parameters are shaded regions with
 //! draggable edges, E₀ / Rbkg are draggable lines.
 //!
-//! The geometry is baked into the base plot as static annotations (ruviz
-//! `Plot::annotate`), and a drag rebuilds the plot with `set_plot_keep_view`
-//! from the cached spectrum — cheap, and it goes through the same renderer
-//! as the data so it can never disagree with the axes. (ruviz-gpui 0.12's
-//! session-annotation overlay composites with a stride mismatch on this
-//! window size, which shears the overlay diagonally; see the M1 report.)
-//! Pointer handling lives in GPUI on the plot card: while a handle is armed
-//! a transparent overlay sits over the plot so the press never reaches
-//! ruviz's pan.
+//! The geometry lives in ruviz-gpui's session-annotation overlay
+//! (`RuvizPlot::add_annotation` / `update_annotation`): a drag frame only
+//! touches the overlay layer, and the data plot is rebuilt when the debounced
+//! recompute finishes. Annotation ids are session-scoped, so every plot
+//! replacement (`set_plot_keep_view`) re-adds them through
+//! [`StudioApp::sync_handle_annotations`]. (The overlay shear seen with
+//! ruviz-gpui 0.12.0 was fixed in 0.12.1.) Pointer handling lives in GPUI
+//! on the plot card: while a handle is armed a transparent overlay sits over
+//! the plot so the press never reaches ruviz's pan.
 
 use gpui::{Context, IntoElement, ParentElement, Pixels, Point, Styled, div, prelude::*, px};
 use ruviz::core::Annotation;
@@ -17,7 +17,9 @@ use ruviz::render::{Color as PlotColor, LineStyle};
 use xraytsubaki::prelude::{BackgroundMethod, NormalizationMethod};
 
 use gpui::Entity;
+use ruviz::core::AnnotationId;
 use ruviz_gpui::RuvizPlot;
+use std::collections::HashMap;
 
 use super::Stage;
 use super::center::{PLOT_CHIK, PLOT_CHIR, PLOT_MU, PLOT_NORM};
@@ -108,6 +110,9 @@ pub struct HandleState {
     /// (plot index, handle) under the pointer.
     pub armed: Option<(usize, HandleKey)>,
     pub dragging: Option<(usize, HandleKey)>,
+    /// Overlay annotation ids per plot, in [`StudioApp::handle_decor`] order.
+    /// Ids are session-scoped: cleared whenever the plot is replaced.
+    pub annotations: HashMap<usize, Vec<AnnotationId>>,
 }
 
 impl StudioApp {
@@ -242,7 +247,8 @@ impl StudioApp {
         )
     }
 
-    /// Static annotations (spans + handle lines) to bake into plot `plot`.
+    /// Overlay annotations (spans + handle lines) for plot `plot`, in a
+    /// stable order so ids can be reused across updates.
     pub(crate) fn handle_decor(&self, plot: usize) -> Vec<Annotation> {
         if !self.stage.is_processing() && self.stage != Stage::Fit {
             return Vec::new();
@@ -282,11 +288,54 @@ impl StudioApp {
         out
     }
 
-    /// Stage / group changed: drop any armed handle (the geometry itself is
-    /// part of the plots and follows the rebuild).
+    /// Stage / group changed: drop any armed handle (the geometry follows
+    /// the plot rebuild, which re-syncs the overlay).
     pub(crate) fn sync_handles(&mut self, _cx: &mut Context<Self>) {
         if self.handles.dragging.is_none() {
             self.handles.armed = None;
+        }
+    }
+
+    /// The plot behind `plot` was replaced: its session annotations are
+    /// gone, forget their ids before re-syncing.
+    pub(crate) fn forget_handle_annotations(&mut self, plot: usize) {
+        self.handles.annotations.remove(&plot);
+    }
+
+    /// Bring the overlay annotations of plot `plot` in line with the current
+    /// parameters and hot state. Updates in place when the id list still
+    /// matches, otherwise removes and re-adds (also after a session
+    /// replacement, where stale ids are simply rejected).
+    pub(crate) fn sync_handle_annotations(&mut self, plot: usize, cx: &mut Context<Self>) {
+        let Some(entity) = self.plot_entity(plot) else {
+            self.handles.annotations.remove(&plot);
+            return;
+        };
+        let decor = self.handle_decor(plot);
+        let existing = self.handles.annotations.remove(&plot).unwrap_or_default();
+        if existing.len() == decor.len() && !decor.is_empty() {
+            let updated = entity.update(cx, |rp, cx| {
+                existing
+                    .iter()
+                    .zip(decor.iter())
+                    .all(|(id, ann)| rp.update_annotation(*id, ann.clone(), cx).is_ok())
+            });
+            if updated {
+                self.handles.annotations.insert(plot, existing);
+                return;
+            }
+        }
+        let ids = entity.update(cx, |rp, cx| {
+            for id in existing {
+                let _ = rp.remove_annotation(id, cx);
+            }
+            decor
+                .into_iter()
+                .filter_map(|ann| rp.add_annotation(ann, cx).ok())
+                .collect::<Vec<_>>()
+        });
+        if !ids.is_empty() {
+            self.handles.annotations.insert(plot, ids);
         }
     }
 
@@ -301,14 +350,10 @@ impl StudioApp {
         }
     }
 
-    /// Redraw the plot that carries handle `plot` (hot/cold line width and
-    /// dragged geometry live in the baked plot).
+    /// Redraw the handle geometry of plot `plot` (hot/cold line width and
+    /// dragged position) — overlay only, the data plot is untouched.
     fn redraw_handle_plot(&mut self, plot: usize, cx: &mut Context<Self>) {
-        if plot >= PLOT_FIT_K {
-            self.rebuild_fit_plots(cx);
-        } else {
-            self.rebuild_explore_plots(cx);
-        }
+        self.sync_handle_annotations(plot, cx);
     }
 
     pub(crate) fn plot_pointer_move(
@@ -378,6 +423,9 @@ impl StudioApp {
         } else {
             (x / step).round() * step
         };
+        // Snap away the binary noise of `round() * step` (22130.1000000002)
+        // so fields and the journal show the intended decimal.
+        let value = (value * 1e6).round() / 1e6;
         let value = match key {
             HandleKey::Rbkg | HandleKey::FftKmin | HandleKey::FitKmin | HandleKey::FitRmin => {
                 value.max(0.0)
@@ -400,18 +448,22 @@ impl StudioApp {
             *slot = value;
             self.sync_range_fields(cx);
             self.fit_model_changed(cx);
-            self.rebuild_fit_plots(cx);
+            self.sync_handle_annotations(PLOT_FIT_K, cx);
+            self.sync_handle_annotations(PLOT_FIT_R, cx);
             return;
         };
         let current = crate::app::param_field_value(param, self.ui_params());
         if current == Some(value) {
             return;
         }
-        // Params first (debounced recompute), then an immediate visual
-        // update from the cached spectrum so the region follows the pointer.
+        // Params first (debounced recompute), then the overlay follows the
+        // pointer immediately; the data plot is rebuilt when the recompute
+        // lands. E₀ moves every relative range, so sync all stage plots.
         self.apply_param(param, Some(value), cx);
         self.sync_param_fields(cx);
-        self.rebuild_explore_plots(cx);
+        for plot in [PLOT_MU, PLOT_NORM, PLOT_CHIK, PLOT_CHIR] {
+            self.sync_handle_annotations(plot, cx);
+        }
     }
 
     /// Transparent capture layer shown while a handle is armed or dragging.

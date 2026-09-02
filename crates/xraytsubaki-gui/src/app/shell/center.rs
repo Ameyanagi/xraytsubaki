@@ -229,6 +229,14 @@ impl StudioApp {
                                 this.stage_view_changed(cx);
                             },
                         )),
+                    )
+                    .child(
+                        chip(&t, "chip-deriv", "derivative", self.view.show_deriv).on_click(
+                            cx.listener(|this, _: &ClickEvent, _w, cx| {
+                                this.view.show_deriv = !this.view.show_deriv;
+                                this.stage_view_changed(cx);
+                            }),
+                        ),
                     );
             }
             Stage::Background => {

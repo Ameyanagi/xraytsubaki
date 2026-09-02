@@ -66,6 +66,9 @@ pub struct ViewOptions {
     pub show_re: bool,
     /// AUTOBK background spline over mu(E) (Background stage).
     pub show_bkg: bool,
+    /// Overlay the scaled derivative dμ/dE on the normalized plot (Athena's
+    /// "normalized + scaled derivative").
+    pub show_deriv: bool,
 }
 
 impl Default for ViewOptions {
@@ -84,6 +87,7 @@ impl Default for ViewOptions {
             show_kwin: false,
             show_re: false,
             show_bkg: false,
+            show_deriv: false,
         }
     }
 }
@@ -399,6 +403,35 @@ pub fn build_quadrants_multi(
             && let Some(e0) = active.sp.get_e0()
         {
             norm = norm.vline_styled(e0, Color::ORANGE, 1.2, LineStyle::Dashed);
+        }
+        if view.show_deriv
+            && let (Some(e), Some(n)) = (
+                active.sp.energy.as_ref(),
+                active.sp.get_norm().or_else(|| active.sp.get_flat()),
+            )
+        {
+            // dμ/dE scaled so its peak reaches half the edge, as Athena does.
+            let e = vecs(e);
+            let n = vecs(&n);
+            let m = e.len().min(n.len());
+            let d: Vec<f64> = (0..m)
+                .map(|i| {
+                    let a = i.saturating_sub(1);
+                    let b = (i + 1).min(m - 1);
+                    let de = e[b] - e[a];
+                    if de > 0.0 { (n[b] - n[a]) / de } else { 0.0 }
+                })
+                .collect();
+            let peak = d.iter().fold(0.0f64, |acc, v| acc.max(v.abs())).max(1e-12);
+            let y: Vec<f64> = d.iter().map(|v| v / peak * 0.5).collect();
+            let x = e[..m].to_vec();
+            norm = norm
+                .line(&x, &y)
+                .line_width(1.0)
+                .line_style(LineStyle::Dashed)
+                .color(Color::from_gray(140))
+                .label("dμ/dE (scaled)")
+                .into();
         }
         // FT window diagnostics on chi(k), scaled to the data amplitude and
         // shifted onto the active trace in waterfall mode.
@@ -861,42 +894,36 @@ pub fn build_pca_plot(
 
 /// Parameter-vs-frame trend. The moving cursor is a dynamic annotation owned
 /// by the interactive plot session, so scrubbing does not rebuild this data.
-pub fn build_trend(values: &[f64], ylabel: &str, theme: &Theme) -> Plot {
+pub fn build_trend(values: &[f64], frames: &[f64], ylabel: &str, theme: &Theme) -> Plot {
     let mut plot = Plot::new()
         .theme(theme.plot_theme())
         .xlabel("frame")
         .ylabel(ylabel);
     // Missing/failed frames remain real gaps: each contiguous finite run is
-    // its own series, located at the true full-scan frame index.
+    // its own series, located at its true frame position.
+    let n = values.len().min(frames.len());
     let mut start = 0;
-    while start < values.len() {
-        while start < values.len() && !values[start].is_finite() {
+    while start < n {
+        while start < n && !values[start].is_finite() {
             start += 1;
         }
         let mut end = start;
-        while end < values.len() && values[end].is_finite() {
+        while end < n && values[end].is_finite() {
             end += 1;
         }
         if start < end {
-            let xs: Vec<f64> = (start..end).map(|index| index as f64).collect();
-            let ys = &values[start..end];
+            let xs: Vec<f64> = frames[start..end].to_vec();
+            let ys: Vec<f64> = values[start..end].to_vec();
             plot = if end - start == 1 {
-                plot.scatter(&xs, &ys)
-                    .color(Color::from_rgb(31, 119, 180))
-                    .into()
+                plot.scatter(&xs, &ys).color(trace_color(theme, 0)).into()
             } else {
-                plot.line(&xs, &ys)
-                    .color(Color::from_rgb(31, 119, 180))
-                    .into()
+                plot.line(&xs, &ys).color(trace_color(theme, 0)).into()
             };
         }
         start = end.saturating_add(1);
     }
-    if values.is_empty() {
-        plot
-    } else {
-        plot.xlim(0.0, values.len().saturating_sub(1).max(1) as f64)
-    }
+    let xmax = frames.iter().copied().fold(0.0f64, f64::max).max(1.0);
+    if n == 0 { plot } else { plot.xlim(0.0, xmax) }
 }
 
 #[cfg(test)]

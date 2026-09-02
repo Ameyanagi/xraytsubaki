@@ -565,6 +565,13 @@ impl StudioApp {
                     energy: energy.iter().copied().collect(),
                     mu: mu.iter().copied().collect(),
                 };
+                self.record(
+                    format!("tool: {label}"),
+                    Some(super::journal::UndoOp::DerivedAdd {
+                        index: self.derived.len(),
+                        spectrum: derived.clone(),
+                    }),
+                );
                 self.derived.push(derived);
                 let ix = DERIVED_BASE + self.derived.len() - 1;
                 self.tools.message = format!("created {label}").into();

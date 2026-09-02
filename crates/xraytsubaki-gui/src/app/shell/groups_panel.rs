@@ -47,7 +47,39 @@ fn checkbox(t: &crate::theme::Theme, on: bool) -> impl IntoElement {
         )
 }
 
+/// "frozen" marker: bulk operations skip this group (Athena's Alt+F).
+fn frozen_badge(t: &crate::theme::Theme) -> impl IntoElement {
+    div()
+        .flex_none()
+        .px_1()
+        .rounded_sm()
+        .border_1()
+        .border_color(t.border)
+        .font_family(MONO)
+        .text_size(px(9.5))
+        .text_color(t.text_muted)
+        .child("frozen")
+}
+
 impl StudioApp {
+    /// Freeze / thaw the current group.
+    pub(crate) fn toggle_frozen(&mut self, cx: &mut Context<Self>) {
+        let Some(ix) = self.selected else {
+            return;
+        };
+        if ix == crate::app::NO_ENTRY {
+            return;
+        }
+        let label = self.entry_label(ix);
+        if !self.frozen.remove(&ix) {
+            self.frozen.insert(ix);
+            self.record(format!("freeze {label}"), None);
+        } else {
+            self.record(format!("thaw {label}"), None);
+        }
+        cx.notify();
+    }
+
     /// Colour index per plotted group (position in the compare set), so the
     /// list swatch matches the overlay trace.
     fn plotted_color_index(&self) -> Vec<(usize, usize)> {
@@ -311,6 +343,16 @@ impl StudioApp {
                         self.filtered.is_some(),
                         |this, cx| this.select_filter_results(cx),
                     ))
+                    .child(cmd(
+                        "sel-freeze",
+                        if self.selected.is_some_and(|ix| self.frozen.contains(&ix)) {
+                            "thaw"
+                        } else {
+                            "freeze"
+                        },
+                        self.selected.is_some_and(|ix| ix != crate::app::NO_ENTRY),
+                        |this, cx| this.toggle_frozen(cx),
+                    ))
                     .child(div().flex_1())
                     .child(cmd(
                         "sel-clear",
@@ -431,6 +473,7 @@ impl StudioApp {
                     .when(is_active, |d| d.font_weight(gpui::FontWeight::MEDIUM))
                     .child(label),
             )
+            .children(self.frozen.contains(&ix).then(|| frozen_badge(&t)))
             .child(
                 div()
                     .flex_none()
@@ -463,6 +506,7 @@ impl StudioApp {
         let active = self.selected;
         let selection = self.selection.clone();
         let filtered = self.filtered.clone();
+        let frozen = self.frozen.clone();
         let colors = self.plotted_color_index();
         let count = filtered
             .as_ref()
@@ -485,6 +529,7 @@ impl StudioApp {
                 };
                 let is_active = active == Some(ix);
                 let marked = selection.contains(&ix);
+                let is_frozen = frozen.contains(&ix);
                 let color = colors
                     .iter()
                     .find(|(k, _)| *k == ix)
@@ -535,7 +580,8 @@ impl StudioApp {
                                 .text_ellipsis()
                                 .when(is_active, |d| d.font_weight(gpui::FontWeight::MEDIUM))
                                 .child(name),
-                        ),
+                        )
+                        .children(is_frozen.then(|| frozen_badge(&t))),
                 );
             }
             rows

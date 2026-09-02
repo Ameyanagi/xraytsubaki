@@ -122,14 +122,15 @@ impl StudioApp {
     }
 
     /// Copy the displayed parameter set onto every marked catalog group.
-    fn apply_params_to_marked(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn apply_params_to_marked(&mut self, cx: &mut Context<Self>) {
         let params = self.ui_params().clone();
         let targets: Vec<usize> = self
             .selection
             .iter()
             .copied()
-            .filter(|&ix| ix < DERIVED_BASE)
+            .filter(|&ix| ix < DERIVED_BASE && !self.frozen.contains(&ix))
             .collect();
+        let n = targets.len();
         for ix in targets {
             if params == self.params {
                 self.overrides.remove(&ix);
@@ -137,15 +138,27 @@ impl StudioApp {
                 self.overrides.insert(ix, params.clone());
             }
         }
-        self.status = "parameters applied to marked groups".into();
+        let skipped = self
+            .selection
+            .iter()
+            .filter(|ix| self.frozen.contains(ix))
+            .count();
+        self.record(format!("apply parameters to {n} marked groups"), None);
+        self.status = if skipped > 0 {
+            format!("parameters applied to {n} marked groups · {skipped} frozen skipped").into()
+        } else {
+            "parameters applied to marked groups".into()
+        };
         self.ensure_compare_loaded(cx);
         self.schedule_recompute(cx);
         cx.notify();
     }
 
     /// Drop the current group's override (or reset the globals to defaults).
-    fn reset_params(&mut self, cx: &mut Context<Self>) {
-        match self.override_target() {
+    pub(crate) fn reset_params(&mut self, cx: &mut Context<Self>) {
+        let target = self.override_target();
+        let before = self.ui_params().clone();
+        match target {
             Some(ix) => {
                 self.overrides.remove(&ix);
             }
@@ -153,6 +166,8 @@ impl StudioApp {
                 self.params = crate::params::PipelineParams::default();
             }
         }
+        let after = self.ui_params().clone();
+        self.record_param_edit(target, None, before, after, "reset parameters".into());
         self.sync_param_fields(cx);
         self.schedule_recompute(cx);
         self.sync_handles(cx);

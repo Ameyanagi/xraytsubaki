@@ -73,7 +73,7 @@ pub enum Workspace {
 }
 
 /// Which pipeline parameter a context-panel field edits.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum ParamKey {
     ImpEnergyCol,
     ImpI0Col,
@@ -308,6 +308,11 @@ actions!(
         ToggleContextPanel,
         FocusFilter,
         ExploreEscape,
+        PaletteOpen,
+        PaletteClose,
+        Undo,
+        Redo,
+        JournalToggle,
     ]
 );
 
@@ -345,6 +350,11 @@ pub fn studio_keybindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-j", ToggleContextPanel, Some("Studio && !TextInput")),
         KeyBinding::new("cmd-p", FocusFilter, Some("Studio && !TextInput")),
         KeyBinding::new("escape", ExploreEscape, Some("Explore && !TextInput")),
+        KeyBinding::new("cmd-k", PaletteOpen, Some("Studio")),
+        KeyBinding::new("escape", PaletteClose, Some("Palette")),
+        KeyBinding::new("cmd-z", Undo, Some("Studio && !TextInput")),
+        KeyBinding::new("cmd-shift-z", Redo, Some("Studio && !TextInput")),
+        KeyBinding::new("cmd-shift-j", JournalToggle, Some("Studio && !TextInput")),
     ]
 }
 
@@ -537,8 +547,26 @@ enum TrendDomain {
 
 struct TrendSnapshot {
     values: Vec<f64>,
+    /// Frame position of every value (sampled trends sit on their true frames).
+    frames: Vec<f64>,
     name: String,
     domain: TrendDomain,
+}
+
+/// Frame positions of `n` values in `domain` over a scan of `scan_len`.
+fn trend_frames(domain: TrendDomain, n: usize, scan_len: usize) -> Vec<f64> {
+    match domain {
+        TrendDomain::FullScan => (0..n).map(|i| i as f64).collect(),
+        TrendDomain::Sampled => (0..n)
+            .map(|i| {
+                if n > 1 {
+                    i as f64 * scan_len.saturating_sub(1) as f64 / (n - 1) as f64
+                } else {
+                    0.0
+                }
+            })
+            .collect(),
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -754,6 +782,10 @@ pub struct StudioApp {
     handles: HandleState,
     tools: ToolState,
     analysis: shell::tools::AnalysisState,
+    journal: shell::journal::JournalState,
+    palette: Option<shell::palette::PaletteState>,
+    /// Groups skipped by bulk operations (Athena's frozen groups).
+    frozen: BTreeSet<usize>,
     data_panel_open: bool,
     context_panel_open: bool,
     catalog: Catalog,
@@ -991,18 +1023,6 @@ fn heatmap_cursor_annotation(frame: usize, theme: &Theme) -> Annotation {
 
 fn trend_cursor_annotation(frame: usize, theme: &Theme) -> Annotation {
     Annotation::vline_styled(frame as f64, cursor_color(theme), 2.0, LineStyle::Solid)
-}
-
-fn trend_cursor_position(
-    domain: TrendDomain,
-    time_pos: usize,
-    scan_len: usize,
-    sample_len: usize,
-) -> usize {
-    match domain {
-        TrendDomain::FullScan => time_pos,
-        TrendDomain::Sampled => nearest_sample_pos(time_pos, scan_len, sample_len),
-    }
 }
 
 fn set_cursor_annotation(
@@ -1530,6 +1550,9 @@ impl StudioApp {
             handles: HandleState::default(),
             tools: ToolState::new(),
             analysis: shell::tools::AnalysisState::default(),
+            journal: shell::journal::JournalState::default(),
+            palette: None,
+            frozen: BTreeSet::new(),
             data_panel_open: true,
             context_panel_open: true,
             catalog: Catalog::default(),
@@ -2140,6 +2163,16 @@ impl StudioApp {
     }
 
     fn apply_param(&mut self, key: ParamKey, value: Option<f64>, cx: &mut Context<Self>) {
+        let target = self.override_target();
+        if let Some(ix) = target
+            && self.frozen.contains(&ix)
+        {
+            self.status = "this group is frozen — thaw it to edit its parameters".into();
+            self.sync_param_fields(cx);
+            cx.notify();
+            return;
+        }
+        let before = self.ui_params().clone();
         let p = self.edit_params();
         let int = value.map(|v| v.round() as i32);
         let col = value.map(|v| v.round().max(0.0) as usize);
@@ -2178,6 +2211,22 @@ impl StudioApp {
             ParamKey::BftRmax => p.bft_rmax = value,
             ParamKey::BftDr => p.bft_dr = value,
         }
+        let after = self.ui_params().clone();
+        let shown = match value {
+            Some(v) => format!("{v}"),
+            None => "auto".into(),
+        };
+        let scope = match target {
+            Some(ix) => self.entry_label(ix),
+            None => "all groups".into(),
+        };
+        self.record_param_edit(
+            target,
+            Some(key),
+            before,
+            after,
+            format!("{key:?} = {shown} · {scope}"),
+        );
         self.schedule_recompute(cx);
         if matches!(
             key,
@@ -2223,6 +2272,8 @@ impl StudioApp {
     /// Apply a selection from the option list (0 = auto).
     fn set_enum_param(&mut self, which: EnumParam, index: usize, cx: &mut Context<Self>) {
         let variant = index.checked_sub(1);
+        let target = self.override_target();
+        let before = self.ui_params().clone();
         let p = self.edit_params();
         match which {
             EnumParam::ImportMode => {
@@ -2241,6 +2292,14 @@ impl StudioApp {
             }
         }
         self.open_enum = None;
+        let after = self.ui_params().clone();
+        self.record_param_edit(
+            target,
+            None,
+            before,
+            after,
+            format!("{which:?} = option {index}"),
+        );
         self.schedule_recompute(cx);
         if which == EnumParam::ImportMode {
             self.update_import_preview(cx);
@@ -2788,8 +2847,13 @@ impl StudioApp {
         }
         .size_px(700, 420);
         let trend_snapshot = self.trend_snapshot();
-        let trend = build_trend(&trend_snapshot.values, &trend_snapshot.name, &self.theme)
-            .size_px(700, 420);
+        let trend = build_trend(
+            &trend_snapshot.values,
+            &trend_snapshot.frames,
+            &trend_snapshot.name,
+            &self.theme,
+        )
+        .size_px(700, 420);
         match &mut self.operando_plots {
             Some(plots) => {
                 if plots.scan == scan_ix && plots.space == space {
@@ -2882,7 +2946,13 @@ impl StudioApp {
             return;
         }
         let snapshot = self.trend_snapshot();
-        let trend = build_trend(&snapshot.values, &snapshot.name, &self.theme);
+        let trend = build_trend(
+            &snapshot.values,
+            &snapshot.frames,
+            &snapshot.name,
+            &self.theme,
+        )
+        .size_px(700, 420);
         let plots = self
             .operando_plots
             .as_mut()
@@ -2910,12 +2980,6 @@ impl StudioApp {
 
     fn update_operando_cursor_annotations(&mut self, cx: &mut Context<Self>) {
         let heatmap_annotation = heatmap_cursor_annotation(self.time_pos, &self.theme);
-        let scan_len = self.operando_scan_len().unwrap_or_default();
-        let sample_len = self
-            .operando
-            .as_ref()
-            .map(|data| data.e0s.len())
-            .unwrap_or_default();
         let mut errors = Vec::new();
         if let Some(plots) = &mut self.operando_plots {
             if let Err(error) = set_cursor_annotation(
@@ -2927,8 +2991,7 @@ impl StudioApp {
                 errors.push(("heatmap cursor", error));
             }
 
-            let trend_cursor =
-                trend_cursor_position(plots.trend_domain, self.time_pos, scan_len, sample_len);
+            let trend_cursor = self.time_pos;
             if plots.last_trend_cursor != Some(trend_cursor) {
                 let trend_annotation = trend_cursor_annotation(trend_cursor, &self.theme);
                 match set_cursor_annotation(
@@ -3943,11 +4006,19 @@ impl StudioApp {
                 app.merge_cancel = None;
                 match result {
                     Ok((energy, mu)) => {
-                        app.derived.push(DerivedSpectrum {
+                        let merged = DerivedSpectrum {
                             label: label.clone(),
                             energy,
                             mu,
-                        });
+                        };
+                        app.record(
+                            format!("merge → {}", merged.label),
+                            Some(shell::journal::UndoOp::DerivedAdd {
+                                index: app.derived.len(),
+                                spectrum: merged.clone(),
+                            }),
+                        );
+                        app.derived.push(merged);
                         let ix = DERIVED_BASE + app.derived.len() - 1;
                         app.status = format!("merged → {label}").into();
                         app.selection.clear();
@@ -3973,7 +4044,11 @@ impl StudioApp {
         if i >= self.derived.len() {
             return;
         }
-        self.derived.remove(i);
+        let spectrum = self.derived.remove(i);
+        self.record(
+            format!("remove {}", spectrum.label),
+            Some(shell::journal::UndoOp::DerivedRemove { index: i, spectrum }),
+        );
         // Virtual indices shift; drop selections/cache touching derived.
         self.selection.retain(|&ix| ix < DERIVED_BASE);
         if self.selected.is_some_and(|ix| ix >= DERIVED_BASE) {
@@ -4375,6 +4450,13 @@ impl StudioApp {
                         .into();
                         let result = Arc::new(result);
                         app.fit_result = Some(result.clone());
+                        app.record(
+                            format!(
+                                "fit {} · R {:.4} · red. χ² {:.3e}",
+                                provenance.label, result.r_factor, result.reduced_chi_square
+                            ),
+                            None,
+                        );
                         app.push_fit_history(
                             provenance.label.to_string(),
                             history_inputs,
@@ -4470,6 +4552,7 @@ impl StudioApp {
             self.rebuild_fit_plots(cx);
         }
         self.status = format!("restored fit {id} ({})", entry.group).into();
+        self.record(format!("restore fit {id}"), None);
         self.fit_model_changed(cx);
     }
 
@@ -5082,6 +5165,7 @@ impl StudioApp {
                         }
                     }
                     return TrendSnapshot {
+                        frames: trend_frames(TrendDomain::FullScan, values.len(), scan_len),
                         values,
                         name: name.clone(),
                         domain: TrendDomain::FullScan,
@@ -5103,6 +5187,7 @@ impl StudioApp {
                         .map(|n| format!("LCF weight · {n}"))
                         .unwrap_or_else(|| "LCF weight".into());
                     return TrendSnapshot {
+                        frames: trend_frames(TrendDomain::FullScan, values.len(), scan_len),
                         values,
                         name,
                         domain: TrendDomain::FullScan,
@@ -5110,25 +5195,29 @@ impl StudioApp {
                 }
             }
             TrendSource::WhiteLine => {
+                let values = self
+                    .operando
+                    .as_ref()
+                    .map(|data| data.whitelines.clone())
+                    .unwrap_or_default();
                 return TrendSnapshot {
-                    values: self
-                        .operando
-                        .as_ref()
-                        .map(|data| data.whitelines.clone())
-                        .unwrap_or_default(),
+                    frames: trend_frames(TrendDomain::Sampled, values.len(), scan_len),
+                    values,
                     name: "white line (norm. μ)".to_string(),
                     domain: TrendDomain::Sampled,
                 };
             }
             TrendSource::E0 => {}
         }
+        let values = self
+            .operando
+            .as_ref()
+            .map(|data| data.e0s.clone())
+            .unwrap_or_default();
         TrendSnapshot {
-            values: self
-                .operando
-                .as_ref()
-                .map(|data| data.e0s.clone())
-                .unwrap_or_default(),
-            name: "E0 (eV)".to_string(),
+            frames: trend_frames(TrendDomain::Sampled, values.len(), scan_len),
+            values,
+            name: "E₀ (eV)".to_string(),
             domain: TrendDomain::Sampled,
         }
     }
@@ -6606,6 +6695,24 @@ impl StudioApp {
         }
         bar.child(
             div()
+                .id("journal-toggle")
+                .px_2()
+                .rounded_sm()
+                .cursor_pointer()
+                .hover(|d| d.bg(t.raised))
+                .text_color(if self.journal.open {
+                    t.accent
+                } else {
+                    t.text_muted
+                })
+                .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                    this.journal.open = !this.journal.open;
+                    cx.notify();
+                }))
+                .child(format!("journal · {} steps", self.journal.entries.len())),
+        )
+        .child(
+            div()
                 .font_family(shell::MONO)
                 .whitespace_nowrap()
                 .child(format!(
@@ -6671,6 +6778,21 @@ impl Render for StudioApp {
             .on_action(
                 cx.listener(|this: &mut Self, _: &ExploreEscape, _window, cx| {
                     this.explore_escape(cx);
+                }),
+            )
+            .on_action(cx.listener(|this: &mut Self, _: &PaletteOpen, window, cx| {
+                this.open_palette(window, cx);
+            }))
+            .on_action(cx.listener(|this: &mut Self, _: &Undo, _window, cx| {
+                this.undo(cx);
+            }))
+            .on_action(cx.listener(|this: &mut Self, _: &Redo, _window, cx| {
+                this.redo(cx);
+            }))
+            .on_action(
+                cx.listener(|this: &mut Self, _: &JournalToggle, _window, cx| {
+                    this.journal.open = !this.journal.open;
+                    cx.notify();
                 }),
             )
             .size_full()

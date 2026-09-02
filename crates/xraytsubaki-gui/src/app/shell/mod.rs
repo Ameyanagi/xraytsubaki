@@ -11,6 +11,8 @@ pub mod fit;
 pub mod groups_panel;
 pub mod handles;
 pub mod inspector;
+pub mod journal;
+pub mod palette;
 pub mod series;
 pub mod stage_strip;
 pub mod thumbnails;
@@ -324,6 +326,7 @@ impl StudioApp {
             .size_full()
             .min_h_0()
             .min_w_0()
+            .relative()
             .flex()
             .flex_col()
             .bg(t.bg)
@@ -354,7 +357,13 @@ impl StudioApp {
                 self.problems_open
                     .then(|| self.problems_panel(cx).into_any_element()),
             )
+            .children(
+                self.journal
+                    .open
+                    .then(|| self.journal_panel(cx).into_any_element()),
+            )
             .child(self.status_bar(cx))
+            .children(self.palette_overlay(cx))
     }
 
     /// Brand · project · actions (open folder / project, theme).
@@ -415,6 +424,32 @@ impl StudioApp {
                     .child(project),
             )
             .child(div().flex_1())
+            .child(
+                div()
+                    .id("cmdk")
+                    .h(px(24.))
+                    .px_2()
+                    .min_w(px(220.))
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(t.border)
+                    .bg(t.bg)
+                    .text_size(px(11.5))
+                    .text_color(t.text_muted)
+                    .cursor_pointer()
+                    .hover(|d| d.border_color(t.accent))
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.open_palette(window, cx);
+                    }))
+                    .child("Search actions, tools, groups…")
+                    .child(div().flex_1())
+                    .child(div().font_family(MONO).text_size(px(10.5)).child("⌘K")),
+            )
+            .child(action("undo", "↶", |this, cx| this.undo(cx)))
+            .child(action("redo", "↷", |this, cx| this.redo(cx)))
             .child(action("open-folder", "Open folder…", |this, cx| {
                 this.open_folder(cx)
             }))

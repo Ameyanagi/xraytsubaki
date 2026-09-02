@@ -50,6 +50,9 @@ impl StudioApp {
         if self.stage == Stage::Fit {
             return self.fit_inspector_header(cx).into_any_element();
         }
+        if self.stage == Stage::Series {
+            return self.series_inspector_header(cx).into_any_element();
+        }
         let t = self.theme;
         let label = self.current_group_label();
         let marked = self
@@ -84,7 +87,7 @@ impl StudioApp {
                         ),
                     ),
             );
-        if self.stage.is_processing() || self.stage == Stage::Series {
+        if self.stage.is_processing() {
             header = header
                 .child(
                     button(
@@ -259,6 +262,16 @@ impl StudioApp {
                 vec![
                     div().px_2().child(self.tools_section(cx)).into_any_element(),
                     self.note("Tools never modify the source: each Apply creates a derived group (↳) that runs through the same pipeline.")
+                        .into_any_element(),
+                ],
+                cx,
+            ))
+            .child(self.section(
+                "Analysis",
+                None,
+                vec![
+                    div().px_2().child(self.analysis_tools_section(cx)).into_any_element(),
+                    self.note("LCF fits the current group as a mix of the marked groups; PCA trains on the marked groups and projects the current one.")
                         .into_any_element(),
                 ],
                 cx,
@@ -479,56 +492,5 @@ impl StudioApp {
                 ],
                 cx,
             ))
-    }
-
-    /// Series keeps the three processing sections compact (params apply to
-    /// every frame of the batch).
-    fn series_inspector(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        div()
-            .flex()
-            .flex_col()
-            .child(self.section(
-                "Normalization",
-                Some(ParamSection::Norm),
-                [
-                    self.field(ParamKey::E0),
-                    self.field(ParamKey::PreEdgeStart),
-                    self.field(ParamKey::PreEdgeEnd),
-                    self.field(ParamKey::NormStart),
-                    self.field(ParamKey::NormEnd),
-                ]
-                .into_iter()
-                .flatten()
-                .collect(),
-                cx,
-            ))
-            .child(self.section(
-                "Background",
-                Some(ParamSection::Bkg),
-                [
-                    self.field(ParamKey::Rbkg),
-                    self.field(ParamKey::BkgKmin),
-                    self.field(ParamKey::BkgKmax),
-                ]
-                .into_iter()
-                .flatten()
-                .collect(),
-                cx,
-            ))
-            .child(self.section(
-                "Transform",
-                Some(ParamSection::Fft),
-                [
-                    self.field(ParamKey::FftKmin),
-                    self.field(ParamKey::FftKmax),
-                    self.field(ParamKey::FftDk),
-                    self.field(ParamKey::FftKweight),
-                ]
-                .into_iter()
-                .flatten()
-                .collect(),
-                cx,
-            ))
-            .child(self.note("Batch operations use these parameters for every frame; cancel keeps completed frames."))
     }
 }

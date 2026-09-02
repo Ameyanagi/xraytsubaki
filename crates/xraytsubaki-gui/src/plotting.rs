@@ -513,7 +513,13 @@ fn heatmap_y_extent(scan_len: usize, row_count: usize) -> (f64, f64) {
 /// overview). Rows remain in chronological order; the lower heatmap origin maps
 /// row 0 to frame 0, while the displayed y axis is reversed so frame 0 appears
 /// at the top and tick values remain truthful.
-pub fn build_heatmap(matrix: &[Vec<f64>], grid: &[f64], scan_len: usize, theme: &Theme) -> Plot {
+pub fn build_heatmap(
+    matrix: &[Vec<f64>],
+    grid: &[f64],
+    scan_len: usize,
+    xlabel: &str,
+    theme: &Theme,
+) -> Plot {
     let kmin = grid.first().copied().unwrap_or(0.0);
     let kmax = grid.last().copied().unwrap_or(1.0).max(kmin + 1e-9);
     let last_frame = scan_len.saturating_sub(1) as f64;
@@ -525,7 +531,7 @@ pub fn build_heatmap(matrix: &[Vec<f64>], grid: &[f64], scan_len: usize, theme: 
     };
     Plot::new()
         .theme(theme.plot_theme())
-        .xlabel(K_AXIS)
+        .xlabel(xlabel)
         .ylabel("frame")
         .heatmap_with(
             matrix,
@@ -536,6 +542,24 @@ pub fn build_heatmap(matrix: &[Vec<f64>], grid: &[f64], scan_len: usize, theme: 
         )
         .ylim(view_max, view_min)
         .into()
+}
+
+/// One overview frame as a plain line (energy / R spaces), with the
+/// reference standards behind it when given.
+pub fn build_frame_row(
+    grid: &[f64],
+    row: &[f64],
+    xlabel: &str,
+    ylabel: &str,
+    theme: &Theme,
+) -> Plot {
+    let n = grid.len().min(row.len());
+    let plot: Plot = Plot::new()
+        .theme(theme.plot_theme())
+        .line(&grid[..n], &row[..n])
+        .color(trace_color(theme, 0))
+        .into();
+    plot.xlabel(xlabel).ylabel(ylabel)
 }
 
 /// Source-backed chi(k) of one operando frame. Replacing `values` redraws the
@@ -743,6 +767,96 @@ pub fn build_fit_residual_r(result: &xraytsubaki::prelude::FeffFitResult, theme:
     plot.hline_styled(0.0, Color::from_gray(120), 0.8, LineStyle::Dashed)
         .xlabel(R_AXIS)
         .ylabel("residual")
+}
+
+/// LCF overlay: data, fit, residual (offset below) and the weighted
+/// components stacked underneath.
+pub fn build_lcf_plot(
+    result: &xraytsubaki::prelude::LcfResult,
+    xlabel: &str,
+    ylabel: &str,
+    theme: &Theme,
+) -> Plot {
+    let x = vecs(&result.x);
+    let data = vecs(&result.data);
+    let fit = vecs(&result.fit);
+    let span = data.iter().fold(0.0f64, |m, v| m.max(v.abs())).max(1e-12);
+    let mut plot: Plot = Plot::new()
+        .theme(theme.plot_theme())
+        .line(&x, &data)
+        .color(trace_color(theme, 0))
+        .label("data")
+        .line(&x, &fit)
+        .color(FIT_COLOR)
+        .line_width(1.6)
+        .label("fit")
+        .into();
+    for (i, (comp, weight)) in result.components.iter().zip(&result.weights).enumerate() {
+        let y: Vec<f64> = comp
+            .iter()
+            .map(|v| v - span * 0.25 * (i + 1) as f64)
+            .collect();
+        let n = y.len().min(x.len());
+        let (xs, ys) = (x[..n].to_vec(), y[..n].to_vec());
+        plot = plot
+            .line(&xs, &ys)
+            .color(trace_color(theme, i + 2))
+            .line_width(1.0)
+            .label(format!("{} × {:.2}", weight.name, weight.weight))
+            .into();
+    }
+    let n = result.components.len();
+    let res: Vec<f64> = result
+        .residual
+        .iter()
+        .map(|v| v - span * 0.25 * (n + 1) as f64)
+        .collect();
+    let n = res.len().min(x.len());
+    let (xs, rs) = (x[..n].to_vec(), res[..n].to_vec());
+    plot = plot
+        .line(&xs, &rs)
+        .color(Color::from_gray(150))
+        .line_width(1.0)
+        .line_style(LineStyle::Dashed)
+        .label("residual")
+        .into();
+    plot.legend_position(ruviz::core::LegendPosition::UpperRight)
+        .xlabel(xlabel)
+        .ylabel(ylabel)
+}
+
+/// PCA target transform: data vs reconstruction with the residual below.
+pub fn build_pca_plot(
+    fit: &xraytsubaki::prelude::PcaFit,
+    xlabel: &str,
+    ylabel: &str,
+    theme: &Theme,
+) -> Plot {
+    let x = vecs(&fit.x);
+    let data = vecs(&fit.data);
+    let recon = vecs(&fit.fit);
+    let span = data.iter().fold(0.0f64, |m, v| m.max(v.abs())).max(1e-12);
+    let res: Vec<f64> = fit.residual.iter().map(|v| v - span * 0.3).collect();
+    let n = res.len().min(x.len());
+    let (xs, rs) = (x[..n].to_vec(), res[..n].to_vec());
+    let plot: Plot = Plot::new()
+        .theme(theme.plot_theme())
+        .line(&x, &data)
+        .color(trace_color(theme, 0))
+        .label("data")
+        .line(&x, &recon)
+        .color(FIT_COLOR)
+        .line_width(1.6)
+        .label(format!("{} components", fit.n_components))
+        .line(&xs, &rs)
+        .color(Color::from_gray(150))
+        .line_width(1.0)
+        .line_style(LineStyle::Dashed)
+        .label("residual")
+        .into();
+    plot.legend_position(ruviz::core::LegendPosition::UpperRight)
+        .xlabel(xlabel)
+        .ylabel(ylabel)
 }
 
 /// Parameter-vs-frame trend. The moving cursor is a dynamic annotation owned

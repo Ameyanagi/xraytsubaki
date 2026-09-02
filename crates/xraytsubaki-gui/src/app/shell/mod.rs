@@ -11,6 +11,7 @@ pub mod fit;
 pub mod groups_panel;
 pub mod handles;
 pub mod inspector;
+pub mod series;
 pub mod stage_strip;
 pub mod thumbnails;
 pub mod tools;
@@ -132,6 +133,7 @@ pub struct StageView {
     pub fit_show_re: bool,
     pub fit_show_feff: bool,
     pub fit_show_batch: bool,
+    pub series_space: crate::app::SeriesSpace,
 }
 
 impl Default for StageView {
@@ -148,6 +150,7 @@ impl Default for StageView {
             fit_show_re: false,
             fit_show_feff: false,
             fit_show_batch: false,
+            series_space: crate::app::SeriesSpace::Energy,
         }
     }
 }
@@ -308,7 +311,7 @@ impl StudioApp {
         let t = self.theme;
         let center = match self.stage {
             Stage::Fit => self.fit_stage_center(cx).into_any_element(),
-            Stage::Series => self.operando_center(cx).into_any_element(),
+            Stage::Series => self.series_stage_center(cx).into_any_element(),
             _ => self.stage_center(cx).into_any_element(),
         };
         let groups = self

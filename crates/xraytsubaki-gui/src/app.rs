@@ -45,9 +45,9 @@ use crate::params::{
     resample_chik,
 };
 use crate::plotting::{
-    QuadTrace, ViewOptions, build_fit_k, build_fit_q, build_fit_r, build_fit_residual_k,
-    build_fit_residual_r, build_frame_chik_source, build_heatmap, build_quadrants_multi,
-    build_trend, chik_label, middle_truncate, trace_rgba,
+    K_AXIS, QuadTrace, R_AXIS, ViewOptions, build_fit_k, build_fit_q, build_fit_r,
+    build_fit_residual_k, build_fit_residual_r, build_frame_chik_source, build_heatmap,
+    build_quadrants_multi, build_trend, chik_label, chir_label, middle_truncate, trace_rgba,
 };
 use crate::project::{PROJECT_VERSION, ParamOverride, ProjectFile};
 use crate::theme::Theme;
@@ -372,14 +372,139 @@ const K_GRID_BINS: usize = 256;
 const K_GRID_MAX: f64 = 15.0;
 
 /// Downsampled overview of one scan, valid for one params fingerprint.
-struct OperandoData {
-    scan: usize,
-    scan_len: usize,
-    fingerprint: u64,
-    grid: Vec<f64>,
-    matrix: Vec<Vec<f64>>,
-    e0s: Vec<f64>,
-    kweight: f64,
+pub(crate) struct OperandoData {
+    pub(crate) scan: usize,
+    pub(crate) scan_len: usize,
+    pub(crate) fingerprint: u64,
+    /// k grid and k-weighted χ(k) rows (sampled frames × grid).
+    pub(crate) grid: Vec<f64>,
+    pub(crate) matrix: Vec<Vec<f64>>,
+    /// Absolute-energy grid and normalized μ(E) rows.
+    pub(crate) e_grid: Vec<f64>,
+    pub(crate) e_matrix: Vec<Vec<f64>>,
+    /// R grid and |χ(R)| rows.
+    pub(crate) r_grid: Vec<f64>,
+    pub(crate) r_matrix: Vec<Vec<f64>>,
+    pub(crate) e0s: Vec<f64>,
+    /// White-line height (max normalized μ within +30 eV of E₀) per sampled frame.
+    pub(crate) whitelines: Vec<f64>,
+    pub(crate) kweight: f64,
+}
+
+impl OperandoData {
+    /// Grid and matrix of a series space.
+    pub(crate) fn space(&self, space: SeriesSpace) -> (&[f64], &[Vec<f64>]) {
+        match space {
+            SeriesSpace::Energy => (&self.e_grid, &self.e_matrix),
+            SeriesSpace::K => (&self.grid, &self.matrix),
+            SeriesSpace::R => (&self.r_grid, &self.r_matrix),
+        }
+    }
+}
+
+/// LCF weights per frame of the active scan (a Series trend).
+pub(crate) struct SeriesLcf {
+    pub(crate) scan: usize,
+    pub(crate) fingerprint: u64,
+    /// Standard labels, in weight order.
+    pub(crate) names: Vec<String>,
+    /// frame → weights (+ R-factor last).
+    pub(crate) rows: BTreeMap<usize, Vec<f64>>,
+    pub(crate) total: usize,
+    pub(crate) cancelled: bool,
+}
+
+/// One sampled frame of a scan overview, before resampling onto the
+/// shared grids.
+struct FrameSample {
+    k_row: Vec<f64>,
+    e0: f64,
+    whiteline: f64,
+    energy: Vec<f64>,
+    norm: Vec<f64>,
+    r: Vec<f64>,
+    mag: Vec<f64>,
+}
+
+/// Sampled-frame arrays of a processed spectrum for the overview.
+fn frame_sample(sp: &XASSpectrum, k_grid: &[f64]) -> Result<FrameSample, String> {
+    let k_row = resample_chik(sp, k_grid).ok_or("processed spectrum has no chi(k)")?;
+    let e0 = sp.get_e0().unwrap_or(f64::NAN);
+    let energy: Vec<f64> = sp
+        .energy
+        .as_ref()
+        .map(|e| e.iter().copied().collect())
+        .unwrap_or_default();
+    let norm: Vec<f64> = sp
+        .get_flat()
+        .or_else(|| sp.get_norm())
+        .map(|n| n.iter().copied().collect())
+        .unwrap_or_default();
+    let whiteline = energy
+        .iter()
+        .zip(&norm)
+        .filter(|(e, _)| **e >= e0 && **e <= e0 + 30.0)
+        .map(|(_, n)| *n)
+        .fold(f64::NAN, f64::max);
+    let r: Vec<f64> = sp
+        .get_r()
+        .map(|v| v.iter().copied().collect())
+        .unwrap_or_default();
+    let mag: Vec<f64> = sp
+        .get_chir_mag()
+        .map(|v| v.iter().copied().collect())
+        .unwrap_or_default();
+    Ok(FrameSample {
+        k_row,
+        e0,
+        whiteline,
+        energy,
+        norm,
+        r,
+        mag,
+    })
+}
+
+/// Linear resampling of `(x, y)` onto `grid` (zero outside the data).
+fn resample_xy(x: &[f64], y: &[f64], grid: &[f64]) -> Vec<f64> {
+    let n = x.len().min(y.len());
+    if n < 2 {
+        return vec![f64::NAN; grid.len()];
+    }
+    let mut out = Vec::with_capacity(grid.len());
+    let mut j = 0usize;
+    for &g in grid {
+        if g < x[0] || g > x[n - 1] {
+            out.push(0.0);
+            continue;
+        }
+        while j + 2 < n && x[j + 1] < g {
+            j += 1;
+        }
+        let (x0, x1) = (x[j], x[j + 1]);
+        let t = if x1 > x0 { (g - x0) / (x1 - x0) } else { 0.0 };
+        out.push(y[j] + t * (y[j + 1] - y[j]));
+    }
+    out
+}
+
+/// Which quantity a Series heatmap / frame plot shows.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum SeriesSpace {
+    Energy,
+    K,
+    R,
+}
+
+/// Quantity plotted against frame in the Series trend.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub(crate) enum TrendSource {
+    E0,
+    WhiteLine,
+    /// A varying parameter of the batch fit.
+    FitVar(String),
+    /// Weight of the i-th standard of the LCF trend.
+    Lcf(usize),
 }
 
 #[derive(Clone)]
@@ -452,14 +577,16 @@ impl RetainedChikSeries {
     }
 }
 
-struct OperandoPlots {
+pub(crate) struct OperandoPlots {
     /// Scan the plots currently show; a different scan gets fresh viewports
     /// instead of inheriting the previous scan's pan/zoom.
     scan: usize,
-    heatmap: Entity<RuvizPlot>,
-    chik: Entity<RuvizPlot>,
+    /// Space the heatmap / frame plot currently show.
+    space: SeriesSpace,
+    pub(crate) heatmap: Entity<RuvizPlot>,
+    pub(crate) chik: Entity<RuvizPlot>,
     chik_series: RetainedChikSeries,
-    trend: Entity<RuvizPlot>,
+    pub(crate) trend: Entity<RuvizPlot>,
     trend_domain: TrendDomain,
     heatmap_cursor: Option<AnnotationId>,
     trend_cursor: Option<AnnotationId>,
@@ -498,7 +625,7 @@ enum BatchFitEvent {
 }
 
 /// Completed or in-progress batch fit over an active scan.
-struct BatchFitData {
+pub(crate) struct BatchFitData {
     scan: usize,
     fingerprint: u64,
     model_fingerprint: u64,
@@ -626,6 +753,7 @@ pub struct StudioApp {
     thumbs: Option<Arc<[ThumbData; 4]>>,
     handles: HandleState,
     tools: ToolState,
+    analysis: shell::tools::AnalysisState,
     data_panel_open: bool,
     context_panel_open: bool,
     catalog: Catalog,
@@ -709,6 +837,13 @@ pub struct StudioApp {
     operando_gen: u64,
     operando_running: bool,
     operando_cancel: Option<Arc<AtomicBool>>,
+    /// Trend plotted against frame in the Series stage.
+    series_trend: TrendSource,
+    series_lcf: Option<SeriesLcf>,
+    lcf_running: bool,
+    lcf_gen: u64,
+    lcf_cancel: Option<Arc<AtomicBool>>,
+    lcf_progress: (usize, usize),
     time_pos: usize,
     /// Requested cursor used when a batch-table row opens a scan overview in
     /// the background while the Fit workspace stays visible.
@@ -792,7 +927,7 @@ fn short_duration(duration: Duration) -> String {
 }
 
 /// Map a full-scan cursor coordinate to the nearest sampled overview row.
-fn nearest_sample_pos(full_pos: usize, full_len: usize, sample_len: usize) -> usize {
+pub(crate) fn nearest_sample_pos(full_pos: usize, full_len: usize, sample_len: usize) -> usize {
     if full_len <= 1 || sample_len <= 1 {
         return 0;
     }
@@ -1393,7 +1528,8 @@ impl StudioApp {
             stage_view: StageView::default(),
             thumbs: None,
             handles: HandleState::default(),
-            tools: ToolState::default(),
+            tools: ToolState::new(),
+            analysis: shell::tools::AnalysisState::default(),
             data_panel_open: true,
             context_panel_open: true,
             catalog: Catalog::default(),
@@ -1449,6 +1585,12 @@ impl StudioApp {
             operando_gen: 0,
             operando_running: false,
             operando_cancel: None,
+            series_trend: TrendSource::E0,
+            series_lcf: None,
+            lcf_running: false,
+            lcf_gen: 0,
+            lcf_cancel: None,
+            lcf_progress: (0, 0),
             time_pos: 0,
             pending_time_pos: None,
             fit_paths: Vec::new(),
@@ -1623,6 +1765,7 @@ impl StudioApp {
             + usize::from(self.fit_running)
             + usize::from(self.feff_running)
             + usize::from(self.batch_running)
+            + usize::from(self.lcf_running)
     }
 
     fn selection_count(&self) -> usize {
@@ -1886,6 +2029,12 @@ impl StudioApp {
         }
         if self.batch_running
             && let Some(cancel) = self.batch_cancel.as_ref()
+        {
+            cancel.store(true, Ordering::Relaxed);
+            cancelled = true;
+        }
+        if self.lcf_running
+            && let Some(cancel) = self.lcf_cancel.as_ref()
         {
             cancel.store(true, Ordering::Relaxed);
             cancelled = true;
@@ -2470,11 +2619,7 @@ impl StudioApp {
                     let params = frame_overrides.get(ix).unwrap_or(&global);
                     let result = process_file(path, params)
                         .map_err(|error| error.to_string())
-                        .and_then(|sp| {
-                            resample_chik(&sp, &job_grid)
-                                .map(|row| (row, sp.get_e0().unwrap_or(f64::NAN)))
-                                .ok_or_else(|| "processed spectrum has no chi(k)".to_string())
-                        });
+                        .and_then(|sp| frame_sample(&sp, &job_grid));
                     Some((label.clone(), result))
                 })
                 .collect::<Vec<_>>()
@@ -2492,20 +2637,55 @@ impl StudioApp {
                     cx.notify();
                     return;
                 }
-                let mut matrix = Vec::with_capacity(rows.len());
-                let mut e0s = Vec::with_capacity(rows.len());
-                let mut failed = 0usize;
-                for row in rows.into_iter().flatten() {
-                    match row {
-                        (_, Ok((values, e0))) => {
-                            matrix.push(values);
-                            e0s.push(e0);
+                let samples: Vec<Result<FrameSample, String>> = rows
+                    .into_iter()
+                    .flatten()
+                    .map(|(label, result)| {
+                        result.inspect_err(|error| {
+                            app.record_job_error(label, error.clone());
+                        })
+                    })
+                    .collect();
+                let failed = samples.iter().filter(|s| s.is_err()).count();
+                // Shared energy / R grids come from the first good frame.
+                let first = samples.iter().find_map(|s| s.as_ref().ok());
+                let e_grid: Vec<f64> = first
+                    .map(|f| {
+                        let lo = f.e0 - 40.0;
+                        let hi = f
+                            .energy
+                            .last()
+                            .copied()
+                            .unwrap_or(f.e0 + 200.0)
+                            .min(f.e0 + 200.0);
+                        (0..K_GRID_BINS)
+                            .map(|i| lo + (hi - lo) * i as f64 / (K_GRID_BINS - 1) as f64)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let r_grid: Vec<f64> = (0..K_GRID_BINS)
+                    .map(|i| 6.0 * i as f64 / (K_GRID_BINS - 1) as f64)
+                    .collect();
+                let mut matrix = Vec::with_capacity(samples.len());
+                let mut e_matrix = Vec::with_capacity(samples.len());
+                let mut r_matrix = Vec::with_capacity(samples.len());
+                let mut e0s = Vec::with_capacity(samples.len());
+                let mut whitelines = Vec::with_capacity(samples.len());
+                for sample in samples {
+                    match sample {
+                        Ok(f) => {
+                            matrix.push(f.k_row);
+                            e_matrix.push(resample_xy(&f.energy, &f.norm, &e_grid));
+                            r_matrix.push(resample_xy(&f.r, &f.mag, &r_grid));
+                            e0s.push(f.e0);
+                            whitelines.push(f.whiteline);
                         }
-                        (label, Err(error)) => {
-                            failed += 1;
-                            app.record_job_error(label, error);
+                        Err(_) => {
                             matrix.push(vec![f64::NAN; grid.len()]);
+                            e_matrix.push(vec![f64::NAN; e_grid.len()]);
+                            r_matrix.push(vec![f64::NAN; r_grid.len()]);
                             e0s.push(f64::NAN);
+                            whitelines.push(f64::NAN);
                         }
                     }
                 }
@@ -2516,7 +2696,12 @@ impl StudioApp {
                     fingerprint,
                     grid,
                     matrix,
+                    e_grid,
+                    e_matrix,
+                    r_grid,
+                    r_matrix,
                     e0s,
+                    whitelines,
                     kweight,
                 });
                 // Parameter-only rebuilds preserve the full-scan cursor;
@@ -2580,18 +2765,34 @@ impl StudioApp {
             ),
         };
         let chik_series = RetainedChikSeries::new(chik_key, row);
-        let heatmap = build_heatmap(&data.matrix, &data.grid, data.scan_len, &self.theme);
-        let chik = build_frame_chik_source(
-            &data.grid,
-            chik_series.values.clone(),
-            data.kweight,
-            &self.theme,
-        );
+        let space = self.stage_view.series_space;
+        let (grid, matrix) = data.space(space);
+        let (xlabel, ylabel): (String, String) = match space {
+            SeriesSpace::Energy => ("Energy (eV)".into(), "normalized μ(E)".into()),
+            SeriesSpace::K => (K_AXIS.into(), chik_label(data.kweight)),
+            SeriesSpace::R => (R_AXIS.into(), chir_label(data.kweight)),
+        };
+        let heatmap =
+            build_heatmap(matrix, grid, data.scan_len, &xlabel, &self.theme).size_px(700, 900);
+        let chik = match space {
+            SeriesSpace::K => build_frame_chik_source(
+                &data.grid,
+                chik_series.values.clone(),
+                data.kweight,
+                &self.theme,
+            ),
+            _ => {
+                let frame_row = self.series_frame_row(space);
+                crate::plotting::build_frame_row(grid, &frame_row, &xlabel, &ylabel, &self.theme)
+            }
+        }
+        .size_px(700, 420);
         let trend_snapshot = self.trend_snapshot();
-        let trend = build_trend(&trend_snapshot.values, &trend_snapshot.name, &self.theme);
+        let trend = build_trend(&trend_snapshot.values, &trend_snapshot.name, &self.theme)
+            .size_px(700, 420);
         match &mut self.operando_plots {
             Some(plots) => {
-                if plots.scan == scan_ix {
+                if plots.scan == scan_ix && plots.space == space {
                     plots
                         .heatmap
                         .update(cx, |rp, cx| rp.set_plot_keep_view(heatmap, cx));
@@ -2606,8 +2807,9 @@ impl StudioApp {
                         plots.trend.update(cx, |rp, cx| rp.set_plot(trend, cx));
                     }
                 } else {
-                    // New scan: fresh viewports, the old zoom is meaningless.
+                    // New scan or space: fresh viewports, the old zoom is meaningless.
                     plots.scan = scan_ix;
+                    plots.space = space;
                     plots.heatmap.update(cx, |rp, cx| rp.set_plot(heatmap, cx));
                     plots.chik.update(cx, |rp, cx| rp.set_plot(chik, cx));
                     plots.trend.update(cx, |rp, cx| rp.set_plot(trend, cx));
@@ -2644,12 +2846,13 @@ impl StudioApp {
                         let Some(data) = this.operando.as_ref() else {
                             return;
                         };
+                        let (grid, matrix) = data.space(this.stage_view.series_space);
                         let Some(frame) = frame_from_heatmap_position(
                             position.x,
                             position.y,
-                            &data.grid,
+                            grid,
                             data.scan_len,
-                            data.matrix.len(),
+                            matrix.len(),
                         ) else {
                             return;
                         };
@@ -2658,6 +2861,7 @@ impl StudioApp {
                 );
                 self.operando_plots = Some(OperandoPlots {
                     scan: scan_ix,
+                    space,
                     heatmap,
                     chik,
                     chik_series,
@@ -4294,7 +4498,15 @@ impl StudioApp {
         let q_plot = build_fit_q(&result, &self.theme);
         let k_res = build_fit_residual_k(&result, &self.theme);
         let r_res = build_fit_residual_r(&result, &self.theme);
-        // Fit ranges as draggable regions, drawn into the base plots.
+        // Fit ranges as draggable regions, drawn into the base plots. The
+        // figure aspect follows the card layout (two columns or one).
+        let two_columns = self.stage_view.fit_view == shell::FitView::Both;
+        let (fig_w, fig_h) = if two_columns { (600, 620) } else { (900, 560) };
+        k_plot = k_plot.size_px(fig_w, fig_h);
+        r_plot = r_plot.size_px(fig_w, fig_h);
+        let q_plot = q_plot.size_px(900, 560);
+        let k_res = k_res.size_px(fig_w, 150);
+        let r_res = r_res.size_px(fig_w, 150);
         for a in self.handle_decor(shell::handles::PLOT_FIT_K) {
             k_plot = k_plot.annotate(a);
         }
@@ -4636,6 +4848,197 @@ impl StudioApp {
         .detach();
     }
 
+    /// Marked groups whose processed spectra are cached, as LCF standards.
+    pub(crate) fn lcf_standards(&self) -> Vec<(String, Arc<XASSpectrum>)> {
+        let mut out = Vec::new();
+        for &ix in &self.selection {
+            if ix == NO_ENTRY {
+                continue;
+            }
+            let fp = self.effective_fingerprint(ix);
+            if let Some(sp) = self.cache.peek(&(ix, fp)) {
+                out.push((self.entry_label(ix), sp.clone()));
+            }
+        }
+        out
+    }
+
+    /// LCF weights of every frame of the active scan against the marked
+    /// standards (a Series trend). Streams per-frame rows; cancel keeps them.
+    pub(crate) fn run_series_lcf(&mut self, cx: &mut Context<Self>) {
+        if self.lcf_running {
+            return;
+        }
+        let Some(scan_ix) = self.active_scan else {
+            self.status = "select a scan first".into();
+            cx.notify();
+            return;
+        };
+        let standards = self.lcf_standards();
+        if standards.len() < 2 {
+            self.status = "mark at least two standards (their spectra must be loaded)".into();
+            cx.notify();
+            return;
+        }
+        let Some(scan) = self.catalog.scans.get(scan_ix) else {
+            return;
+        };
+        let scan_start = scan.start;
+        let scan_len = scan.len;
+        let fingerprint = scan_fingerprint(&self.params, &self.overrides, scan_start, scan_len);
+        let indices: Vec<usize> = if self.batch_preview {
+            sample_scan_indices(scan_start, scan_len, MAX_FRAMES)
+        } else {
+            (scan_start..scan_start + scan_len).collect()
+        };
+        let frames: Vec<(usize, usize, PathBuf, String)> = indices
+            .into_iter()
+            .map(|ix| {
+                (
+                    ix - scan_start,
+                    ix,
+                    self.catalog.path(ix),
+                    self.catalog.name(ix).to_string(),
+                )
+            })
+            .collect();
+        let total = frames.len();
+        self.lcf_gen += 1;
+        let generation = self.lcf_gen;
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.lcf_running = true;
+        self.lcf_cancel = Some(cancel.clone());
+        self.lcf_progress = (0, total);
+        self.series_lcf = Some(SeriesLcf {
+            scan: scan_ix,
+            fingerprint,
+            names: standards.iter().map(|(n, _)| n.clone()).collect(),
+            rows: BTreeMap::new(),
+            total,
+            cancelled: false,
+        });
+        self.series_trend = TrendSource::Lcf(0);
+        self.status = format!("LCF trend 0/{total} ...").into();
+        self.rebuild_operando_trend(cx);
+        cx.notify();
+
+        let global = Arc::new(self.params.clone());
+        let frame_overrides: Arc<BTreeMap<usize, PipelineParams>> = Arc::new(
+            self.overrides
+                .range(scan_start..scan_start.saturating_add(scan_len))
+                .map(|(&ix, p)| (ix, p.clone()))
+                .collect(),
+        );
+        let cfg = self.tools.lcf_config();
+        let standards: Arc<Vec<Arc<XASSpectrum>>> =
+            Arc::new(standards.into_iter().map(|(_, sp)| sp).collect());
+        let (tx, mut rx) = futures::channel::mpsc::unbounded::<(usize, Result<Vec<f64>, String>)>();
+        let job_cancel = cancel.clone();
+        let job = cx.background_executor().spawn(async move {
+            frames.par_iter().for_each(|(frame, ix, path, _label)| {
+                if job_cancel.load(Ordering::Relaxed) {
+                    return;
+                }
+                let params = frame_overrides.get(ix).unwrap_or(&global);
+                let result = process_file(path, params)
+                    .map_err(|e| e.to_string())
+                    .and_then(|sp| {
+                        xraytsubaki::prelude::lcf(&sp, standards.as_slice(), &cfg)
+                            .map_err(|e| e.to_string())
+                    })
+                    .map(|res| {
+                        let mut w: Vec<f64> = res.weights.iter().map(|c| c.weight).collect();
+                        w.push(res.r_factor);
+                        w
+                    });
+                let _ = tx.unbounded_send((*frame, result));
+            });
+        });
+        cx.spawn(async move |this, cx| {
+            while let Some((frame, result)) = rx.next().await {
+                let stop = this
+                    .update(cx, |app, cx| {
+                        if app.lcf_gen != generation {
+                            return true;
+                        }
+                        match result {
+                            Ok(weights) => {
+                                if let Some(lcf) = &mut app.series_lcf {
+                                    lcf.rows.insert(frame, weights);
+                                }
+                            }
+                            Err(error) => {
+                                app.record_job_error(format!("LCF frame {}", frame + 1), error);
+                            }
+                        }
+                        app.lcf_progress.0 += 1;
+                        let (done, total) = app.lcf_progress;
+                        app.status = format!("LCF trend {done}/{total}").into();
+                        if done % 8 == 0 || done == total {
+                            app.rebuild_operando_trend(cx);
+                        }
+                        cx.notify();
+                        false
+                    })
+                    .unwrap_or(true);
+                if stop {
+                    break;
+                }
+            }
+        })
+        .detach();
+        cx.spawn(async move |this, cx| {
+            job.await;
+            this.update(cx, |app, cx| {
+                if app.lcf_gen != generation {
+                    return;
+                }
+                app.lcf_gen += 1;
+                app.lcf_running = false;
+                app.lcf_cancel = None;
+                let cancelled = cancel.load(Ordering::Relaxed);
+                if let Some(lcf) = &mut app.series_lcf {
+                    lcf.cancelled = cancelled;
+                    app.status = format!(
+                        "LCF trend {} · {} / {} frames",
+                        if cancelled { "cancelled" } else { "done" },
+                        lcf.rows.len(),
+                        lcf.total
+                    )
+                    .into();
+                }
+                app.rebuild_operando_trend(cx);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    pub(crate) fn cancel_series_lcf(&mut self, cx: &mut Context<Self>) {
+        if self.lcf_running
+            && let Some(cancel) = &self.lcf_cancel
+        {
+            cancel.store(true, Ordering::Relaxed);
+            self.status = "cancelling LCF trend — completed frames are kept".into();
+            cx.notify();
+        }
+    }
+
+    /// Jump to the cursor frame in the Normalize stage.
+    pub(crate) fn open_frame_in_normalize(&mut self, cx: &mut Context<Self>) {
+        let Some(data) = self.operando.as_ref() else {
+            return;
+        };
+        let Some(scan) = self.catalog.scans.get(data.scan) else {
+            return;
+        };
+        let ix = scan.start + self.time_pos.min(scan.len.saturating_sub(1));
+        self.select_entry(ix, cx);
+        self.sync_param_fields(cx);
+        self.set_stage(shell::Stage::Normalize, cx);
+    }
+
     fn cancel_batch_fit(&mut self, cx: &mut Context<Self>) {
         if self.batch_running
             && let Some(cancel) = &self.batch_cancel
@@ -4646,7 +5049,7 @@ impl StudioApp {
         }
     }
 
-    fn active_batch_trend(&self) -> Option<(&BatchFitData, &str)> {
+    pub(crate) fn active_batch_trend(&self) -> Option<(&BatchFitData, &str)> {
         let bf = self.batch_fit.as_ref()?;
         let data = self.operando.as_ref()?;
         if bf.scan != data.scan
@@ -4662,25 +5065,63 @@ impl StudioApp {
     /// Resolve the displayed trend data, label, and coordinate domain together
     /// so the retained plot and its cursor cannot diverge.
     fn trend_snapshot(&self) -> TrendSnapshot {
-        if let Some((bf, name)) = self.active_batch_trend() {
-            let scan_len = self
-                .operando
-                .as_ref()
-                .map(|data| data.scan_len)
-                .unwrap_or_default();
-            let mut values = vec![f64::NAN; scan_len];
-            for row in &bf.rows {
-                if let (Some(slot), Some(value)) = (values.get_mut(row.frame), row.value_of(name)) {
-                    *slot = value;
+        let scan_len = self
+            .operando
+            .as_ref()
+            .map(|data| data.scan_len)
+            .unwrap_or_default();
+        match &self.series_trend {
+            TrendSource::FitVar(name) => {
+                if let Some((bf, _)) = self.active_batch_trend() {
+                    let mut values = vec![f64::NAN; scan_len];
+                    for row in &bf.rows {
+                        if let (Some(slot), Some(value)) =
+                            (values.get_mut(row.frame), row.value_of(name))
+                        {
+                            *slot = value;
+                        }
+                    }
+                    return TrendSnapshot {
+                        values,
+                        name: name.clone(),
+                        domain: TrendDomain::FullScan,
+                    };
                 }
             }
-            return TrendSnapshot {
-                values,
-                name: name.to_string(),
-                domain: TrendDomain::FullScan,
-            };
+            TrendSource::Lcf(i) => {
+                if let Some(lcf) = self.active_series_lcf() {
+                    let mut values = vec![f64::NAN; scan_len];
+                    for (frame, weights) in &lcf.rows {
+                        if let (Some(slot), Some(value)) = (values.get_mut(*frame), weights.get(*i))
+                        {
+                            *slot = *value;
+                        }
+                    }
+                    let name = lcf
+                        .names
+                        .get(*i)
+                        .map(|n| format!("LCF weight · {n}"))
+                        .unwrap_or_else(|| "LCF weight".into());
+                    return TrendSnapshot {
+                        values,
+                        name,
+                        domain: TrendDomain::FullScan,
+                    };
+                }
+            }
+            TrendSource::WhiteLine => {
+                return TrendSnapshot {
+                    values: self
+                        .operando
+                        .as_ref()
+                        .map(|data| data.whitelines.clone())
+                        .unwrap_or_default(),
+                    name: "white line (norm. μ)".to_string(),
+                    domain: TrendDomain::Sampled,
+                };
+            }
+            TrendSource::E0 => {}
         }
-
         TrendSnapshot {
             values: self
                 .operando
@@ -4690,6 +5131,51 @@ impl StudioApp {
             name: "E0 (eV)".to_string(),
             domain: TrendDomain::Sampled,
         }
+    }
+
+    /// The LCF trend when it belongs to the displayed scan/parameters.
+    pub(crate) fn active_series_lcf(&self) -> Option<&SeriesLcf> {
+        let lcf = self.series_lcf.as_ref()?;
+        let data = self.operando.as_ref()?;
+        (lcf.scan == data.scan && lcf.fingerprint == data.fingerprint).then_some(lcf)
+    }
+
+    /// The frame row in an energy / R space: the exact processed cursor
+    /// frame when cached, else the nearest sampled overview row.
+    fn series_frame_row(&self, space: SeriesSpace) -> Vec<f64> {
+        let Some(data) = self.operando.as_ref() else {
+            return Vec::new();
+        };
+        let (grid, matrix) = data.space(space);
+        if let Some(scan) = self.catalog.scans.get(data.scan) {
+            let scan_len = data.scan_len.min(scan.len);
+            let cursor_ix = scan.start + self.time_pos.min(scan_len.saturating_sub(1));
+            let fp = self.effective_fingerprint(cursor_ix);
+            if let Some(sp) = self.cache.peek(&(cursor_ix, fp)) {
+                let exact = match space {
+                    SeriesSpace::Energy => sp
+                        .energy
+                        .as_ref()
+                        .zip(sp.get_flat().or_else(|| sp.get_norm()))
+                        .map(|(e, n)| {
+                            let e: Vec<f64> = e.iter().copied().collect();
+                            let n: Vec<f64> = n.iter().copied().collect();
+                            resample_xy(&e, &n, grid)
+                        }),
+                    SeriesSpace::R => sp.get_r().zip(sp.get_chir_mag()).map(|(r, m)| {
+                        let r: Vec<f64> = r.iter().copied().collect();
+                        let m: Vec<f64> = m.iter().copied().collect();
+                        resample_xy(&r, &m, grid)
+                    }),
+                    SeriesSpace::K => None,
+                };
+                if let Some(row) = exact {
+                    return row;
+                }
+            }
+        }
+        let sample_pos = nearest_sample_pos(self.time_pos, data.scan_len, matrix.len());
+        matrix.get(sample_pos).cloned().unwrap_or_default()
     }
 
     fn toggle_batch_problems(&mut self, cx: &mut Context<Self>) {
@@ -5166,283 +5652,6 @@ impl StudioApp {
     }
 
     /// Scrub strip: clickable segments mapping linearly onto the full scan.
-    fn time_scrubber(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        const SEGMENTS: usize = 96;
-        let t = self.theme;
-        let frames = self.operando_scan_len().unwrap_or(0).max(1);
-        let active_seg = if frames > 1 {
-            self.time_pos * (SEGMENTS - 1) / (frames - 1)
-        } else {
-            0
-        };
-        let mut strip = div().flex().w_full().h(px(16.)).gap(px(1.)).px_1();
-        for seg in 0..SEGMENTS {
-            let frame = if SEGMENTS > 1 {
-                seg * (frames - 1) / (SEGMENTS - 1)
-            } else {
-                0
-            };
-            strip = strip.child(
-                div()
-                    .id(("scrub", seg))
-                    .flex_1()
-                    .h_full()
-                    .rounded_xs()
-                    .bg(if seg == active_seg {
-                        t.accent
-                    } else {
-                        t.raised
-                    })
-                    .hover(|d| d.bg(t.text_muted))
-                    .cursor_pointer()
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                        this.set_time_pos(frame, cx);
-                    })),
-            );
-        }
-        strip
-    }
-
-    fn operando_center(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let t = self.theme;
-        let Some(plots) = &self.operando_plots else {
-            // `status` is a data readout ("Ru_QAS.dat · 645 points · E0 …"),
-            // not guidance — showing it alone filled the canvas with a line
-            // that tells the user nothing about what to do next.
-            let (hint, detail): (SharedString, Option<SharedString>) = if self.operando_running {
-                (
-                    "Building scan overview...".into(),
-                    Some(self.status.clone()),
-                )
-            } else if self.active_scan.is_some() {
-                (
-                    "No scan overview for this selection — pick a scan in the Scans tab".into(),
-                    Some(self.status.clone()),
-                )
-            } else if self.catalog.scans.is_empty() {
-                (
-                    "Open a folder, then pick a scan in the Scans tab".into(),
-                    None,
-                )
-            } else {
-                ("Pick a scan in the Scans tab".into(), None)
-            };
-            return div()
-                .flex_1()
-                .min_h_0()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .items_center()
-                .justify_center()
-                .gap_1()
-                .child(div().text_sm().text_color(t.text).child(hint))
-                .children(detail.map(|d| div().text_xs().text_color(t.text_muted).child(d)))
-                .into_any_element();
-        };
-        let frames = self.operando_scan_len().unwrap_or(0);
-        let frame_label: SharedString = format!("frame {} / {frames}", self.time_pos + 1).into();
-        // A one-frame scan makes a degenerate heatmap (a single row stretched
-        // over a synthetic frame axis) and a one-point trend. Still worth
-        // rendering — an in-progress acquisition starts at one frame — but the
-        // view has to say why it looks empty rather than leave it ambiguous.
-        let single_frame_notice = (frames <= 1).then(|| {
-            div()
-                .flex_none()
-                .flex()
-                .items_center()
-                .gap_2()
-                .px_3()
-                .py_1()
-                .bg(t.raised)
-                .border_b_1()
-                .border_color(t.warn)
-                .child(div().flex_none().text_xs().text_color(t.warn).child("⚠"))
-                .child(
-                    div()
-                        .flex_none()
-                        .text_xs()
-                        .text_color(t.warn)
-                        .child("single frame"),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_xs()
-                        .text_color(t.text_muted)
-                        .child(
-                            "the overview heatmap and trend need more than one frame — \
-                             they fill in as further frames are indexed",
-                        ),
-                )
-        });
-        let kw = self.operando.as_ref().map(|d| d.kweight).unwrap_or(2.0);
-        let overview_label: SharedString =
-            format!("scan overview · frame vs {} · k (1/Å)", chik_label(kw)).into();
-        let chik_header: SharedString = "frame".into();
-        let trend_header: SharedString = "trend".into();
-        div()
-            .id("operando-center")
-            .key_context("Operando")
-            .track_focus(&self.operando_focus)
-            .on_mouse_down(
-                gpui::MouseButton::Left,
-                cx.listener(|this, _ev, window, cx| {
-                    let handle = this.operando_focus.clone();
-                    window.focus(&handle, cx);
-                }),
-            )
-            .on_action(cx.listener(|this: &mut Self, _: &FramePrev, _window, cx| {
-                this.step_time(-1, cx);
-            }))
-            .on_action(cx.listener(|this: &mut Self, _: &FrameNext, _window, cx| {
-                this.step_time(1, cx);
-            }))
-            .on_action(
-                cx.listener(|this: &mut Self, _: &FrameJumpBack, _window, cx| {
-                    this.step_time_percent(-1, cx);
-                }),
-            )
-            .on_action(
-                cx.listener(|this: &mut Self, _: &FrameJumpFwd, _window, cx| {
-                    this.step_time_percent(1, cx);
-                }),
-            )
-            .on_action(cx.listener(|this: &mut Self, _: &FrameFirst, _window, cx| {
-                this.set_time_pos(0, cx);
-            }))
-            .on_action(cx.listener(|this: &mut Self, _: &FrameLast, _window, cx| {
-                let last = this
-                    .operando_scan_len()
-                    .map(|len| len.saturating_sub(1))
-                    .unwrap_or(0);
-                this.set_time_pos(last, cx);
-            }))
-            .flex_1()
-            .min_h_0()
-            .min_w_0()
-            .flex()
-            .flex_col()
-            .children(single_frame_notice)
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .min_w_0()
-                    .flex()
-                    .child(
-                        // Left: heatmap overview + scrubber.
-                        div()
-                            .flex_1()
-                            .min_h_0()
-                            .min_w_0()
-                            .m_1()
-                            .flex()
-                            .flex_col()
-                            .rounded_md()
-                            .bg(t.raised)
-                            .border_1()
-                            .border_color(t.border)
-                            .child(
-                                div()
-                                    .px_2()
-                                    .py_1()
-                                    .text_xs()
-                                    .text_color(t.text_muted)
-                                    .child(overview_label),
-                            )
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_h_0()
-                                    .min_w_0()
-                                    .p_1()
-                                    .child(plots.heatmap.clone()),
-                            )
-                            .child(self.time_scrubber(cx))
-                            .child(
-                                div()
-                                    .px_2()
-                                    .py_1()
-                                    .text_xs()
-                                    .text_color(t.text_muted)
-                                    .child(frame_label),
-                            ),
-                    )
-                    .child(
-                        // Right: frame chi(k) + E0 trend.
-                        div()
-                            .flex_1()
-                            .min_h_0()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_h_0()
-                                    .min_w_0()
-                                    .m_1()
-                                    .flex()
-                                    .flex_col()
-                                    .rounded_md()
-                                    .bg(t.raised)
-                                    .border_1()
-                                    .border_color(t.border)
-                                    .child(
-                                        div()
-                                            .px_2()
-                                            .py_1()
-                                            .text_xs()
-                                            .text_color(t.text_muted)
-                                            .child(chik_header),
-                                    )
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .min_h_0()
-                                            .min_w_0()
-                                            .p_1()
-                                            .child(plots.chik.clone()),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_h_0()
-                                    .min_w_0()
-                                    .m_1()
-                                    .flex()
-                                    .flex_col()
-                                    .rounded_md()
-                                    .bg(t.raised)
-                                    .border_1()
-                                    .border_color(t.border)
-                                    .child(
-                                        div()
-                                            .px_2()
-                                            .py_1()
-                                            .text_xs()
-                                            .text_color(t.text_muted)
-                                            .child(trend_header),
-                                    )
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .min_h_0()
-                                            .min_w_0()
-                                            .p_1()
-                                            .child(plots.trend.clone()),
-                                    ),
-                            ),
-                    ),
-            )
-            .into_any_element()
-    }
-
     fn batch_results_table(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
         let entity = cx.entity();

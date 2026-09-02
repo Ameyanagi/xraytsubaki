@@ -53,6 +53,39 @@ impl StudioApp {
         for (index, title) in plots {
             area = area.child(self.plot_card(index, title, cx));
         }
+        if self.stage == Stage::Data
+            && let Some(plot) = self.analysis.plot.clone()
+            && let Some(tool) = self.analysis.shown
+        {
+            let title: SharedString = match tool {
+                super::tools::Tool::Lcf => {
+                    "linear combination fit · data / fit / components / residual".into()
+                }
+                _ => "PCA target transform · data / reconstruction / residual".into(),
+            };
+            area = area.child(
+                div()
+                    .flex_none()
+                    .h(px(300.))
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .rounded_lg()
+                    .bg(t.raised)
+                    .border_1()
+                    .border_color(t.border)
+                    .child(
+                        div()
+                            .flex_none()
+                            .px_3()
+                            .pt_2()
+                            .text_size(px(11.5))
+                            .font_weight(gpui::FontWeight::MEDIUM)
+                            .child(title),
+                    )
+                    .child(div().flex_1().min_h_0().min_w_0().p_1().child(plot)),
+            );
+        }
         column = column.child(area);
         if self.view.legend && !self.legend_entries.is_empty() {
             column = column.child(self.legend_strip());

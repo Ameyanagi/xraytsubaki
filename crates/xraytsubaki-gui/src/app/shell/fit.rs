@@ -879,7 +879,10 @@ impl StudioApp {
                     })
                     .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
                         this.fit_ranges.toggle_kweight(kw);
-                        this.fit_ranges.kweight = this.fit_ranges.effective_kweights()[0];
+                        let plot_kw = this.fit_ranges.kweight;
+                        if !this.fit_ranges.kweights.contains(&plot_kw) {
+                            this.fit_ranges.kweight = this.fit_ranges.kweights[0];
+                        }
                         this.fit_model_changed(cx);
                     }))
                     .child(format!("{kw:.0}")),

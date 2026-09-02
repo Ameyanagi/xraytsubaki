@@ -157,12 +157,17 @@ impl FitRanges {
     /// The k-weights actually fit (falls back to the primary weight).
     pub fn effective_kweights(&self) -> Vec<f64> {
         if self.kweights.is_empty() {
-            vec![self.kweight]
-        } else {
-            let mut ks = self.kweights.clone();
-            ks.sort_by(|a, b| a.total_cmp(b));
-            ks
+            return vec![self.kweight];
         }
+        // The plot k-weight leads: the result's primary arrays (the ones the
+        // plots show) come from the first k-weight of the list.
+        let mut ks = self.kweights.clone();
+        ks.sort_by(|a, b| a.total_cmp(b));
+        if let Some(pos) = ks.iter().position(|k| (*k - self.kweight).abs() < 1e-9) {
+            let lead = ks.remove(pos);
+            ks.insert(0, lead);
+        }
+        ks
     }
 
     pub fn toggle_kweight(&mut self, kw: f64) {

@@ -11,7 +11,7 @@ use super::{
 };
 use crate::app::{ParamKey, StudioApp};
 
-/// Quadrant slots in `StudioApp::quadrants` (built by `build_quadrants_multi`).
+/// Quadrant slots in `StudioApp::quadrants` (built by `build_quadrant_specs`).
 pub const PLOT_MU: usize = 0;
 pub const PLOT_NORM: usize = 1;
 pub const PLOT_CHIK: usize = 2;

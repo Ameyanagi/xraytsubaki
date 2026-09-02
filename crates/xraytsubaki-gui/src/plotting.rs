@@ -6,7 +6,7 @@
 //! a workaround for broken vertical text.
 
 use ruviz::core::LegendPosition;
-use ruviz::data::Observable;
+use ruviz::data::{BatchUpdate, Observable};
 use ruviz::plots::heatmap::{HeatmapConfig, HeatmapOrigin};
 use ruviz::prelude::Plot;
 use ruviz::render::{Color, LineStyle};
@@ -18,17 +18,6 @@ use crate::theme::Theme;
 
 fn vecs(v: &nalgebra::DVector<f64>) -> Vec<f64> {
     v.iter().copied().collect()
-}
-
-pub struct QuadrantPlots {
-    pub mu_e: Plot,
-    pub norm: Plot,
-    pub chi_k: Plot,
-    pub chi_r: Plot,
-    /// Back-transform chi(q) with the active trace's k-weighted chi(k) behind it.
-    pub chi_q: Plot,
-    /// Card-header plot titles for each quadrant.
-    pub titles: [String; 5],
 }
 
 /// One spectrum in a comparison overlay.
@@ -162,11 +151,186 @@ pub fn chik_label(kw: f64) -> String {
     }
 }
 
-/// Build one quadrant from per-trace (x, y) extractions. Inactive traces
-/// draw first (thin), the active trace last (thick, on top); every trace has
-/// an explicit color keyed to its original position so the reordering never
+/// Identity of one series inside a quadrant. Together with its style it
+/// forms the quadrant *structure*; the values behind it are reactive.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum SeriesKey {
+    /// Data trace `i` (position in the compare set).
+    Trace(usize),
+    PreEdge,
+    PostEdge,
+    Bkg,
+    Deriv,
+    Kwin,
+    Re,
+    /// k-weighted chi(k) drawn under chi(q).
+    ChiKOnQ,
+}
+
+/// One series: identity + style (structure) and its current values.
+pub struct SeriesSpec {
+    pub key: SeriesKey,
+    pub x: Vec<f64>,
+    pub y: Vec<f64>,
+    pub width: f32,
+    pub color: Color,
+    pub dashed: bool,
+    pub label: Option<String>,
+}
+
+/// The observables behind one series of a live quadrant.
+#[derive(Clone)]
+pub struct SeriesSource {
+    pub x: Observable<Vec<f64>>,
+    pub y: Observable<Vec<f64>>,
+}
+
+/// Everything a quadrant shows, split into structure (labels, series
+/// identities and styles, guide lines) and reactive values.
+pub struct QuadrantSpec {
+    pub title: String,
+    pub xlabel: String,
+    pub ylabel: String,
+    pub series: Vec<SeriesSpec>,
+    /// Static vertical guide lines: (x, color, width, dashed).
+    pub vlines: Vec<(f64, Color, f32, bool)>,
+    pub legend_columns: Option<usize>,
+    pub grid: bool,
+}
+
+impl QuadrantSpec {
+    /// Hash of the structure only (never the values). Two specs with equal
+    /// keys can share one ruviz session: a refresh just replaces the
+    /// observables. `salt` folds in host-side structure (figure size, theme).
+    pub fn structure_key(&self, salt: u64) -> u64 {
+        use std::hash::{DefaultHasher, Hash, Hasher};
+        let mut h = DefaultHasher::new();
+        salt.hash(&mut h);
+        self.title.hash(&mut h);
+        self.xlabel.hash(&mut h);
+        self.ylabel.hash(&mut h);
+        self.legend_columns.hash(&mut h);
+        self.grid.hash(&mut h);
+        for s in &self.series {
+            s.key.hash(&mut h);
+            s.width.to_bits().hash(&mut h);
+            (s.color.r, s.color.g, s.color.b, s.color.a).hash(&mut h);
+            s.dashed.hash(&mut h);
+            s.label.hash(&mut h);
+        }
+        for (x, c, w, d) in &self.vlines {
+            x.to_bits().hash(&mut h);
+            (c.r, c.g, c.b, c.a).hash(&mut h);
+            w.to_bits().hash(&mut h);
+            d.hash(&mut h);
+        }
+        h.finish()
+    }
+
+    /// A ruviz plot whose series read from fresh observables (returned in
+    /// series order, for later [`QuadrantSpec::apply`] calls).
+    pub fn to_plot(&self, theme: &Theme) -> (Plot, Vec<SeriesSource>) {
+        let mut plot = Plot::new()
+            .theme(theme.plot_theme())
+            .grid(self.grid)
+            .xlabel(&self.xlabel)
+            .ylabel(&self.ylabel);
+        let mut sources = Vec::with_capacity(self.series.len());
+        for s in &self.series {
+            let src = SeriesSource {
+                x: Observable::new(s.x.clone()),
+                y: Observable::new(s.y.clone()),
+            };
+            let mut sb = plot
+                .line_source(src.x.clone(), src.y.clone())
+                .line_width(s.width)
+                .color(s.color);
+            if s.dashed {
+                sb = sb.line_style(LineStyle::Dashed);
+            }
+            if let Some(label) = &s.label {
+                sb = sb.label(label.clone());
+            }
+            plot = sb.into();
+            sources.push(src);
+        }
+        for &(x, color, width, dashed) in &self.vlines {
+            let style = if dashed {
+                LineStyle::Dashed
+            } else {
+                LineStyle::Solid
+            };
+            plot = plot.vline_styled(x, color, width, style);
+        }
+        if let Some(columns) = self.legend_columns {
+            plot = plot
+                .legend_position(LegendPosition::OutsideLower)
+                .legend_columns(columns);
+        }
+        (plot, sources)
+    }
+
+    /// Push this spec's values into an existing session's observables. All
+    /// notifications are deferred to one batch so a render never sees a new
+    /// x with an old y.
+    /// Unchanged vectors are left alone, so a refresh that lands on the
+    /// same values (a cache hit while dragging back and forth) costs a
+    /// comparison and no re-raster.
+    pub fn apply(self, sources: &[SeriesSource]) {
+        let mut batch = BatchUpdate::new();
+        for src in sources {
+            batch.add(&src.x);
+            batch.add(&src.y);
+        }
+        for (s, src) in self.series.into_iter().zip(sources) {
+            if *src.x.read() != s.x {
+                src.x.set(s.x);
+            }
+            if *src.y.read() != s.y {
+                src.y.set(s.y);
+            }
+        }
+        drop(batch);
+    }
+}
+
+const TREND: Color = Color {
+    r: 150,
+    g: 150,
+    b: 150,
+    a: 255,
+};
+const GUIDE: Color = Color {
+    r: 140,
+    g: 140,
+    b: 140,
+    a: 255,
+};
+const E0_COLOR: Color = Color::ORANGE;
+const PRE_COLOR: Color = Color {
+    r: 90,
+    g: 140,
+    b: 200,
+    a: 255,
+};
+const NORM_COLOR: Color = Color {
+    r: 90,
+    g: 180,
+    b: 120,
+    a: 255,
+};
+const BKG_COLOR: Color = Color {
+    r: 232,
+    g: 121,
+    b: 47,
+    a: 255,
+};
+
+/// One quadrant's data traces from per-trace (x, y) extractions. Inactive
+/// traces draw first (thin), the active trace last (thick, on top); every
+/// trace keeps the colour of its original position so the reordering never
 /// recolors anything. Waterfall mode offsets successive traces by
-/// `offset_frac` x the first trace's range. Returns the plot plus the
+/// `offset_frac` x the first trace's range. Returns the spec plus the
 /// waterfall shift of the active (or first) trace so diagnostic overlays can
 /// be aligned to the curve they annotate.
 fn build_multi(
@@ -174,10 +338,9 @@ fn build_multi(
     view: &ViewOptions,
     theme: &Theme,
     in_plot_legend: bool,
-    xlabel: &str,
-    ylabel: &str,
+    (title, xlabel, ylabel): (&str, &str, &str),
     extract: impl Fn(&XASSpectrum) -> Option<(Vec<f64>, Vec<f64>)>,
-) -> (Plot, f64) {
+) -> (QuadrantSpec, f64) {
     let mut series: Vec<(usize, &QuadTrace, Vec<f64>, Vec<f64>)> = traces
         .iter()
         .enumerate()
@@ -214,73 +377,68 @@ fn build_multi(
     series.sort_by_key(|(_, t, _, _)| t.active);
 
     let n = series.len();
-    let mut plot = Plot::new()
-        .theme(theme.plot_theme())
-        .grid(view.grid)
-        .xlabel(xlabel)
-        .ylabel(ylabel);
     // In the grid the shared GPUI legend strip identifies traces; in-plot
     // legends only when a quadrant is maximized.
     let with_legend = in_plot_legend && view.legend && n > 1 && n <= MAX_LEGEND_TRACES;
-    for (i, trace, x, y) in &series {
-        let width = if trace.active && n > 1 { 2.2 } else { 1.4 };
-        let sb = plot
-            .line(x, y)
-            .line_width(width)
-            .color(trace_color(theme, *i));
-        let sb = if with_legend {
-            sb.label(middle_truncate(&trace.label, 24))
-        } else {
-            sb
-        };
-        plot = sb.into();
+    let specs = series
+        .into_iter()
+        .map(|(i, trace, x, y)| SeriesSpec {
+            key: SeriesKey::Trace(i),
+            x,
+            y,
+            width: if trace.active && n > 1 { 2.2 } else { 1.4 },
+            color: trace_color(theme, i),
+            dashed: false,
+            label: with_legend.then(|| middle_truncate(&trace.label, 24)),
+        })
+        .collect();
+    (
+        QuadrantSpec {
+            title: title.to_string(),
+            xlabel: xlabel.to_string(),
+            ylabel: ylabel.to_string(),
+            series: specs,
+            vlines: Vec::new(),
+            legend_columns: with_legend.then_some(n.min(4)),
+            grid: view.grid,
+        },
+        active_shift,
+    )
+}
+
+fn dashed(key: SeriesKey, x: Vec<f64>, y: Vec<f64>, color: Color, label: &str) -> SeriesSpec {
+    SeriesSpec {
+        key,
+        x,
+        y,
+        width: 1.0,
+        color,
+        dashed: true,
+        label: Some(label.to_string()),
     }
-    if with_legend {
-        return (
-            plot.legend_position(LegendPosition::OutsideLower)
-                .legend_columns(n.min(4)),
-            active_shift,
-        );
-    }
-    (plot, active_shift)
 }
 
 /// Normalization-check overlays for the active trace on the mu(E) plot:
-/// dashed pre/post-edge trendlines, the E0 line, and the fit-window lines
-/// (pre-edge range muted, norm range in a second hue; values are stored
-/// relative to E0). `shift` is the active trace's waterfall offset so the
-/// trendlines sit on the curve they belong to.
-fn add_mu_diagnostics(mut plot: Plot, sp: &XASSpectrum, view: &ViewOptions, shift: f64) -> Plot {
-    let trend = Color::from_gray(150);
-    let e0_color = Color::ORANGE;
-    let pre_color = Color::from_rgb(90, 140, 200);
-    let norm_color = Color::from_rgb(90, 180, 120);
-
+/// dashed pre/post-edge trendlines, the background spline, the E0 line, and
+/// the fit-window lines (pre-edge range muted, norm range in a second hue;
+/// values are stored relative to E0). `shift` is the active trace's
+/// waterfall offset so the trendlines sit on the curve they belong to.
+fn add_mu_diagnostics(spec: &mut QuadrantSpec, sp: &XASSpectrum, view: &ViewOptions, shift: f64) {
     if view.show_pre
         && let (Some(energy), Some(pre)) = (sp.energy.as_ref(), sp.get_pre_edge())
     {
         let x = vecs(energy);
         let y: Vec<f64> = pre.iter().map(|v| v + shift).collect();
-        plot = plot
-            .line(&x, &y)
-            .line_width(1.0)
-            .line_style(LineStyle::Dashed)
-            .color(trend)
-            .label("pre-edge")
-            .into();
+        spec.series
+            .push(dashed(SeriesKey::PreEdge, x, y, TREND, "pre-edge"));
     }
     if view.show_post
         && let (Some(energy), Some(post)) = (sp.energy.as_ref(), sp.get_post_edge())
     {
         let x = vecs(energy);
         let y: Vec<f64> = post.iter().map(|v| v + shift).collect();
-        plot = plot
-            .line(&x, &y)
-            .line_width(1.0)
-            .line_style(LineStyle::Dashed)
-            .color(trend)
-            .label("post-edge")
-            .into();
+        spec.series
+            .push(dashed(SeriesKey::PostEdge, x, y, TREND, "post-edge"));
     }
     if view.show_bkg
         && let (Some(energy), Some(BackgroundMethod::AUTOBK(autobk))) =
@@ -290,45 +448,48 @@ fn add_mu_diagnostics(mut plot: Plot, sp: &XASSpectrum, view: &ViewOptions, shif
         let x = vecs(energy);
         let n = x.len().min(bkg.len());
         let y: Vec<f64> = bkg.iter().take(n).map(|v| v + shift).collect();
-        plot = plot
-            .line(&x[..n], &y)
-            .line_width(1.5)
-            .color(Color::from_rgb(232, 121, 47))
-            .label("background μ₀(E)")
-            .into();
+        spec.series.push(SeriesSpec {
+            key: SeriesKey::Bkg,
+            x: x[..n].to_vec(),
+            y,
+            width: 1.5,
+            color: BKG_COLOR,
+            dashed: false,
+            label: Some("background μ₀(E)".to_string()),
+        });
     }
     let e0 = sp.get_e0();
     if view.show_e0
         && let Some(e0) = e0
     {
-        plot = plot.vline_styled(e0, e0_color, 1.2, LineStyle::Dashed);
+        spec.vlines.push((e0, E0_COLOR, 1.2, true));
     }
     if view.show_ranges
         && let (Some(e0), Some(NormalizationMethod::PrePostEdge(ppe))) =
             (e0, sp.normalization.as_ref())
     {
         for (value, color) in [
-            (ppe.get_pre_edge_start(), pre_color),
-            (ppe.get_pre_edge_end(), pre_color),
-            (ppe.get_norm_start(), norm_color),
-            (ppe.get_norm_end(), norm_color),
+            (ppe.get_pre_edge_start(), PRE_COLOR),
+            (ppe.get_pre_edge_end(), PRE_COLOR),
+            (ppe.get_norm_start(), NORM_COLOR),
+            (ppe.get_norm_end(), NORM_COLOR),
         ] {
             if let Some(rel) = value {
-                plot = plot.vline_styled(e0 + rel, color, 1.0, LineStyle::Dashed);
+                spec.vlines.push((e0 + rel, color, 1.0, true));
             }
         }
     }
-    plot
 }
 
-/// All four Explore quadrants for a set of traces. `in_plot_legend` opts into
+/// Specs for all five Explore quadrants (mu(E), normalized mu(E), k-weighted
+/// chi(k), |chi(R)|, chi(q)) for a set of traces. `in_plot_legend` opts into
 /// ruviz legends (maximized quadrant); the grid uses the shared GPUI strip.
-pub fn build_quadrants_multi(
+pub fn build_quadrant_specs(
     traces: &[QuadTrace],
     view: &ViewOptions,
     theme: &Theme,
     in_plot_legend: bool,
-) -> QuadrantPlots {
+) -> [QuadrantSpec; 5] {
     let kw = traces
         .iter()
         .find(|t| t.active)
@@ -341,8 +502,7 @@ pub fn build_quadrants_multi(
         view,
         theme,
         in_plot_legend,
-        "Energy (eV)",
-        "μ(E)",
+        ("μ(E)", "Energy (eV)", "μ(E)"),
         |sp| Some((sp.energy.as_ref().map(vecs)?, sp.mu.as_ref().map(vecs)?)),
     );
     let flat = view.flat;
@@ -356,8 +516,7 @@ pub fn build_quadrants_multi(
         view,
         theme,
         in_plot_legend,
-        "Energy (eV)",
-        norm_label,
+        (norm_label, "Energy (eV)", norm_label),
         move |sp| {
             let y = if flat {
                 sp.get_flat().or_else(|| sp.get_norm())
@@ -373,8 +532,7 @@ pub fn build_quadrants_multi(
         view,
         theme,
         in_plot_legend,
-        K_AXIS,
-        &chik_label,
+        (&chik_label, K_AXIS, &chik_label),
         |sp| {
             Some((
                 sp.get_k().map(|v| vecs(&v))?,
@@ -382,13 +540,17 @@ pub fn build_quadrants_multi(
             ))
         },
     );
+    let chir_title = if view.show_re {
+        "|χ(R)| + Re"
+    } else {
+        "|χ(R)|"
+    };
     let (mut chi_r, chir_shift) = build_multi(
         traces,
         view,
         theme,
         in_plot_legend,
-        R_AXIS,
-        &chir_label(kw),
+        (chir_title, R_AXIS, &chir_label(kw)),
         |sp| {
             let r = sp.get_r().map(|v| vecs(&v))?;
             let m = sp.get_chir_mag().map(|v| vecs(&v))?;
@@ -398,11 +560,11 @@ pub fn build_quadrants_multi(
     );
 
     if let Some(active) = traces.iter().find(|t| t.active).or_else(|| traces.first()) {
-        mu_e = add_mu_diagnostics(mu_e, &active.sp, view, mu_shift);
+        add_mu_diagnostics(&mut mu_e, &active.sp, view, mu_shift);
         if view.show_e0
             && let Some(e0) = active.sp.get_e0()
         {
-            norm = norm.vline_styled(e0, Color::ORANGE, 1.2, LineStyle::Dashed);
+            norm.vlines.push((e0, E0_COLOR, 1.2, true));
         }
         if view.show_deriv
             && let (Some(e), Some(n)) = (
@@ -424,14 +586,13 @@ pub fn build_quadrants_multi(
                 .collect();
             let peak = d.iter().fold(0.0f64, |acc, v| acc.max(v.abs())).max(1e-12);
             let y: Vec<f64> = d.iter().map(|v| v / peak * 0.5).collect();
-            let x = e[..m].to_vec();
-            norm = norm
-                .line(&x, &y)
-                .line_width(1.0)
-                .line_style(LineStyle::Dashed)
-                .color(Color::from_gray(140))
-                .label("dμ/dE (scaled)")
-                .into();
+            norm.series.push(dashed(
+                SeriesKey::Deriv,
+                e[..m].to_vec(),
+                y,
+                GUIDE,
+                "dμ/dE (scaled)",
+            ));
         }
         // FT window diagnostics on chi(k), scaled to the data amplitude and
         // shifted onto the active trace in waterfall mode.
@@ -446,21 +607,15 @@ pub fn build_quadrants_multi(
             let x = vecs(&k);
             let n = x.len().min(kwin.len());
             let y: Vec<f64> = kwin.iter().take(n).map(|w| w * peak + chik_shift).collect();
-            let x = x[..n].to_vec();
-            chi_k = chi_k
-                .line(&x, &y)
-                .line_width(1.0)
-                .line_style(LineStyle::Dashed)
-                .color(Color::from_gray(150))
-                .label("window")
-                .into();
+            chi_k
+                .series
+                .push(dashed(SeriesKey::Kwin, x[..n].to_vec(), y, TREND, "window"));
         }
         if view.show_krange
             && let Some(xftf) = active.sp.xftf.as_ref()
         {
             for v in [xftf.kmin, xftf.kmax].into_iter().flatten() {
-                chi_k =
-                    chi_k.vline_styled(v, Color::from_rgb(90, 140, 200), 1.0, LineStyle::Dashed);
+                chi_k.vlines.push((v, PRE_COLOR, 1.0, true));
             }
         }
         // Re part of chi(R) for phase-agreement checks (doc: "|χ(R)| (+Re
@@ -471,14 +626,9 @@ pub fn build_quadrants_multi(
             let r = vecs(&r);
             let n = r.len().min(re.len());
             let y: Vec<f64> = re.iter().take(n).map(|v| v + chir_shift).collect();
-            let x = r[..n].to_vec();
-            chi_r = chi_r
-                .line(&x, &y)
-                .line_width(1.0)
-                .line_style(LineStyle::Dashed)
-                .color(Color::from_gray(150))
-                .label("Re")
-                .into();
+            chi_r
+                .series
+                .push(dashed(SeriesKey::Re, r[..n].to_vec(), y, TREND, "Re"));
         }
     }
     let (mut chi_q, chiq_shift) = build_multi(
@@ -486,8 +636,7 @@ pub fn build_quadrants_multi(
         view,
         theme,
         in_plot_legend,
-        "q (Å⁻¹)",
-        "χ(q)",
+        ("χ(q)", "q (Å⁻¹)", "χ(q)"),
         |sp| {
             let q = sp.get_q().map(|v| vecs(&v))?;
             let c = sp.get_chiq().map(|v| vecs(&v))?;
@@ -501,33 +650,15 @@ pub fn build_quadrants_multi(
         let x = vecs(&k);
         let n = x.len().min(chi.len());
         let y: Vec<f64> = chi.iter().take(n).map(|v| v + chiq_shift).collect();
-        chi_q = chi_q
-            .line(&x[..n], &y)
-            .line_width(1.0)
-            .line_style(LineStyle::Dashed)
-            .color(Color::from_gray(150))
-            .label(chik_label.clone())
-            .into();
+        chi_q.series.push(dashed(
+            SeriesKey::ChiKOnQ,
+            x[..n].to_vec(),
+            y,
+            TREND,
+            &chik_label,
+        ));
     }
-    let titles = [
-        "μ(E)".to_string(),
-        norm_label.to_string(),
-        chik_label,
-        if view.show_re {
-            "|χ(R)| + Re".to_string()
-        } else {
-            "|χ(R)|".to_string()
-        },
-        "χ(q)".to_string(),
-    ];
-    QuadrantPlots {
-        mu_e,
-        norm,
-        chi_k,
-        chi_r,
-        chi_q,
-        titles,
-    }
+    [mu_e, norm, chi_k, chi_r, chi_q]
 }
 
 fn heatmap_y_extent(scan_len: usize, row_count: usize) -> (f64, f64) {

@@ -45,9 +45,9 @@ use crate::params::{
     resample_chik,
 };
 use crate::plotting::{
-    K_AXIS, QuadTrace, R_AXIS, ViewOptions, build_fit_k, build_fit_q, build_fit_r,
+    K_AXIS, QuadTrace, R_AXIS, SeriesSource, ViewOptions, build_fit_k, build_fit_q, build_fit_r,
     build_fit_residual_k, build_fit_residual_r, build_frame_chik_source, build_heatmap,
-    build_quadrants_multi, build_trend, chik_label, chir_label, middle_truncate, trace_rgba,
+    build_quadrant_specs, build_trend, chik_label, chir_label, middle_truncate, trace_rgba,
 };
 use crate::project::{PROJECT_VERSION, ParamOverride, ProjectFile};
 use crate::theme::Theme;
@@ -866,6 +866,10 @@ pub struct StudioApp {
     /// than left to a status-bar line the user may not read.
     stale_plots: Option<StalePlots>,
     quadrants: Vec<(SharedString, Entity<RuvizPlot>)>,
+    /// Per quadrant: structure key + the observables feeding its session.
+    /// A refresh with an unchanged structure only `set`s the observables
+    /// (no session rebuild); see `rebuild_explore_plots`.
+    quad_bindings: Vec<(u64, Vec<SeriesSource>)>,
     /// Explore-only plot work is deferred while Operando or Fit is visible.
     explore_plots_dirty: bool,
     /// Shared Explore legend strip entries (truncated label, stable color),
@@ -1620,6 +1624,7 @@ impl StudioApp {
             spectrum_label: label.clone(),
             stale_plots: None,
             quadrants: Vec::new(),
+            quad_bindings: Vec::new(),
             explore_plots_dirty: false,
             legend_entries: Vec::new(),
             maximized: None,
@@ -2051,6 +2056,7 @@ impl StudioApp {
         self.import_preview_gen += 1;
         self.open_import_role = None;
         self.quadrants.clear();
+        self.quad_bindings.clear();
         self.maximized = None;
         self.file_scroll = UniformListScrollHandle::new();
         self.scan_scroll = UniformListScrollHandle::new();
@@ -3462,37 +3468,44 @@ impl StudioApp {
             Vec::new()
         };
         let in_plot_legend = self.maximized.is_some();
-        let plots = build_quadrants_multi(&traces, &self.view, &self.theme, in_plot_legend);
-        let [t0, t1, t2, t3, t4] = plots.titles;
-        let mut titled = [
-            (t0, plots.mu_e),
-            (t1, plots.norm),
-            (t2, plots.chi_k),
-            (t3, plots.chi_r),
-            (t4, plots.chi_q),
-        ];
+        let specs = build_quadrant_specs(&traces, &self.view, &self.theme, in_plot_legend);
         // The figure aspect follows the card layout (ruviz-gpui fits the
         // figure aspect inside the container). Stage handles (range regions,
         // E0 / Rbkg lines) are painted by GPUI; see shell::handles.
         let analysis_card = self.stage == Stage::Data && self.analysis.plot.is_some();
         let stacked = self.stage_plots().len() > 1 || analysis_card;
         let fallback = if stacked { (820, 280) } else { (820, 580) };
-        for (index, (_, plot)) in titled.iter_mut().enumerate() {
+        let dark = self.theme.mode == crate::theme::ThemeMode::Dark;
+        for (index, spec) in specs.into_iter().enumerate() {
             let (fig_w, fig_h) = self.card_px.get(&index).copied().unwrap_or(fallback);
-            *plot = std::mem::take(plot).size_px(fig_w, fig_h);
-        }
-        if self.quadrants.is_empty() {
-            self.quadrants = titled
-                .into_iter()
-                .map(|(title, plot)| {
+            let salt = ((fig_w as u64) << 33) ^ ((fig_h as u64) << 1) ^ (dark as u64);
+            let key = spec.structure_key(salt);
+            let title = SharedString::from(spec.title.clone());
+            match (self.quadrants.get_mut(index), self.quad_bindings.get(index)) {
+                (Some((slot, _)), Some((bound, sources))) if *bound == key => {
+                    // Same structure: replace the values behind the session.
+                    *slot = title;
+                    spec.apply(sources);
+                }
+                (Some((slot, entity)), _) => {
+                    let (plot, sources) = spec.to_plot(&self.theme);
+                    let plot = plot.size_px(fig_w, fig_h);
+                    *slot = title;
+                    entity.update(cx, |rp, cx| rp.set_plot_keep_view(plot, cx));
+                    if let Some(binding) = self.quad_bindings.get_mut(index) {
+                        *binding = (key, sources);
+                    } else {
+                        self.quad_bindings.push((key, sources));
+                    }
+                }
+                (None, _) => {
+                    let (plot, sources) = spec.to_plot(&self.theme);
+                    let plot = plot.size_px(fig_w, fig_h);
                     let entity = plot_builder(plot).interactive().build(cx);
-                    (SharedString::from(title), entity)
-                })
-                .collect();
-        } else {
-            for ((slot, entity), (title, plot)) in self.quadrants.iter_mut().zip(titled) {
-                *slot = SharedString::from(title);
-                entity.update(cx, |rp, cx| rp.set_plot_keep_view(plot, cx));
+                    self.quadrants.push((title, entity));
+                    self.quad_bindings.truncate(index);
+                    self.quad_bindings.push((key, sources));
+                }
             }
         }
         // Ripple strip: the current group only.

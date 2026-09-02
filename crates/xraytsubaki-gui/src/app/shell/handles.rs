@@ -89,6 +89,21 @@ impl HandleKey {
         }
     }
 
+    /// Text shown next to the handle while it is dragged.
+    fn readout(self, x: f64) -> String {
+        match self {
+            HandleKey::E0 => format!("E₀ {x:.1} eV"),
+            HandleKey::PreStart | HandleKey::PreEnd | HandleKey::NormStart | HandleKey::NormEnd => {
+                format!("{x:.0} eV")
+            }
+            HandleKey::FftKmin | HandleKey::FftKmax | HandleKey::FitKmin | HandleKey::FitKmax => {
+                format!("k {x:.1} Å⁻¹")
+            }
+            HandleKey::Rbkg => format!("Rbkg {x:.2} Å"),
+            HandleKey::FitRmin | HandleKey::FitRmax => format!("R {x:.2} Å"),
+        }
+    }
+
     fn accent(self) -> bool {
         !matches!(self, HandleKey::NormStart | HandleKey::NormEnd)
     }
@@ -311,9 +326,27 @@ impl StudioApp {
         let decor = self.handle_decor(plot)?;
         let entity = self.plot_entity(plot)?;
         let areas = self.handles.areas.clone();
+        // Value readout for the handle being dragged on this plot.
+        let label: Option<(f64, String)> = match self.handles.dragging {
+            Some((p, key)) if p == plot => {
+                let (specs, _) = self.handle_specs(plot);
+                specs
+                    .iter()
+                    .find(|(k, _)| *k == key)
+                    .map(|&(k, x)| (x, k.readout(x)))
+            }
+            _ => None,
+        };
+        let label_ink: Hsla = self.theme.text.into();
+        let label_bg: Hsla = {
+            let mut c: Hsla = self.theme.raised.into();
+            c.a = 0.94;
+            c
+        };
+        let label_border: Hsla = self.theme.border.into();
         Some(
             canvas(
-                move |_bounds, _window, cx| {
+                move |bounds, _window, cx| {
                     let rp = entity.read(cx);
                     let area = match plot_area_window_bounds(rp) {
                         Some(area) => {
@@ -340,15 +373,26 @@ impl StudioApp {
                             Some((px0, px1, color))
                         })
                         .collect::<Vec<_>>();
+                    // Lines and tabs only inside the visible plot area; the
+                    // canvas is not clipped by GPUI, so an off-screen handle
+                    // would otherwise paint over neighbouring panels.
+                    let inside = |px: f32| px >= area.left - 0.5 && px <= area.right + 0.5;
                     let lines = decor
                         .lines
                         .iter()
-                        .filter_map(|&(x, color, hot, dashed)| Some((to_x(x)?, color, hot, dashed)))
+                        .filter_map(|&(x, color, hot, dashed)| {
+                            let px = to_x(x)?;
+                            inside(px).then_some((px, color, hot, dashed))
+                        })
                         .collect::<Vec<_>>();
-                    Some((area, spans, lines))
+                    let label = label.as_ref().and_then(|(x, text)| {
+                        let px = to_x(*x)?;
+                        inside(px).then(|| (px, text.clone()))
+                    });
+                    Some((area, spans, lines, label, f32::from(bounds.origin.y)))
                 },
-                |_bounds, geom, window, _cx| {
-                    let Some((area, spans, lines)) = geom else {
+                move |_bounds, geom, window, cx| {
+                    let Some((area, spans, lines, label, card_top)) = geom else {
                         return;
                     };
                     let top = px(area.top);
@@ -377,12 +421,12 @@ impl StudioApp {
                             let b = Bounds::new(point(lx, top), size(px(w), height));
                             window.paint_quad(fill(b, c));
                         }
-                        // Grab tab at the top edge, wider when hot.
-                        let (tw, th) = if hot { (11.0, 16.0) } else { (7.0, 13.0) };
-                        let tab = Bounds::new(
-                            point(px(x - tw / 2.0), top + px(2.0)),
-                            size(px(tw), px(th)),
-                        );
+                        // Grab tab just above the top axis line (never over
+                        // the tick labels inside the plot), wider when hot.
+                        let (tw, th) = if hot { (11.0, 14.0) } else { (7.0, 11.0) };
+                        let tab_y = (area.top - th - 1.0).max(card_top + 1.0);
+                        let tab =
+                            Bounds::new(point(px(x - tw / 2.0), px(tab_y)), size(px(tw), px(th)));
                         window.paint_quad(quad(
                             tab,
                             Corners::all(px(3.0)),
@@ -394,6 +438,48 @@ impl StudioApp {
                             },
                             gpui::BorderStyle::Solid,
                         ));
+                    }
+                    // Live value next to the handle while dragging.
+                    if let Some((x, text)) = label {
+                        let font_size = px(11.0);
+                        let mut font = window.text_style().font();
+                        font.family = "IBM Plex Mono".into();
+                        let run = gpui::TextRun {
+                            len: text.len(),
+                            font,
+                            color: label_ink,
+                            background_color: None,
+                            underline: None,
+                            strikethrough: None,
+                        };
+                        let text: gpui::SharedString = text.into();
+                        let line = window
+                            .text_system()
+                            .shape_line(text, font_size, &[run], None);
+                        let w = f32::from(line.width) + 10.0;
+                        let h = 18.0;
+                        let mut lx = x + 8.0;
+                        if lx + w > area.right {
+                            lx = x - 8.0 - w;
+                        }
+                        let ly = area.top + 8.0;
+                        let bg = Bounds::new(point(px(lx), px(ly)), size(px(w), px(h)));
+                        window.paint_quad(quad(
+                            bg,
+                            Corners::all(px(4.0)),
+                            label_bg,
+                            gpui::Edges::all(px(1.0)),
+                            label_border,
+                            gpui::BorderStyle::Solid,
+                        ));
+                        let _ = line.paint(
+                            point(px(lx + 5.0), px(ly + 2.0)),
+                            px(14.0),
+                            gpui::TextAlign::Left,
+                            None,
+                            window,
+                            cx,
+                        );
                     }
                 },
             )
@@ -440,10 +526,22 @@ impl StudioApp {
             .ok()
             .flatten();
         let (specs, _) = self.handle_specs(plot);
+        let visible = self
+            .handles
+            .areas
+            .lock()
+            .ok()
+            .and_then(|c| c.get(&plot).copied());
         let mut nearest: Option<(HandleKey, f64)> = None;
         if let (Some(here), Some(there)) = (here, there) {
             let tol = (there.x - here.x).abs().max(1e-9);
             for (key, x) in specs {
+                // Off-screen handles cannot be armed.
+                if let Some(area) = visible
+                    && (x < area.data_x0 || x > area.data_x1)
+                {
+                    continue;
+                }
                 let d = (x - here.x).abs();
                 if d <= tol && nearest.is_none_or(|(_, best)| d < best) {
                     nearest = Some((key, d));
@@ -471,6 +569,12 @@ impl StudioApp {
             .e0
             .or_else(|| self.spectrum.as_ref().and_then(|s| s.get_e0()))
             .unwrap_or(0.0);
+        // Never drag a handle past the data: a range outside the spectrum
+        // (or E₀ off the edge) only produces a degenerate normalization.
+        let x = match self.handle_domain(key) {
+            Some((lo, hi)) if lo < hi => x.clamp(lo, hi),
+            _ => x,
+        };
         let step = key.rounding();
         let value = if key.relative_to_e0() {
             ((x - e0) / step).round() * step
@@ -515,6 +619,62 @@ impl StudioApp {
         self.apply_param(param, Some(value), cx);
         self.sync_param_fields(cx);
         cx.notify();
+    }
+
+    /// Absolute x-range a handle may take: the spectrum's energy range for
+    /// energy handles, `0..k_max` / `0..R_max` for the k- and R-space ones.
+    fn handle_domain(&self, key: HandleKey) -> Option<(f64, f64)> {
+        let sp = self.spectrum.as_ref()?;
+        let last = |v: &nalgebra::DVector<f64>| v.iter().next_back().copied();
+        match key {
+            HandleKey::E0
+            | HandleKey::PreStart
+            | HandleKey::PreEnd
+            | HandleKey::NormStart
+            | HandleKey::NormEnd => {
+                let e = sp.energy.as_ref()?;
+                let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+                for v in e.iter() {
+                    lo = lo.min(*v);
+                    hi = hi.max(*v);
+                }
+                // E₀ is a fine-tuning handle: keep it within ±50 eV of the
+                // derivative maximum (max-derivative, half-step and
+                // white-line conventions all live there). Further out the
+                // pre-/post-edge fits straddle the edge and the edge step
+                // collapses, which only produces a degenerate normalization.
+                if key == HandleKey::E0 {
+                    let mu = sp.mu.as_ref()?;
+                    let n = e.len().min(mu.len());
+                    let mut best = (0usize, f64::NEG_INFINITY);
+                    for i in 1..n.saturating_sub(1) {
+                        let de = e[i + 1] - e[i - 1];
+                        if de <= 0.0 {
+                            continue;
+                        }
+                        let d = (mu[i + 1] - mu[i - 1]) / de;
+                        if d > best.1 {
+                            best = (i, d);
+                        }
+                    }
+                    let auto = if best.1.is_finite() {
+                        e[best.0]
+                    } else {
+                        (lo + hi) / 2.0
+                    };
+                    let pad = ((hi - lo) * 0.02).max(1.0);
+                    Some(((auto - 50.0).max(lo + pad), (auto + 50.0).min(hi - pad)))
+                } else {
+                    Some((lo, hi))
+                }
+            }
+            HandleKey::FftKmin | HandleKey::FftKmax | HandleKey::FitKmin | HandleKey::FitKmax => {
+                Some((0.0, sp.get_k().as_ref().and_then(last)?))
+            }
+            HandleKey::Rbkg | HandleKey::FitRmin | HandleKey::FitRmax => {
+                Some((0.0, sp.get_r().as_ref().and_then(last)?))
+            }
+        }
     }
 
     /// Transparent capture layer shown while a handle is armed or dragging.

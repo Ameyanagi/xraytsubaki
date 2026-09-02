@@ -41,6 +41,7 @@ impl StudioApp {
                     .flex()
                     .flex_col()
                     .overflow_y_scroll()
+                    .track_scroll(&self.inspector_scroll)
                     .child(body),
             )
             .into_any_element()

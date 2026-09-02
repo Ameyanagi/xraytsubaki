@@ -784,6 +784,8 @@ pub struct StudioApp {
     analysis: shell::tools::AnalysisState,
     journal: shell::journal::JournalState,
     palette: Option<shell::palette::PaletteState>,
+    /// Inspector scroll position (tools reveal their form on open).
+    inspector_scroll: gpui::ScrollHandle,
     /// Groups skipped by bulk operations (Athena's frozen groups).
     frozen: BTreeSet<usize>,
     data_panel_open: bool,
@@ -1552,6 +1554,7 @@ impl StudioApp {
             analysis: shell::tools::AnalysisState::default(),
             journal: shell::journal::JournalState::default(),
             palette: None,
+            inspector_scroll: gpui::ScrollHandle::new(),
             frozen: BTreeSet::new(),
             data_panel_open: true,
             context_panel_open: true,
@@ -3373,7 +3376,8 @@ impl StudioApp {
         // Stage handles (range regions, E0 / Rbkg lines) are baked into the
         // base plot; see shell::handles. The figure aspect follows the card
         // layout (ruviz-gpui fits the figure aspect inside the container).
-        let stacked = self.stage_plots().len() > 1;
+        let analysis_card = self.stage == Stage::Data && self.analysis.plot.is_some();
+        let stacked = self.stage_plots().len() > 1 || analysis_card;
         let (fig_w, fig_h) = if stacked { (820, 280) } else { (820, 580) };
         for (index, (_, plot)) in titled.iter_mut().enumerate() {
             let mut decorated = std::mem::take(plot).size_px(fig_w, fig_h);

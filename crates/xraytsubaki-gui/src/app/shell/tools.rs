@@ -305,6 +305,9 @@ impl StudioApp {
         self.tools.message = SharedString::default();
         if tool.is_analysis() {
             self.analysis.shown = Some(tool);
+            // The analysis section sits at the bottom of the Data inspector;
+            // bring the form into view.
+            self.inspector_scroll.scroll_to_bottom();
         }
         self.set_stage(super::Stage::Data, cx);
         cx.notify();
@@ -398,9 +401,14 @@ impl StudioApp {
         };
         match outcome {
             Ok(msg) => {
+                self.record(
+                    format!("{} on {}: {msg}", tool.name(), self.current_group_label()),
+                    None,
+                );
                 self.tools.message = msg.into();
                 self.analysis.shown = Some(tool);
                 self.rebuild_analysis_plot(cx);
+                self.invalidate_explore_plots(cx);
             }
             Err(msg) => {
                 self.tools.message = msg.into();
@@ -418,9 +426,9 @@ impl StudioApp {
                 crate::plotting::K_AXIS.to_string(),
                 crate::plotting::chik_label(kw),
             ),
-            LcfSpaceChoice::Deriv => ("E − E₀ (eV)".to_string(), "dμ/dE".to_string()),
-            LcfSpaceChoice::Norm => ("E − E₀ (eV)".to_string(), "normalized μ(E)".to_string()),
-            LcfSpaceChoice::Flat => ("E − E₀ (eV)".to_string(), "flattened μ(E)".to_string()),
+            LcfSpaceChoice::Deriv => ("Energy (eV)".to_string(), "dμ/dE".to_string()),
+            LcfSpaceChoice::Norm => ("Energy (eV)".to_string(), "normalized μ(E)".to_string()),
+            LcfSpaceChoice::Flat => ("Energy (eV)".to_string(), "flattened μ(E)".to_string()),
         };
         let plot = match self.analysis.shown {
             Some(Tool::Lcf) => self

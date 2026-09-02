@@ -304,7 +304,7 @@ impl Render for NumericField {
                     .flex()
                     .items_center()
                     .rounded_sm()
-                    .child(div().w(px(84.)).child(self.input.clone()))
+                    .child(div().w(px(98.)).child(self.input.clone()))
                     .child(
                         div()
                             .flex()
@@ -316,7 +316,7 @@ impl Render for NumericField {
             .child(
                 div()
                     .flex_none()
-                    .w(px(26.))
+                    .w(px(22.))
                     .font_family("Menlo")
                     .text_size(px(10.5))
                     .text_color(t.text_muted)

@@ -462,7 +462,8 @@ impl StudioApp {
                     .p_1()
                     .relative()
                     .child(plot)
-                    .child(self.measure_card(index, cx)),
+                    .child(self.measure_card(index, cx))
+                    .children(self.handle_layer(index, cx)),
             )
             .children(overlay)
     }

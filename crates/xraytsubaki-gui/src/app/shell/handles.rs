@@ -1,25 +1,23 @@
 //! Direct manipulation on plots: range parameters are shaded regions with
 //! draggable edges, E₀ / Rbkg are draggable lines.
 //!
-//! The geometry lives in ruviz-gpui's session-annotation overlay
-//! (`RuvizPlot::add_annotation` / `update_annotation`): a drag frame only
-//! touches the overlay layer, and the data plot is rebuilt when the debounced
-//! recompute finishes. Annotation ids are session-scoped, so every plot
-//! replacement (`set_plot_keep_view`) re-adds them through
-//! [`StudioApp::sync_handle_annotations`]. (The overlay shear seen with
-//! ruviz-gpui 0.12.0 was fixed in 0.12.1.) Pointer handling lives in GPUI
-//! on the plot card: while a handle is armed a transparent overlay sits over
-//! the plot so the press never reaches ruviz's pan.
+//! The geometry is painted by GPUI ([`StudioApp::handle_layer`], a canvas
+//! layered over the plot card) from the plot's current data→pixel mapping
+//! (`RuvizPlot::screen_at`), so a drag or hover frame only re-paints a
+//! handful of quads — the ruviz frame is untouched until the debounced
+//! recompute rebuilds the data plot. Pointer handling lives in GPUI on the
+//! plot card: while a handle is armed a transparent overlay sits over the
+//! plot so the press never reaches ruviz's pan.
 
-use gpui::{Context, IntoElement, ParentElement, Pixels, Point, Styled, div, prelude::*, px};
-use ruviz::core::Annotation;
-use ruviz::render::{Color as PlotColor, LineStyle};
+use gpui::{
+    Bounds, Context, Corners, Hsla, IntoElement, ParentElement, Pixels, Point, Rgba, Styled,
+    canvas, div, fill, point, prelude::*, px, quad, size,
+};
 use xraytsubaki::prelude::{BackgroundMethod, NormalizationMethod};
 
 use gpui::Entity;
-use ruviz::core::AnnotationId;
+use ruviz::core::plot::ViewportPoint;
 use ruviz_gpui::RuvizPlot;
-use std::collections::HashMap;
 
 use super::Stage;
 use super::center::{PLOT_CHIK, PLOT_CHIR, PLOT_MU, PLOT_NORM};
@@ -110,9 +108,14 @@ pub struct HandleState {
     /// (plot index, handle) under the pointer.
     pub armed: Option<(usize, HandleKey)>,
     pub dragging: Option<(usize, HandleKey)>,
-    /// Overlay annotation ids per plot, in [`StudioApp::handle_decor`] order.
-    /// Ids are session-scoped: cleared whenever the plot is replaced.
-    pub annotations: HashMap<usize, Vec<AnnotationId>>,
+}
+
+/// What the handle layer paints for one plot, resolved at render time.
+struct HandleDecor {
+    /// (data x0, data x1, colour)
+    spans: Vec<(f64, f64, Rgba)>,
+    /// (data x, colour, hot, dashed)
+    lines: Vec<(f64, Rgba, bool, bool)>,
 }
 
 impl StudioApp {
@@ -234,113 +237,55 @@ impl StudioApp {
         }
     }
 
-    fn handle_color(&self, accent: bool) -> PlotColor {
-        let c = if accent {
+    fn handle_color(&self, accent: bool) -> Rgba {
+        if accent {
             self.theme.accent
         } else {
             self.theme.warn
-        };
-        PlotColor::from_rgb(
-            (c.r * 255.0) as u8,
-            (c.g * 255.0) as u8,
-            (c.b * 255.0) as u8,
-        )
+        }
     }
 
-    /// Overlay annotations (spans + handle lines) for plot `plot`, in a
-    /// stable order so ids can be reused across updates.
-    pub(crate) fn handle_decor(&self, plot: usize) -> Vec<Annotation> {
+    /// Spans + handle lines for plot `plot`, in data coordinates.
+    fn handle_decor(&self, plot: usize) -> Option<HandleDecor> {
         if !self.stage.is_processing() && self.stage != Stage::Fit {
-            return Vec::new();
+            return None;
         }
         let (specs, spans) = self.handle_specs(plot);
-        let mut out = Vec::new();
+        if specs.is_empty() {
+            return None;
+        }
         let at = |k: HandleKey| specs.iter().find(|(kk, _)| *kk == k).map(|(_, x)| *x);
-        for span in spans {
-            let x0 = span.lo.and_then(at).unwrap_or(span.fixed_lo);
-            let x1 = span.hi.and_then(at).unwrap_or(x0);
-            out.push(Annotation::HSpan {
-                x_min: x0.min(x1),
-                x_max: x0.max(x1),
-                style: ruviz::core::ShapeStyle {
-                    fill_color: Some(self.handle_color(span.accent)),
-                    fill_alpha: 0.13,
-                    edge_color: None,
-                    edge_width: 0.0,
-                    edge_style: LineStyle::Solid,
-                },
-            });
-        }
-        for (key, x) in specs {
-            let hot = self.handles.armed == Some((plot, key))
-                || self.handles.dragging == Some((plot, key));
-            out.push(Annotation::VLine {
-                x,
-                style: if key == HandleKey::E0 {
-                    LineStyle::Solid
-                } else {
-                    LineStyle::Dashed
-                },
-                color: self.handle_color(key.accent()),
-                width: if hot { 2.6 } else { 1.3 },
-            });
-        }
-        out
+        let spans = spans
+            .iter()
+            .map(|span| {
+                let x0 = span.lo.and_then(at).unwrap_or(span.fixed_lo);
+                let x1 = span.hi.and_then(at).unwrap_or(x0);
+                (x0.min(x1), x0.max(x1), self.handle_color(span.accent))
+            })
+            .collect();
+        let lines = specs
+            .iter()
+            .map(|&(key, x)| {
+                let hot = self.handles.armed == Some((plot, key))
+                    || self.handles.dragging == Some((plot, key));
+                (
+                    x,
+                    self.handle_color(key.accent()),
+                    hot,
+                    key != HandleKey::E0,
+                )
+            })
+            .collect();
+        Some(HandleDecor { spans, lines })
     }
 
-    /// Stage / group changed: drop any armed handle (the geometry follows
-    /// the plot rebuild, which re-syncs the overlay).
+    /// Stage / group changed: drop any armed handle.
     pub(crate) fn sync_handles(&mut self, _cx: &mut Context<Self>) {
         if self.handles.dragging.is_none() {
             self.handles.armed = None;
         }
     }
 
-    /// The plot behind `plot` was replaced: its session annotations are
-    /// gone, forget their ids before re-syncing.
-    pub(crate) fn forget_handle_annotations(&mut self, plot: usize) {
-        self.handles.annotations.remove(&plot);
-    }
-
-    /// Bring the overlay annotations of plot `plot` in line with the current
-    /// parameters and hot state. Updates in place when the id list still
-    /// matches, otherwise removes and re-adds (also after a session
-    /// replacement, where stale ids are simply rejected).
-    pub(crate) fn sync_handle_annotations(&mut self, plot: usize, cx: &mut Context<Self>) {
-        let Some(entity) = self.plot_entity(plot) else {
-            self.handles.annotations.remove(&plot);
-            return;
-        };
-        let decor = self.handle_decor(plot);
-        let existing = self.handles.annotations.remove(&plot).unwrap_or_default();
-        if existing.len() == decor.len() && !decor.is_empty() {
-            let updated = entity.update(cx, |rp, cx| {
-                existing
-                    .iter()
-                    .zip(decor.iter())
-                    .all(|(id, ann)| rp.update_annotation(*id, ann.clone(), cx).is_ok())
-            });
-            if updated {
-                self.handles.annotations.insert(plot, existing);
-                return;
-            }
-        }
-        let ids = entity.update(cx, |rp, cx| {
-            for id in existing {
-                let _ = rp.remove_annotation(id, cx);
-            }
-            decor
-                .into_iter()
-                .filter_map(|ann| rp.add_annotation(ann, cx).ok())
-                .collect::<Vec<_>>()
-        });
-        if !ids.is_empty() {
-            self.handles.annotations.insert(plot, ids);
-        }
-    }
-
-    /// Pointer moved over plot `plot` (window coordinates). Arms the nearest
-    /// handle, or drags the active one.
     /// The interactive plot behind a handle plot index.
     pub(crate) fn plot_entity(&self, plot: usize) -> Option<Entity<RuvizPlot>> {
         match plot {
@@ -350,10 +295,102 @@ impl StudioApp {
         }
     }
 
-    /// Redraw the handle geometry of plot `plot` (hot/cold line width and
-    /// dragged position) — overlay only, the data plot is untouched.
-    fn redraw_handle_plot(&mut self, plot: usize, cx: &mut Context<Self>) {
-        self.sync_handle_annotations(plot, cx);
+    /// GPUI-painted spans and handle lines for plot `plot`, positioned from
+    /// the plot's current data→pixel mapping at paint time (so they follow
+    /// pan/zoom and resizes without touching the ruviz frame).
+    pub(crate) fn handle_layer(
+        &self,
+        plot: usize,
+        _cx: &Context<Self>,
+    ) -> Option<impl IntoElement + use<>> {
+        let decor = self.handle_decor(plot)?;
+        let entity = self.plot_entity(plot)?;
+        Some(
+            canvas(
+                move |_bounds, _window, cx| {
+                    let rp = entity.read(cx);
+                    let area = plot_area_window_bounds(rp)?;
+                    let to_x = |x: f64| {
+                        rp.screen_at(ViewportPoint { x, y: area.mid_y })
+                            .ok()
+                            .flatten()
+                            .map(|p| f32::from(p.x))
+                    };
+                    let spans = decor
+                        .spans
+                        .iter()
+                        .filter_map(|&(x0, x1, color)| {
+                            // Clamp to the plot area; a span entirely off-screen
+                            // maps to None on both ends and is skipped.
+                            let (vx0, vx1) = (area.data_x0, area.data_x1);
+                            if x1 < vx0 || x0 > vx1 {
+                                return None;
+                            }
+                            let px0 = to_x(x0.max(vx0))?;
+                            let px1 = to_x(x1.min(vx1))?;
+                            Some((px0, px1, color))
+                        })
+                        .collect::<Vec<_>>();
+                    let lines = decor
+                        .lines
+                        .iter()
+                        .filter_map(|&(x, color, hot, dashed)| Some((to_x(x)?, color, hot, dashed)))
+                        .collect::<Vec<_>>();
+                    Some((area, spans, lines))
+                },
+                |_bounds, geom, window, _cx| {
+                    let Some((area, spans, lines)) = geom else {
+                        return;
+                    };
+                    let top = px(area.top);
+                    let bottom = px(area.bottom);
+                    let height = bottom - top;
+                    for (x0, x1, color) in spans {
+                        let mut c: Hsla = color.into();
+                        c.a = 0.13;
+                        let b = Bounds::new(point(px(x0), top), size(px(x1 - x0), height));
+                        window.paint_quad(fill(b, c));
+                    }
+                    for (x, color, hot, dashed) in lines {
+                        let c: Hsla = color.into();
+                        let w = if hot { 2.6 } else { 1.3 };
+                        let lx = px(x - w / 2.0);
+                        if dashed && !hot {
+                            let (on, off) = (6.0_f32, 4.0_f32);
+                            let mut y = area.top;
+                            while y < area.bottom {
+                                let seg = on.min(area.bottom - y);
+                                let b = Bounds::new(point(lx, px(y)), size(px(w), px(seg)));
+                                window.paint_quad(fill(b, c));
+                                y += on + off;
+                            }
+                        } else {
+                            let b = Bounds::new(point(lx, top), size(px(w), height));
+                            window.paint_quad(fill(b, c));
+                        }
+                        // Grab tab at the top edge, wider when hot.
+                        let (tw, th) = if hot { (11.0, 16.0) } else { (7.0, 13.0) };
+                        let tab = Bounds::new(
+                            point(px(x - tw / 2.0), top + px(2.0)),
+                            size(px(tw), px(th)),
+                        );
+                        window.paint_quad(quad(
+                            tab,
+                            Corners::all(px(3.0)),
+                            c,
+                            gpui::Edges::all(px(1.0)),
+                            Hsla {
+                                a: 0.9,
+                                ..gpui::black()
+                            },
+                            gpui::BorderStyle::Solid,
+                        ));
+                    }
+                },
+            )
+            .absolute()
+            .inset_0(),
+        )
     }
 
     pub(crate) fn plot_pointer_move(
@@ -406,7 +443,6 @@ impl StudioApp {
         let armed = nearest.map(|(key, _)| (plot, key));
         if armed != self.handles.armed {
             self.handles.armed = armed;
-            self.redraw_handle_plot(plot, cx);
             cx.notify();
         }
     }
@@ -448,22 +484,19 @@ impl StudioApp {
             *slot = value;
             self.sync_range_fields(cx);
             self.fit_model_changed(cx);
-            self.sync_handle_annotations(PLOT_FIT_K, cx);
-            self.sync_handle_annotations(PLOT_FIT_R, cx);
+            cx.notify();
             return;
         };
         let current = crate::app::param_field_value(param, self.ui_params());
         if current == Some(value) {
             return;
         }
-        // Params first (debounced recompute), then the overlay follows the
-        // pointer immediately; the data plot is rebuilt when the recompute
-        // lands. E₀ moves every relative range, so sync all stage plots.
+        // Params first (debounced recompute); the handle layer re-paints
+        // from the new value on this frame, the data plot follows when the
+        // recompute lands.
         self.apply_param(param, Some(value), cx);
         self.sync_param_fields(cx);
-        for plot in [PLOT_MU, PLOT_NORM, PLOT_CHIK, PLOT_CHIR] {
-            self.sync_handle_annotations(plot, cx);
-        }
+        cx.notify();
     }
 
     /// Transparent capture layer shown while a handle is armed or dragging.
@@ -514,10 +547,41 @@ impl StudioApp {
     }
 
     fn end_handle_drag(&mut self, cx: &mut Context<Self>) {
-        if let Some((plot, _)) = self.handles.dragging.take() {
+        if self.handles.dragging.take().is_some() {
             self.handles.armed = None;
-            self.redraw_handle_plot(plot, cx);
             cx.notify();
         }
     }
+}
+
+/// The plot's core area in window pixels plus its visible data x-range.
+#[derive(Clone, Copy)]
+struct PlotArea {
+    top: f32,
+    bottom: f32,
+    data_x0: f64,
+    data_x1: f64,
+    mid_y: f64,
+}
+
+/// Derive the plot area from the displayed viewport: `screen_at` on the
+/// visible-bounds corners (nudged inwards so they count as inside).
+fn plot_area_window_bounds(rp: &RuvizPlot) -> Option<PlotArea> {
+    let snap = rp.interactive_session().viewport_snapshot().ok()?;
+    let vb = snap.visible_bounds;
+    let dx = (vb.max.x - vb.min.x).abs().max(1e-12) * 1e-6;
+    let dy = (vb.max.y - vb.min.y).abs().max(1e-12) * 1e-6;
+    let (x0, x1) = (vb.min.x.min(vb.max.x) + dx, vb.max.x.max(vb.min.x) - dx);
+    let (y0, y1) = (vb.min.y.min(vb.max.y) + dy, vb.max.y.max(vb.min.y) - dy);
+    let mid_y = (y0 + y1) / 2.0;
+    let a = rp.screen_at(ViewportPoint { x: x0, y: y0 }).ok()??;
+    let b = rp.screen_at(ViewportPoint { x: x1, y: y1 }).ok()??;
+    let (ay, by) = (f32::from(a.y), f32::from(b.y));
+    Some(PlotArea {
+        top: ay.min(by),
+        bottom: ay.max(by),
+        data_x0: x0,
+        data_x1: x1,
+        mid_y,
+    })
 }

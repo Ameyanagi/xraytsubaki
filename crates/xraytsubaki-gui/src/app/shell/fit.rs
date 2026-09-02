@@ -241,7 +241,12 @@ impl StudioApp {
                     .p_1()
                     .relative()
                     .child(main)
-                    .child(self.measure_card(main_key, cx)),
+                    .child(self.measure_card(main_key, cx))
+                    .children(
+                        (plot != usize::MAX)
+                            .then(|| self.handle_layer(plot, cx))
+                            .flatten(),
+                    ),
             )
             .children(overlay);
         let mut column = div()

@@ -3393,7 +3393,7 @@ impl StudioApp {
         ];
         // The figure aspect follows the card layout (ruviz-gpui fits the
         // figure aspect inside the container). Stage handles (range regions,
-        // E0 / Rbkg lines) live in the session overlay; see shell::handles.
+        // E0 / Rbkg lines) are painted by GPUI; see shell::handles.
         let analysis_card = self.stage == Stage::Data && self.analysis.plot.is_some();
         let stacked = self.stage_plots().len() > 1 || analysis_card;
         let fallback = if stacked { (820, 280) } else { (820, 580) };
@@ -3414,11 +3414,6 @@ impl StudioApp {
                 *slot = SharedString::from(title);
                 entity.update(cx, |rp, cx| rp.set_plot_keep_view(plot, cx));
             }
-        }
-        // Every quadrant session was replaced: re-add the handle overlays.
-        for index in 0..self.quadrants.len() {
-            self.forget_handle_annotations(index);
-            self.sync_handle_annotations(index, cx);
         }
         // Ripple strip: the current group only.
         if let Some(active) = traces.iter().find(|t| t.active).or_else(|| traces.first()) {
@@ -4649,12 +4644,6 @@ impl StudioApp {
                     q: plot_builder(q_plot).interactive().build(cx),
                 });
             }
-        }
-        // Fit-range handles live in the session overlay; the sessions were
-        // just replaced, so re-add them.
-        for plot in [shell::handles::PLOT_FIT_K, shell::handles::PLOT_FIT_R] {
-            self.forget_handle_annotations(plot);
-            self.sync_handle_annotations(plot, cx);
         }
     }
 

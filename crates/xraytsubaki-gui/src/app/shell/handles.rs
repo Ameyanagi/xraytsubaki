@@ -108,6 +108,11 @@ pub struct HandleState {
     /// (plot index, handle) under the pointer.
     pub armed: Option<(usize, HandleKey)>,
     pub dragging: Option<(usize, HandleKey)>,
+    /// Last resolved plot area per plot. While a live-follow refresh swaps
+    /// the ruviz session, the viewport snapshot is briefly unavailable; the
+    /// cached area keeps the handles painted and the drag mapped (the view
+    /// is preserved across refreshes, so the mapping is unchanged).
+    areas: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<usize, PlotArea>>>,
 }
 
 /// What the handle layer paints for one plot, resolved at render time.
@@ -305,17 +310,21 @@ impl StudioApp {
     ) -> Option<impl IntoElement + use<>> {
         let decor = self.handle_decor(plot)?;
         let entity = self.plot_entity(plot)?;
+        let areas = self.handles.areas.clone();
         Some(
             canvas(
                 move |_bounds, _window, cx| {
                     let rp = entity.read(cx);
-                    let area = plot_area_window_bounds(rp)?;
-                    let to_x = |x: f64| {
-                        rp.screen_at(ViewportPoint { x, y: area.mid_y })
-                            .ok()
-                            .flatten()
-                            .map(|p| f32::from(p.x))
+                    let area = match plot_area_window_bounds(rp) {
+                        Some(area) => {
+                            if let Ok(mut cache) = areas.lock() {
+                                cache.insert(plot, area);
+                            }
+                            area
+                        }
+                        None => *areas.lock().ok()?.get(&plot)?,
                     };
+                    let to_x = |x: f64| Some(area.px_of(x));
                     let spans = decor
                         .spans
                         .iter()
@@ -407,8 +416,17 @@ impl StudioApp {
                 return;
             }
             let data = entity.read(cx).data_at(position).ok().flatten();
-            if let Some(pt) = data {
-                self.apply_handle_drag(key, pt.x, cx);
+            let x = match data {
+                Some(pt) => Some(pt.x),
+                None => self
+                    .handles
+                    .areas
+                    .lock()
+                    .ok()
+                    .and_then(|c| c.get(&plot).map(|a| a.data_of(f32::from(position.x)))),
+            };
+            if let Some(x) = x {
+                self.apply_handle_drag(key, x, cx);
             }
             return;
         }
@@ -547,8 +565,13 @@ impl StudioApp {
     }
 
     fn end_handle_drag(&mut self, cx: &mut Context<Self>) {
-        if self.handles.dragging.take().is_some() {
+        if let Some((_, key)) = self.handles.dragging.take() {
             self.handles.armed = None;
+            // Trailing run: the final pointer position may have landed
+            // between throttle ticks (a cache hit when it did not).
+            if key.param().is_some() {
+                self.schedule_recompute(cx);
+            }
             cx.notify();
         }
     }
@@ -559,9 +582,24 @@ impl StudioApp {
 struct PlotArea {
     top: f32,
     bottom: f32,
+    left: f32,
+    right: f32,
     data_x0: f64,
     data_x1: f64,
-    mid_y: f64,
+}
+
+impl PlotArea {
+    /// Data x → window px (the axes are linear).
+    fn px_of(&self, x: f64) -> f32 {
+        let span = (self.data_x1 - self.data_x0).abs().max(1e-12);
+        self.left + ((x - self.data_x0) / span) as f32 * (self.right - self.left)
+    }
+
+    /// Window px → data x.
+    fn data_of(&self, px: f32) -> f64 {
+        let w = (self.right - self.left).max(1e-6);
+        self.data_x0 + f64::from((px - self.left) / w) * (self.data_x1 - self.data_x0)
+    }
 }
 
 /// Derive the plot area from the displayed viewport: `screen_at` on the
@@ -573,15 +611,16 @@ fn plot_area_window_bounds(rp: &RuvizPlot) -> Option<PlotArea> {
     let dy = (vb.max.y - vb.min.y).abs().max(1e-12) * 1e-6;
     let (x0, x1) = (vb.min.x.min(vb.max.x) + dx, vb.max.x.max(vb.min.x) - dx);
     let (y0, y1) = (vb.min.y.min(vb.max.y) + dy, vb.max.y.max(vb.min.y) - dy);
-    let mid_y = (y0 + y1) / 2.0;
     let a = rp.screen_at(ViewportPoint { x: x0, y: y0 }).ok()??;
     let b = rp.screen_at(ViewportPoint { x: x1, y: y1 }).ok()??;
     let (ay, by) = (f32::from(a.y), f32::from(b.y));
+    let (ax, bx) = (f32::from(a.x), f32::from(b.x));
     Some(PlotArea {
         top: ay.min(by),
         bottom: ay.max(by),
+        left: ax.min(bx),
+        right: ax.max(bx),
         data_x0: x0,
         data_x1: x1,
-        mid_y,
     })
 }

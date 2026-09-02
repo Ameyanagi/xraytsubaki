@@ -61,6 +61,12 @@ use shell::{Stage, StageView, handles::HandleState, thumbnails::ThumbData, tools
 /// worst case; browsing a million-file catalog stays bounded.
 const PROCESSED_CACHE_CAPACITY: usize = 1024;
 const JOB_ERROR_CAPACITY: usize = 200;
+/// Raw arrays are small (two Vec<f64> per file); keep plenty around.
+const RAW_CACHE_CAPACITY: usize = 256;
+/// Raw (energy, mu) of one file after import math.
+type RawArrays = Arc<(Vec<f64>, Vec<f64>)>;
+/// Live-follow recompute cadence while dragging a plot handle.
+const DRAG_RECOMPUTE_TICK: Duration = Duration::from_millis(50);
 /// Import-preview column width. Wide enough for a 4-decimal energy value
 /// (`21912.2534`) so cells clip rather than wrapping a number onto two lines.
 const IMPORT_COL_W: f32 = 88.;
@@ -843,6 +849,13 @@ pub struct StudioApp {
     param_fields: Vec<(ParamKey, Entity<NumericField>)>,
     /// Keyed by (catalog index, effective-params fingerprint).
     cache: LruCache<(usize, u64), Arc<XASSpectrum>>,
+    /// Raw (energy, mu) keyed by (catalog index, raw/import fingerprint), so a
+    /// pipeline-only edit never re-reads the file or re-runs import math.
+    raw_cache: LruCache<(usize, u64), RawArrays>,
+    /// Live-follow throttle while a handle is dragged.
+    recompute_last: Option<Instant>,
+    recompute_tick_pending: bool,
+    recompute_dirty: bool,
     current_path: PathBuf,
     spectrum_path: PathBuf,
     spectrum_fingerprint: u64,
@@ -1596,6 +1609,10 @@ impl StudioApp {
             pending_overrides: Vec::new(),
             param_fields,
             cache: LruCache::new(NonZeroUsize::new(PROCESSED_CACHE_CAPACITY).unwrap()),
+            raw_cache: LruCache::new(NonZeroUsize::new(RAW_CACHE_CAPACITY).unwrap()),
+            recompute_last: None,
+            recompute_tick_pending: false,
+            recompute_dirty: false,
             current_path: path.clone(),
             spectrum_path: path.clone(),
             spectrum_fingerprint: 0,
@@ -2486,12 +2503,53 @@ impl StudioApp {
     /// edits; only the latest epoch fires.
     fn schedule_recompute(&mut self, cx: &mut Context<Self>) {
         self.recompute_epoch += 1;
+        if self.handles.dragging.is_some() {
+            self.schedule_recompute_throttled(cx);
+            return;
+        }
         let epoch = self.recompute_epoch;
         let timer = cx.background_executor().timer(Duration::from_millis(200));
         cx.spawn(async move |this, cx| {
             timer.await;
             this.update(cx, |app, cx| {
                 if app.recompute_epoch == epoch {
+                    app.reprocess_current(cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// While a handle is dragged the pipeline follows the pointer: run at
+    /// once when the last run is older than the tick, otherwise once per
+    /// tick, with at most one job in flight (a tick that finds a job running
+    /// marks it dirty and the job reruns when it lands).
+    fn schedule_recompute_throttled(&mut self, cx: &mut Context<Self>) {
+        if self.load_running {
+            self.recompute_dirty = true;
+            return;
+        }
+        let since = self
+            .recompute_last
+            .map(|t| t.elapsed())
+            .unwrap_or(DRAG_RECOMPUTE_TICK);
+        if since >= DRAG_RECOMPUTE_TICK {
+            self.reprocess_current(cx);
+            return;
+        }
+        if self.recompute_tick_pending {
+            return;
+        }
+        self.recompute_tick_pending = true;
+        let timer = cx.background_executor().timer(DRAG_RECOMPUTE_TICK - since);
+        cx.spawn(async move |this, cx| {
+            timer.await;
+            this.update(cx, |app, cx| {
+                app.recompute_tick_pending = false;
+                if app.load_running {
+                    app.recompute_dirty = true;
+                } else {
                     app.reprocess_current(cx);
                 }
             })
@@ -2527,6 +2585,8 @@ impl StudioApp {
         self.generation += 1;
         let generation = self.generation;
         let key = (ix, self.effective_fingerprint(ix));
+        self.recompute_last = Some(Instant::now());
+        self.recompute_dirty = false;
 
         if let Some(sp) = self.cache.get(&key) {
             self.load_running = false;
@@ -2543,11 +2603,23 @@ impl StudioApp {
         let derived = (ix >= DERIVED_BASE)
             .then(|| self.derived.get(ix - DERIVED_BASE).cloned())
             .flatten();
+        let raw_key = (ix, params.raw_fingerprint());
+        let raw = self.raw_cache.get(&raw_key).cloned();
         let processed_path = path.clone();
         let load = cx.background_executor().spawn(async move {
             match derived {
-                Some(d) => process_arrays(d.energy, d.mu, &params),
-                None => process_file(&path, &params),
+                Some(d) => process_arrays(d.energy, d.mu, &params).map(|sp| (sp, None)),
+                None => match raw {
+                    // Pipeline-only edit: reuse the raw arrays, skip the file.
+                    Some(raw) => {
+                        process_arrays(raw.0.clone(), raw.1.clone(), &params).map(|sp| (sp, None))
+                    }
+                    None => {
+                        let (energy, mu) = load_raw(&path, &params)?;
+                        let sp = process_arrays(energy.clone(), mu.clone(), &params)?;
+                        Ok((sp, Some(Arc::new((energy, mu)))))
+                    }
+                },
             }
         });
         cx.spawn(async move |this, cx| {
@@ -2558,10 +2630,18 @@ impl StudioApp {
                 }
                 app.load_running = false;
                 match result {
-                    Ok(sp) => {
+                    Ok((sp, raw)) => {
+                        if let Some(raw) = raw {
+                            app.raw_cache.put(raw_key, raw);
+                        }
                         let sp = Arc::new(sp);
                         app.cache.put(key, sp.clone());
                         app.set_processed(ix, label, processed_path, key.1, sp, cx);
+                        // A drag tick landed while this job ran: follow it.
+                        if app.recompute_dirty {
+                            app.recompute_dirty = false;
+                            app.reprocess_current(cx);
+                        }
                     }
                     Err(e) => {
                         app.status = format!("failed to process {label}: {e}").into();

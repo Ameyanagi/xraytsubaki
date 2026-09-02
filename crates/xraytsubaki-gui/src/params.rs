@@ -484,17 +484,30 @@ pub const AUTOBK_SOLVERS: [AUTOBKSolver; 3] = [
 ];
 
 impl PipelineParams {
+    /// Fingerprint of the import + alignment settings only: two parameter
+    /// sets with the same raw fingerprint read the same (energy, mu) from a
+    /// file, so the raw arrays can be cached across pipeline-only edits.
+    pub fn raw_fingerprint(&self) -> u64 {
+        let mut hasher = std::hash::DefaultHasher::new();
+        self.hash_raw_fields(&mut hasher);
+        hasher.finish()
+    }
+
+    fn hash_raw_fields(&self, hasher: &mut std::hash::DefaultHasher) {
+        format!("{:?}", self.import.mode).hash(hasher);
+        self.align_to_ref.hash(hasher);
+        self.align_target.map(f64::to_bits).hash(hasher);
+        self.import.energy_col.hash(hasher);
+        self.import.i0_col.hash(hasher);
+        self.import.it_col.hash(hasher);
+        self.import.ir_col.hash(hasher);
+        self.import.fluor_cols.hash(hasher);
+        self.import.mu_col.hash(hasher);
+    }
+
     pub fn fingerprint(&self) -> u64 {
         let mut hasher = std::hash::DefaultHasher::new();
-        format!("{:?}", self.import.mode).hash(&mut hasher);
-        self.align_to_ref.hash(&mut hasher);
-        self.align_target.map(f64::to_bits).hash(&mut hasher);
-        self.import.energy_col.hash(&mut hasher);
-        self.import.i0_col.hash(&mut hasher);
-        self.import.it_col.hash(&mut hasher);
-        self.import.ir_col.hash(&mut hasher);
-        self.import.fluor_cols.hash(&mut hasher);
-        self.import.mu_col.hash(&mut hasher);
+        self.hash_raw_fields(&mut hasher);
         for v in [
             self.e0,
             self.pre_edge_start,

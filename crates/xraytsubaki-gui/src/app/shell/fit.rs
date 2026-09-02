@@ -8,7 +8,7 @@ use gpui::{
 };
 use ruviz_gpui::RuvizPlot;
 
-use super::handles::{PLOT_FIT_K, PLOT_FIT_R};
+use super::handles::{PLOT_FIT_K, PLOT_FIT_Q, PLOT_FIT_R};
 use super::{FitView, MONO, button, chip, section_label, segment, segmented};
 use crate::app::{FeffFormKey, StudioApp};
 use crate::fitting::{FitSpaceSpec, high_correlations};
@@ -205,6 +205,8 @@ impl StudioApp {
         let overlay = (plot != usize::MAX)
             .then(|| self.handle_overlay(plot, cx))
             .flatten();
+        let main_key = if plot == usize::MAX { PLOT_FIT_Q } else { plot };
+        let residual_key = main_key + 2;
         let card = div()
             .id(("fit-card", plot))
             .flex_1()
@@ -231,7 +233,16 @@ impl StudioApp {
                     .font_weight(gpui::FontWeight::MEDIUM)
                     .child(title),
             )
-            .child(div().flex_1().min_h_0().min_w_0().p_1().child(main))
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .min_w_0()
+                    .p_1()
+                    .relative()
+                    .child(main)
+                    .child(self.measure_card(main_key, cx)),
+            )
             .children(overlay);
         let mut column = div()
             .flex_1()
@@ -245,7 +256,7 @@ impl StudioApp {
             column = column.child(
                 div()
                     .flex_none()
-                    .h(px(120.))
+                    .h(px(110.))
                     .min_w_0()
                     .flex()
                     .flex_col()
@@ -262,7 +273,16 @@ impl StudioApp {
                             .text_color(t.text_muted)
                             .child("residual"),
                     )
-                    .child(div().flex_1().min_h_0().min_w_0().p_1().child(residual)),
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_h_0()
+                            .min_w_0()
+                            .p_1()
+                            .relative()
+                            .child(residual)
+                            .child(self.measure_card(residual_key, cx)),
+                    ),
             );
         }
         column

@@ -454,7 +454,16 @@ impl StudioApp {
                     .child(div().font_weight(gpui::FontWeight::MEDIUM).child(title))
                     .child(div().text_color(t.text_muted).child(label)),
             )
-            .child(div().flex_1().min_h_0().min_w_0().p_1().child(plot))
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .min_w_0()
+                    .p_1()
+                    .relative()
+                    .child(plot)
+                    .child(self.measure_card(index, cx)),
+            )
             .children(overlay)
     }
 

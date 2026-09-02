@@ -779,8 +779,8 @@ pub fn build_fit_residual_k(result: &xraytsubaki::prelude::FeffFitResult, theme:
         .color(Color::from_gray(150))
         .into();
     plot.hline_styled(0.0, Color::from_gray(120), 0.8, LineStyle::Dashed)
-        .xlabel(K_AXIS)
-        .ylabel("residual")
+        .xlabel("")
+        .ylabel("")
 }
 
 /// Residual strip under the R-space fit: |chi(R)| data - model.
@@ -798,8 +798,8 @@ pub fn build_fit_residual_r(result: &xraytsubaki::prelude::FeffFitResult, theme:
         .color(Color::from_gray(150))
         .into();
     plot.hline_styled(0.0, Color::from_gray(120), 0.8, LineStyle::Dashed)
-        .xlabel(R_AXIS)
-        .ylabel("residual")
+        .xlabel("")
+        .ylabel("")
 }
 
 /// LCF overlay: data, fit, residual (offset below) and the weighted

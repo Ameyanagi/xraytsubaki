@@ -247,6 +247,11 @@ impl Render for NumericField {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = self.theme;
         let overridden = self.value.is_some();
+        // `↺ auto` only makes sense for fields that have an automatic value
+        // (an "auto (…)" placeholder); plain numeric fields have none.
+        let has_auto = self.placeholder_value(cx).is_some()
+            || self.input.read(cx).placeholder_text().contains("auto");
+        let can_reset = overridden && has_auto;
         let stepper = |id: &'static str, glyph: &'static str, dir: i32| {
             div()
                 .id(id)
@@ -287,8 +292,8 @@ impl Render for NumericField {
                     .flex_none()
                     .w(px(16.))
                     .text_size(px(10.))
-                    .text_color(if overridden { t.accent } else { t.border })
-                    .when(overridden, |d| {
+                    .text_color(if can_reset { t.accent } else { t.border })
+                    .when(can_reset, |d| {
                         d.cursor_pointer()
                             .hover(|d| d.text_color(t.text))
                             .on_click(cx.listener(|this, _: &ClickEvent, _w, cx| {
@@ -296,7 +301,7 @@ impl Render for NumericField {
                                 cx.emit(FieldEvent::Changed(None));
                             }))
                     })
-                    .child(if overridden { "↺" } else { "" }),
+                    .child(if can_reset { "↺" } else { "" }),
             )
             .child(
                 div()

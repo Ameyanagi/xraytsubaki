@@ -26,6 +26,10 @@ use crate::app::{ParamKey, StudioApp};
 /// Virtual plot indices for the Fit stage plots (not quadrants).
 pub const PLOT_FIT_K: usize = 100;
 pub const PLOT_FIT_R: usize = 101;
+/// Residual strips and the q-space card (measured for sizing only).
+pub const PLOT_FIT_K_RES: usize = 102;
+pub const PLOT_FIT_R_RES: usize = 103;
+pub const PLOT_FIT_Q: usize = 104;
 
 /// Pixel distance within which a handle arms.
 const ARM_PX: f64 = 7.0;

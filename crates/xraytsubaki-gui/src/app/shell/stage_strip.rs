@@ -11,6 +11,17 @@ use crate::app::StudioApp;
 impl StudioApp {
     pub(crate) fn stage_strip(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
+        // Summaries shrink before the strip overflows; the dot legend is the
+        // first thing to go at narrow widths (the prototype does the same).
+        let vw = self.viewport_w;
+        let summary_w = if vw < 1300. {
+            96.
+        } else if vw < 1500. {
+            128.
+        } else {
+            190.
+        };
+        let show_legend = vw >= 1500.;
         let mut strip = div()
             .h(px(40.))
             .w_full()
@@ -73,26 +84,29 @@ impl StudioApp {
                             .text_color(t.text_muted)
                             .whitespace_nowrap()
                             .overflow_hidden()
-                            .max_w(px(190.))
+                            .text_ellipsis()
+                            .max_w(px(summary_w))
                             .child(summary),
                     ),
             );
         }
-        strip.child(div().flex_1()).child(
-            div()
-                .flex()
-                .items_center()
-                .gap_2()
-                .text_size(px(11.))
-                .text_color(t.text_muted)
-                .whitespace_nowrap()
-                .child(legend_dot(t.success))
-                .child("ok")
-                .child(legend_dot(t.accent))
-                .child("auto")
-                .child(legend_dot(t.warn))
-                .child("attention"),
-        )
+        strip.child(div().flex_1()).when(show_legend, |strip| {
+            strip.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .text_size(px(11.))
+                    .text_color(t.text_muted)
+                    .whitespace_nowrap()
+                    .child(legend_dot(t.success))
+                    .child("ok")
+                    .child(legend_dot(t.accent))
+                    .child("auto")
+                    .child(legend_dot(t.warn))
+                    .child("attention"),
+            )
+        })
     }
 
     /// Status and one-line summary per stage for the current group.

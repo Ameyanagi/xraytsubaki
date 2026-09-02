@@ -916,6 +916,11 @@ pub struct StudioApp {
     status: SharedString,
     job_errors: Vec<JobError>,
     problems_open: bool,
+    /// Measured plot-container sizes (logical px) keyed by plot id, so a
+    /// figure is built with the aspect of the card it fills.
+    pub(crate) card_px: BTreeMap<usize, (u32, u32)>,
+    /// Viewport width captured at render time (responsive chrome).
+    pub(crate) viewport_w: f32,
 }
 
 /// Evenly sample `all` (sorted) down to `cap`, always keeping first, last,
@@ -1649,6 +1654,8 @@ impl StudioApp {
             status: "loading...".into(),
             job_errors: Vec::new(),
             problems_open: false,
+            card_px: BTreeMap::new(),
+            viewport_w: 1440.0,
         };
         app.fit_range_fields = Self::build_range_fields(theme, &app.fit_ranges.clone(), cx);
         let offset_field = cx.new(|cx| {
@@ -2603,6 +2610,17 @@ impl StudioApp {
         self.spectrum = Some(sp.clone());
         self.refresh_operando_frame_plot(ix, fingerprint, &sp);
         self.invalidate_explore_plots(cx);
+        // Scripted launches (screenshots): XTS_DEBUG_FIT_PATHS="a.dat:b.dat"
+        // adds FEFF paths and fits the first loaded spectrum.
+        if self.fit_paths.is_empty()
+            && let Ok(list) = std::env::var("XTS_DEBUG_FIT_PATHS")
+        {
+            for file in list.split(':').filter(|f| !f.is_empty()) {
+                self.push_fit_path(PathBuf::from(file), cx);
+            }
+            self.fit_model_changed(cx);
+            self.run_fit_now(cx);
+        }
     }
 
     // ---- operando ----------------------------------------------------------
@@ -3378,8 +3396,9 @@ impl StudioApp {
         // layout (ruviz-gpui fits the figure aspect inside the container).
         let analysis_card = self.stage == Stage::Data && self.analysis.plot.is_some();
         let stacked = self.stage_plots().len() > 1 || analysis_card;
-        let (fig_w, fig_h) = if stacked { (820, 280) } else { (820, 580) };
+        let fallback = if stacked { (820, 280) } else { (820, 580) };
         for (index, (_, plot)) in titled.iter_mut().enumerate() {
+            let (fig_w, fig_h) = self.card_px.get(&index).copied().unwrap_or(fallback);
             let mut decorated = std::mem::take(plot).size_px(fig_w, fig_h);
             for annotation in self.handle_decor(index) {
                 decorated = decorated.annotate(annotation);
@@ -4588,12 +4607,20 @@ impl StudioApp {
         // Fit ranges as draggable regions, drawn into the base plots. The
         // figure aspect follows the card layout (two columns or one).
         let two_columns = self.stage_view.fit_view == shell::FitView::Both;
-        let (fig_w, fig_h) = if two_columns { (600, 620) } else { (900, 560) };
-        k_plot = k_plot.size_px(fig_w, fig_h);
-        r_plot = r_plot.size_px(fig_w, fig_h);
-        let q_plot = q_plot.size_px(900, 560);
-        let k_res = k_res.size_px(fig_w, 150);
-        let r_res = r_res.size_px(fig_w, 150);
+        let main_fallback = if two_columns { (600, 620) } else { (900, 560) };
+        let res_fallback = (main_fallback.0, 90);
+        let size =
+            |key: usize, fallback: (u32, u32)| self.card_px.get(&key).copied().unwrap_or(fallback);
+        let (kw_px, kh_px) = size(shell::handles::PLOT_FIT_K, main_fallback);
+        let (rw_px, rh_px) = size(shell::handles::PLOT_FIT_R, main_fallback);
+        let (qw_px, qh_px) = size(shell::handles::PLOT_FIT_Q, (900, 560));
+        let (krw, krh) = size(shell::handles::PLOT_FIT_K_RES, res_fallback);
+        let (rrw, rrh) = size(shell::handles::PLOT_FIT_R_RES, res_fallback);
+        k_plot = k_plot.size_px(kw_px, kh_px);
+        r_plot = r_plot.size_px(rw_px, rh_px);
+        let q_plot = q_plot.size_px(qw_px, qh_px);
+        let k_res = k_res.size_px(krw, krh);
+        let r_res = r_res.size_px(rrw, rrh);
         for a in self.handle_decor(shell::handles::PLOT_FIT_K) {
             k_plot = k_plot.annotate(a);
         }
@@ -4628,6 +4655,53 @@ impl StudioApp {
                 });
             }
         }
+    }
+
+    /// A plot container reported its size: remember it and rebuild the
+    /// affected plots so the figure takes the card's aspect exactly.
+    pub(crate) fn note_card_size(&mut self, key: usize, size: (u32, u32), cx: &mut Context<Self>) {
+        if size.0 < 40 || size.1 < 30 {
+            return;
+        }
+        let changed = match self.card_px.get(&key) {
+            Some(prev) => prev.0.abs_diff(size.0) >= 6 || prev.1.abs_diff(size.1) >= 6,
+            None => true,
+        };
+        if !changed {
+            return;
+        }
+        self.card_px.insert(key, size);
+        if key >= shell::handles::PLOT_FIT_K {
+            self.rebuild_fit_plots(cx);
+        } else {
+            self.explore_plots_dirty = true;
+            self.invalidate_explore_plots(cx);
+        }
+    }
+
+    /// Invisible full-size element that measures its container and feeds
+    /// `note_card_size` on the next frame (only when the size changed).
+    pub(crate) fn measure_card(&self, key: usize, cx: &Context<Self>) -> impl IntoElement + use<> {
+        let entity = cx.entity();
+        let prev = self.card_px.get(&key).copied();
+        gpui::canvas(
+            move |bounds, window, _cx| {
+                let size = (
+                    f32::from(bounds.size.width).round().max(0.0) as u32,
+                    f32::from(bounds.size.height).round().max(0.0) as u32,
+                );
+                let same =
+                    prev.is_some_and(|p| p.0.abs_diff(size.0) < 6 && p.1.abs_diff(size.1) < 6);
+                if !same {
+                    window.on_next_frame(move |_window, cx| {
+                        entity.update(cx, |this, cx| this.note_card_size(key, size, cx));
+                    });
+                }
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .inset_0()
     }
 
     // ---- batch fitting -------------------------------------------------------
@@ -6729,7 +6803,8 @@ impl StudioApp {
 }
 
 impl Render for StudioApp {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.viewport_w = f32::from(window.viewport_size().width);
         let key_context = match self.workspace {
             Workspace::Explore => "Studio Explore",
             Workspace::Operando => "Studio OperandoWorkspace",

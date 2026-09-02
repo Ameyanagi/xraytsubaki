@@ -287,9 +287,12 @@ fn analysis_pca_two_component_mixtures() {
 
     // Components are orthonormal and reproduce the training data.
     let gram = &model.components * model.components.transpose();
-    assert!((gram - nalgebra::DMatrix::identity(5, 5)).amax() < 1e-9);
+    assert!((gram - nalgebra::DMatrix::identity(5, 5)).amax() < 1e-8);
+    // Reconstruction error scales with the data magnitude and the platform's
+    // SVD kernel (x86 CI differs from Apple Silicon), so compare relatively.
     let recon = &model.scores * &model.components;
-    assert!((recon - &model.data).amax() < 1e-9);
+    let scale = model.data.amax().max(1.0);
+    assert!((recon - &model.data).amax() < 1e-7 * scale);
 
     // Target transform of a pure standard with 2 components is excellent, with 1 it is not.
     let two = model.target_transform(&a, 2).unwrap();

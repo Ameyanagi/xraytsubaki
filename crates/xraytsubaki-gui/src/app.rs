@@ -1679,6 +1679,9 @@ impl StudioApp {
             card_px: BTreeMap::new(),
             viewport_w: 1440.0,
         };
+        if crate::debug_stats::enabled() {
+            Self::start_debug_stats(cx);
+        }
         app.fit_range_fields = Self::build_range_fields(theme, &app.fit_ranges.clone(), cx);
         let offset_field = cx.new(|cx| {
             NumericField::new(
@@ -2507,6 +2510,65 @@ impl StudioApp {
 
     /// Debounced (~200 ms) recompute of the current spectrum after parameter
     /// edits; only the latest epoch fires.
+    /// `XTS_DEBUG_STATS=1`: once per second print pointer-event rate, paint
+    /// rate, pointer→paint latency and ruviz-gpui's frame/presentation
+    /// statistics for the main stage plot to stderr.
+    fn start_debug_stats(cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            let mut prev_render = 0u64;
+            let mut prev_present = 0u64;
+            let mut prev_dropped = 0u64;
+            let started = Instant::now();
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_secs(1))
+                    .await;
+                let tick = this.update(cx, |app, cx| {
+                    let s = crate::debug_stats::take();
+                    let stats = app.quadrants.first().map(|(_, e)| e.read(cx).stats());
+                    let t = started.elapsed().as_secs();
+                    match stats {
+                        Some(st) => {
+                            let render_frames = st.render.frame_count.saturating_sub(prev_render);
+                            let present_frames =
+                                st.presentation.frame_count.saturating_sub(prev_present);
+                            let dropped = st.dropped_frames.saturating_sub(prev_dropped);
+                            prev_render = st.render.frame_count;
+                            prev_present = st.presentation.frame_count;
+                            prev_dropped = st.dropped_frames;
+                            eprintln!(
+                                "[xts-stats t={t}s] pointer {}/s · paints {}/s · pointer→paint avg {:.1} ms max {:.1} ms (n={}) · ruviz frames {}/s last {:.1} ms avg {:.1} ms fps {:.0} target {:?} · presented {}/s interval avg {:.1} ms fps {:.0} · dropped {} · backend {:?}",
+                                s.pointer_events,
+                                s.paints,
+                                s.latency_avg_ms,
+                                s.latency_max_ms,
+                                s.latency_n,
+                                render_frames,
+                                st.render.last_frame_time.as_secs_f64() * 1e3,
+                                st.render.average_frame_time.as_secs_f64() * 1e3,
+                                st.render.current_fps,
+                                st.render.last_target,
+                                present_frames,
+                                st.presentation.average_present_interval.as_secs_f64() * 1e3,
+                                st.presentation.current_fps,
+                                dropped,
+                                st.active_backend,
+                            );
+                        }
+                        None => eprintln!(
+                            "[xts-stats t={t}s] pointer {}/s · paints {}/s · pointer→paint avg {:.1} ms max {:.1} ms (n={}) · no stage plot",
+                            s.pointer_events, s.paints, s.latency_avg_ms, s.latency_max_ms, s.latency_n
+                        ),
+                    }
+                });
+                if tick.is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
     fn schedule_recompute(&mut self, cx: &mut Context<Self>) {
         self.recompute_epoch += 1;
         if self.handles.dragging.is_some() {

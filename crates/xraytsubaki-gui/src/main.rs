@@ -5,6 +5,7 @@
 
 mod app;
 mod catalog;
+mod debug_stats;
 mod feffgen;
 mod fitting;
 mod params;

@@ -347,6 +347,7 @@ impl StudioApp {
         Some(
             canvas(
                 move |bounds, _window, cx| {
+                    crate::debug_stats::painted();
                     let rp = entity.read(cx);
                     let area = match plot_area_window_bounds(rp) {
                         Some(area) => {
@@ -494,6 +495,7 @@ impl StudioApp {
         position: Point<Pixels>,
         cx: &mut Context<Self>,
     ) {
+        crate::debug_stats::pointer_event();
         let Some(entity) = self.plot_entity(plot) else {
             return;
         };

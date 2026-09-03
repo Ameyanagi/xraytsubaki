@@ -10,6 +10,9 @@
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use gpui::{
     ClickEvent, Context, Entity, IntoElement, ParentElement, SharedString, Styled, div, prelude::*,
@@ -21,12 +24,16 @@ use ruviz_gpui::{Plot3DEvent, RuvizPlot, RuvizPlot3D, plot_builder, plot3d_build
 
 use super::{MONO, button, chip, section_label, segment, segmented};
 use crate::app::StudioApp;
+use crate::settings::{UserSettings, default_amcsd_path};
 use crate::structure::{
-    Cluster, PathGeometry, StructureHit, StructureSourceKind, StructureSummary, covalent_radius,
-    cpk_color, load_cluster, load_path_geometry, normalise_importance, provider_for,
+    Cluster, PathGeometry, SourceConfig, StructureHit, StructureSourceKind, StructureSummary,
+    covalent_radius, cpk_color, import_cif, load_cluster, load_path_geometry, normalise_importance,
+    provider_for,
 };
 use crate::theme::Theme;
 use crate::widgets::text_input::{InputEvent, InputStyle, TextInput};
+use gpui::PathPromptOptions;
+use xraytsubaki::xafs::structure as core;
 
 /// Camera presets offered above the 3D view.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -128,10 +135,24 @@ pub(crate) struct StructureState {
     pub search_error: Option<String>,
     pub summary: Option<StructureSummary>,
     pub absorber: Option<String>,
+    /// Chosen crystallographic site of the absorber element (index into
+    /// `summary.sites`); `None` = every site of the element.
+    pub absorber_site: Option<usize>,
     pub edge: String,
     pub radius: Entity<TextInput>,
     pub mp_key: Entity<TextInput>,
     pub mp_key_editing: bool,
+    /// The cluster the current FEFF workspace was generated from.
+    pub core_cluster: Option<Arc<core::Cluster>>,
+    core_cluster_workspace: Option<PathBuf>,
+    pub settings: UserSettings,
+    pub cif_library: Option<Arc<core::LocalCifLibrary>>,
+    pub cif_scanning: bool,
+    search_gen: u64,
+    pub search_running: bool,
+    pub fetch_running: bool,
+    pub download_cancel: Option<Arc<AtomicBool>>,
+    pub download_progress: Option<(u64, Option<u64>)>,
 }
 
 impl StructureState {
@@ -164,12 +185,18 @@ impl StructureState {
             })
         });
         cx.subscribe(&mp_key, |this: &mut StudioApp, _f, event, cx| {
-            if let InputEvent::Committed(_) = event {
+            if let InputEvent::Committed(text) = event {
                 this.structure.mp_key_editing = false;
+                this.structure.settings.mp_api_key = text.trim().to_string();
+                this.save_user_settings();
                 cx.notify();
             }
         })
         .detach();
+        let settings = UserSettings::load();
+        mp_key.update(cx, |input, cx| {
+            input.set_text(settings.mp_api_key.clone(), cx)
+        });
         Self {
             cluster: None,
             cluster_workspace: None,
@@ -193,10 +220,30 @@ impl StructureState {
             search_error: None,
             summary: None,
             absorber: None,
+            absorber_site: None,
             edge: "K".to_string(),
             radius,
             mp_key,
             mp_key_editing: false,
+            core_cluster: None,
+            core_cluster_workspace: None,
+            settings,
+            cif_library: None,
+            cif_scanning: false,
+            search_gen: 0,
+            search_running: false,
+            fetch_running: false,
+            download_cancel: None,
+            download_progress: None,
+        }
+    }
+
+    /// Configuration handed to a provider (cheap to clone into a job).
+    pub(crate) fn source_config(&self) -> SourceConfig {
+        SourceConfig {
+            cif_library: self.cif_library.clone(),
+            amcsd_db: self.settings.amcsd_db.clone(),
+            mp_api_key: self.settings.mp_api_key.clone(),
         }
     }
 
@@ -260,7 +307,16 @@ impl StudioApp {
         let ws = self.feff_workspace.clone();
         let mut changed = false;
         if ws != self.structure.cluster_workspace {
-            self.structure.cluster = ws.as_deref().and_then(load_cluster);
+            // A workspace generated from a structure keeps its core cluster;
+            // anything else (Choose feff.inp…, a template) is parsed back.
+            if ws.is_some() && ws != self.structure.core_cluster_workspace {
+                self.structure.core_cluster = None;
+                self.structure.core_cluster_workspace = None;
+            }
+            self.structure.cluster = match &self.structure.core_cluster {
+                Some(c) => Some(Cluster::from_core(c)),
+                None => ws.as_deref().and_then(load_cluster),
+            };
             self.structure.cluster_workspace = ws;
             changed = true;
         }
@@ -273,8 +329,11 @@ impl StudioApp {
                 .zip(files.iter())
                 .all(|(p, f)| p.as_ref().is_some_and(|p| &p.file == f));
         if !same {
-            let mut paths: Vec<Option<PathGeometry>> =
-                files.iter().map(|f| load_path_geometry(f)).collect();
+            let core_cluster = self.structure.core_cluster.clone();
+            let mut paths: Vec<Option<PathGeometry>> = files
+                .iter()
+                .map(|f| load_path_geometry(f, core_cluster.as_deref()))
+                .collect();
             normalise_importance(&mut paths);
             // A cluster may be missing (paths added by file): synthesise one
             // from the union of path legs so the view still works.
@@ -653,24 +712,133 @@ impl StudioApp {
 
     // ---- structure panel actions -------------------------------------------
 
+    pub(crate) fn save_user_settings(&mut self) {
+        if let Err(e) = self.structure.settings.save() {
+            self.record_job_error("settings", e);
+        }
+    }
+
+    /// Run a provider call on the background executor; the result lands
+    /// through `apply` unless a newer search superseded it.
+    fn structure_job<T: Send + 'static>(
+        &mut self,
+        cx: &mut Context<Self>,
+        work: impl FnOnce() -> T + Send + 'static,
+        apply: impl FnOnce(&mut Self, T, &mut Context<Self>) + 'static,
+    ) -> u64 {
+        self.structure.search_gen += 1;
+        let generation = self.structure.search_gen;
+        let job = cx.background_executor().spawn(async move { work() });
+        cx.spawn(async move |this, cx| {
+            let result = job.await;
+            this.update(cx, |app, cx| {
+                if app.structure.search_gen == generation {
+                    apply(app, result, cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
+        generation
+    }
+
     pub(crate) fn structure_search(&mut self, cx: &mut Context<Self>) {
         let query = self.structure.search.read(cx).text().to_string();
-        match provider_for(self.structure.source) {
-            Ok(p) => match p.search(&query) {
-                Ok(hits) => {
-                    self.structure.hits = hits;
-                    self.structure.search_error = None;
+        let kind = self.structure.source;
+        // The CIF library is scanned lazily, once per folder.
+        if kind == StructureSourceKind::LocalCif && self.structure.cif_library.is_none() {
+            match self.structure.settings.cif_library.clone() {
+                Some(root) => {
+                    self.structure_scan_cif_library(root, cx);
+                    return;
                 }
-                Err(e) => {
+                None => {
                     self.structure.hits.clear();
-                    self.structure.search_error = Some(e);
+                    self.structure.search_error =
+                        Some("CIF library: choose a folder of .cif files first".into());
+                    cx.notify();
+                    return;
                 }
-            },
-            Err(e) => {
-                self.structure.hits.clear();
-                self.structure.search_error = Some(e);
             }
         }
+        let cfg = self.structure.source_config();
+        self.structure.search_running = true;
+        self.structure.search_error = None;
+        cx.notify();
+        self.structure_job(
+            cx,
+            move || provider_for(kind, &cfg).and_then(|p| p.search(&query)),
+            move |app, result, cx| {
+                app.structure.search_running = false;
+                match result {
+                    Ok(hits) => {
+                        app.structure.hits = hits;
+                        app.structure.search_error = None;
+                    }
+                    Err(e) => {
+                        app.structure.hits.clear();
+                        app.structure.search_error = Some(e.clone());
+                        app.record_job_error(format!("structure search ({})", kind.badge()), e);
+                    }
+                }
+                cx.notify();
+            },
+        );
+    }
+
+    fn structure_scan_cif_library(&mut self, root: PathBuf, cx: &mut Context<Self>) {
+        self.structure.cif_scanning = true;
+        self.structure.search_error = None;
+        self.status = format!("scanning {} for CIF files…", root.display()).into();
+        cx.notify();
+        self.structure_job(
+            cx,
+            move || core::LocalCifLibrary::scan(&root).map_err(|e| e.to_string()),
+            |app, result, cx| {
+                app.structure.cif_scanning = false;
+                match result {
+                    Ok(lib) => {
+                        let n = lib.len();
+                        let failed = lib.failures.len();
+                        for (path, err) in &lib.failures {
+                            app.record_job_error(format!("CIF {}", path.display()), err.clone());
+                        }
+                        app.structure.cif_library = Some(Arc::new(lib));
+                        app.status = if failed == 0 {
+                            format!("CIF library: {n} structures").into()
+                        } else {
+                            format!("CIF library: {n} structures, {failed} files failed to parse")
+                                .into()
+                        };
+                        app.structure_search(cx);
+                    }
+                    Err(e) => {
+                        app.structure.search_error = Some(e.clone());
+                        app.record_job_error("CIF library scan", e);
+                        cx.notify();
+                    }
+                }
+            },
+        );
+    }
+
+    /// Apply a fetched/imported structure to the panel.
+    fn structure_set_summary(&mut self, summary: StructureSummary, cx: &mut Context<Self>) {
+        let el = summary.elements();
+        if !self
+            .structure
+            .absorber
+            .as_ref()
+            .is_some_and(|a| el.iter().any(|(s, _)| s == a))
+        {
+            self.structure.absorber = el.first().map(|(s, _)| s.clone());
+        }
+        self.structure.absorber_site = None;
+        for w in &summary.structure.warnings {
+            self.record_job_error(format!("structure {}", summary.hit.formula), w.clone());
+        }
+        self.structure.summary = Some(summary);
+        self.structure.search_error = None;
         cx.notify();
     }
 
@@ -678,48 +846,240 @@ impl StudioApp {
         let Some(hit) = self.structure.hits.get(i).cloned() else {
             return;
         };
-        match provider_for(hit.source).and_then(|p| p.fetch(&hit)) {
-            Ok(summary) => {
-                let el = summary.elements();
-                if !self
-                    .structure
-                    .absorber
-                    .as_ref()
-                    .is_some_and(|a| el.iter().any(|(s, _)| s == a))
-                {
-                    self.structure.absorber = el.first().map(|(s, _)| s.clone());
-                }
-                self.structure.summary = Some(summary);
-                self.structure.search_error = None;
-            }
-            Err(e) => self.structure.search_error = Some(e),
-        }
+        let cfg = self.structure.source_config();
+        self.structure.fetch_running = true;
         cx.notify();
+        let kind = hit.source;
+        self.structure_job(
+            cx,
+            move || provider_for(kind, &cfg).and_then(|p| p.fetch(&hit)),
+            |app, result, cx| {
+                app.structure.fetch_running = false;
+                match result {
+                    Ok(summary) => app.structure_set_summary(summary, cx),
+                    Err(e) => {
+                        app.structure.search_error = Some(e.clone());
+                        app.record_job_error("structure fetch", e);
+                        cx.notify();
+                    }
+                }
+            },
+        );
     }
 
-    /// Build the feff.inp for the chosen structure and run FEFF.
+    /// "Import CIF…": pick a file, parse it off the UI thread.
+    pub(crate) fn structure_import_cif(&mut self, cx: &mut Context<Self>) {
+        let rx = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: None,
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = rx.await
+                && let Some(file) = paths.first().cloned()
+            {
+                this.update(cx, |app, cx| {
+                    app.structure.fetch_running = true;
+                    app.status = format!("reading {}", file.display()).into();
+                    cx.notify();
+                    app.structure_job(
+                        cx,
+                        move || import_cif(&file),
+                        |app, result, cx| {
+                            app.structure.fetch_running = false;
+                            match result {
+                                Ok(summary) => {
+                                    app.structure.source = StructureSourceKind::LocalCif;
+                                    app.status = format!(
+                                        "imported {} ({})",
+                                        summary.hit.name, summary.hit.formula
+                                    )
+                                    .into();
+                                    app.structure_set_summary(summary, cx);
+                                }
+                                Err(e) => {
+                                    app.structure.search_error = Some(e.clone());
+                                    app.record_job_error("CIF import", e);
+                                    cx.notify();
+                                }
+                            }
+                        },
+                    );
+                })
+                .ok();
+            }
+        })
+        .detach();
+    }
+
+    /// "Choose folder…" for the CIF library.
+    pub(crate) fn structure_choose_cif_folder(&mut self, cx: &mut Context<Self>) {
+        let rx = cx.prompt_for_paths(PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: None,
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = rx.await
+                && let Some(dir) = paths.first().cloned()
+            {
+                this.update(cx, |app, cx| {
+                    app.structure.settings.cif_library = Some(dir.clone());
+                    app.structure.cif_library = None;
+                    app.structure.source = StructureSourceKind::LocalCif;
+                    app.save_user_settings();
+                    app.structure_scan_cif_library(dir, cx);
+                })
+                .ok();
+            }
+        })
+        .detach();
+    }
+
+    /// "Choose…" for an existing AMCSD database file.
+    pub(crate) fn structure_choose_amcsd(&mut self, cx: &mut Context<Self>) {
+        let rx = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: None,
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = rx.await
+                && let Some(file) = paths.first().cloned()
+            {
+                this.update(cx, |app, cx| {
+                    app.structure.settings.amcsd_db = Some(file);
+                    app.structure.source = StructureSourceKind::Amcsd;
+                    app.save_user_settings();
+                    app.structure_search(cx);
+                })
+                .ok();
+            }
+        })
+        .detach();
+    }
+
+    /// Download the AMCSD database to `~/.xraytsubaki` (cancellable; progress
+    /// in the status bar).
+    pub(crate) fn structure_download_amcsd(&mut self, cx: &mut Context<Self>) {
+        if self.structure.download_cancel.is_some() {
+            return;
+        }
+        let Some(dest) = default_amcsd_path() else {
+            self.record_job_error("AMCSD download", "HOME not set");
+            return;
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        let progress = Arc::new(std::sync::Mutex::new((0u64, None::<u64>)));
+        let done = Arc::new(AtomicBool::new(false));
+        self.structure.download_cancel = Some(cancel.clone());
+        self.structure.download_progress = Some((0, None));
+        self.status = "downloading AMCSD…".into();
+        cx.notify();
+        let job = {
+            let cancel = cancel.clone();
+            let progress = progress.clone();
+            let dest = dest.clone();
+            cx.background_executor().spawn(async move {
+                core::db::amcsd::download_amcsd_cancellable(
+                    &dest,
+                    |received, total| {
+                        if let Ok(mut p) = progress.lock() {
+                            *p = (received, total);
+                        }
+                    },
+                    &cancel,
+                )
+                .map_err(|e| e.to_string())
+            })
+        };
+        // Progress ticker.
+        {
+            let done = done.clone();
+            let progress = progress.clone();
+            cx.spawn(async move |this, cx| {
+                while !done.load(Ordering::Relaxed) {
+                    cx.background_executor()
+                        .timer(Duration::from_millis(250))
+                        .await;
+                    let p = progress.lock().map(|p| *p).unwrap_or((0, None));
+                    if this
+                        .update(cx, |app, cx| {
+                            if app.structure.download_cancel.is_some() {
+                                app.structure.download_progress = Some(p);
+                                app.status = match p.1 {
+                                    Some(total) if total > 0 => format!(
+                                        "downloading AMCSD… {:.0} / {:.0} MB",
+                                        p.0 as f64 / 1e6,
+                                        total as f64 / 1e6
+                                    ),
+                                    _ => format!("downloading AMCSD… {:.0} MB", p.0 as f64 / 1e6),
+                                }
+                                .into();
+                                cx.notify();
+                            }
+                        })
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            })
+            .detach();
+        }
+        cx.spawn(async move |this, cx| {
+            let result = job.await;
+            done.store(true, Ordering::Relaxed);
+            this.update(cx, |app, cx| {
+                app.structure.download_cancel = None;
+                app.structure.download_progress = None;
+                match result {
+                    Ok(path) => {
+                        app.status = format!("AMCSD database ready: {}", path.display()).into();
+                        app.structure.settings.amcsd_db = Some(path);
+                        app.save_user_settings();
+                        app.structure.source = StructureSourceKind::Amcsd;
+                        app.structure_search(cx);
+                    }
+                    Err(e) if e.contains("cancelled") => {
+                        app.status = "AMCSD download cancelled".into();
+                    }
+                    Err(e) => {
+                        app.status = format!("AMCSD download failed: {e}").into();
+                        app.record_job_error("AMCSD download", e);
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    pub(crate) fn structure_cancel_download(&mut self, cx: &mut Context<Self>) {
+        if let Some(flag) = &self.structure.download_cancel {
+            flag.store(true, Ordering::Relaxed);
+            self.status = "cancelling AMCSD download…".into();
+            cx.notify();
+        }
+    }
+
+    /// Build the cluster and feff.inp for the chosen structure, then run FEFF.
     pub(crate) fn structure_generate_paths(&mut self, cx: &mut Context<Self>) {
         let Some(summary) = self.structure.summary.clone() else {
             self.status = "choose a structure first".into();
             cx.notify();
             return;
         };
-        let Some(mut spec) = summary.builtin.clone() else {
-            self.status =
-                "this structure needs the core CIF → cluster generator (xafs::structure)".into();
+        let Some(absorber) = self.structure.absorber.clone() else {
+            self.status = "choose the absorbing element".into();
             cx.notify();
             return;
         };
-        if let Some(abs) = &self.structure.absorber
-            && abs != &spec.element
-        {
-            // Swap roles so the absorber is the first element.
-            let other = spec.element.clone();
-            spec.element = abs.clone();
-            spec.element2 = Some(other);
-        }
-        spec.edge = self.structure.edge.clone();
-        spec.rmax = self
+        let radius: f64 = self
             .structure
             .radius
             .read(cx)
@@ -727,8 +1087,55 @@ impl StudioApp {
             .trim()
             .parse()
             .unwrap_or(6.0);
-        match crate::feffgen::new_workspace_from_spec(&spec) {
+        let radius = radius.clamp(2.0, 12.0);
+        let selection = match self
+            .structure
+            .absorber_site
+            .and_then(|i| summary.sites.get(i))
+            .filter(|s| s.symbol == absorber)
+        {
+            Some(site) => core::AbsorberSelection::SiteIndex(site.site_index),
+            None => core::AbsorberSelection::Element(absorber.clone()),
+        };
+        let Some(edge) = core::Edge::parse(&self.structure.edge) else {
+            self.status = format!("unknown edge {}", self.structure.edge).into();
+            cx.notify();
+            return;
+        };
+        let cluster = match core::build_cluster(
+            &summary.structure,
+            &selection,
+            &core::ClusterOptions {
+                radius,
+                ..Default::default()
+            },
+        ) {
+            Ok(c) => c,
+            Err(e) => {
+                self.status = format!("cluster failed: {e}").into();
+                self.record_job_error("cluster", e.to_string());
+                cx.notify();
+                return;
+            }
+        };
+        for w in &cluster.warnings {
+            self.record_job_error("cluster", w.clone());
+        }
+        let opts = core::FeffInputOptions {
+            edge,
+            rmax: Some(radius),
+            rpath: Some(radius),
+            titles: vec![format!(
+                "{} · {} · absorber {}",
+                summary.hit.formula, summary.hit.name, absorber
+            )],
+            ..Default::default()
+        };
+        let inp = core::write_feff_inp(&cluster, &opts);
+        match crate::feffgen::new_workspace_with(&inp) {
             Ok(dir) => {
+                self.structure.core_cluster = Some(Arc::new(cluster));
+                self.structure.core_cluster_workspace = Some(dir.clone());
                 self.feff_workspace = Some(dir);
                 self.fit_paths.clear();
                 self.refresh_structure(cx);
@@ -740,6 +1147,33 @@ impl StudioApp {
                 cx.notify();
             }
         }
+    }
+
+    /// One-line summary of the generated cluster for the panel.
+    pub(crate) fn structure_cluster_summary(&self) -> Option<String> {
+        let c = self.structure.core_cluster.as_ref()?;
+        let shells = c.shells(0.01);
+        let nearest = shells
+            .get(1)
+            .map(|s| {
+                format!(
+                    " · nearest {} × {} at {:.3} Å",
+                    s.count, s.symbol, s.distance
+                )
+            })
+            .unwrap_or_default();
+        Some(format!(
+            "cluster: {} atoms · {} shells within {:.1} Å{}{}",
+            c.atoms.len(),
+            shells.len().saturating_sub(1),
+            c.radius,
+            nearest,
+            if c.warnings.is_empty() {
+                String::new()
+            } else {
+                format!(" · {} warning(s)", c.warnings.len())
+            }
+        ))
     }
 
     // ---- center: 3D view + docked table -------------------------------------
@@ -1242,6 +1676,27 @@ impl StudioApp {
     pub(crate) fn structure_panel(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
         let st = &self.structure;
+        let label_w = px(64.);
+        let row_label = |text: &'static str| {
+            div()
+                .w(label_w)
+                .flex_none()
+                .text_size(px(12.))
+                .text_color(t.text_muted)
+                .child(text)
+        };
+        let muted_mono = |text: String| {
+            div()
+                .flex_1()
+                .min_w_0()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .font_family(MONO)
+                .text_size(px(11.))
+                .text_color(t.text_muted)
+                .child(SharedString::from(text))
+        };
         let mut sources = segmented(&t);
         for (i, k) in StructureSourceKind::ALL.into_iter().enumerate() {
             sources = sources.child(
@@ -1254,6 +1709,8 @@ impl StudioApp {
                 )
                 .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
                     this.structure.source = k;
+                    this.structure.hits.clear();
+                    this.structure.search_error = None;
                     this.structure_search(cx);
                 })),
             );
@@ -1263,28 +1720,149 @@ impl StudioApp {
             .flex_col()
             .gap_1p5()
             .px_3()
-            .child(div().flex().flex_wrap().child(sources))
-            .child(
-                div()
+            .child(div().flex().flex_wrap().child(sources));
+
+        // Per-source configuration.
+        match st.source {
+            StructureSourceKind::Builtin => {}
+            StructureSourceKind::LocalCif => {
+                let folder = st
+                    .settings
+                    .cif_library
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "no folder chosen".to_string());
+                let count = st
+                    .cif_library
+                    .as_ref()
+                    .map(|l| format!(" · {} files", l.len()))
+                    .unwrap_or_default();
+                panel = panel.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .child(row_label("folder"))
+                        .child(muted_mono(format!("{folder}{count}")))
+                        .child(button(&t, "cif-folder", "Choose folder…", false).on_click(
+                            cx.listener(|this, _: &ClickEvent, _w, cx| {
+                                this.structure_choose_cif_folder(cx)
+                            }),
+                        )),
+                );
+            }
+            StructureSourceKind::MaterialsProject => {
+                let key = st.mp_key_text(cx);
+                let masked: SharedString = if key.is_empty() {
+                    "not set — free key at materialsproject.org/api".into()
+                } else {
+                    format!(
+                        "{}••••••••{}",
+                        &key[..key.len().min(3)],
+                        &key[key.len().saturating_sub(2)..]
+                    )
+                    .into()
+                };
+                let mut key_row = div()
                     .flex()
                     .items_center()
                     .gap_1()
-                    .child(div().flex_1().child(st.search.clone()))
-                    .child(
-                        button(&t, "st-search", "Search", false)
-                            .on_click(cx.listener(|this, _: &ClickEvent, _w, cx| {
-                                this.structure_search(cx)
-                            })),
-                    )
-                    .child(
-                        button(&t, "st-import", "Import CIF…", false).on_click(cx.listener(
+                    .child(row_label("API key"));
+                if st.mp_key_editing {
+                    key_row = key_row.child(div().flex_1().child(st.mp_key.clone()));
+                } else {
+                    key_row = key_row.child(muted_mono(masked.to_string())).child(
+                        button(&t, "mp-key-edit", "change", false).on_click(cx.listener(
                             |this, _: &ClickEvent, _w, cx| {
-                                this.status = "CIF import arrives with the core structure module (xafs::structure)".into();
+                                this.structure.mp_key_editing = true;
                                 cx.notify();
                             },
                         )),
+                    );
+                }
+                panel = panel.child(key_row);
+            }
+            StructureSourceKind::Amcsd => {
+                let db = st
+                    .settings
+                    .amcsd_db
+                    .as_ref()
+                    .filter(|p| p.is_file())
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "database not downloaded".to_string());
+                let mut row = div()
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .child(row_label("database"))
+                    .child(muted_mono(db));
+                if st.download_cancel.is_some() {
+                    let text = match st.download_progress {
+                        Some((got, Some(total))) if total > 0 => {
+                            format!("{:.0} %", 100.0 * got as f64 / total as f64)
+                        }
+                        Some((got, _)) => format!("{:.0} MB", got as f64 / 1e6),
+                        None => "starting…".to_string(),
+                    };
+                    row = row
+                        .child(
+                            div()
+                                .font_family(MONO)
+                                .text_size(px(11.))
+                                .text_color(t.accent)
+                                .child(SharedString::from(text)),
+                        )
+                        .child(
+                            button(&t, "amcsd-cancel", "Cancel", false).on_click(cx.listener(
+                                |this, _: &ClickEvent, _w, cx| this.structure_cancel_download(cx),
+                            )),
+                        );
+                } else {
+                    row = row
+                        .child(
+                            button(&t, "amcsd-choose", "Choose…", false).on_click(cx.listener(
+                                |this, _: &ClickEvent, _w, cx| this.structure_choose_amcsd(cx),
+                            )),
+                        )
+                        .child(button(&t, "amcsd-download", "Download…", false).on_click(
+                            cx.listener(|this, _: &ClickEvent, _w, cx| {
+                                this.structure_download_amcsd(cx)
+                            }),
+                        ));
+                }
+                panel = panel.child(row);
+            }
+        }
+
+        // Search row (Import CIF… works for every source).
+        let busy = st.search_running || st.cif_scanning || st.fetch_running;
+        panel = panel.child(
+            div()
+                .flex()
+                .items_center()
+                .gap_1()
+                .child(div().flex_1().min_w_0().child(st.search.clone()))
+                .child(
+                    button(
+                        &t,
+                        "st-search",
+                        if st.cif_scanning {
+                            "scanning…"
+                        } else if st.search_running {
+                            "searching…"
+                        } else {
+                            "Search"
+                        },
+                        !busy,
+                    )
+                    .on_click(
+                        cx.listener(|this, _: &ClickEvent, _w, cx| this.structure_search(cx)),
                     ),
-            );
+                )
+                .child(button(&t, "st-import", "Import CIF…", false).on_click(
+                    cx.listener(|this, _: &ClickEvent, _w, cx| this.structure_import_cif(cx)),
+                )),
+        );
         if let Some(err) = &st.search_error {
             panel = panel.child(
                 div()
@@ -1312,6 +1890,7 @@ impl StudioApp {
                     div()
                         .id(("st-hit", i))
                         .h(px(26.))
+                        .flex_none()
                         .px_2()
                         .flex()
                         .items_center()
@@ -1324,7 +1903,11 @@ impl StudioApp {
                         }))
                         .child(
                             div()
-                                .w(px(64.))
+                                .w(px(72.))
+                                .flex_none()
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .text_ellipsis()
                                 .font_weight(gpui::FontWeight::MEDIUM)
                                 .child(SharedString::from(hit.formula.clone())),
                         )
@@ -1336,10 +1919,14 @@ impl StudioApp {
                                 .text_ellipsis()
                                 .whitespace_nowrap()
                                 .text_color(t.text_muted)
-                                .child(SharedString::from(format!(
-                                    "{} · {}",
-                                    hit.name, hit.space_group
-                                ))),
+                                .child(SharedString::from(
+                                    [hit.name.as_str(), hit.space_group.as_str()]
+                                        .iter()
+                                        .filter(|x| !x.is_empty())
+                                        .copied()
+                                        .collect::<Vec<_>>()
+                                        .join(" · "),
+                                )),
                         )
                         .child(
                             div()
@@ -1353,16 +1940,27 @@ impl StudioApp {
                         ),
                 );
             }
-            panel = panel.child(list);
+            let count = format!(
+                "{} result{}",
+                st.hits.len(),
+                if st.hits.len() == 1 { "" } else { "s" }
+            );
+            panel = panel.child(list).child(
+                div()
+                    .text_size(px(10.5))
+                    .text_color(t.text_muted)
+                    .child(SharedString::from(count)),
+            );
         }
         if let Some(s) = &st.summary {
             let l = s.lattice;
             let sites = s
                 .sites
                 .iter()
-                .map(|(sym, _, m)| format!("{sym}×{m}"))
+                .map(|x| format!("{} ×{}", x.label, x.multiplicity))
                 .collect::<Vec<_>>()
                 .join("  ");
+            let n_atoms: usize = s.sites.iter().map(|x| x.multiplicity).sum();
             panel = panel.child(
                 div()
                     .rounded_md()
@@ -1379,48 +1977,61 @@ impl StudioApp {
                         div()
                             .flex()
                             .gap_2()
+                            .items_baseline()
                             .child(
                                 div()
                                     .font_weight(gpui::FontWeight::MEDIUM)
-                                    .child(SharedString::from(s.hit.formula.clone())),
+                                    .child(SharedString::from(s.formula())),
                             )
                             .child(
                                 div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
+                                    .text_ellipsis()
                                     .text_color(t.text_muted)
                                     .child(SharedString::from(s.hit.name.clone())),
+                            )
+                            .child(
+                                div()
+                                    .px_1()
+                                    .rounded_sm()
+                                    .border_1()
+                                    .border_color(t.border)
+                                    .text_size(px(10.))
+                                    .text_color(t.text_muted)
+                                    .child(s.hit.source.badge()),
                             ),
                     )
                     .child(
                         div()
                             .text_color(t.text_muted)
-                            .child(SharedString::from(s.hit.space_group.clone())),
+                            .child(SharedString::from(s.space_group())),
                     )
                     .child(mono_line(
                         &t,
-                        format!("a {:.3}  b {:.3}  c {:.3} Å", l[0], l[1], l[2]),
+                        format!("a {:.4}  b {:.4}  c {:.4} Å", l[0], l[1], l[2]),
                     ))
                     .child(mono_line(
                         &t,
-                        format!("α {:.1}°  β {:.1}°  γ {:.1}°", l[3], l[4], l[5]),
+                        format!("α {:.2}°  β {:.2}°  γ {:.2}°", l[3], l[4], l[5]),
                     ))
-                    .child(mono_line(&t, format!("sites  {sites}"))),
+                    .child(mono_line(
+                        &t,
+                        format!("{n_atoms} atoms / cell · sites  {sites}"),
+                    )),
             );
-            // Absorber picker
-            let mut abs_row = div().flex().items_center().flex_wrap().gap_1().child(
-                div()
-                    .w(px(64.))
-                    .text_size(px(12.))
-                    .text_color(t.text_muted)
-                    .child("absorber"),
-            );
+            // Absorber: element chips, then the element's distinct sites.
+            let mut abs_row = div()
+                .flex()
+                .items_center()
+                .flex_wrap()
+                .gap_1()
+                .child(row_label("absorber"));
             for (sym, z) in s.elements() {
                 let on = st.absorber.as_deref() == Some(sym.as_str());
-                let mult = s
-                    .sites
-                    .iter()
-                    .filter(|(e, _, _)| *e == sym)
-                    .map(|(_, _, m)| *m)
-                    .sum::<usize>();
+                let mult: usize = s.sites_of(&sym).iter().map(|x| x.multiplicity).sum();
                 let sym2 = sym.clone();
                 abs_row = abs_row.child(
                     chip(
@@ -1432,19 +2043,55 @@ impl StudioApp {
                     .on_click(cx.listener(
                         move |this, _: &ClickEvent, _w, cx| {
                             this.structure.absorber = Some(sym2.clone());
+                            this.structure.absorber_site = None;
                             cx.notify();
                         },
                     )),
                 );
             }
             panel = panel.child(abs_row);
-            let mut edge_row = div().flex().items_center().gap_1().child(
-                div()
-                    .w(px(64.))
-                    .text_size(px(12.))
-                    .text_color(t.text_muted)
-                    .child("edge"),
-            );
+            if let Some(abs) = &st.absorber {
+                let indexed: Vec<(usize, &crate::structure::SiteSummary)> = s
+                    .sites
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, x)| &x.symbol == abs)
+                    .collect();
+                if indexed.len() > 1 {
+                    let mut site_row = div()
+                        .flex()
+                        .items_center()
+                        .flex_wrap()
+                        .gap_1()
+                        .child(row_label("site"));
+                    site_row = site_row.child(
+                        chip(&t, "abs-site-all", "all sites", st.absorber_site.is_none()).on_click(
+                            cx.listener(|this, _: &ClickEvent, _w, cx| {
+                                this.structure.absorber_site = None;
+                                cx.notify();
+                            }),
+                        ),
+                    );
+                    for (i, site) in indexed {
+                        site_row = site_row.child(
+                            chip(
+                                &t,
+                                SharedString::from(format!("abs-site-{i}")),
+                                format!("{} ×{}", site.label, site.multiplicity),
+                                st.absorber_site == Some(i),
+                            )
+                            .on_click(cx.listener(
+                                move |this, _: &ClickEvent, _w, cx| {
+                                    this.structure.absorber_site = Some(i);
+                                    cx.notify();
+                                },
+                            )),
+                        );
+                    }
+                    panel = panel.child(site_row);
+                }
+            }
+            let mut edge_row = div().flex().items_center().gap_1().child(row_label("edge"));
             for e in ["K", "L1", "L2", "L3"] {
                 edge_row = edge_row.child(
                     chip(&t, SharedString::from(format!("edge-{e}")), e, st.edge == e).on_click(
@@ -1460,13 +2107,7 @@ impl StudioApp {
                     .flex()
                     .items_center()
                     .gap_1()
-                    .child(
-                        div()
-                            .w(px(64.))
-                            .text_size(px(12.))
-                            .text_color(t.text_muted)
-                            .child("cluster"),
-                    )
+                    .child(row_label("cluster"))
                     .child(div().w(px(64.)).child(st.radius.clone()))
                     .child(
                         div()
@@ -1492,47 +2133,18 @@ impl StudioApp {
                     ),
             );
         }
-        // Materials Project key (masked)
-        let key = st.mp_key_text(cx);
-        let masked: SharedString = if key.is_empty() {
-            "not set".into()
-        } else {
-            format!(
-                "{}••••••••{}",
-                &key[..key.len().min(3)],
-                &key[key.len().saturating_sub(2)..]
-            )
-            .into()
-        };
-        let mut key_row = div().flex().items_center().gap_1().child(
-            div()
-                .w(px(64.))
-                .text_size(px(12.))
-                .text_color(t.text_muted)
-                .child("MP key"),
-        );
-        if st.mp_key_editing {
-            key_row = key_row.child(div().flex_1().child(st.mp_key.clone()));
-        } else {
-            key_row = key_row
-                .child(
-                    div()
-                        .flex_1()
-                        .font_family(MONO)
-                        .text_size(px(11.5))
-                        .text_color(t.text_muted)
-                        .child(masked),
-                )
-                .child(
-                    button(&t, "mp-key-edit", "change", false).on_click(cx.listener(
-                        |this, _: &ClickEvent, _w, cx| {
-                            this.structure.mp_key_editing = true;
-                            cx.notify();
-                        },
-                    )),
-                );
+        if let Some(summary) = self.structure_cluster_summary() {
+            panel = panel.child(
+                div()
+                    .text_size(px(10.5))
+                    .text_color(t.text_muted)
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .child(SharedString::from(summary)),
+            );
         }
-        panel = panel.child(key_row).child(
+        panel = panel.child(
             div()
                 .text_size(px(10.5))
                 .text_color(t.text_muted)

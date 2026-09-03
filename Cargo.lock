@@ -7497,6 +7497,7 @@ version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "685e89f7e3757479b252f704e784e71a53dda1a133bf4e591948e236f9b994b4"
 dependencies = [
+ "base64 0.22.1",
  "bytemuck",
  "cosmic-text 0.16.0",
  "ctor 0.8.0",

@@ -608,7 +608,8 @@ impl StudioApp {
                     .child(format!("{count} / {}", self.fit_paths.len())),
             )
             .child(div().flex_1());
-        let table = (!self.fit_paths.is_empty()).then(|| {
+        // The docked table beside the 3D view replaces this compact one.
+        let table = (!self.fit_paths.is_empty() && !self.structure.show).then(|| {
             div()
                 .mx_2()
                 .mb_1()

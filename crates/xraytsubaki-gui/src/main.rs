@@ -11,6 +11,7 @@ mod fitting;
 mod params;
 mod plotting;
 mod project;
+mod settings;
 mod structure;
 mod theme;
 mod widgets;

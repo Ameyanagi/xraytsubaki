@@ -397,8 +397,21 @@ impl StructureSource for Amcsd {
 #[cfg(feature = "materials-project")]
 pub fn download_amcsd<P: AsRef<Path>>(
     dest: P,
-    mut progress: impl FnMut(u64, Option<u64>),
+    progress: impl FnMut(u64, Option<u64>),
 ) -> Result<PathBuf, StructureError> {
+    download_amcsd_cancellable(dest, progress, &std::sync::atomic::AtomicBool::new(false))
+}
+
+/// [`download_amcsd`] that stops early when `cancel` becomes `true`.
+///
+/// A cancelled download removes its partial file and returns
+/// [`StructureError::Network`] with the reason `"cancelled"`.
+pub fn download_amcsd_cancellable<P: AsRef<Path>>(
+    dest: P,
+    mut progress: impl FnMut(u64, Option<u64>),
+    cancel: &std::sync::atomic::AtomicBool,
+) -> Result<PathBuf, StructureError> {
+    use std::sync::atomic::Ordering;
     let dest = dest.as_ref().to_path_buf();
     let mut last_err = None;
     for base in SOURCE_URLS {
@@ -437,6 +450,13 @@ pub fn download_amcsd<P: AsRef<Path>>(
                         })?;
                     received += n as u64;
                     progress(received, total);
+                    if cancel.load(Ordering::Relaxed) {
+                        drop(file);
+                        let _ = std::fs::remove_file(&tmp);
+                        return Err(StructureError::Network {
+                            reason: "cancelled".into(),
+                        });
+                    }
                 }
                 drop(file);
                 std::fs::rename(&tmp, &dest).map_err(|source| StructureError::Io {

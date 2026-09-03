@@ -1758,7 +1758,20 @@ impl StudioApp {
         .detach();
         app.roi_input = Some(roi_input);
         app.update_import_preview(cx);
+        // Scripted launches: XTS_STRUCTURE_SOURCE=builtin|cif|mp|amcsd,
+        // XTS_IMPORT_CIF=<file>, XTS_SETTINGS=<settings.json>.
+        if let Ok(src) = std::env::var("XTS_STRUCTURE_SOURCE") {
+            app.structure.source = match src.as_str() {
+                "cif" => crate::structure::StructureSourceKind::LocalCif,
+                "mp" => crate::structure::StructureSourceKind::MaterialsProject,
+                "amcsd" => crate::structure::StructureSourceKind::Amcsd,
+                _ => crate::structure::StructureSourceKind::Builtin,
+            };
+        }
         app.structure_search(cx);
+        if let Ok(file) = std::env::var("XTS_IMPORT_CIF") {
+            app.structure_import_cif_path(PathBuf::from(file), cx);
+        }
         match process_file(&path, &app.params) {
             Ok(sp) => {
                 let fingerprint = app.params.fingerprint();

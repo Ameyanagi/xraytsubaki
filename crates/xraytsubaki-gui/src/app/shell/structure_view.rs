@@ -149,6 +149,7 @@ pub(crate) struct StructureState {
     pub cif_library: Option<Arc<core::LocalCifLibrary>>,
     pub cif_scanning: bool,
     search_gen: u64,
+    fetch_gen: u64,
     pub search_running: bool,
     pub fetch_running: bool,
     pub download_cancel: Option<Arc<AtomicBool>>,
@@ -231,6 +232,7 @@ impl StructureState {
             cif_library: None,
             cif_scanning: false,
             search_gen: 0,
+            fetch_gen: 0,
             search_running: false,
             fetch_running: false,
             download_cancel: None,
@@ -719,27 +721,38 @@ impl StudioApp {
     }
 
     /// Run a provider call on the background executor; the result lands
-    /// through `apply` unless a newer search superseded it.
+    /// through `apply` unless a newer job of the same kind superseded it
+    /// (searches supersede searches, fetches/imports supersede each other).
     fn structure_job<T: Send + 'static>(
         &mut self,
         cx: &mut Context<Self>,
+        fetch: bool,
         work: impl FnOnce() -> T + Send + 'static,
         apply: impl FnOnce(&mut Self, T, &mut Context<Self>) + 'static,
-    ) -> u64 {
-        self.structure.search_gen += 1;
-        let generation = self.structure.search_gen;
+    ) {
+        let counter = if fetch {
+            &mut self.structure.fetch_gen
+        } else {
+            &mut self.structure.search_gen
+        };
+        *counter += 1;
+        let generation = *counter;
         let job = cx.background_executor().spawn(async move { work() });
         cx.spawn(async move |this, cx| {
             let result = job.await;
             this.update(cx, |app, cx| {
-                if app.structure.search_gen == generation {
+                let current = if fetch {
+                    app.structure.fetch_gen
+                } else {
+                    app.structure.search_gen
+                };
+                if current == generation {
                     apply(app, result, cx);
                 }
             })
             .ok();
         })
         .detach();
-        generation
     }
 
     pub(crate) fn structure_search(&mut self, cx: &mut Context<Self>) {
@@ -767,6 +780,7 @@ impl StudioApp {
         cx.notify();
         self.structure_job(
             cx,
+            false,
             move || provider_for(kind, &cfg).and_then(|p| p.search(&query)),
             move |app, result, cx| {
                 app.structure.search_running = false;
@@ -787,14 +801,21 @@ impl StudioApp {
     }
 
     fn structure_scan_cif_library(&mut self, root: PathBuf, cx: &mut Context<Self>) {
+        if self.structure.cif_scanning {
+            return;
+        }
         self.structure.cif_scanning = true;
         self.structure.search_error = None;
         self.status = format!("scanning {} for CIF files…", root.display()).into();
         cx.notify();
-        self.structure_job(
-            cx,
-            move || core::LocalCifLibrary::scan(&root).map_err(|e| e.to_string()),
-            |app, result, cx| {
+        // Not guarded by the search generation: a scan result is valid
+        // whatever was searched meanwhile (it only refreshes the search).
+        let job = cx
+            .background_executor()
+            .spawn(async move { core::LocalCifLibrary::scan(&root).map_err(|e| e.to_string()) });
+        cx.spawn(async move |this, cx| {
+            let result = job.await;
+            this.update(cx, |app, cx| {
                 app.structure.cif_scanning = false;
                 match result {
                     Ok(lib) => {
@@ -810,7 +831,11 @@ impl StudioApp {
                             format!("CIF library: {n} structures, {failed} files failed to parse")
                                 .into()
                         };
-                        app.structure_search(cx);
+                        if app.structure.source == StructureSourceKind::LocalCif {
+                            app.structure_search(cx);
+                        } else {
+                            cx.notify();
+                        }
                     }
                     Err(e) => {
                         app.structure.search_error = Some(e.clone());
@@ -818,8 +843,10 @@ impl StudioApp {
                         cx.notify();
                     }
                 }
-            },
-        );
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Apply a fetched/imported structure to the panel.
@@ -852,6 +879,7 @@ impl StudioApp {
         let kind = hit.source;
         self.structure_job(
             cx,
+            true,
             move || provider_for(kind, &cfg).and_then(|p| p.fetch(&hit)),
             |app, result, cx| {
                 app.structure.fetch_running = false;
@@ -879,38 +907,40 @@ impl StudioApp {
             if let Ok(Ok(Some(paths))) = rx.await
                 && let Some(file) = paths.first().cloned()
             {
-                this.update(cx, |app, cx| {
-                    app.structure.fetch_running = true;
-                    app.status = format!("reading {}", file.display()).into();
-                    cx.notify();
-                    app.structure_job(
-                        cx,
-                        move || import_cif(&file),
-                        |app, result, cx| {
-                            app.structure.fetch_running = false;
-                            match result {
-                                Ok(summary) => {
-                                    app.structure.source = StructureSourceKind::LocalCif;
-                                    app.status = format!(
-                                        "imported {} ({})",
-                                        summary.hit.name, summary.hit.formula
-                                    )
-                                    .into();
-                                    app.structure_set_summary(summary, cx);
-                                }
-                                Err(e) => {
-                                    app.structure.search_error = Some(e.clone());
-                                    app.record_job_error("CIF import", e);
-                                    cx.notify();
-                                }
-                            }
-                        },
-                    );
-                })
-                .ok();
+                this.update(cx, |app, cx| app.structure_import_cif_path(file, cx))
+                    .ok();
             }
         })
         .detach();
+    }
+
+    /// Import one CIF file (also used by the `XTS_IMPORT_CIF` launch hook).
+    pub(crate) fn structure_import_cif_path(&mut self, file: PathBuf, cx: &mut Context<Self>) {
+        self.structure.fetch_running = true;
+        self.status = format!("reading {}", file.display()).into();
+        cx.notify();
+        self.structure_job(
+            cx,
+            true,
+            move || import_cif(&file),
+            |app, result, cx| {
+                app.structure.fetch_running = false;
+                match result {
+                    Ok(summary) => {
+                        app.structure.source = StructureSourceKind::LocalCif;
+                        app.status =
+                            format!("imported {} ({})", summary.hit.name, summary.hit.formula)
+                                .into();
+                        app.structure_set_summary(summary, cx);
+                    }
+                    Err(e) => {
+                        app.structure.search_error = Some(e.clone());
+                        app.record_job_error("CIF import", e);
+                        cx.notify();
+                    }
+                }
+            },
+        );
     }
 
     /// "Choose folder…" for the CIF library.
@@ -2108,14 +2138,18 @@ impl StudioApp {
                     .items_center()
                     .gap_1()
                     .child(row_label("cluster"))
-                    .child(div().w(px(64.)).child(st.radius.clone()))
+                    .child(div().w(px(72.)).flex_none().child(st.radius.clone()))
                     .child(
                         div()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .text_ellipsis()
                             .text_size(px(11.))
                             .text_color(t.text_muted)
-                            .child("Å radius / RMAX"),
+                            .child("Å radius (RMAX)"),
                     )
-                    .child(div().flex_1())
                     .child(
                         button(
                             &t,

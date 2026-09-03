@@ -25,7 +25,12 @@ pub fn app_dir() -> Option<PathBuf> {
     Some(dir)
 }
 
+/// `~/.xraytsubaki/settings.json`, or the file named by `XTS_SETTINGS`
+/// (scripted launches keep the user's real settings untouched).
 fn settings_path() -> Option<PathBuf> {
+    if let Some(p) = std::env::var_os("XTS_SETTINGS") {
+        return Some(PathBuf::from(p));
+    }
     app_dir().map(|d| d.join("settings.json"))
 }
 

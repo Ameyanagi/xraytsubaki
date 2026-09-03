@@ -64,7 +64,7 @@ ruviz = { version = "0.12.1", default-features = false }
 # [patch.crates-io] below to the git-pinned gpui (zed rev 3060e417...) that
 # gpui_platform also resolves to, so the whole workspace shares exactly one gpui.
 gpui = "0.2.2"
-ruviz-gpui = { version = "0.12.1", features = ["gpu"] }
+ruviz-gpui = { version = "0.12.1", features = ["gpu", "3d"] }
 refeff = { version = "0.2.0", default-features = false, features = ["exafs"] }
 
 xraytsubaki = { version = "0.1.0", path = "crates/xraytsubaki" }

@@ -10,6 +10,7 @@ use xraytsubaki::prelude::*;
 /// (element(s), common structure type, lattice constants, edge, cluster
 /// radius) — covers the common metal/oxide cases without full space-group
 /// machinery; arbitrary structures can still be pasted into feff.inp.
+#[derive(Clone, Debug, PartialEq)]
 pub struct CrystalSpec {
     pub element: String,
     /// Second element for binary structures (rocksalt, zincblende, cscl).

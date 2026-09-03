@@ -15,6 +15,7 @@ pub mod journal;
 pub mod palette;
 pub mod series;
 pub mod stage_strip;
+pub mod structure_view;
 pub mod thumbnails;
 pub mod tools;
 
@@ -133,7 +134,6 @@ pub struct StageView {
     pub fit_view: FitView,
     pub fit_show_paths: bool,
     pub fit_show_re: bool,
-    pub fit_show_feff: bool,
     pub fit_show_batch: bool,
     pub series_space: crate::app::SeriesSpace,
 }
@@ -150,7 +150,6 @@ impl Default for StageView {
             fit_view: FitView::Both,
             fit_show_paths: true,
             fit_show_re: false,
-            fit_show_feff: false,
             fit_show_batch: false,
             series_space: crate::app::SeriesSpace::Energy,
         }

@@ -765,18 +765,6 @@ pub(crate) struct FitPathRow {
     pub(crate) more: bool,
 }
 
-/// Crystal-form fields for Atoms-lite feff.inp generation.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum FeffFormKey {
-    Element,
-    Element2,
-    Structure,
-    LatticeA,
-    LatticeC,
-    Edge,
-    Rmax,
-}
-
 pub struct StudioApp {
     theme: Theme,
     workspace: Workspace,
@@ -915,9 +903,9 @@ pub struct StudioApp {
     fit_running: bool,
     last_fit_duration: Option<Duration>,
     feff_workspace: Option<PathBuf>,
+    pub(crate) structure: shell::structure_view::StructureState,
     feff_running: bool,
     feff_gen: u64,
-    feff_form: Vec<(FeffFormKey, Entity<TextInput>)>,
     /// Batch-fit rows with scan-parameter and fit-model provenance.
     batch_fit: Option<BatchFitData>,
     /// False is the default full-scan scope; true opts into the overview sample.
@@ -1565,8 +1553,10 @@ impl StudioApp {
             _ => Stage::Normalize,
         };
 
+        let structure = shell::structure_view::StructureState::new(theme, cx);
         let mut app = Self {
             theme,
+            structure,
             workspace: initial_stage.workspace(),
             stage: initial_stage,
             stage_view: StageView::default(),
@@ -1662,7 +1652,6 @@ impl StudioApp {
             feff_workspace: None,
             feff_running: false,
             feff_gen: 0,
-            feff_form: Vec::new(),
             batch_fit: None,
             batch_preview: false,
             batch_running: false,
@@ -1768,25 +1757,8 @@ impl StudioApp {
         })
         .detach();
         app.roi_input = Some(roi_input);
-        app.feff_form = [
-            (FeffFormKey::Element, "element", "Cu"),
-            (FeffFormKey::Element2, "element 2", ""),
-            (FeffFormKey::Structure, "fcc/bcc/hcp/...", "fcc"),
-            (FeffFormKey::LatticeA, "a (Å)", "3.615"),
-            (FeffFormKey::LatticeC, "c (Å, hcp)", ""),
-            (FeffFormKey::Edge, "edge", "K"),
-            (FeffFormKey::Rmax, "rmax (Å)", "5.0"),
-        ]
-        .into_iter()
-        .map(|(key, placeholder, initial)| {
-            (
-                key,
-                cx.new(|cx| TextInput::new(placeholder, initial, theme, cx)),
-            )
-        })
-        .collect();
-
         app.update_import_preview(cx);
+        app.structure_search(cx);
         match process_file(&path, &app.params) {
             Ok(sp) => {
                 let fingerprint = app.params.fingerprint();
@@ -1803,7 +1775,11 @@ impl StudioApp {
         app
     }
 
-    fn record_job_error(&mut self, label: impl Into<String>, message: impl Into<String>) {
+    pub(crate) fn record_job_error(
+        &mut self,
+        label: impl Into<String>,
+        message: impl Into<String>,
+    ) {
         if self.job_errors.len() == JOB_ERROR_CAPACITY {
             self.job_errors.remove(0);
         }
@@ -3140,7 +3116,8 @@ impl StudioApp {
         self.update_operando_cursor_annotations(cx);
     }
 
-    fn fit_model_changed(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn fit_model_changed(&mut self, cx: &mut Context<Self>) {
+        self.refresh_structure(cx);
         if self.batch_fit.is_some() && self.operando_plots.is_some() {
             self.rebuild_operando_trend(cx);
         }
@@ -3599,7 +3576,12 @@ impl StudioApp {
                 field.update(cx, |f, cx| f.set_theme(theme, cx));
             }
         }
-        for (_, field) in &self.feff_form {
+        for field in [
+            &self.structure.search,
+            &self.structure.radius,
+            &self.structure.max_reff_input,
+            &self.structure.mp_key,
+        ] {
             field.update(cx, |f, cx| f.set_theme(theme, cx));
         }
         if let Some(field) = &self.view_offset_field {
@@ -4750,7 +4732,11 @@ impl StudioApp {
             return;
         };
         let v = self.stage_view;
-        let mut k_plot = build_fit_k(&result, &self.theme, v.fit_show_paths);
+        let highlight = self
+            .structure
+            .hovered
+            .and_then(|i| self.fit_paths.get(i).map(|r| r.spec.label.clone()));
+        let mut k_plot = build_fit_k(&result, &self.theme, v.fit_show_paths, highlight.as_deref());
         let mut r_plot = build_fit_r(&result, &self.theme, v.fit_show_paths, v.fit_show_re);
         let q_plot = build_fit_q(&result, &self.theme);
         let k_res = build_fit_residual_k(&result, &self.theme);
@@ -5557,46 +5543,8 @@ impl StudioApp {
     // ---- FEFF10 generation --------------------------------------------------
 
     /// Read the crystal form and generate a feff.inp workspace (Atoms-lite).
-    fn generate_feff_inp(&mut self, cx: &mut Context<Self>) {
-        let text = |key: FeffFormKey| -> String {
-            self.feff_form
-                .iter()
-                .find(|(k, _)| *k == key)
-                .map(|(_, f)| f.read(cx).text().trim().to_string())
-                .unwrap_or_default()
-        };
-        let opt = |s: String| if s.is_empty() { None } else { Some(s) };
-        let spec = crate::feffgen::CrystalSpec {
-            element: text(FeffFormKey::Element),
-            element2: opt(text(FeffFormKey::Element2)),
-            structure: text(FeffFormKey::Structure),
-            a: text(FeffFormKey::LatticeA).parse().unwrap_or(0.0),
-            c: text(FeffFormKey::LatticeC).parse().ok(),
-            edge: {
-                let e = text(FeffFormKey::Edge);
-                if e.is_empty() { "K".into() } else { e }
-            },
-            rmax: text(FeffFormKey::Rmax).parse().unwrap_or(5.0),
-        };
-        match crate::feffgen::new_workspace_from_spec(&spec) {
-            Ok(dir) => {
-                self.status = format!(
-                    "generated {}/feff.inp — Run FEFF10 (or edit it first)",
-                    dir.display()
-                )
-                .into();
-                self.feff_workspace = Some(dir);
-            }
-            Err(e) => {
-                self.status = format!("feff.inp generation failed: {e}").into();
-                self.record_job_error("feff.inp generation", e.to_string());
-            }
-        }
-        cx.notify();
-    }
-
     /// Create a template feff.inp workspace and open it in the system editor.
-    fn new_feff_inp(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn new_feff_inp(&mut self, cx: &mut Context<Self>) {
         match crate::feffgen::new_workspace() {
             Ok(dir) => {
                 let inp = dir.join("feff.inp");
@@ -5619,7 +5567,7 @@ impl StudioApp {
         cx.notify();
     }
 
-    fn choose_feff_inp(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn choose_feff_inp(&mut self, cx: &mut Context<Self>) {
         let rx = cx.prompt_for_paths(PathPromptOptions {
             files: true,
             directories: false,
@@ -5644,7 +5592,7 @@ impl StudioApp {
     }
 
     /// Run FEFF10 on the workspace's feff.inp and import the generated paths.
-    fn run_feff10_now(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn run_feff10_now(&mut self, cx: &mut Context<Self>) {
         if self.feff_running {
             return;
         }

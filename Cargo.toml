@@ -59,12 +59,12 @@ flate2 = "1.0.28"
 pest = "2.7.7"
 pest_derive = "2.7.7"
 thiserror = "1.0.69"
-ruviz = { version = "0.12.1", default-features = false }
+ruviz = { version = "0.12.2", default-features = false }
 # GUI stack. `gpui = "0.2.2"` (latest on crates.io) is redirected by the
 # [patch.crates-io] below to the git-pinned gpui (zed rev 3060e417...) that
 # gpui_platform also resolves to, so the whole workspace shares exactly one gpui.
 gpui = "0.2.2"
-ruviz-gpui = { version = "0.12.1", features = ["gpu"] }
+ruviz-gpui = { version = "0.12.2", features = ["gpu"] }
 refeff = { version = "0.2.0", default-features = false, features = ["exafs"] }
 
 xraytsubaki = { version = "0.1.0", path = "crates/xraytsubaki" }

@@ -1,0 +1,97 @@
+{
+ "data": [
+  {
+   "material_id": "mp-33",
+   "formula_pretty": "Ru",
+   "symmetry": {
+    "symbol": "P6_3/mmc",
+    "number": 194,
+    "crystal_system": "Hexagonal"
+   },
+   "energy_above_hull": 0.0,
+   "is_stable": true,
+   "structure": {
+    "@module": "pymatgen.core.structure",
+    "@class": "Structure",
+    "charge": 0.0,
+    "lattice": {
+     "matrix": [
+      [
+       2.706,
+       0.0,
+       1.6569471192463688e-16
+      ],
+      [
+       -1.3529999999999998,
+       2.343464742640691,
+       1.6569471192463688e-16
+      ],
+      [
+       0.0,
+       0.0,
+       4.282
+      ]
+     ],
+     "pbc": [
+      true,
+      true,
+      true
+     ],
+     "a": 2.706,
+     "b": 2.706,
+     "c": 4.282,
+     "alpha": 90.0,
+     "beta": 90.0,
+     "gamma": 119.99999999999999,
+     "volume": 27.15394157173401
+    },
+    "properties": {},
+    "sites": [
+     {
+      "species": [
+       {
+        "element": "Ru",
+        "occu": 1.0
+       }
+      ],
+      "abc": [
+       0.3333333333333333,
+       0.6666666666666666,
+       0.25
+      ],
+      "properties": {},
+      "label": "Ru0",
+      "xyz": [
+       1.2408592671893832e-16,
+       1.5623098284271273,
+       1.0705000000000002
+      ]
+     },
+     {
+      "species": [
+       {
+        "element": "Ru",
+        "occu": 1.0
+       }
+      ],
+      "abc": [
+       0.6666666666666667,
+       0.33333333333333337,
+       0.75
+      ],
+      "properties": {},
+      "label": "Ru0",
+      "xyz": [
+       1.3530000000000002,
+       0.7811549142135638,
+       3.2115
+      ]
+     }
+    ]
+   }
+  }
+ ],
+ "meta": {
+  "total_doc": 1
+ }
+}

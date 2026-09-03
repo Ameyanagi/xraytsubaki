@@ -487,6 +487,20 @@ pub struct FeffDat {
     pub pha: DVector<f64>,
     pub amp: DVector<f64>,
     pub geometry: Vec<String>,
+    /// Leg coordinates from the path file (absorber first), when present.
+    pub geometry_atoms: Vec<PathAtom>,
+}
+
+/// One atom of a scattering path as listed in a FEFF path file
+/// (`x y z ipot z label`), absorber at the origin.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct PathAtom {
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+    pub ipot: u16,
+    pub atomic_number: u8,
+    pub label: String,
 }
 
 impl Default for FeffDat {
@@ -510,6 +524,7 @@ impl Default for FeffDat {
             pha: DVector::zeros(0),
             amp: DVector::zeros(0),
             geometry: Vec::new(),
+            geometry_atoms: Vec::new(),
         }
     }
 }

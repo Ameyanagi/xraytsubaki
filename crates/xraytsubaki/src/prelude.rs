@@ -28,6 +28,12 @@ pub use crate::xafs::analysis::{
     PcaConfig, PcaFit, PcaModel,
 };
 pub use crate::xafs::errors::AnalysisError;
+pub use crate::xafs::structure::{
+    absorber_sites, build_cluster, read_cif, structure_from_cif, write_feff_inp, AbsorberSelection,
+    Cluster, ClusterAtom, ClusterOptions, Edge, Element, FeffInputOptions, FeffInputStyle, Lattice,
+    PathGeometry, PathLeg, Site, Species, Structure, StructureError, StructureHit, StructureQuery,
+    StructureSource,
+};
 pub use crate::xafs::tools::{
     difference, merge_spectra, DiffSpace, EdgeFeature, MergeConfig, MergeGrid, MergeWeight,
     RebinConfig, RebinMethod, RebinOutput,

@@ -1005,6 +1005,7 @@ impl StudioApp {
         let cancel = Arc::new(AtomicBool::new(false));
         let progress = Arc::new(std::sync::Mutex::new((0u64, None::<u64>)));
         let done = Arc::new(AtomicBool::new(false));
+        let mirror = Arc::new(std::sync::Mutex::new(String::new()));
         self.structure.download_cancel = Some(cancel.clone());
         self.structure.download_progress = Some((0, None));
         self.status = "downloading AMCSD…".into();
@@ -1012,9 +1013,10 @@ impl StudioApp {
         let job = {
             let cancel = cancel.clone();
             let progress = progress.clone();
+            let mirror = mirror.clone();
             let dest = dest.clone();
             cx.background_executor().spawn(async move {
-                core::db::amcsd::download_amcsd_cancellable(
+                core::db::amcsd::download_amcsd_with(
                     &dest,
                     |received, total| {
                         if let Ok(mut p) = progress.lock() {
@@ -1022,6 +1024,11 @@ impl StudioApp {
                         }
                     },
                     &cancel,
+                    |url| {
+                        if let Ok(mut m) = mirror.lock() {
+                            *m = mirror_host(url);
+                        }
+                    },
                 )
                 .map_err(|e| e.to_string())
             })
@@ -1030,23 +1037,37 @@ impl StudioApp {
         {
             let done = done.clone();
             let progress = progress.clone();
+            let mirror = mirror.clone();
             cx.spawn(async move |this, cx| {
                 while !done.load(Ordering::Relaxed) {
                     cx.background_executor()
                         .timer(Duration::from_millis(250))
                         .await;
                     let p = progress.lock().map(|p| *p).unwrap_or((0, None));
+                    let from = mirror
+                        .lock()
+                        .map(|m| {
+                            if m.is_empty() {
+                                String::new()
+                            } else {
+                                format!(" from {m}")
+                            }
+                        })
+                        .unwrap_or_default();
                     if this
                         .update(cx, |app, cx| {
                             if app.structure.download_cancel.is_some() {
                                 app.structure.download_progress = Some(p);
                                 app.status = match p.1 {
                                     Some(total) if total > 0 => format!(
-                                        "downloading AMCSD… {:.0} / {:.0} MB",
+                                        "downloading AMCSD{from}… {:.0} / {:.0} MB",
                                         p.0 as f64 / 1e6,
                                         total as f64 / 1e6
                                     ),
-                                    _ => format!("downloading AMCSD… {:.0} MB", p.0 as f64 / 1e6),
+                                    _ => format!(
+                                        "downloading AMCSD{from}… {:.0} MB",
+                                        p.0 as f64 / 1e6
+                                    ),
                                 }
                                 .into();
                                 cx.notify();
@@ -1861,6 +1882,20 @@ impl StudioApp {
                         ));
                 }
                 panel = panel.child(row);
+                panel = panel.child(credit_line(
+                    &t,
+                    "American Mineralogist Crystal Structure Database (MSA / MAC, NSF). Cite \
+                     Downs & Hall-Wallace (2003) Am. Mineral. 88, 247–250 · rruff.geo.arizona.edu/AMS \
+                     · SQLite packaging by larixite (xraypy)",
+                ));
+            }
+            StructureSourceKind::Cod => {
+                panel = panel.child(credit_line(
+                    &t,
+                    "Crystallography Open Database · crystallography.net/cod · data in the public \
+                     domain (CC0). Cite Gražulis et al. (2012) Nucleic Acids Res. 40, D420 and \
+                     Vaitkus et al. (2021) J. Appl. Cryst. 54, 661",
+                ));
             }
         }
 
@@ -2247,5 +2282,24 @@ fn mono_line(t: &Theme, text: String) -> gpui::Div {
         .font_family(MONO)
         .text_size(px(11.))
         .text_color(t.text)
+        .child(SharedString::from(text))
+}
+
+/// `https://docs.xrayabsorption.org/databases/amcsd_cif2.db` → `docs.xrayabsorption.org`.
+fn mirror_host(url: &str) -> String {
+    url.split("://")
+        .nth(1)
+        .unwrap_or(url)
+        .split('/')
+        .next()
+        .unwrap_or(url)
+        .to_string()
+}
+
+/// One-line attribution shown under an online source.
+fn credit_line(t: &Theme, text: &'static str) -> gpui::Div {
+    div()
+        .text_size(px(10.5))
+        .text_color(t.text_muted)
         .child(SharedString::from(text))
 }

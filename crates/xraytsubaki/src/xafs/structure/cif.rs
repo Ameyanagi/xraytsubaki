@@ -306,12 +306,18 @@ pub fn structure_from_block(block: &CifBlock) -> Result<Structure, StructureErro
             .or_else(|| c_type.and_then(|c| row.get(c)).cloned())
             .unwrap_or_else(|| format!("site{}", ri + 1));
         let type_symbol = c_type.and_then(|c| row.get(c)).map(String::as_str);
-        let element = type_symbol
+        let Some(element) = type_symbol
             .and_then(Element::from_label)
             .or_else(|| Element::from_label(&label))
-            .ok_or_else(|| StructureError::UnknownElement {
-                label: type_symbol.unwrap_or(&label).to_string(),
-            })?;
+        else {
+            // Placeholder rows (`?` in old database exports) or unknown
+            // symbols: skip the site rather than reject the whole file.
+            warnings.push(format!(
+                "site {label}: unknown element symbol {:?}, skipped",
+                type_symbol.unwrap_or(&label)
+            ));
+            continue;
+        };
         let oxidation = type_symbol.and_then(parse_oxidation);
         let (x, y, z) = match (
             row.get(cx).and_then(|v| parse_number(v)),
@@ -565,5 +571,22 @@ mod tests {
         assert_eq!(parse_oxidation("Fe2+"), Some(2.0));
         assert_eq!(parse_oxidation("O2-"), Some(-2.0));
         assert_eq!(parse_oxidation("Fe"), None);
+    }
+
+    #[test]
+    fn placeholder_sites_are_skipped_with_a_warning() {
+        let text = "data_x\n_cell_length_a 5.0\n_cell_length_b 5.0\n_cell_length_c 5.0\n\
+_symmetry_space_group_name_H-M 'P 1'\n\
+loop_\n_atom_site_label\n_atom_site_fract_x\n_atom_site_fract_y\n_atom_site_fract_z\n\
+? 0 0 0\nFe1 0.5 0.5 0.5\n";
+        let s = structure_from_cif(text).unwrap();
+        assert_eq!(s.sites.len(), 1);
+        assert_eq!(s.sites[0].species[0].symbol, "Fe");
+        assert!(s.warnings.iter().any(|w| w.contains("unknown element")));
+        let all_placeholder = text.replace("Fe1 0.5 0.5 0.5\n", "");
+        assert!(matches!(
+            structure_from_cif(&all_placeholder),
+            Err(StructureError::CifNoStructure { .. })
+        ));
     }
 }

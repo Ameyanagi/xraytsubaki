@@ -150,3 +150,14 @@ highlight a selected path.
   for FEFF clusters, not a substitute for a proper disorder model.
 - AMCSD `download_amcsd` requires the `materials-project` feature for the
   HTTP client; COD and ICSD are not wired.
+
+## Structure sources: provenance and terms
+
+| Source | What it is | Access | Terms / attribution |
+|---|---|---|---|
+| Local CIF library | any folder of `.cif` files, indexed on scan | filesystem | user's own files |
+| AMCSD | American Mineralogist Crystal Structure Database (Downs & Hall-Wallace 2003, *Am. Mineral.* **88**, 247–250; <https://rruff.geo.arizona.edu/AMS/amcsd.php>), maintained by the Mineralogical Society of America and the Mineralogical Association of Canada, NSF EAR-0112782 / EAR-0622371 | the SQLite packaging built by **larixite** (xraypy, Matt Newville et al.) from the AMCSD CIFs: `amcsd_cif2.db` (full, 26.9 MB, 2022-10-22), `amcsd_cif1.db` (trimmed). Mirrors, in the order larixite tries them and verified to serve the file: `https://docs.xrayabsorption.org/databases/amcsd_cif2.db`, `https://millenia.cars.aps.anl.gov/xraylarch/downloads/amcsd_cif2.db`; `https://figshare.com/ndownloader/files/54545639` answers with a deferred (HTTP 202) download and is kept last. A mirror whose response is not a valid database (tables `cif`, `minerals`, `spacegroups`) is skipped. Schema: larixite's `version` table tag (`init, trim` for the trimmed build), coordinates as base64 int32 × 4·10⁶ | public database; the site asks: "Should the use of the database require a citation, then please use: Downs & Hall-Wallace (2003)". No other restriction is stated. The app shows this credit under the AMCSD source and names the mirror while downloading. |
+| Materials Project | <https://materialsproject.org>, v2 REST API | API key (free account) | Materials Project terms of use (CC BY 4.0 data; cite Jain et al. 2013 *APL Mater.* **1**, 011002) |
+| COD | Crystallography Open Database, <https://www.crystallography.net/cod/> | REST result endpoint (`result?format=json`, parameters `text`, `formula` in Hill notation, `id`, `el1..el8`, `nel1..nel4`, `strictmin/strictmax`), CIF at `cod/<id>.cif`; client sends a descriptive `User-Agent`, 30 s timeout, ≥ 500 ms between requests | data in the public domain (CC0); cite Gražulis et al. (2012) *Nucleic Acids Res.* **40**, D420 and Vaitkus et al. (2021) *J. Appl. Cryst.* **54**, 661 |
+
+Cargo features: `amcsd` (rusqlite), `http` (ureq), `materials-project` and `cod` (both imply `http`); the AMCSD downloader needs `http`.

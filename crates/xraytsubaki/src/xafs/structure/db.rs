@@ -13,6 +13,8 @@ use super::StructureError;
 
 #[cfg(feature = "amcsd")]
 pub mod amcsd;
+#[cfg(feature = "http")]
+pub mod cod;
 #[cfg(feature = "materials-project")]
 pub mod mp;
 

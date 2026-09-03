@@ -618,14 +618,16 @@ pub enum StructureSourceKind {
     LocalCif,
     MaterialsProject,
     Amcsd,
+    Cod,
 }
 
 impl StructureSourceKind {
-    pub const ALL: [StructureSourceKind; 4] = [
+    pub const ALL: [StructureSourceKind; 5] = [
         StructureSourceKind::Builtin,
         StructureSourceKind::LocalCif,
         StructureSourceKind::MaterialsProject,
         StructureSourceKind::Amcsd,
+        StructureSourceKind::Cod,
     ];
 
     pub fn label(self) -> &'static str {
@@ -634,6 +636,7 @@ impl StructureSourceKind {
             StructureSourceKind::LocalCif => "CIF",
             StructureSourceKind::MaterialsProject => "MP",
             StructureSourceKind::Amcsd => "AMCSD",
+            StructureSourceKind::Cod => "COD",
         }
     }
 
@@ -643,6 +646,7 @@ impl StructureSourceKind {
             StructureSourceKind::LocalCif => "cif",
             StructureSourceKind::MaterialsProject => "mp",
             StructureSourceKind::Amcsd => "amcsd",
+            StructureSourceKind::Cod => "cod",
         }
     }
 }
@@ -861,6 +865,24 @@ impl StructureProvider for AmcsdProvider {
     }
     fn fetch(&self, hit: &StructureHit) -> Result<StructureSummary, String> {
         core_fetch(&self.open()?, hit)
+    }
+}
+
+/// Crystallography Open Database REST API (no key needed).
+pub struct CodProvider(pub core::db::cod::Cod);
+
+impl StructureProvider for CodProvider {
+    fn search(&self, query: &str) -> Result<Vec<StructureHit>, String> {
+        if query.trim().is_empty() {
+            return Err(
+                "COD: enter a mineral or compound name, a formula (Fe S2), elements, or a COD id"
+                    .into(),
+            );
+        }
+        core_search(&self.0, StructureSourceKind::Cod, query)
+    }
+    fn fetch(&self, hit: &StructureHit) -> Result<StructureSummary, String> {
+        core_fetch(&self.0, hit)
     }
 }
 
@@ -1129,6 +1151,7 @@ pub fn provider_for(
                 })?;
             Ok(Box::new(AmcsdProvider(db)))
         }
+        StructureSourceKind::Cod => Ok(Box::new(CodProvider(core::db::cod::Cod::default()))),
     }
 }
 

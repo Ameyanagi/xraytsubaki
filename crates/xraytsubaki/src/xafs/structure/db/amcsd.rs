@@ -20,12 +20,36 @@ use crate::xafs::structure::StructureError;
 pub const AMCSD_FULL: &str = "amcsd_cif2.db";
 /// File name of the trimmed database bundled with larixite.
 pub const AMCSD_TRIM: &str = "amcsd_cif1.db";
-/// Mirrors tried in order by [`download_amcsd`].
+/// Mirrors tried in order by [`download_amcsd`]. These are the same
+/// mirrors larixite (Larch's structure toolkit) uses for the SQLite build of
+/// the database; the first two serve the file directly, the figshare entry
+/// answers with a deferred download and is kept last as a fallback.
 pub const SOURCE_URLS: [&str; 3] = [
     "https://docs.xrayabsorption.org/databases",
-    "https://figshare.com/ndownloader/files/54545639",
     "https://millenia.cars.aps.anl.gov/xraylarch/downloads",
+    "https://figshare.com/ndownloader/files/54545639",
 ];
+/// Home of the original database (Mineralogical Society of America and the
+/// Mineralogical Association of Canada, NSF-funded).
+pub const HOME_URL: &str = "https://rruff.geo.arizona.edu/AMS/amcsd.php";
+/// Citation requested by the database's authors.
+pub const CITATION: &str = "Downs, R.T. and Hall-Wallace, M. (2003) The American Mineralogist \
+    Crystal Structure Database. American Mineralogist 88, 247-250";
+/// Terms as stated on the AMCSD site: a public resource; a citation is
+/// requested when a publication uses the data. The SQLite packaging is
+/// larixite's (Matt Newville et al., xraypy).
+pub const TERMS: &str = "AMCSD is a public database maintained by the Mineralogical Society of \
+    America and the Mineralogical Association of Canada (NSF EAR-0112782, EAR-0622371). Please \
+    cite Downs & Hall-Wallace (2003) when the data are used in a publication. SQLite packaging \
+    by larixite (xraypy).";
+/// The download `url` built for one mirror.
+pub fn mirror_url(base: &str) -> String {
+    if base.contains("figshare") {
+        base.to_string()
+    } else {
+        format!("{base}/{AMCSD_FULL}")
+    }
+}
 
 const FARRAY_SCALE: f64 = 4.0e6;
 
@@ -393,8 +417,8 @@ impl StructureSource for Amcsd {
 
 /// Download the full AMCSD database to `dest` (a file path), trying each
 /// mirror. `progress(received_bytes, total_bytes)` is called as data
-/// arrives. Requires the `materials-project` feature's HTTP client.
-#[cfg(feature = "materials-project")]
+/// arrives. Requires the `http` feature (implied by `materials-project` and `cod`).
+#[cfg(feature = "http")]
 pub fn download_amcsd<P: AsRef<Path>>(
     dest: P,
     progress: impl FnMut(u64, Option<u64>),
@@ -407,72 +431,117 @@ pub fn download_amcsd<P: AsRef<Path>>(
 /// A cancelled download removes its partial file and returns
 /// [`StructureError::Network`] with the reason `"cancelled"`. Requires the
 /// `materials-project` feature's HTTP client.
-#[cfg(feature = "materials-project")]
+#[cfg(feature = "http")]
 pub fn download_amcsd_cancellable<P: AsRef<Path>>(
+    dest: P,
+    progress: impl FnMut(u64, Option<u64>),
+    cancel: &std::sync::atomic::AtomicBool,
+) -> Result<PathBuf, StructureError> {
+    download_amcsd_with(dest, progress, cancel, |_| {})
+}
+
+/// [`download_amcsd_cancellable`] that also reports the mirror URL being
+/// fetched through `on_source` (once per attempt), so a UI can name it.
+///
+/// Mirrors are tried in [`SOURCE_URLS`] order; a mirror that answers with a
+/// non-200 status or with a file that is not a valid AMCSD database is
+/// skipped and the next one is tried.
+#[cfg(feature = "http")]
+pub fn download_amcsd_with<P: AsRef<Path>>(
     dest: P,
     mut progress: impl FnMut(u64, Option<u64>),
     cancel: &std::sync::atomic::AtomicBool,
+    mut on_source: impl FnMut(&str),
 ) -> Result<PathBuf, StructureError> {
     use std::sync::atomic::Ordering;
     let dest = dest.as_ref().to_path_buf();
-    let mut last_err = None;
+    let mut errors: Vec<String> = Vec::new();
     for base in SOURCE_URLS {
-        let url = if base.contains("figshare") {
-            base.to_string()
-        } else {
-            format!("{base}/{AMCSD_FULL}")
+        let url = mirror_url(base);
+        on_source(&url);
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .user_agent(concat!(
+                "xraytsubaki/",
+                env!("CARGO_PKG_VERSION"),
+                " (+https://github.com/Ameyanagi/xraytsubaki)"
+            ))
+            .build()
+            .into();
+        let mut resp = match agent.get(&url).call() {
+            Ok(resp) => resp,
+            Err(e) => {
+                errors.push(format!("{url}: {e}"));
+                continue;
+            }
         };
-        match ureq::get(&url).call() {
-            Ok(mut resp) => {
-                let total = resp
-                    .headers()
-                    .get("content-length")
-                    .and_then(|v| v.to_str().ok())
-                    .and_then(|v| v.parse::<u64>().ok());
-                let tmp = dest.with_extension("part");
-                let mut file =
-                    std::fs::File::create(&tmp).map_err(|source| StructureError::Io {
-                        path: tmp.display().to_string(),
-                        source,
-                    })?;
-                let mut reader = resp.body_mut().as_reader();
-                let mut buf = vec![0u8; 1 << 16];
-                let mut received = 0u64;
-                loop {
-                    let n = reader.read(&mut buf).map_err(|e| StructureError::Network {
-                        reason: format!("{url}: {e}"),
-                    })?;
-                    if n == 0 {
-                        break;
-                    }
-                    file.write_all(&buf[..n])
-                        .map_err(|source| StructureError::Io {
-                            path: tmp.display().to_string(),
-                            source,
-                        })?;
-                    received += n as u64;
-                    progress(received, total);
-                    if cancel.load(Ordering::Relaxed) {
-                        drop(file);
-                        let _ = std::fs::remove_file(&tmp);
-                        return Err(StructureError::Network {
-                            reason: "cancelled".into(),
-                        });
-                    }
+        if resp.status() != 200 {
+            errors.push(format!("{url}: HTTP {}", resp.status()));
+            continue;
+        }
+        let total = resp
+            .headers()
+            .get("content-length")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<u64>().ok());
+        let tmp = dest.with_extension("part");
+        let mut file = std::fs::File::create(&tmp).map_err(|source| StructureError::Io {
+            path: tmp.display().to_string(),
+            source,
+        })?;
+        let mut reader = resp.body_mut().as_reader();
+        let mut buf = vec![0u8; 1 << 16];
+        let mut received = 0u64;
+        let mut failed = None;
+        loop {
+            let n = match reader.read(&mut buf) {
+                Ok(n) => n,
+                Err(e) => {
+                    failed = Some(format!("{url}: {e}"));
+                    break;
                 }
-                drop(file);
-                std::fs::rename(&tmp, &dest).map_err(|source| StructureError::Io {
-                    path: dest.display().to_string(),
+            };
+            if n == 0 {
+                break;
+            }
+            file.write_all(&buf[..n])
+                .map_err(|source| StructureError::Io {
+                    path: tmp.display().to_string(),
                     source,
                 })?;
-                // Validate before declaring success.
-                Amcsd::open(&dest)?;
-                return Ok(dest);
+            received += n as u64;
+            progress(received, total);
+            if cancel.load(Ordering::Relaxed) {
+                drop(file);
+                let _ = std::fs::remove_file(&tmp);
+                return Err(StructureError::Network {
+                    reason: "cancelled".into(),
+                });
             }
-            Err(e) => last_err = Some(format!("{url}: {e}")),
         }
+        drop(file);
+        if let Some(e) = failed {
+            let _ = std::fs::remove_file(&tmp);
+            errors.push(e);
+            continue;
+        }
+        // Validate before declaring success; an HTML error page or an
+        // empty body from a deferred download must not replace `dest`.
+        if let Err(e) = Amcsd::open(&tmp) {
+            let _ = std::fs::remove_file(&tmp);
+            errors.push(format!("{url}: not a valid AMCSD database ({e})"));
+            continue;
+        }
+        std::fs::rename(&tmp, &dest).map_err(|source| StructureError::Io {
+            path: dest.display().to_string(),
+            source,
+        })?;
+        return Ok(dest);
     }
     Err(StructureError::Network {
-        reason: last_err.unwrap_or_else(|| "no mirrors".into()),
+        reason: if errors.is_empty() {
+            "no mirrors".into()
+        } else {
+            errors.join("; ")
+        },
     })
 }

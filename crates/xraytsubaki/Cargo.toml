@@ -53,7 +53,10 @@ plotting = ["ruviz"]
 refeff-runner = ["dep:refeff"]
 feff10-runner = ["dep:feff10"]
 amcsd = ["dep:rusqlite"]
-materials-project = ["dep:ureq"]
+# HTTP client shared by the online structure sources.
+http = ["dep:ureq"]
+materials-project = ["http"]
+cod = ["http"]
 
 [dev-dependencies]
 pprof = { version = "0.13", features = ["flamegraph"] }

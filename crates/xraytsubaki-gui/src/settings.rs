@@ -155,7 +155,8 @@ mod tests {
 
     #[test]
     fn temp_file_is_created_exclusively_and_symlinks_are_not_followed() {
-        let dir = std::env::temp_dir().join(format!("xts-settings-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("xts-settings-excl-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let tmp = dir.join("a.tmp");
         write_exclusive(&tmp, "one").unwrap();

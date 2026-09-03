@@ -10,7 +10,7 @@ use ruviz_gpui::RuvizPlot;
 
 use super::handles::{PLOT_FIT_K, PLOT_FIT_Q, PLOT_FIT_R};
 use super::{FitView, MONO, button, chip, section_label, segment, segmented};
-use crate::app::{FeffFormKey, StudioApp};
+use crate::app::StudioApp;
 use crate::fitting::{FitSpaceSpec, high_correlations};
 
 /// Correlation above which two parameters are flagged (Artemis warns at
@@ -83,6 +83,9 @@ impl StudioApp {
             .flex()
             .flex_col()
             .child(self.fit_plot_bar(cx));
+        if self.structure.show {
+            return column.child(self.structure_center(cx));
+        }
         if let Some(provenance) = self.fit_provenance.clone() {
             let stale = self.fit_is_stale();
             if stale {
@@ -338,6 +341,17 @@ impl StudioApp {
                     .child("Space"),
             )
             .child(seg)
+            .child(
+                chip(&t, "fit-structure", "structure", self.structure.show).on_click(cx.listener(
+                    |this, _: &ClickEvent, _w, cx| {
+                        this.structure.show = !this.structure.show;
+                        if this.structure.show {
+                            this.refresh_structure(cx);
+                        }
+                        cx.notify();
+                    },
+                )),
+            )
             .child(div().w(px(1.)).h(px(18.)).bg(t.border))
             .child(
                 chip(&t, "fit-paths", "paths", v.fit_show_paths).on_click(cx.listener(
@@ -383,6 +397,7 @@ impl StudioApp {
         div()
             .flex()
             .flex_col()
+            .child(self.structure_section(cx))
             .child(self.fit_paths_section(cx))
             .child(self.fit_params_section(cx))
             .child(self.fit_settings_section(cx))
@@ -566,24 +581,15 @@ impl StudioApp {
                 .child(self.sub_button("add-path", "+ Add path…", cx, |this, cx| {
                     this.add_fit_path_dialog(cx)
                 }))
-                .child(self.sub_button(
-                    "gen-paths",
-                    if self.stage_view.fit_show_feff {
-                        "▾ Generate…"
-                    } else {
-                        "▸ Generate…"
-                    },
-                    cx,
-                    |this, cx| {
-                        this.stage_view.fit_show_feff = !this.stage_view.fit_show_feff;
+                .child(
+                    self.sub_button("show-structure", "Structure view", cx, |this, cx| {
+                        this.structure.show = true;
+                        this.refresh_structure(cx);
                         cx.notify();
-                    },
-                ))
+                    }),
+                )
                 .into_any_element(),
         );
-        if self.stage_view.fit_show_feff {
-            rows.extend(self.fit_feff_rows(cx));
-        }
         let title: &'static str = "Paths";
         let count = self.fit_paths.iter().filter(|p| p.spec.enabled).count();
         let head = div()
@@ -602,6 +608,19 @@ impl StudioApp {
                     .child(format!("{count} / {}", self.fit_paths.len())),
             )
             .child(div().flex_1());
+        let table = (!self.fit_paths.is_empty()).then(|| {
+            div()
+                .mx_2()
+                .mb_1()
+                .max_h(px(240.))
+                .flex()
+                .flex_col()
+                .rounded_md()
+                .border_1()
+                .border_color(t.border)
+                .overflow_hidden()
+                .child(self.structure_paths_table(false, cx))
+        });
         div()
             .flex()
             .flex_col()
@@ -609,91 +628,43 @@ impl StudioApp {
             .border_color(t.border)
             .pb_2()
             .child(head)
+            .children(table)
             .children(rows)
     }
 
-    /// Atoms-lite crystal form + FEFF runner (paths come out of it).
-    fn fit_feff_rows(&self, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
+    /// Structure database + cluster generator (replaces the Atoms-lite form).
+    fn structure_section(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
-        let mut rows: Vec<gpui::AnyElement> = Vec::new();
-        for (key, field) in &self.feff_form {
-            let label = match key {
-                FeffFormKey::Element => "element",
-                FeffFormKey::Element2 => "element 2",
-                FeffFormKey::Structure => "structure",
-                FeffFormKey::LatticeA => "a (Å)",
-                FeffFormKey::LatticeC => "c (Å)",
-                FeffFormKey::Edge => "edge",
-                FeffFormKey::Rmax => "rmax (Å)",
-            };
-            rows.push(
-                div()
-                    .px_3()
-                    .py_0p5()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_size(px(12.))
-                            .text_color(t.text_muted)
-                            .child(label),
-                    )
-                    .child(div().w(px(120.)).child(field.clone()))
-                    .into_any_element(),
-            );
-        }
-        let running = self.feff_running;
-        rows.push(
-            div()
-                .px_3()
-                .pt_1()
-                .flex()
-                .flex_wrap()
-                .gap_1()
-                .child(
-                    button(&t, "feff-generate", "Generate feff.inp", false).on_click(
-                        cx.listener(|this, _: &ClickEvent, _w, cx| this.generate_feff_inp(cx)),
-                    ),
-                )
-                .child(
-                    button(&t, "feff-new", "New feff.inp…", false).on_click(
-                        cx.listener(|this, _: &ClickEvent, _w, cx| this.new_feff_inp(cx)),
-                    ),
-                )
-                .child(
-                    button(&t, "feff-choose", "Choose feff.inp…", false).on_click(
-                        cx.listener(|this, _: &ClickEvent, _w, cx| this.choose_feff_inp(cx)),
-                    ),
-                )
-                .child(
-                    button(
-                        &t,
-                        "feff-run",
-                        if running { "running…" } else { "Run FEFF" },
-                        !running,
-                    )
-                    .on_click(cx.listener(|this, _: &ClickEvent, _w, cx| this.run_feff10_now(cx))),
-                )
-                .into_any_element(),
-        );
-        rows.push(
-            div()
-                .px_3()
-                .py_0p5()
-                .text_size(px(10.5))
-                .text_color(t.text_muted)
-                .overflow_hidden()
-                .whitespace_nowrap()
-                .text_ellipsis()
-                .child(SharedString::from(match &self.feff_workspace {
-                    Some(ws) => format!("workspace: {}", ws.display()),
-                    None => "no FEFF workspace yet".to_string(),
-                }))
-                .into_any_element(),
-        );
-        rows
+        let head = div()
+            .px_3()
+            .pt_3()
+            .pb_1()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(section_label(&t, "Structure"))
+            .child(div().flex_1())
+            .child(
+                self.sub_button("feff-new", "New feff.inp…", cx, |this, cx| {
+                    this.new_feff_inp(cx)
+                }),
+            )
+            .child(
+                self.sub_button("feff-choose", "Choose feff.inp…", cx, |this, cx| {
+                    this.choose_feff_inp(cx)
+                }),
+            )
+            .child(self.sub_button("feff-run", "Run FEFF", cx, |this, cx| {
+                this.run_feff10_now(cx)
+            }));
+        div()
+            .flex()
+            .flex_col()
+            .border_b_1()
+            .border_color(t.border)
+            .pb_2()
+            .child(head)
+            .child(self.structure_panel(cx))
     }
 
     fn fit_params_section(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {

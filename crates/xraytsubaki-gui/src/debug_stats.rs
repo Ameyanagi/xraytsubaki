@@ -69,7 +69,11 @@ pub fn take() -> Snapshot {
     Snapshot {
         pointer_events: POINTER_EVENTS.swap(0, Ordering::Relaxed),
         paints: PAINTS.swap(0, Ordering::Relaxed),
-        latency_avg_ms: if n > 0 { sum as f64 / n as f64 / 1e6 } else { 0.0 },
+        latency_avg_ms: if n > 0 {
+            sum as f64 / n as f64 / 1e6
+        } else {
+            0.0
+        },
         latency_max_ms: max as f64 / 1e6,
         latency_n: n,
     }

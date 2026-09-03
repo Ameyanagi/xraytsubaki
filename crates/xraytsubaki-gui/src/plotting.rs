@@ -748,6 +748,7 @@ pub fn build_fit_k(
     result: &xraytsubaki::prelude::FeffFitResult,
     theme: &Theme,
     show_paths: bool,
+    highlight: Option<&str>,
 ) -> Plot {
     let k = vecs(&result.k);
     let kw = result.kweight;
@@ -781,10 +782,29 @@ pub fn build_fit_k(
                 .into();
         }
     }
+    if let Some(h) = highlight
+        && let Some(path) = result.path_contributions.iter().find(|p| p.label == h)
+    {
+        let y = weight(&path.chi);
+        plot = plot
+            .line(&k, &y)
+            .color(HOVER_COLOR)
+            .line_width(2.2)
+            .label(format!("{h} (hover)"))
+            .into();
+    }
     plot.legend_position(ruviz::core::LegendPosition::UpperRight)
         .xlabel(K_AXIS)
         .ylabel(chik_label(kw))
 }
+
+/// Hovered-path preview trace (amber).
+const HOVER_COLOR: Color = Color {
+    r: 224,
+    g: 179,
+    b: 90,
+    a: 255,
+};
 
 /// Fit trace colour (orange in both themes, distinct from the data trace).
 const FIT_COLOR: Color = Color {

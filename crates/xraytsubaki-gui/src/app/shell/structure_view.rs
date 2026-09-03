@@ -248,7 +248,7 @@ fn theme_rgb(c: gpui::Rgba) -> PlotColor {
 }
 
 fn marker_px(z: u32) -> f32 {
-    4.0 + covalent_radius(z) * 4.0
+    5.0 + covalent_radius(z) * 5.0
 }
 
 impl StudioApp {
@@ -841,15 +841,14 @@ impl StudioApp {
 
     fn structure_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
-        let mut presets = segmented(&t);
-        for (i, p) in CameraPreset::ALL.into_iter().enumerate() {
+        let mut presets = div().flex().items_center().gap_1();
+        for p in CameraPreset::ALL {
             presets = presets.child(
-                segment(
+                button(
                     &t,
                     SharedString::from(format!("cam-{}", p.label())),
                     p.label(),
                     false,
-                    i == 0,
                 )
                 .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
                     this.set_structure_camera(p, cx);
@@ -1398,10 +1397,11 @@ impl StudioApp {
                     )
                     .child(mono_line(
                         &t,
-                        format!(
-                            "a {:.3}  b {:.3}  c {:.3} Å  α {:.0}° β {:.0}° γ {:.0}°",
-                            l[0], l[1], l[2], l[3], l[4], l[5]
-                        ),
+                        format!("a {:.3}  b {:.3}  c {:.3} Å", l[0], l[1], l[2]),
+                    ))
+                    .child(mono_line(
+                        &t,
+                        format!("α {:.1}°  β {:.1}°  γ {:.1}°", l[3], l[4], l[5]),
                     ))
                     .child(mono_line(&t, format!("sites  {sites}"))),
             );

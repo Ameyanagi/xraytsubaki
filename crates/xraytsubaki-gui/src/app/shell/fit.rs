@@ -643,17 +643,24 @@ impl StudioApp {
             .items_center()
             .gap_2()
             .child(section_label(&t, "Structure"))
-            .child(div().flex_1())
+            .child(div().flex_1());
+        let advanced = div()
+            .px_3()
+            .pt_1()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap_1()
             .child(
-                self.sub_button("feff-new", "New feff.inp…", cx, |this, cx| {
-                    this.new_feff_inp(cx)
-                }),
+                div()
+                    .text_size(px(11.))
+                    .text_color(t.text_muted)
+                    .child("custom feff.inp:"),
             )
-            .child(
-                self.sub_button("feff-choose", "Choose feff.inp…", cx, |this, cx| {
-                    this.choose_feff_inp(cx)
-                }),
-            )
+            .child(self.sub_button("feff-new", "New…", cx, |this, cx| this.new_feff_inp(cx)))
+            .child(self.sub_button("feff-choose", "Choose…", cx, |this, cx| {
+                this.choose_feff_inp(cx)
+            }))
             .child(self.sub_button("feff-run", "Run FEFF", cx, |this, cx| {
                 this.run_feff10_now(cx)
             }));
@@ -665,6 +672,7 @@ impl StudioApp {
             .pb_2()
             .child(head)
             .child(self.structure_panel(cx))
+            .child(advanced)
     }
 
     fn fit_params_section(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {

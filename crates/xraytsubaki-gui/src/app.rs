@@ -1758,6 +1758,7 @@ impl StudioApp {
         .detach();
         app.roi_input = Some(roi_input);
         app.update_import_preview(cx);
+        app.structure_search(cx);
         match process_file(&path, &app.params) {
             Ok(sp) => {
                 let fingerprint = app.params.fingerprint();

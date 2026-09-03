@@ -536,8 +536,8 @@ impl StructureSourceKind {
     pub fn label(self) -> &'static str {
         match self {
             StructureSourceKind::Builtin => "Built-in",
-            StructureSourceKind::LocalCif => "CIF library",
-            StructureSourceKind::MaterialsProject => "Materials Project",
+            StructureSourceKind::LocalCif => "CIF",
+            StructureSourceKind::MaterialsProject => "MP",
             StructureSourceKind::Amcsd => "AMCSD",
         }
     }

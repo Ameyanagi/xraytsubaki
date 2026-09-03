@@ -17,12 +17,29 @@ pub struct UserSettings {
     pub mp_api_key: String,
 }
 
-/// `~/.xraytsubaki` (created on demand).
+/// `~/.xraytsubaki` (created on demand, owner-only on Unix because it
+/// holds `settings.json` with the Materials Project API key).
 pub fn app_dir() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;
     let dir = PathBuf::from(home).join(".xraytsubaki");
     std::fs::create_dir_all(&dir).ok()?;
+    restrict_to_owner(&dir, 0o700);
     Some(dir)
+}
+
+/// Best-effort `chmod` on Unix; a no-op elsewhere. Settings hold a
+/// credential (the Materials Project API key) in plain text, so the file
+/// and its directory must not be readable by other local accounts.
+fn restrict_to_owner(path: &Path, mode: u32) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode));
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (path, mode);
+    }
 }
 
 /// `~/.xraytsubaki/settings.json`, or the file named by `XTS_SETTINGS`
@@ -56,9 +73,31 @@ impl UserSettings {
         self.save_to(&path)
     }
 
+    /// Write the settings atomically with owner-only permissions (0600); the
+    /// API key is stored in plain text, so the file must never be world-
+    /// or group-readable. The key is never logged.
     pub fn save_to(&self, path: &Path) -> Result<(), String> {
         let text = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
-        std::fs::write(path, text).map_err(|e| e.to_string())
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+        let tmp = path.with_extension("json.tmp");
+        {
+            let mut opts = std::fs::OpenOptions::new();
+            opts.write(true).create(true).truncate(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                opts.mode(0o600);
+            }
+            let mut f = opts.open(&tmp).map_err(|e| e.to_string())?;
+            use std::io::Write;
+            f.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+        }
+        restrict_to_owner(&tmp, 0o600);
+        std::fs::rename(&tmp, path).map_err(|e| e.to_string())?;
+        restrict_to_owner(path, 0o600);
+        Ok(())
     }
 }
 
@@ -78,6 +117,12 @@ mod tests {
         };
         s.save_to(&path).unwrap();
         assert_eq!(UserSettings::load_from(&path).unwrap(), s);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600, "settings file must be owner-only");
+        }
         // Missing keys fall back to defaults.
         std::fs::write(&path, "{}").unwrap();
         assert_eq!(

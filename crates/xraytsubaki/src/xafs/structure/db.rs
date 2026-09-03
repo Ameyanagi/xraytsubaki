@@ -306,10 +306,13 @@ mod tests {
     #[test]
     fn formulas_compare_by_composition() {
         assert!(formula_matches("Ru O2", "RuO2"));
-        assert!(formula_matches("O2Ru", "ruO2") || !formula_matches("O2Ru", "ruO2"));
+        assert!(formula_matches("O2Ru", "RuO2"));
         assert!(formula_matches("Fe2 O3", "Fe4O6"));
         assert!(!formula_matches("FeO", "Fe2O3"));
-        assert!(parse_formula("nonsense").is_empty() || parse_formula("nonsense").len() <= 1);
+        assert!(!formula_matches("RuO2", "Ru"));
+        let parsed = parse_formula("Fe2O3");
+        assert_eq!(parsed.len(), 2);
+        assert!(parse_formula("").is_empty());
     }
 
     #[test]

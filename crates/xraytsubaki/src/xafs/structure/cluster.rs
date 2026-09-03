@@ -311,7 +311,19 @@ pub fn build_cluster(
                     let element = if is_absorber {
                         absorber_element
                     } else {
-                        sp.element()
+                        match sp.element() {
+                            Some(e) => e,
+                            None => {
+                                let msg = format!(
+                                    "site {} has unknown species symbol {:?}; skipped",
+                                    site.label, sp.symbol
+                                );
+                                if !warnings.contains(&msg) {
+                                    warnings.push(msg);
+                                }
+                                continue;
+                            }
+                        }
                     };
                     if !opts.include_hydrogen && element.z == 1 && !is_absorber {
                         continue;

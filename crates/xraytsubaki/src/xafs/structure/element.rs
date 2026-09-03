@@ -86,7 +86,8 @@ mod tests {
         assert_eq!(Element::from_label("O1").unwrap().symbol, "O");
         assert_eq!(Element::from_label("Co1").unwrap().symbol, "Co");
         assert_eq!(Element::from_label("D").unwrap().symbol, "H");
-        assert!(Element::from_label("Xx").is_none() || Element::from_label("Xx").is_some());
+        assert!(Element::from_label("Xx").is_none());
+        assert!(Element::from_label("").is_none());
         assert!(Element::from_label("1").is_none());
         assert_eq!(Element::from_z(103).unwrap().symbol, "Lr");
         assert!(Element::from_z(0).is_none());

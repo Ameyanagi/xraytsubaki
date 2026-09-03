@@ -27,6 +27,7 @@ pub struct CrystalSpec {
 
 /// `feff.inp` text for a simple crystal, generated through the core
 /// structure module (`builtin_structure` → `build_cluster` → `write_feff_inp`).
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn generate_inp(spec: &CrystalSpec) -> Result<String, String> {
     use xraytsubaki::xafs::structure::{
         AbsorberSelection, ClusterOptions, Edge, FeffInputOptions, build_cluster, write_feff_inp,
@@ -55,6 +56,7 @@ pub fn generate_inp(spec: &CrystalSpec) -> Result<String, String> {
 }
 
 /// Create a workspace containing a feff.inp generated from `spec`.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn new_workspace_from_spec(spec: &CrystalSpec) -> Result<PathBuf, String> {
     new_workspace_with(&generate_inp(spec)?)
 }

@@ -470,17 +470,12 @@ fn parse_oxidation(type_symbol: &str) -> Option<f64> {
     if rest.is_empty() {
         return None;
     }
-    let (digits, sign): (String, f64) = if let Some(d) = rest.strip_suffix('+') {
-        (d.to_string(), 1.0)
-    } else if let Some(d) = rest.strip_suffix('-') {
-        (d.to_string(), -1.0)
-    } else if let Some(d) = rest.strip_prefix('+') {
-        (d.to_string(), 1.0)
-    } else if let Some(d) = rest.strip_prefix('-') {
-        (d.to_string(), -1.0)
-    } else {
-        return None;
-    };
+    let (digits, sign): (String, f64) = rest
+        .strip_suffix('+')
+        .map(|d| (d.to_string(), 1.0))
+        .or_else(|| rest.strip_suffix('-').map(|d| (d.to_string(), -1.0)))
+        .or_else(|| rest.strip_prefix('+').map(|d| (d.to_string(), 1.0)))
+        .or_else(|| rest.strip_prefix('-').map(|d| (d.to_string(), -1.0)))?;
     let magnitude: f64 = if digits.is_empty() {
         1.0
     } else {

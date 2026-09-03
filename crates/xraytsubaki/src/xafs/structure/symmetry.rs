@@ -301,7 +301,7 @@ pub fn expand_sites(asym: &[Site], ops: &[SymOp], tol: f64) -> Vec<Site> {
     let mut out: Vec<Site> = Vec::new();
     for (ai, site) in asym.iter().enumerate() {
         let mut generated = 0u32;
-        let mut first_index = out.len();
+        let first_index = out.len();
         for op in &ops {
             let raw = op.apply(site.frac);
             let pos = [wrap_unit(raw[0]), wrap_unit(raw[1]), wrap_unit(raw[2])];
@@ -322,9 +322,6 @@ pub fn expand_sites(asym: &[Site], ops: &[SymOp], tol: f64) -> Vec<Site> {
             new_site.asym_index = Some(ai);
             out.push(new_site);
             generated += 1;
-        }
-        if first_index > out.len() {
-            first_index = out.len();
         }
         for s in out.iter_mut().skip(first_index) {
             if s.asym_index == Some(ai) {

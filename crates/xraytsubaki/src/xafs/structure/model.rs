@@ -30,10 +30,10 @@ impl Species {
         }
     }
 
-    pub fn element(&self) -> &'static Element {
-        Element::from_symbol(&self.symbol)
-            .or_else(|| Element::from_label(&self.symbol))
-            .unwrap_or_else(|| Element::from_z(1).expect("hydrogen exists"))
+    /// The element behind this species' symbol, or `None` when the symbol
+    /// (or label such as `Ru1`, `Fe2+`) does not name a known element.
+    pub fn element(&self) -> Option<&'static Element> {
+        Element::from_symbol(&self.symbol).or_else(|| Element::from_label(&self.symbol))
     }
 }
 
@@ -74,7 +74,7 @@ impl Site {
 
     /// Majority element.
     pub fn element(&self) -> Option<&'static Element> {
-        self.majority().map(Species::element)
+        self.majority().and_then(Species::element)
     }
 
     /// `Fe` for a pure site, `(Fe0.7Ni0.3)` for a mixed one.

@@ -713,7 +713,7 @@ impl StructureSummary {
                 None => sites.push(SiteSummary {
                     label: key,
                     symbol: sp.symbol.clone(),
-                    z: sp.element().z as u32,
+                    z: sp.element().map(|e| e.z as u32).unwrap_or(0),
                     multiplicity: 1,
                     site_index: i,
                 }),

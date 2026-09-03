@@ -405,7 +405,9 @@ pub fn download_amcsd<P: AsRef<Path>>(
 /// [`download_amcsd`] that stops early when `cancel` becomes `true`.
 ///
 /// A cancelled download removes its partial file and returns
-/// [`StructureError::Network`] with the reason `"cancelled"`.
+/// [`StructureError::Network`] with the reason `"cancelled"`. Requires the
+/// `materials-project` feature's HTTP client.
+#[cfg(feature = "materials-project")]
 pub fn download_amcsd_cancellable<P: AsRef<Path>>(
     dest: P,
     mut progress: impl FnMut(u64, Option<u64>),

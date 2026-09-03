@@ -81,24 +81,45 @@ impl UserSettings {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
-        let tmp = path.with_extension("json.tmp");
-        {
-            let mut opts = std::fs::OpenOptions::new();
-            opts.write(true).create(true).truncate(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                opts.mode(0o600);
-            }
-            let mut f = opts.open(&tmp).map_err(|e| e.to_string())?;
-            use std::io::Write;
-            f.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
-        }
+        // Unpredictable temp name + exclusive create: a pre-placed file or
+        // symlink at the temp path makes the open fail instead of being
+        // followed, so the key is never written through someone else's link.
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let tmp = path.with_extension(format!("json.{}.{nonce:x}.tmp", std::process::id()));
+        write_exclusive(&tmp, &text)?;
         restrict_to_owner(&tmp, 0o600);
-        std::fs::rename(&tmp, path).map_err(|e| e.to_string())?;
+        if let Err(e) = std::fs::rename(&tmp, path) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(e.to_string());
+        }
         restrict_to_owner(path, 0o600);
         Ok(())
     }
+}
+
+/// Create `tmp` exclusively (fails if anything, including a symlink, already
+/// exists there), owner-only on Unix, and write `text` into it.
+fn write_exclusive(tmp: &Path, text: &str) -> Result<(), String> {
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let mut f = opts
+        .open(tmp)
+        .map_err(|e| format!("{}: {e}", tmp.display()))?;
+    use std::io::Write;
+    if let Err(e) = f.write_all(text.as_bytes()) {
+        drop(f);
+        let _ = std::fs::remove_file(tmp);
+        return Err(e.to_string());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -129,6 +150,32 @@ mod tests {
             UserSettings::load_from(&path).unwrap(),
             UserSettings::default()
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn temp_file_is_created_exclusively_and_symlinks_are_not_followed() {
+        let dir = std::env::temp_dir().join(format!("xts-settings-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let tmp = dir.join("a.tmp");
+        write_exclusive(&tmp, "one").unwrap();
+        assert!(
+            write_exclusive(&tmp, "two").is_err(),
+            "second create must fail"
+        );
+        assert_eq!(std::fs::read_to_string(&tmp).unwrap(), "one");
+        #[cfg(unix)]
+        {
+            let target = dir.join("victim");
+            std::fs::write(&target, "").unwrap();
+            let link = dir.join("b.tmp");
+            std::os::unix::fs::symlink(&target, &link).unwrap();
+            assert!(
+                write_exclusive(&link, "secret").is_err(),
+                "symlink must not be followed"
+            );
+            assert_eq!(std::fs::read_to_string(&target).unwrap(), "");
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

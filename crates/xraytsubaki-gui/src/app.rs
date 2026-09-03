@@ -1758,13 +1758,14 @@ impl StudioApp {
         .detach();
         app.roi_input = Some(roi_input);
         app.update_import_preview(cx);
-        // Scripted launches: XTS_STRUCTURE_SOURCE=builtin|cif|mp|amcsd,
+        // Scripted launches: XTS_STRUCTURE_SOURCE=builtin|cif|mp|amcsd|cod,
         // XTS_IMPORT_CIF=<file>, XTS_SETTINGS=<settings.json>.
         if let Ok(src) = std::env::var("XTS_STRUCTURE_SOURCE") {
             app.structure.source = match src.as_str() {
                 "cif" => crate::structure::StructureSourceKind::LocalCif,
                 "mp" => crate::structure::StructureSourceKind::MaterialsProject,
                 "amcsd" => crate::structure::StructureSourceKind::Amcsd,
+                "cod" => crate::structure::StructureSourceKind::Cod,
                 _ => crate::structure::StructureSourceKind::Builtin,
             };
         }

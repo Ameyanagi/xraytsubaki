@@ -774,6 +774,25 @@ impl StudioApp {
                 }
             }
         }
+        // Online sources need a query; switching to their tab must not fire
+        // a request (or record an error) for an empty box.
+        if query.trim().is_empty()
+            && matches!(
+                kind,
+                StructureSourceKind::MaterialsProject | StructureSourceKind::Cod
+            )
+        {
+            self.structure.hits.clear();
+            self.structure.search_error = Some(match kind {
+                StructureSourceKind::Cod => {
+                    "COD: enter a mineral or compound name, a formula (Fe S2), elements, or a COD id"
+                        .to_string()
+                }
+                _ => "Materials Project: enter a formula (e.g. RuO2) or an mp-id".to_string(),
+            });
+            cx.notify();
+            return;
+        }
         let cfg = self.structure.source_config();
         self.structure.search_running = true;
         self.structure.search_error = None;

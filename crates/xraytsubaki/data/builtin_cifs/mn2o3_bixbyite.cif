@@ -1,0 +1,119 @@
+#------------------------------------------------------------------------------
+#$Date: 2016-01-24 21:40:23 +0200 (Sun, 24 Jan 2016) $
+#$Revision: 174965 $
+#$URL: file:///home/coder/svn-repositories/_RELOADED_COD/cod-reloaded/cif/8/10/34/8103497.cif $
+#------------------------------------------------------------------------------
+#
+# This file is available in the Crystallography Open Database (COD),
+# http://www.crystallography.net/
+#
+# All data on this site have been placed in the public domain by the
+# contributors.
+#
+data_8103497
+loop_
+_publ_author_name
+'Klein, H.'
+_publ_section_title
+;
+ Structure solution of oxides from zone axes precession electron
+ diffraction data
+;
+_journal_issue                   1
+_journal_name_full
+'Zeitschrift f\"ur Kristallographie - Crystalline Materials'
+_journal_page_first              35
+_journal_page_last               42
+_journal_paper_doi               10.1524/zkri.2012.1568
+_journal_volume                  228
+_journal_year                    2013
+_chemical_formula_structural     'Mn2 O3'
+_chemical_formula_sum            'Mn2 O3'
+_chemical_name_systematic        'Dimanganese Trioxide'
+_space_group_IT_number           206
+_symmetry_Int_Tables_number      206
+_symmetry_space_group_name_Hall  '-I 2b 2c 3'
+_symmetry_space_group_name_H-M   'I a -3'
+_audit_creation_date             2013/08/01
+_cell_angle_alpha                90.
+_cell_angle_beta                 90.
+_cell_angle_gamma                90.
+_cell_formula_units_Z            16
+_cell_length_a                   9.41
+_cell_length_b                   9.41
+_cell_length_c                   9.41
+_cell_volume                     833.238
+_cod_data_source_file            'data_Mn2O3melanie187263.cif'
+_cod_data_source_block           1396619310.96-D290F29E9218B844.cif
+_cod_original_cell_volume        833.24
+_cod_database_code               8103497
+loop_
+_symmetry_equiv_pos_site_id
+_symmetry_equiv_pos_as_xyz
+1 '-z, x, y+1/2'
+2 'z, x+1/2, -y'
+3 'z+1/2, -x, y'
+4 '-z, -x, -y'
+5 'y+1/2, -z, x'
+6 '-y, z, x+1/2'
+7 'y, z+1/2, -x'
+8 '-y, -z, -x'
+9 'x, y+1/2, -z'
+10 'x+1/2, -y, z'
+11 '-x, y, z+1/2'
+12 '-x, -y, -z'
+13 'z, -x, -y+1/2'
+14 '-z, -x+1/2, y'
+15 '-z+1/2, x, -y'
+16 'z, x, y'
+17 '-y+1/2, z, -x'
+18 'y, -z, -x+1/2'
+19 '-y, -z+1/2, x'
+20 'y, z, x'
+21 '-x, -y+1/2, z'
+22 '-x+1/2, y, -z'
+23 'x, -y, -z+1/2'
+24 'x, y, z'
+25 '-z+1/2, x+1/2, y'
+26 'z+1/2, x, -y+1/2'
+27 'z, -x+1/2, y+1/2'
+28 '-z+1/2, -x+1/2, -y+1/2'
+29 'y, -z+1/2, x+1/2'
+30 '-y+1/2, z+1/2, x'
+31 'y+1/2, z, -x+1/2'
+32 '-y+1/2, -z+1/2, -x+1/2'
+33 'x+1/2, y, -z+1/2'
+34 'x, -y+1/2, z+1/2'
+35 '-x+1/2, y+1/2, z'
+36 '-x+1/2, -y+1/2, -z+1/2'
+37 'z+1/2, -x+1/2, -y'
+38 '-z+1/2, -x, y+1/2'
+39 '-z, x+1/2, -y+1/2'
+40 'z+1/2, x+1/2, y+1/2'
+41 '-y, z+1/2, -x+1/2'
+42 'y+1/2, -z+1/2, -x'
+43 '-y+1/2, -z, x+1/2'
+44 'y+1/2, z+1/2, x+1/2'
+45 '-x+1/2, -y, z+1/2'
+46 '-x, y+1/2, -z+1/2'
+47 'x+1/2, -y+1/2, -z'
+48 'x+1/2, y+1/2, z+1/2'
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_symmetry_multiplicity
+_atom_site_Wyckoff_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_occupancy
+_atom_site_attached_hydrogens
+_atom_site_B_iso_or_equiv
+Mn1 Mn3+ 8 a 0 0 0. 1. 0 0
+Mn2 Mn3+ 24 d 0.25 0.27918 0. 1. 0 0
+O1 O2- 48 e 0.125 0.15 0.912 1. 0 0
+loop_
+_atom_type_symbol
+_atom_type_oxidation_number
+Mn3+ 3
+O2- -2

@@ -32,6 +32,8 @@ use xraytsubaki::prelude::XASSpectrum;
 use rayon::prelude::*;
 
 use xraytsubaki::prelude::FeffFitResult;
+use xraytsubaki::xafs::fitting::template::{apply_template, ParameterTemplate};
+use xraytsubaki::xafs::structure::{rank_paths, select_default, shells_of, PathInfo};
 
 use crate::catalog::{Catalog, ScanEvent, index_cache_path, load_index, start_scan, write_index};
 use crate::fitting::expr_identifiers;
@@ -888,6 +890,15 @@ pub struct StudioApp {
     /// the background while the Fit workspace stays visible.
     pending_time_pos: Option<usize>,
     fit_paths: Vec<FitPathRow>,
+    /// Ranked summaries parallel to `fit_paths` (label, shell, importance).
+    pub(crate) fit_path_infos: Vec<PathInfo>,
+    /// How selected paths are parameterised; applied on selection changes
+    /// until the user edits a variable or a path cell by hand.
+    pub(crate) fit_template: ParameterTemplate,
+    pub(crate) fit_template_dirty: bool,
+    pub(crate) fit_template_notes: Vec<String>,
+    /// Guided Fit flow: which of the four setup steps are expanded.
+    pub(crate) fit_steps_open: [bool; 4],
     fit_vars: Vec<FitVar>,
     fit_range_fields: Vec<(RangeKey, Entity<NumericField>)>,
     fit_ranges: FitRanges,
@@ -1637,6 +1648,11 @@ impl StudioApp {
             time_pos: 0,
             pending_time_pos: None,
             fit_paths: Vec::new(),
+            fit_path_infos: Vec::new(),
+            fit_template: ParameterTemplate::default(),
+            fit_template_dirty: false,
+            fit_template_notes: Vec::new(),
+            fit_steps_open: [true, false, false, false],
             fit_vars: Vec::new(),
             fit_range_fields: Vec::new(),
             fit_ranges: FitRanges::default(),
@@ -4431,6 +4447,7 @@ impl StudioApp {
                 }
             }
         };
+        self.fit_template_dirty = true;
         if let Some(var) = self.fit_vars.iter_mut().find(|var| var.spec.name == name) {
             if is_min {
                 var.spec.min = value;
@@ -4465,6 +4482,7 @@ impl StudioApp {
                 }
             }
         }
+        self.fit_template_dirty = true;
         self.fit_model_changed(cx);
     }
 
@@ -4488,6 +4506,7 @@ impl StudioApp {
         }
         if let Some(row) = self.fit_paths.get_mut(path_ix) {
             param.set(&mut row.spec, text);
+            self.fit_template_dirty = true;
             self.fit_model_changed(cx);
         }
     }
@@ -4505,6 +4524,7 @@ impl StudioApp {
                     for file in paths {
                         app.push_fit_path(file, cx);
                     }
+                    app.refresh_path_infos();
                     app.fit_model_changed(cx);
                 })
                 .ok();
@@ -4513,16 +4533,187 @@ impl StudioApp {
         .detach();
     }
 
-    /// Standard parameterization: shared amp/de0, per-path sigma2/deltar.
-    /// Every parameter cell accepts a number or an expression.
+    /// Add a path with empty cells; the parameter template fills them once
+    /// the path is selected. Every parameter cell accepts a number or an
+    /// expression.
     fn push_fit_path(&mut self, file: PathBuf, cx: &mut Context<Self>) {
-        let i = self.fit_paths.len() + 1;
-        let spec = FitPathSpec::standard(file, i);
-        self.ensure_fit_var("amp", 0.9, cx);
-        self.ensure_fit_var("de0", 0.0, cx);
-        self.ensure_fit_var(&spec.sigma2, 0.003, cx);
-        self.ensure_fit_var(&spec.deltar, 0.0, cx);
+        let spec = FitPathSpec::blank(file);
         self.add_path_row(spec, cx);
+    }
+
+    /// Re-rank `fit_paths` (labels, shells, importance) after the list changed.
+    pub(crate) fn refresh_path_infos(&mut self) {
+        let dats: Vec<xraytsubaki::prelude::FeffDat> = self
+            .fit_paths
+            .iter()
+            .map(|row| {
+                xraytsubaki::prelude::feffpath(
+                    row.spec.file.to_string_lossy().as_ref(),
+                    xraytsubaki::prelude::FeffFlavor::Feff85L,
+                )
+                .map(|m| m.feff)
+                .unwrap_or_else(|_| xraytsubaki::prelude::FeffDat {
+                    filename: row.spec.label.clone(),
+                    reff: row.meta.as_ref().map(|m| m.reff).unwrap_or(0.0),
+                    degen: row.meta.as_ref().map(|m| m.degen).unwrap_or(1.0),
+                    nleg: row.meta.as_ref().map(|m| m.nleg).unwrap_or(2),
+                    ..Default::default()
+                })
+            })
+            .collect();
+        self.fit_path_infos = rank_paths(&dats);
+    }
+
+    /// Default selection after a FEFF run: single-scattering shells inside
+    /// the fit R range with real amplitude (falls back to the first shell).
+    pub(crate) fn apply_default_selection(&mut self) {
+        let mut sel = select_default(&self.fit_path_infos, self.fit_ranges.rmax);
+        if sel.is_empty() {
+            let shells = shells_of(&self.fit_path_infos);
+            if let Some(first) = shells.first() {
+                sel = first.paths.clone();
+            }
+        }
+        for (i, row) in self.fit_paths.iter_mut().enumerate() {
+            row.spec.enabled = sel.contains(&i);
+        }
+    }
+
+    /// Selected paths, as ranked summaries.
+    pub(crate) fn selected_path_infos(&self) -> Vec<PathInfo> {
+        self.fit_path_infos
+            .iter()
+            .filter(|p| self.fit_paths.get(p.index).is_some_and(|r| r.spec.enabled))
+            .cloned()
+            .collect()
+    }
+
+    /// Selection changed from the picker: keep the parameters in step with
+    /// it unless the user has edited them by hand.
+    pub(crate) fn paths_selection_changed(&mut self, cx: &mut Context<Self>) {
+        if !self.fit_template_dirty && self.fit_template != ParameterTemplate::Manual {
+            self.apply_fit_template(cx);
+        } else {
+            self.fit_model_changed(cx);
+        }
+    }
+
+    /// Rebuild the variables and every path's parameter cells from the
+    /// chosen template and the current selection.
+    pub(crate) fn apply_fit_template(&mut self, cx: &mut Context<Self>) {
+        let selected = self.selected_path_infos();
+        let result = apply_template(self.fit_template, &selected);
+        self.fit_vars.clear();
+        for v in &result.variables {
+            self.ensure_fit_var(&v.name, v.value, cx);
+            if let Some(var) = self.fit_vars.iter_mut().find(|x| x.spec.name == v.name) {
+                var.spec.vary = v.vary;
+                var.spec.min = v.min;
+                var.spec.max = v.max;
+                var.spec.expr = v.expr.clone();
+                let text = match &v.expr {
+                    Some(expr) => expr.clone(),
+                    None => format!("{}", v.value),
+                };
+                var.field.update(cx, |f, cx| f.set_text(text, cx));
+                var.min_field.update(cx, |f, cx| {
+                    f.set_text(v.min.map(|x| x.to_string()).unwrap_or_default(), cx)
+                });
+                var.max_field.update(cx, |f, cx| {
+                    f.set_text(v.max.map(|x| x.to_string()).unwrap_or_default(), cx)
+                });
+            }
+        }
+        for (i, row) in self.fit_paths.iter_mut().enumerate() {
+            match result.assignments.iter().find(|a| a.index == i) {
+                Some(a) => {
+                    row.spec.s02 = a.s02.clone();
+                    row.spec.e0 = a.e0.clone();
+                    row.spec.deltar = a.deltar.clone();
+                    row.spec.sigma2 = a.sigma2.clone();
+                }
+                None => {
+                    row.spec.s02.clear();
+                    row.spec.e0.clear();
+                    row.spec.deltar.clear();
+                    row.spec.sigma2.clear();
+                }
+            }
+            for (param, field) in &row.fields {
+                if param.is_primary() {
+                    let text = param.get(&row.spec).to_string();
+                    field.update(cx, |f, cx| f.set_text(text, cx));
+                }
+            }
+        }
+        self.fit_template_notes = result.notes;
+        self.fit_template_dirty = false;
+        self.fit_model_changed(cx);
+    }
+
+    /// Guided-flow status of setup step `step` (0 structure, 1 paths,
+    /// 2 parameters, 3 settings): done flag and a one-line summary.
+    pub(crate) fn fit_step_status(&self, step: usize) -> (bool, String) {
+        match step {
+            0 => {
+                if let Some(c) = &self.structure.core_cluster {
+                    let shells = c.shells(0.01).len();
+                    (
+                        true,
+                        format!("{} · {} atoms · {shells} shells", c.structure_title, c.atoms.len()),
+                    )
+                } else if let Some(s) = &self.structure.summary {
+                    (false, format!("{} — generate paths", s.hit.name))
+                } else if self.feff_workspace.is_some() && !self.fit_paths.is_empty() {
+                    (true, format!("{} paths from feff.inp", self.fit_paths.len()))
+                } else {
+                    (false, "choose a structure".into())
+                }
+            }
+            1 => {
+                let total = self.fit_paths.len();
+                if total == 0 {
+                    return (false, "no paths yet".into());
+                }
+                let selected = self.selected_path_infos();
+                let shells: std::collections::BTreeSet<usize> =
+                    selected.iter().filter(|p| p.shell > 0).map(|p| p.shell).collect();
+                (
+                    !selected.is_empty(),
+                    format!(
+                        "{} selected / {total} · {} shell{}",
+                        selected.len(),
+                        shells.len(),
+                        if shells.len() == 1 { "" } else { "s" }
+                    ),
+                )
+            }
+            2 => {
+                let n = self.fit_vars.len();
+                let vary = self.fit_vars.iter().filter(|v| v.spec.vary && v.spec.expr.is_none()).count();
+                let edited = if self.fit_template_dirty { " · edited" } else { "" };
+                (
+                    n > 0,
+                    format!("{n} variables ({vary} guess) · {}{edited}", self.fit_template.label()),
+                )
+            }
+            _ => {
+                let r = &self.fit_ranges;
+                let kws: Vec<String> = r.effective_kweights().iter().map(|k| format!("{k:.0}")).collect();
+                (
+                    true,
+                    format!(
+                        "k {:.1}–{:.1} · R {:.1}–{:.1} · kw {} · {} space",
+                        r.kmin,
+                        r.kmax,
+                        r.rmin,
+                        r.rmax,
+                        kws.join(","),
+                        r.fitspace.label()
+                    ),
+                )
+            }
+        }
     }
 
     /// Materialize a path spec into a row with editable cells.
@@ -4691,6 +4882,8 @@ impl StudioApp {
         for spec in entry.paths {
             self.add_path_row(spec, cx);
         }
+        self.refresh_path_infos();
+        self.fit_template_dirty = true;
         for saved in entry.vars {
             self.ensure_fit_var(&saved.name, saved.value, cx);
             if let Some(var) = self.fit_vars.iter_mut().find(|v| v.spec.name == saved.name) {
@@ -5639,17 +5832,20 @@ impl StudioApp {
                             ra.total_cmp(&rb)
                         });
                         let n = paths.len();
-                        for (i, file) in paths.into_iter().enumerate() {
+                        for file in paths {
                             app.push_fit_path(file, cx);
-                            // Long path lists: keep only the first few enabled.
-                            if i >= 3
-                                && let Some(row) = app.fit_paths.last_mut()
-                            {
-                                row.spec.enabled = false;
-                            }
                         }
-                        app.fit_model_changed(cx);
-                        app.status = format!("FEFF10 done — imported {n} paths").into();
+                        app.refresh_path_infos();
+                        app.apply_default_selection();
+                        app.fit_template_dirty = false;
+                        app.apply_fit_template(cx);
+                        app.fit_steps_open = [false, true, false, false];
+                        let selected = app.fit_paths.iter().filter(|r| r.spec.enabled).count();
+                        app.status = format!(
+                            "FEFF10 done — {n} paths, {selected} selected ({})",
+                            app.fit_template.label()
+                        )
+                        .into();
                     }
                     Err(e) => {
                         app.status = format!("FEFF10 failed: {e}").into();
@@ -5760,6 +5956,8 @@ impl StudioApp {
         for spec in project.fit_paths {
             self.add_path_row(spec, cx);
         }
+        self.refresh_path_infos();
+        self.fit_template_dirty = true;
         // add_path_row's expression scan creates vars with defaults; restore
         // the saved values/flags on top.
         for saved in project.fit_vars {

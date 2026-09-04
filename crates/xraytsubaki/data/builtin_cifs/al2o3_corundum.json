@@ -1,0 +1,18 @@
+{
+ "key": "al2o3_corundum",
+ "name": "α-Al₂O₃ corundum",
+ "formula": "Al2 O3",
+ "sg_number": 167,
+ "sg": "R -3 c :H",
+ "category": "oxide",
+ "source": "COD",
+ "id": "cod-2300448",
+ "url": "https://www.crystallography.net/cod/2300448.html",
+ "year": "2014",
+ "journal": "Journal of Applied Crystallography",
+ "authors": "Schreyer, Martin; Guo, Liangfeng; Thirunahari, Satyanarayana; Gao, Feng; Garland, Marc",
+ "doi": "10.1107/S1600576714003379",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

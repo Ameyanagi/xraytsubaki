@@ -1,0 +1,18 @@
+{
+ "key": "pdo",
+ "name": "PdO",
+ "formula": "O Pd",
+ "sg_number": 131,
+ "sg": "P 42/m m c (a,b+1/2,c)",
+ "category": "oxide",
+ "source": "COD",
+ "id": "cod-1009031",
+ "url": "https://www.crystallography.net/cod/1009031.html",
+ "year": "1953",
+ "journal": "Acta Crystallographica",
+ "authors": "Waser, J.; Levy, H. A.; Peterson, S. W.",
+ "doi": "10.1107/S0365110X53001800",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

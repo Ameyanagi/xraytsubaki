@@ -39,3 +39,5 @@ pub use crate::xafs::tools::{
     RebinConfig, RebinMethod, RebinOutput,
 };
 pub use crate::xafs::xafsutils::ConvolveForm;
+pub use crate::xafs::fitting::template::{apply_template, ParameterTemplate, PathAssignment, TemplateResult, TemplateVariable};
+pub use crate::xafs::structure::{rank_paths, select_by, select_default, shells_of, BuiltinLibrary, PathInfo, ShellInfo, Xyz, XyzAbsorber};

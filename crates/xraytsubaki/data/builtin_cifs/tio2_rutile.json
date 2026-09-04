@@ -1,0 +1,18 @@
+{
+ "key": "tio2_rutile",
+ "name": "TiO₂ rutile",
+ "formula": "O2 Ti",
+ "sg_number": 136,
+ "sg": "P 42/m n m",
+ "category": "oxide",
+ "source": "COD",
+ "id": "cod-4102355",
+ "url": "https://www.crystallography.net/cod/4102355.html",
+ "year": "2010",
+ "journal": "Journal of the American Chemical Society",
+ "authors": "Eugen Dorolti; Laurent Cario; Benoît Corraze; Etienne Janod; Cristian Vaju; Hyun-Joo Koo; Erjun Kan; Myung-Hwan Whangbo",
+ "doi": "10.1021/ja908128b",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

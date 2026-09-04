@@ -1,0 +1,91 @@
+#------------------------------------------------------------------------------
+#$Date: 2024-05-29 17:00:33 +0300 (Wed, 29 May 2024) $
+#$Revision: 292100 $
+#$URL: file:///home/coder/svn-repositories/_RELOADED_COD/cod-reloaded/cif/9/01/78/9017843.cif $
+#------------------------------------------------------------------------------
+#
+# This file is available in the Crystallography Open Database (COD),
+# http://www.crystallography.net/. The original data for this entry
+# were provided the American Mineralogist Crystal Structure Database,
+# http://rruff.geo.arizona.edu/AMS/amcsd.php
+#
+# The file may be used within the scientific community so long as
+# proper attribution is given to the journal article from which the
+# data were obtained.
+#
+data_9017843
+loop_
+_publ_author_name
+'Mochalov, A. G.'
+'Dmitrenko, G. G.'
+'Rudashevsky, N. S.'
+'Zhernovsky, I. V.'
+'Boldyreva, M. M.'
+_publ_section_title
+;
+ Hexaferrum (Fe,Ru),(Fe,Os),(Fe,Ir) - a new mineral
+ Note: sample 6-0662
+;
+_journal_name_full
+'Zapiski Vserossijskogo Mineralogicheskogo Obshchestva'
+_journal_page_first              41
+_journal_page_last               51
+_journal_volume                  127
+_journal_year                    1998
+_chemical_compound_source        Synthetic
+_chemical_formula_sum            Os
+_chemical_name_mineral           Osmium
+_space_group_IT_number           194
+_space_group_name_Hall           '-P 6c 2c'
+_space_group_name_H-M_alt        'P 63/m m c'
+_symmetry_space_group_name_H-M   'P 63/m m c'
+_cell_angle_alpha                90
+_cell_angle_beta                 90
+_cell_angle_gamma                120
+_cell_length_a                   2.7341
+_cell_length_b                   2.7341
+_cell_length_c                   4.3197
+_cell_formula_units_Z            2
+_cell_volume                     27.965
+_database_code_amcsd             0020238
+_exptl_crystal_density_diffrn    22.588
+_cod_data_source_file            inputs/fixed/downloads/20/20433.cif
+_cod_data_source_block           20433
+_cod_database_code               9017843
+loop_
+_space_group_symop_operation_xyz
+x,y,z
+-x,-x+y,1/2+z
+x,x-y,1/2-z
+-x+y,-x,1/2-z
+x-y,x,1/2+z
+-y,-x,z
+y,x,-z
+y,-x+y,-z
+-y,x-y,z
+x-y,-y,1/2+z
+-x+y,y,1/2-z
+x,y,1/2-z
+-x,-y,1/2+z
+x,x-y,z
+-x,-x+y,-z
+x-y,x,-z
+-x+y,-x,z
+y,x,1/2+z
+-y,-x,1/2-z
+-y,x-y,1/2-z
+y,-x+y,1/2+z
+-x+y,y,z
+x-y,-y,-z
+-x,-y,-z
+loop_
+_atom_site_label
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+Os 0.33333 0.66667 0.25000
+loop_
+_cod_related_entry_id
+_cod_related_entry_database
+_cod_related_entry_code
+1 AMCSD 0020238

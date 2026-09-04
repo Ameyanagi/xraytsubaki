@@ -8,6 +8,7 @@
 //! FEFF runners in [`crate::xafs::fitting::runner`] → path files whose leg
 //! geometry [`paths::PathGeometry`] maps back onto the cluster atoms.
 
+pub mod builtin;
 pub mod cif;
 pub mod cluster;
 pub mod db;
@@ -16,8 +17,10 @@ mod element_table;
 pub mod feffinp;
 pub mod lattice;
 pub mod model;
+pub mod pathrank;
 pub mod paths;
 pub mod symmetry;
+pub mod xyz;
 
 pub use cif::{parse_cif, read_cif, structure_from_cif, structure_to_cif, CifBlock, CifLoop};
 pub use cluster::{
@@ -29,7 +32,10 @@ pub use element::Element;
 pub use feffinp::{write_feff_inp, Edge, FeffInputOptions, FeffInputStyle};
 pub use lattice::Lattice;
 pub use model::{Site, SpaceGroupInfo, Species, Structure};
+pub use builtin::{BuiltinEntry, BuiltinLibrary};
+pub use pathrank::{path_label, rank_paths, select_by, select_default, shells_of, PathInfo, ShellInfo};
 pub use paths::{PathGeometry, PathLeg};
+pub use xyz::{parse_xyz, read_xyz, Xyz, XyzAbsorber, XyzAtom};
 pub use symmetry::{expand_sites, find_space_group, SpaceGroupEntry, SymOp};
 
 use thiserror::Error;

@@ -1,0 +1,136 @@
+#------------------------------------------------------------------------------
+#$Date: 2017-01-29 23:22:55 +0200 (Sun, 29 Jan 2017) $
+#$Revision: 191079 $
+#$URL: file:///home/coder/svn-repositories/_RELOADED_COD/cod-reloaded/cif/2/10/47/2104742.cif $
+#------------------------------------------------------------------------------
+#
+# This file is available in the Crystallography Open Database (COD),
+# http://www.crystallography.net/. The original data for this entry
+# were provided by IUCr Journals, http://journals.iucr.org/.
+#
+# The file may be used within the scientific community so long as
+# proper attribution is given to the journal article from which the
+# data were obtained.
+#
+data_2104742
+loop_
+_publ_author_name
+'Elliot, Alexander Dean'
+_publ_section_title
+;
+ Structure of pyrrhotite 5<i>C</i> (Fe~9~S~10~)
+;
+_journal_coeditor_code           KD5037
+_journal_issue                   3
+_journal_name_full               'Acta Crystallographica Section B'
+_journal_page_first              271
+_journal_page_last               279
+_journal_paper_doi               10.1107/S0108768110011845
+_journal_volume                  66
+_journal_year                    2010
+_chemical_formula_structural     FeCuS
+_chemical_formula_sum            'Cu Fe S2'
+_chemical_formula_weight         183.521
+_chemical_name_mineral           Chalcopyrite
+_space_group_crystal_system      tetragonal
+_space_group_IT_number           122
+_space_group_name_Hall           'I -4 2bw'
+_space_group_name_H-M_alt        'I -4 2 d'
+_symmetry_space_group_name_Hall  'I -4 2bw'
+_symmetry_space_group_name_H-M   'I -4 2 d'
+_cell_angle_alpha                90
+_cell_angle_beta                 90
+_cell_angle_gamma                90
+_cell_formula_units_Z            4
+_cell_length_a                   5.2888(4)
+_cell_length_b                   5.2888(4)
+_cell_length_c                   10.4221(12)
+_cell_volume                     291.52(5)
+_exptl_absorpt_coefficient_mu    20.1952(35)
+_exptl_crystal_density_diffrn    4.18153(71)
+_pd_block_id                     2010-05-13T00:08|Chalcopyrite|A.Elliot|5Ca2
+_pd_proc_ls_profile_function
+;
+Crystallite size and strain modelled with Lorentzian and 
+Gaussian component convolutions
+Chalcopyrite Phase
+    CS_L(cschalcopyrite, 215.77551`_23.42525_LIMIT_MIN_100 
+    min =100; max =1000;)
+;
+_refine_ls_R_I_factor            0.01587
+_cod_data_source_file            kd5037.cif
+_cod_data_source_block           (5Ca2)_Chalcopyrite
+_cod_depositor_comments
+;
+ Moving _atom_site_aniso_U_* data items from the _atom_site loop to the
+ _atom_site_aniso loop and adding the _atom_site_aniso_label data item.
+
+ Antanas Vaitkus,
+ 2017-01-29
+;
+_cod_original_cell_volume        291.521(50)
+_cod_database_code               2104742
+loop_
+_symmetry_equiv_pos_as_xyz
+'-x, -y, z'
+'-x, y+1/2, -z+1/4'
+'-x+1/2, -y+1/2, z+1/2'
+'-x+1/2, y, -z-1/4'
+'-y, -x+1/2, z+1/4'
+'-y, x, -z'
+'-y+1/2, -x, z-1/4'
+'-y+1/2, x+1/2, -z+1/2'
+'y, -x, -z'
+'y, x+1/2, z+1/4'
+'y+1/2, -x+1/2, -z+1/2'
+'y+1/2, x, z-1/4'
+'x, -y+1/2, -z+1/4'
+'x, y, z'
+'x+1/2, -y, -z-1/4'
+'x+1/2, y+1/2, z+1/2'
+loop_
+_atom_site_aniso_label
+_atom_site_aniso_U_11
+_atom_site_aniso_U_22
+_atom_site_aniso_U_33
+_atom_site_aniso_U_12
+_atom_site_aniso_U_13
+_atom_site_aniso_U_23
+Cu 0.0184 0.0184 0.0197 0 0 0
+Fe 0.0117 0.0117 0.0118 0 0 0
+S 0.0113 0.0132 0.0136 0 0 0.0014
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_symmetry_multiplicity
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_occupancy
+Cu Cu+2 4 0 0 0 1
+Fe Fe+2 4 0 0 0.5 1
+S S 8 0.2574 0.25 0.125 1
+loop_
+_atom_type_symbol
+_atom_type_description
+_atom_type_scat_dispersion_real
+_atom_type_scat_dispersion_imag
+_atom_type_scat_source
+Cu2+ Cu2+ 29.257 1.678 'Default dataset used by TOPAS R3'
+Fe2+ Fe2+ 26.368 1.116 'Default dataset used by TOPAS R3'
+S S 16.156 0.167 'Default dataset used by TOPAS R3'
+loop_
+_citation_title
+_citation_page_first
+_citation_page_last
+_citation_year
+_citation_journal_abbrev
+_citation_journal_volume
+_citation_journal_id_ISSN
+' The crystal structure refinement of chalcopyrite, CuFeS2' 579 585 1973
+;
+;
+;
+;
+;
+;

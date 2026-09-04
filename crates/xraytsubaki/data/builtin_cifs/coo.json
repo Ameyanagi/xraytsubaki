@@ -1,0 +1,18 @@
+{
+ "key": "coo",
+ "name": "CoO",
+ "formula": "Co O",
+ "sg_number": 225,
+ "sg": "F m -3 m",
+ "category": "oxide",
+ "source": "COD",
+ "id": "cod-1533087",
+ "url": "https://www.crystallography.net/cod/1533087.html",
+ "year": "1979",
+ "journal": "Proceedings of the Japan Academy, Series B: Physical and Biological Sciences",
+ "authors": "Sasaki, Satoshi; Fujino, Kiyoshi; Takéuchi, Yoshio",
+ "doi": "10.2183/pjab.55.43",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

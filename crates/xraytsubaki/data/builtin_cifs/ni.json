@@ -1,0 +1,18 @@
+{
+ "key": "ni",
+ "name": "Nickel",
+ "formula": "Ni",
+ "sg_number": 225,
+ "sg": "F m -3 m",
+ "category": "metal",
+ "source": "COD",
+ "id": "cod-2100637",
+ "url": "https://www.crystallography.net/cod/2100637.html",
+ "year": "2006",
+ "journal": "Acta Crystallographica, Section B",
+ "authors": "Jørgensen, Jens-Erik; Smith, R. I.",
+ "doi": "10.1107/S0108768106030023",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

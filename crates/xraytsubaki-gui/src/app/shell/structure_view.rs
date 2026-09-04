@@ -154,6 +154,10 @@ pub(crate) struct StructureState {
     pub fetch_running: bool,
     pub download_cancel: Option<Arc<AtomicBool>>,
     pub download_progress: Option<(u64, Option<u64>)>,
+    /// Text filter of the path picker.
+    pub path_filter: Entity<TextInput>,
+    /// Shells whose multiple-scattering paths are unfolded in the picker.
+    pub ms_open: BTreeSet<usize>,
 }
 
 impl StructureState {
@@ -237,6 +241,13 @@ impl StructureState {
             fetch_running: false,
             download_cancel: None,
             download_progress: None,
+            path_filter: cx.new(|cx| {
+                TextInput::new("filter paths…", "", theme, cx).with_style(InputStyle {
+                    mono: false,
+                    ..Default::default()
+                })
+            }),
+            ms_open: BTreeSet::new(),
         }
     }
 
@@ -413,13 +424,9 @@ impl StudioApp {
         cx.notify();
     }
 
+    #[allow(dead_code)]
     fn set_paths_enabled(&mut self, indices: &[usize], enabled: bool, cx: &mut Context<Self>) {
-        for &i in indices {
-            if let Some(row) = self.fit_paths.get_mut(i) {
-                row.spec.enabled = enabled;
-            }
-        }
-        self.fit_model_changed(cx);
+        self.set_paths_selected(indices, enabled, cx);
     }
 
     // ---- 3D plot ---------------------------------------------------------
@@ -941,7 +948,17 @@ impl StudioApp {
         self.structure_job(
             cx,
             true,
-            move || import_cif(&file),
+            move || {
+                if file
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .is_some_and(|e| e.eq_ignore_ascii_case("xyz"))
+                {
+                    crate::structure::import_xyz(&file)
+                } else {
+                    import_cif(&file)
+                }
+            },
             |app, result, cx| {
                 app.structure.fetch_running = false;
                 match result {
@@ -1172,14 +1189,29 @@ impl StudioApp {
             cx.notify();
             return;
         };
-        let cluster = match core::build_cluster(
-            &summary.structure,
-            &selection,
-            &core::ClusterOptions {
-                radius,
-                ..Default::default()
-            },
-        ) {
+        let built = match &summary.xyz {
+            Some(xyz) => {
+                let sel = match self
+                    .structure
+                    .absorber_site
+                    .and_then(|i| summary.sites.get(i))
+                    .filter(|s| s.symbol == absorber)
+                {
+                    Some(site) => core::XyzAbsorber::Index(site.site_index),
+                    None => core::XyzAbsorber::CentralOf(absorber.clone()),
+                };
+                xyz.to_cluster(&sel, Some(radius))
+            }
+            None => core::build_cluster(
+                &summary.structure,
+                &selection,
+                &core::ClusterOptions {
+                    radius,
+                    ..Default::default()
+                },
+            ),
+        };
+        let cluster = match built {
             Ok(c) => c,
             Err(e) => {
                 self.status = format!("cluster failed: {e}").into();
@@ -1523,222 +1555,14 @@ impl StudioApp {
     /// Path table with columns, filters and multi-select. `docked` = the
     /// full-height variant beside the 3D view; otherwise the compact form
     /// used at the top of the inspector's Paths section.
+    /// The path table beside the 3D view (and the compact one in the
+    /// inspector): the shell-grouped picker.
     pub(crate) fn structure_paths_table(
         &self,
         docked: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
-        let t = self.theme;
-        let f = &self.structure.filters;
-        let filtered = self.structure_filtered_paths();
-        let n_multi = self.structure.multi.len();
-        let mut filters = div()
-            .flex()
-            .flex_wrap()
-            .items_center()
-            .gap_1()
-            .px_2()
-            .py_1()
-            .child(
-                chip(&t, "pf-ss", "single scattering", f.single_scattering).on_click(cx.listener(
-                    |this, _: &ClickEvent, _w, cx| {
-                        this.structure.filters.single_scattering =
-                            !this.structure.filters.single_scattering;
-                        cx.notify();
-                    },
-                )),
-            )
-            .child(
-                chip(&t, "pf-3legs", "≤ 3 legs", f.max_legs == Some(3)).on_click(cx.listener(
-                    |this, _: &ClickEvent, _w, cx| {
-                        let f = &mut this.structure.filters;
-                        f.max_legs = if f.max_legs == Some(3) { None } else { Some(3) };
-                        cx.notify();
-                    },
-                )),
-            )
-            .child(
-                chip(&t, "pf-amp", "amp ≥ 5 %", f.min_importance > 0.0).on_click(cx.listener(
-                    |this, _: &ClickEvent, _w, cx| {
-                        let f = &mut this.structure.filters;
-                        f.min_importance = if f.min_importance > 0.0 { 0.0 } else { 0.05 };
-                        cx.notify();
-                    },
-                )),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .child(
-                        div()
-                            .text_size(px(11.))
-                            .text_color(t.text_muted)
-                            .child("R ≤"),
-                    )
-                    .child(
-                        div()
-                            .w(px(56.))
-                            .child(self.structure.max_reff_input.clone()),
-                    ),
-            );
-        if n_multi > 0 {
-            let sel: Vec<usize> = self.structure.multi.iter().copied().collect();
-            let sel2 = sel.clone();
-            filters = filters
-                .child(
-                    button(&t, "pf-enable", format!("enable {n_multi}"), true).on_click(
-                        cx.listener(move |this, _: &ClickEvent, _w, cx| {
-                            this.set_paths_enabled(&sel, true, cx);
-                        }),
-                    ),
-                )
-                .child(
-                    button(&t, "pf-disable", "disable", false).on_click(cx.listener(
-                        move |this, _: &ClickEvent, _w, cx| {
-                            this.set_paths_enabled(&sel2, false, cx);
-                        },
-                    )),
-                );
-        }
-        let header = div()
-            .px_2()
-            .py_0p5()
-            .flex()
-            .items_center()
-            .gap_1()
-            .text_size(px(10.5))
-            .text_color(t.text_muted)
-            .child(div().w(px(16.)))
-            .child(div().flex_1().child("path"))
-            .child(div().w(px(52.)).child("Reff"))
-            .child(div().w(px(28.)).child("N"))
-            .child(div().w(px(30.)).child("legs"))
-            .child(div().w(px(56.)).child("amp"));
-        let mut list = div()
-            .flex_1()
-            .min_h_0()
-            .flex()
-            .flex_col()
-            .id(if docked {
-                "st-paths-docked"
-            } else {
-                "st-paths-insp"
-            })
-            .overflow_y_scroll();
-        if self.fit_paths.is_empty() {
-            list = list.child(
-                div()
-                    .p_2()
-                    .text_size(px(11.))
-                    .text_color(t.text_muted)
-                    .child("no paths yet"),
-            );
-        }
-        for i in filtered {
-            let row = &self.fit_paths[i];
-            let geom = self.structure.paths.get(i).and_then(|p| p.as_ref());
-            let enabled = row.spec.enabled;
-            let selected = self.structure.multi.contains(&i);
-            let focused = self.structure.selected == Some(i);
-            let label: SharedString = match geom {
-                Some(g) => format!("{} {}", i + 1, g.label()).into(),
-                None => format!("{} {}", i + 1, row.spec.label).into(),
-            };
-            let (reff, degen, nleg, amp) = match (geom, &row.meta) {
-                (Some(g), _) => (g.reff, g.degen, g.nleg, g.importance),
-                (None, Some(m)) => (m.reff, m.degen, m.nleg, 0.0),
-                _ => (0.0, 0.0, 0, 0.0),
-            };
-            let bar_w = (amp * 40.0).round().max(1.0) as f32;
-            list = list.child(
-                div()
-                    .id(("st-path", i))
-                    .h(px(24.))
-                    .px_2()
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .text_size(px(11.5))
-                    .cursor_pointer()
-                    .when(selected, |d| d.bg(t.raised))
-                    .when(focused, |d| d.border_l_2().border_color(t.accent))
-                    .hover(|d| d.bg(t.raised))
-                    .on_hover(cx.listener(move |this, hovered: &bool, _w, cx| {
-                        this.hover_structure_path(if *hovered { Some(i) } else { None }, cx);
-                    }))
-                    .on_click(cx.listener(move |this, ev: &ClickEvent, _w, cx| {
-                        this.select_structure_path(i, ev.modifiers(), cx);
-                    }))
-                    .child(
-                        div()
-                            .id(("st-path-en", i))
-                            .flex_none()
-                            .w(px(12.))
-                            .h(px(12.))
-                            .rounded_sm()
-                            .border_1()
-                            .when(enabled, |d| d.bg(t.accent).border_color(t.accent))
-                            .when(!enabled, |d| d.bg(t.raised).border_color(t.border))
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
-                                cx.stop_propagation();
-                                let now = this
-                                    .fit_paths
-                                    .get(i)
-                                    .map(|r| r.spec.enabled)
-                                    .unwrap_or(false);
-                                this.set_paths_enabled(&[i], !now, cx);
-                            })),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .overflow_hidden()
-                            .text_ellipsis()
-                            .whitespace_nowrap()
-                            .when(!enabled, |d| d.text_color(t.text_muted))
-                            .child(label),
-                    )
-                    .child(mono(&t, format!("{reff:.3}"), 52.))
-                    .child(mono(&t, format!("{degen:.0}"), 28.))
-                    .child(mono(&t, format!("{nleg}"), 30.))
-                    .child(
-                        div()
-                            .w(px(56.))
-                            .flex()
-                            .items_center()
-                            .gap_1()
-                            .child(div().w(px(bar_w)).h(px(6.)).rounded_sm().bg(t.accent))
-                            .child(
-                                div()
-                                    .text_size(px(10.))
-                                    .text_color(t.text_muted)
-                                    .child(SharedString::from(format!("{:.0}", amp * 100.0))),
-                            ),
-                    ),
-            );
-        }
-        let mut col = div().flex().flex_col().min_h_0().min_w_0();
-        if docked {
-            col = col.child(
-                div()
-                    .px_2()
-                    .pt_2()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(section_label(&t, "paths"))
-                    .child(div().text_size(px(10.5)).text_color(t.text_muted).child(
-                        SharedString::from(format!(
-                            "{} imported · click to focus · ⌘/⇧ multi-select",
-                            self.fit_paths.len()
-                        )),
-                    )),
-            );
-        }
-        col.child(filters).child(header).child(list).flex_1()
+        self.path_picker(docked, cx)
     }
 
     // ---- inspector: structure panel ------------------------------------------
@@ -1943,7 +1767,7 @@ impl StudioApp {
                         cx.listener(|this, _: &ClickEvent, _w, cx| this.structure_search(cx)),
                     ),
                 )
-                .child(button(&t, "st-import", "Import CIF…", false).on_click(
+                .child(button(&t, "st-import", "Import CIF / XYZ…", false).on_click(
                     cx.listener(|this, _: &ClickEvent, _w, cx| this.structure_import_cif(cx)),
                 )),
         );

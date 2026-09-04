@@ -1,0 +1,18 @@
+{
+ "key": "ti_hcp",
+ "name": "Titanium (hcp)",
+ "formula": "Ti",
+ "sg_number": 194,
+ "sg": "P 63/m m c",
+ "category": "metal",
+ "source": "COD",
+ "id": "cod-9017383",
+ "url": "https://www.crystallography.net/cod/9017383.html",
+ "year": "2013",
+ "journal": "Acta Geologica Sinica",
+ "authors": "Fang, Q.; Bai, W.; Yang, J.; Rong, H.; Shi, N.; Li, G.; Xiong, M.; Ma, Z.",
+ "doi": null,
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

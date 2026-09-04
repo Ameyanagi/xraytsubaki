@@ -1,0 +1,18 @@
+{
+ "key": "os",
+ "name": "Osmium",
+ "formula": "Os",
+ "sg_number": 194,
+ "sg": "P 63/m m c",
+ "category": "metal",
+ "source": "COD",
+ "id": "cod-9017843",
+ "url": "https://www.crystallography.net/cod/9017843.html",
+ "year": "1998",
+ "journal": "Zapiski Vserossijskogo Mineralogicheskogo Obshchestva",
+ "authors": "Mochalov, A. G.; Dmitrenko, G. G.; Rudashevsky, N. S.; Zhernovsky, I. V.; Boldyreva, M. M.",
+ "doi": null,
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

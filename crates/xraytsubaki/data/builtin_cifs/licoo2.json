@@ -1,0 +1,18 @@
+{
+ "key": "licoo2",
+ "name": "LiCoO₂",
+ "formula": "Co Li O2",
+ "sg_number": 166,
+ "sg": "R -3 m :H",
+ "category": "other",
+ "source": "COD",
+ "id": "cod-4505482",
+ "url": "https://www.crystallography.net/cod/4505482.html",
+ "year": "2012",
+ "journal": "Crystal Growth & Design",
+ "authors": "Lin, Qiyin; Li, Qing’an; Gray, Kenneth E.; Mitchell, John F.",
+ "doi": "10.1021/cg201238n",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

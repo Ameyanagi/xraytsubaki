@@ -1,0 +1,18 @@
+{
+ "key": "nb",
+ "name": "Niobium",
+ "formula": "Nb",
+ "sg_number": 229,
+ "sg": "I m -3 m",
+ "category": "metal",
+ "source": "COD",
+ "id": "cod-4000948",
+ "url": "https://www.crystallography.net/cod/4000948.html",
+ "year": "2010",
+ "journal": "Chemistry of Materials",
+ "authors": "Ling, Chris D.; Avdeev, Maxim; Kharton, Vladislav V.; Yaremchenko, Aleksey A.; Macquart, René B.; Hoelzel, Markus",
+ "doi": "10.1021/cm903170t",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

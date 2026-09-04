@@ -1,0 +1,18 @@
+{
+ "key": "al",
+ "name": "Aluminium",
+ "formula": "Al",
+ "sg_number": 225,
+ "sg": "F m -3 m",
+ "category": "metal",
+ "source": "COD",
+ "id": "cod-4004108",
+ "url": "https://www.crystallography.net/cod/4004108.html",
+ "year": "2020",
+ "journal": "Chemistry of Materials",
+ "authors": "Didier, Christophe; Pang, Wei Kong; Guo, Zaiping; Schmid, Siegbert; Peterson, Vanessa K.",
+ "doi": null,
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

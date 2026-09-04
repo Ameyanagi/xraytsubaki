@@ -1,0 +1,18 @@
+{
+ "key": "re",
+ "name": "Rhenium",
+ "formula": "Re",
+ "sg_number": 194,
+ "sg": "P 63/m m c",
+ "category": "metal",
+ "source": "COD",
+ "id": "cod-9008512",
+ "url": "https://www.crystallography.net/cod/9008512.html",
+ "year": "1963",
+ "journal": "Crystal Structures",
+ "authors": "Wyckoff, R. W. G.",
+ "doi": null,
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

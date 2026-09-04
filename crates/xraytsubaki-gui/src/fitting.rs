@@ -28,6 +28,27 @@ pub struct FitPathSpec {
 }
 
 impl FitPathSpec {
+    /// A path with empty parameter cells, not yet selected: a parameter
+    /// template fills the cells once the path is chosen for the fit.
+    pub fn blank(file: PathBuf) -> Self {
+        let label = file
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| file.display().to_string());
+        Self {
+            file,
+            label,
+            s02: String::new(),
+            e0: String::new(),
+            sigma2: String::new(),
+            deltar: String::new(),
+            enabled: false,
+            ei: String::new(),
+            third: String::new(),
+            fourth: String::new(),
+        }
+    }
+
     /// Standard parameterization for path number `i` (Artemis: shared amp
     /// and enot, per-path sigma2 and delr).
     pub fn standard(file: PathBuf, i: usize) -> Self {

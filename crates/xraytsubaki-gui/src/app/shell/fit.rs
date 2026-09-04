@@ -12,6 +12,7 @@ use super::handles::{PLOT_FIT_K, PLOT_FIT_Q, PLOT_FIT_R};
 use super::{FitView, MONO, button, chip, section_label, segment, segmented};
 use crate::app::StudioApp;
 use crate::fitting::{FitSpaceSpec, high_correlations};
+use xraytsubaki::xafs::fitting::template::ParameterTemplate;
 
 /// Correlation above which two parameters are flagged (Artemis warns at
 /// 0.95; 0.9 catches the usual amp/σ² pair earlier).
@@ -397,10 +398,10 @@ impl StudioApp {
         div()
             .flex()
             .flex_col()
-            .child(self.structure_section(cx))
-            .child(self.fit_paths_section(cx))
-            .child(self.fit_params_section(cx))
-            .child(self.fit_settings_section(cx))
+            .child(self.fit_step(0, "Structure", cx, |this, cx| this.structure_section(cx).into_any_element()))
+            .child(self.fit_step(1, "Paths", cx, |this, cx| this.fit_paths_section(cx).into_any_element()))
+            .child(self.fit_step(2, "Parameters", cx, |this, cx| this.fit_params_section(cx).into_any_element()))
+            .child(self.fit_step(3, "Fit settings", cx, |this, cx| this.fit_settings_section(cx).into_any_element()))
             .child(self.fit_result_section(cx))
             .child(self.fit_history_section(cx))
             .children(
@@ -409,6 +410,79 @@ impl StudioApp {
                     .then(|| self.fit_batch_section(cx)),
             )
             .child(div().h(px(12.)).bg(t.surface))
+    }
+
+    /// One numbered step of the guided flow: a header with the step's
+    /// status line, collapsing to that line when closed.
+    fn fit_step(
+        &self,
+        step: usize,
+        title: &'static str,
+        cx: &mut Context<Self>,
+        body: impl FnOnce(&Self, &mut Context<Self>) -> gpui::AnyElement,
+    ) -> impl IntoElement + use<> {
+        let t = self.theme;
+        let (done, status) = self.fit_step_status(step);
+        let open = self.fit_steps_open[step];
+        let head = div()
+            .id(("fit-step", step))
+            .px_3()
+            .pt_2p5()
+            .pb_1p5()
+            .flex()
+            .items_center()
+            .gap_2()
+            .cursor_pointer()
+            .hover(|d| d.bg(t.raised))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
+                this.fit_steps_open[step] = !this.fit_steps_open[step];
+                cx.notify();
+            }))
+            .child(
+                div()
+                    .flex_none()
+                    .w(px(16.))
+                    .h(px(16.))
+                    .rounded_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_size(px(10.))
+                    .font_family(MONO)
+                    .when(done, |d| d.bg(t.success).text_color(t.bg))
+                    .when(!done, |d| d.border_1().border_color(t.border).text_color(t.text_muted))
+                    .child(SharedString::from(format!("{}", step + 1))),
+            )
+            .child(section_label(&t, title))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .font_family(MONO)
+                    .text_size(px(10.5))
+                    .text_color(if done { t.text } else { t.text_muted })
+                    .child(SharedString::from(status)),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .text_size(px(10.))
+                    .text_color(t.text_muted)
+                    .child(if open { "▾" } else { "▸" }),
+            );
+        let mut wrap = div()
+            .flex()
+            .flex_col()
+            .border_b_1()
+            .border_color(t.border)
+            .child(head);
+        if open {
+            wrap = wrap.child(body(self, cx));
+        }
+        wrap
     }
 
     fn sub_button(
@@ -439,137 +513,66 @@ impl StudioApp {
         let mut rows: Vec<gpui::AnyElement> = Vec::new();
         if self.fit_paths.is_empty() {
             rows.push(
-                self.note("No paths yet. Generate them from a crystal structure (Generate…) or add FEFF path files (+ Add).")
+                self.note("No paths yet. Generate them from a structure above, or add FEFF path files (+ Add).")
                     .into_any_element(),
             );
         }
-        for (i, row) in self.fit_paths.iter().enumerate() {
-            let enabled = row.spec.enabled;
-            let expanded = row.expanded;
-            let label: SharedString = row.spec.label.clone().into();
-            let meta: SharedString = match &row.meta {
-                Some(m) => format!("{:.3} Å · N {:.0} · {} legs", m.reff, m.degen, m.nleg).into(),
-                None => "".into(),
-            };
-            let mut card = div().mx_2().flex().flex_col().child(
+        // The docked table beside the 3D view replaces this compact one.
+        if !self.fit_paths.is_empty() && !self.structure.show {
+            rows.push(
                 div()
-                    .id(("fit-path", i))
-                    .h(px(26.))
+                    .mx_2()
+                    .mb_1()
+                    .max_h(px(320.))
+                    .flex()
+                    .flex_col()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(t.border)
+                    .overflow_hidden()
+                    .child(self.structure_paths_table(false, cx))
+                    .into_any_element(),
+            );
+        }
+        // Expression cells of the selected paths (advanced: edit per path).
+        let selected: Vec<usize> = self
+            .fit_paths
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| r.spec.enabled)
+            .map(|(i, _)| i)
+            .collect();
+        if !selected.is_empty() {
+            let open = self.stage_view.fit_show_cells;
+            rows.push(
+                div()
+                    .id("fit-cells-toggle")
+                    .mx_2()
+                    .h(px(22.))
                     .px_1()
                     .flex()
                     .items_center()
-                    .gap_2()
-                    .rounded_md()
+                    .gap_1()
+                    .text_size(px(10.5))
+                    .text_color(t.text_muted)
                     .cursor_pointer()
-                    .hover(|d| d.bg(t.raised))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
-                        if let Some(p) = this.fit_paths.get_mut(i) {
-                            p.expanded = !p.expanded;
-                            cx.notify();
-                        }
+                    .hover(|d| d.text_color(t.text))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _w, cx| {
+                        this.stage_view.fit_show_cells = !this.stage_view.fit_show_cells;
+                        cx.notify();
                     }))
-                    .child(
-                        div()
-                            .id(("fit-path-en", i))
-                            .flex_none()
-                            .w(px(14.))
-                            .h(px(14.))
-                            .rounded_sm()
-                            .border_1()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .when(enabled, |d| d.bg(t.accent).border_color(t.accent))
-                            .when(!enabled, |d| d.bg(t.raised).border_color(t.border))
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
-                                cx.stop_propagation();
-                                if let Some(p) = this.fit_paths.get_mut(i) {
-                                    p.spec.enabled = !p.spec.enabled;
-                                    this.fit_model_changed(cx);
-                                }
-                            }))
-                            .child(div().text_size(px(10.)).text_color(t.bg).child(if enabled {
-                                "✓"
-                            } else {
-                                ""
-                            })),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .text_ellipsis()
-                            .text_color(if enabled { t.text } else { t.text_muted })
-                            .child(label),
-                    )
-                    .child(
-                        div()
-                            .flex_none()
-                            .font_family(MONO)
-                            .text_size(px(10.5))
-                            .text_color(t.text_muted)
-                            .child(meta),
-                    )
-                    .child(
-                        div()
-                            .flex_none()
-                            .text_color(t.text_muted)
-                            .text_size(px(10.))
-                            .child(if expanded { "▾" } else { "▸" }),
-                    ),
+                    .child(if open { "▾" } else { "▸" })
+                    .child(SharedString::from(format!(
+                        "path parameter cells ({} selected paths)",
+                        selected.len()
+                    )))
+                    .into_any_element(),
             );
-            if expanded {
-                let more = row.more;
-                let mut grid = div().ml_6().mr_1().mb_1().flex().flex_wrap().gap_1();
-                for (param, field) in &row.fields {
-                    if !param.is_primary() && !more {
-                        continue;
-                    }
-                    grid = grid.child(
-                        div()
-                            .w(px(120.))
-                            .flex()
-                            .items_center()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .w(px(28.))
-                                    .flex_none()
-                                    .text_size(px(11.))
-                                    .text_color(t.text_muted)
-                                    .child(param.label()),
-                            )
-                            .child(div().flex_1().min_w_0().child(field.clone())),
-                    );
+            if open {
+                for i in selected {
+                    rows.push(self.fit_path_cells(i, cx).into_any_element());
                 }
-                grid = grid.child(
-                    div()
-                        .id(("fit-path-more", i))
-                        .h(px(24.))
-                        .px_1()
-                        .flex()
-                        .items_center()
-                        .text_size(px(10.5))
-                        .text_color(t.text_muted)
-                        .cursor_pointer()
-                        .hover(|d| d.text_color(t.text))
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
-                            if let Some(p) = this.fit_paths.get_mut(i) {
-                                p.more = !p.more;
-                                cx.notify();
-                            }
-                        }))
-                        .child(if more {
-                            "▾ fewer"
-                        } else {
-                            "▸ more (Ei, C₃, C₄)"
-                        }),
-                );
-                card = card.child(grid);
             }
-            rows.push(card.into_any_element());
         }
         rows.push(
             div()
@@ -578,7 +581,7 @@ impl StudioApp {
                 .flex()
                 .items_center()
                 .gap_1()
-                .child(self.sub_button("add-path", "+ Add path…", cx, |this, cx| {
+                .child(self.sub_button("add-path", "+ Add path files…", cx, |this, cx| {
                     this.add_fit_path_dialog(cx)
                 }))
                 .child(
@@ -590,47 +593,69 @@ impl StudioApp {
                 )
                 .into_any_element(),
         );
-        let title: &'static str = "Paths";
-        let count = self.fit_paths.iter().filter(|p| p.spec.enabled).count();
-        let head = div()
-            .px_3()
-            .pt_3()
-            .pb_1()
-            .flex()
-            .items_center()
-            .gap_2()
-            .child(section_label(&t, title))
-            .child(
-                div()
-                    .font_family(MONO)
-                    .text_size(px(10.5))
-                    .text_color(t.text_muted)
-                    .child(format!("{count} / {}", self.fit_paths.len())),
-            )
-            .child(div().flex_1());
-        // The docked table beside the 3D view replaces this compact one.
-        let table = (!self.fit_paths.is_empty() && !self.structure.show).then(|| {
+        div().flex().flex_col().pb_2().children(rows)
+    }
+
+    /// One selected path's parameter-expression cells.
+    fn fit_path_cells(&self, i: usize, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let t = self.theme;
+        let row = &self.fit_paths[i];
+        let label: SharedString = self
+            .fit_path_infos
+            .get(i)
+            .map(|p| format!("{} {} · {:.3} Å", i + 1, p.label, p.reff))
+            .unwrap_or_else(|| format!("{} {}", i + 1, row.spec.label))
+            .into();
+        let more = row.more;
+        let mut grid = div().mx_2().mb_1().flex().flex_col().gap_0p5();
+        grid = grid.child(
             div()
-                .mx_2()
-                .mb_1()
-                .max_h(px(240.))
+                .text_size(px(11.))
+                .text_color(t.text_muted)
+                .child(label),
+        );
+        let mut cells = div().flex().flex_wrap().gap_1();
+        for (param, field) in &row.fields {
+            if !param.is_primary() && !more {
+                continue;
+            }
+            cells = cells.child(
+                div()
+                    .w(px(124.))
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .child(
+                        div()
+                            .w(px(28.))
+                            .flex_none()
+                            .text_size(px(11.))
+                            .text_color(t.text_muted)
+                            .child(param.label()),
+                    )
+                    .child(div().flex_1().min_w_0().child(field.clone())),
+            );
+        }
+        cells = cells.child(
+            div()
+                .id(("fit-path-more", i))
+                .h(px(24.))
+                .px_1()
                 .flex()
-                .flex_col()
-                .rounded_md()
-                .border_1()
-                .border_color(t.border)
-                .overflow_hidden()
-                .child(self.structure_paths_table(false, cx))
-        });
-        div()
-            .flex()
-            .flex_col()
-            .border_b_1()
-            .border_color(t.border)
-            .pb_2()
-            .child(head)
-            .children(table)
-            .children(rows)
+                .items_center()
+                .text_size(px(10.5))
+                .text_color(t.text_muted)
+                .cursor_pointer()
+                .hover(|d| d.text_color(t.text))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
+                    if let Some(p) = this.fit_paths.get_mut(i) {
+                        p.more = !p.more;
+                        cx.notify();
+                    }
+                }))
+                .child(if more { "▾ fewer" } else { "▸ more (Ei, C₃, C₄)" }),
+        );
+        grid.child(cells)
     }
 
     /// Structure database + cluster generator (replaces the Atoms-lite form).
@@ -665,13 +690,11 @@ impl StudioApp {
             .child(self.sub_button("feff-run", "Run FEFF", cx, |this, cx| {
                 this.run_feff10_now(cx)
             }));
+        let _ = head;
         div()
             .flex()
             .flex_col()
-            .border_b_1()
-            .border_color(t.border)
             .pb_2()
-            .child(head)
             .child(self.structure_panel(cx))
             .child(advanced)
     }
@@ -681,9 +704,10 @@ impl StudioApp {
         let result = self.fit_result.clone();
         let fresh = !self.fit_is_stale();
         let mut rows: Vec<gpui::AnyElement> = Vec::new();
+        rows.push(self.fit_template_chooser(cx).into_any_element());
         if self.fit_vars.is_empty() {
             rows.push(
-                self.note("Variables appear when a path cell references a name (amp, de0, sig2_1 …). Type an expression such as dr_1*1.41 to define one from another.")
+                self.note("No variables yet: select paths and apply a template, or type a name into a path cell (an expression such as dr_1*1.41 defines one from another).")
                     .into_any_element(),
             );
         }
@@ -819,6 +843,82 @@ impl StudioApp {
 
     /// guess → set → guess; an expression-defined variable becomes a guess
     /// (the expression is dropped) — same cycle as the old badge.
+    /// Template segment + Apply, with the MS rule note.
+    fn fit_template_chooser(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let t = self.theme;
+        let mut seg = segmented(&t);
+        for (i, tpl) in ParameterTemplate::ALL.into_iter().enumerate() {
+            seg = seg.child(
+                segment(
+                    &t,
+                    SharedString::from(format!("tpl-{i}")),
+                    tpl.label(),
+                    self.fit_template == tpl,
+                    i == 0,
+                )
+                .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
+                    this.fit_template = tpl;
+                    if !this.fit_template_dirty {
+                        this.apply_fit_template(cx);
+                    } else {
+                        cx.notify();
+                    }
+                })),
+            );
+        }
+        let dirty = self.fit_template_dirty;
+        let n_sel = self.fit_paths.iter().filter(|r| r.spec.enabled).count();
+        let apply_label: SharedString = if dirty {
+            "Apply template (replaces edits)".into()
+        } else {
+            "Apply template".into()
+        };
+        let mut col = div()
+            .mx_3()
+            .mb_1()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .items_center()
+                    .gap_1()
+                    .child(seg)
+                    .child(
+                        button(&t, "tpl-apply", apply_label, n_sel > 0 && (dirty || self.fit_vars.is_empty()))
+                            .on_click(cx.listener(|this, _: &ClickEvent, _w, cx| {
+                                this.apply_fit_template(cx);
+                                this.fit_steps_open[2] = true;
+                            })),
+                    ),
+            )
+            .child(
+                div()
+                    .text_size(px(10.5))
+                    .text_color(t.text_muted)
+                    .child(self.fit_template.description()),
+            );
+        for note in &self.fit_template_notes {
+            col = col.child(
+                div()
+                    .text_size(px(10.5))
+                    .text_color(t.text_muted)
+                    .child(SharedString::from(note.clone())),
+            );
+        }
+        if dirty {
+            col = col.child(
+                div()
+                    .text_size(px(10.5))
+                    .text_color(t.warn)
+                    .child("edited by hand — the template no longer follows the selection; Apply template to regenerate"),
+            );
+        }
+        col
+    }
+
     fn cycle_var_kind(&mut self, name: &str, cx: &mut Context<Self>) {
         if let Some(v) = self.fit_vars.iter_mut().find(|v| v.spec.name == name) {
             if v.spec.expr.is_some() {
@@ -829,6 +929,7 @@ impl StudioApp {
             } else {
                 v.spec.vary = !v.spec.vary;
             }
+            self.fit_template_dirty = true;
             self.fit_model_changed(cx);
         }
     }

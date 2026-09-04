@@ -1,0 +1,18 @@
+{
+ "key": "mo",
+ "name": "Molybdenum",
+ "formula": "Mo",
+ "sg_number": 229,
+ "sg": "I m -3 m",
+ "category": "metal",
+ "source": "COD",
+ "id": "cod-4001308",
+ "url": "https://www.crystallography.net/cod/4001308.html",
+ "year": "2007",
+ "journal": "Chemistry of Materials",
+ "authors": "Bernuy-Lopez, Carlos; Allix, Mathieu; Bridges, Craig A.; Claridge, John B.; Rosseinsky, Matthew J.",
+ "doi": "10.1021/cm0624116",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

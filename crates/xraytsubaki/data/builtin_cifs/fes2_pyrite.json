@@ -1,0 +1,18 @@
+{
+ "key": "fes2_pyrite",
+ "name": "FeS₂ pyrite",
+ "formula": "Fe S2",
+ "sg_number": 205,
+ "sg": "P a -3",
+ "category": "sulfide",
+ "source": "COD",
+ "id": "cod-1564890",
+ "url": "https://www.crystallography.net/cod/1564890.html",
+ "year": "2021",
+ "journal": "Chemical Science",
+ "authors": "Ma, KeYuan; Lefèvre, Robin; Li, Qingtian; Lago, Jorge; Blacque, Olivier; Yang, Wanli; von Rohr, Fabian O.",
+ "doi": "10.1039/D1SC03026D",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

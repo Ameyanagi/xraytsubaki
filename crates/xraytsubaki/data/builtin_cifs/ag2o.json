@@ -1,0 +1,18 @@
+{
+ "key": "ag2o",
+ "name": "Ag₂O",
+ "formula": "Ag2 O",
+ "sg_number": 224,
+ "sg": "P n -3 m :1",
+ "category": "oxide",
+ "source": "COD",
+ "id": "cod-1010486",
+ "url": "https://www.crystallography.net/cod/1010486.html",
+ "year": "1922",
+ "journal": "Zeitschrift fuer Kristallographie, Kristallgeometrie, Kristallphysik, Kristallchemie (-144,1977)",
+ "authors": "Niggli, P",
+ "doi": null,
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

@@ -1,0 +1,18 @@
+{
+ "key": "ruo2",
+ "name": "RuO₂ rutile",
+ "formula": "O2 Ru",
+ "sg_number": 136,
+ "sg": "P 42/m n m",
+ "category": "oxide",
+ "source": "COD",
+ "id": "cod-1548818",
+ "url": "https://www.crystallography.net/cod/1548818.html",
+ "year": "2018",
+ "journal": "Journal of Chemical Theory and Computation",
+ "authors": "Zhao, Qing; Kulik, Heather J.",
+ "doi": "10.1021/acs.jctc.7b01061",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

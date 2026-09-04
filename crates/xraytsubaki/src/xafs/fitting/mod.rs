@@ -5,6 +5,7 @@ pub mod feffdat;
 pub mod path_model;
 pub mod runner;
 pub mod solver;
+pub mod template;
 pub mod transform;
 pub mod types;
 pub mod variables;
@@ -14,6 +15,7 @@ use nalgebra::DVector;
 pub use builder::FeffFit;
 pub use errors::FittingError;
 pub use path_model::FF2ChiOutput;
+pub use template::{apply_template, ParameterTemplate, PathAssignment, TemplateResult, TemplateVariable};
 pub use transform::{estimate_noise, NoiseEstimate};
 pub use types::{
     DatasetResult, FeffBatchExecutionStrategy, FeffBatchOptions, FeffDat, FeffExecutionMode,

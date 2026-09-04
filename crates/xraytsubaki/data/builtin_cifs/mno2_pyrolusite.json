@@ -1,0 +1,18 @@
+{
+ "key": "mno2_pyrolusite",
+ "name": "β-MnO₂ pyrolusite",
+ "formula": "Mn O2",
+ "sg_number": 136,
+ "sg": "P 42/m n m",
+ "category": "oxide",
+ "source": "COD",
+ "id": "cod-1514117",
+ "url": "https://www.crystallography.net/cod/1514117.html",
+ "year": "1993",
+ "journal": "Australian Journal of Chemistry",
+ "authors": "Bolzan, A. A.; Fong, C.; Kennedy, B. J.; Howard, C. J.",
+ "doi": "10.1071/CH9930939",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

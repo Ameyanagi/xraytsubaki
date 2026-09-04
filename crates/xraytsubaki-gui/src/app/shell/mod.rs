@@ -13,6 +13,7 @@ pub mod handles;
 pub mod inspector;
 pub mod journal;
 pub mod palette;
+pub mod path_picker;
 pub mod series;
 pub mod stage_strip;
 pub mod structure_view;
@@ -135,6 +136,8 @@ pub struct StageView {
     pub fit_show_paths: bool,
     pub fit_show_re: bool,
     pub fit_show_batch: bool,
+    /// Show the per-path parameter cells under the picker.
+    pub fit_show_cells: bool,
     pub series_space: crate::app::SeriesSpace,
 }
 
@@ -151,6 +154,7 @@ impl Default for StageView {
             fit_show_paths: true,
             fit_show_re: false,
             fit_show_batch: false,
+            fit_show_cells: false,
             series_space: crate::app::SeriesSpace::Energy,
         }
     }

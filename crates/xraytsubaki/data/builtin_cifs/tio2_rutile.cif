@@ -1,0 +1,119 @@
+#------------------------------------------------------------------------------
+#$Date: 2016-02-16 22:30:59 +0200 (Tue, 16 Feb 2016) $
+#$Revision: 176467 $
+#$URL: file:///home/coder/svn-repositories/_RELOADED_COD/cod-reloaded/cif/4/10/23/4102355.cif $
+#------------------------------------------------------------------------------
+#
+# This file is available in the Crystallography Open Database (COD),
+# http://www.crystallography.net/
+#
+# All data on this site have been placed in the public domain by the
+# contributors.
+#
+data_4102355
+loop_
+_publ_author_name
+'Eugen Dorolti'
+'Laurent Cario'
+'Beno\^it Corraze'
+'Etienne Janod'
+'Cristian Vaju'
+'Hyun-Joo Koo'
+'Erjun Kan'
+'Myung-Hwan Whangbo'
+_publ_section_title
+;
+ Half-Metallic Ferromagnetism and Large Negative Magnetoresistance in the
+ New Lacunar Spinel GaTi3VS8
+;
+_journal_name_full               'Journal of the American Chemical Society'
+_journal_page_first              5704
+_journal_page_last               5710
+_journal_paper_doi               10.1021/ja908128b
+_journal_volume                  132
+_journal_year                    2010
+_chemical_formula_sum            'O2 Ti'
+_space_group_IT_number           136
+_symmetry_cell_setting           tetragonal
+_symmetry_space_group_name_Hall  '-P 4n 2n'
+_symmetry_space_group_name_H-M   'P 42/m n m'
+_cell_angle_alpha                90.00000
+_cell_angle_beta                 90.00000
+_cell_angle_gamma                90.00000
+_cell_formula_units_Z            2
+_cell_length_a                   4.58878(15)
+_cell_length_b                   4.58878(15)
+_cell_length_c                   2.95756(18)
+_cell_volume                     62.277(5)
+_pd_meas_2theta_range_inc        0.016800
+_pd_meas_2theta_range_max        120.00740
+_pd_meas_2theta_range_min        10.00000
+_pd_meas_number_of_points        0
+_pd_proc_2theta_range_inc        0.016800
+_pd_proc_2theta_range_max        120.0074
+_pd_proc_2theta_range_min        10.0000
+_pd_proc_ls_prof_R_factor        4.9266
+_pd_proc_ls_prof_wR_expected     4.2927
+_pd_proc_ls_prof_wR_factor       6.8634
+_pd_proc_wavelength              1.540562
+_refine_ls_number_parameters     27
+_refine_ls_number_reflns         34
+_refine_ls_number_restraints     0
+_refine_ls_R_I_factor            31.8903
+_cod_data_source_file            ja908128b_si_003_2.cif
+_cod_data_source_block           TiO2
+_cod_original_formula_sum        'Ti O2'
+_cod_database_code               4102355
+#BEGIN Tags that were not found in dictionaries:
+_pd_proc_ls_prof_cr_factor       30.1926
+_pd_proc_ls_prof_cwr_factor      18.9506
+_pd_proc_ls_prof_cwr_expected    11.8527
+_pd_proc_ls_prof_chi2            2.5563
+_pd_proc_ls_prof_echi2           3.0886
+#END Tags that were not found in dictionaries
+loop_
+_symmetry_equiv_pos_as_xyz
+x,y,z
+-y+1/2,x+1/2,z+1/2
+-x,-y,z
+y+1/2,-x+1/2,z+1/2
+-x+1/2,y+1/2,z+1/2
+y,x,z
+x+1/2,-y+1/2,z+1/2
+-y,-x,z
+-x,-y,-z
+y+1/2,-x+1/2,-z+1/2
+x,y,-z
+-y+1/2,x+1/2,-z+1/2
+x+1/2,-y+1/2,-z+1/2
+-y,-x,-z
+-x+1/2,y+1/2,-z+1/2
+y,x,-z
+loop_
+_atom_site_label
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_U_iso_or_equiv
+_atom_site_occupancy
+_atom_site_adp_type
+_atom_site_type_symbol
+Ti1 0.00000 0.00000 0.00000 0.01267 1.00000 Uiso Ti
+O1 0.30233 0.30233 0.00000 0.01267 1.00000 Uiso O
+loop_
+_atom_type_symbol
+_atom_type_scat_Cromer_Mann_a1
+_atom_type_scat_Cromer_Mann_b1
+_atom_type_scat_Cromer_Mann_a2
+_atom_type_scat_Cromer_Mann_b2
+_atom_type_scat_Cromer_Mann_a3
+_atom_type_scat_Cromer_Mann_b3
+_atom_type_scat_Cromer_Mann_a4
+_atom_type_scat_Cromer_Mann_b4
+_atom_type_scat_Cromer_Mann_c
+_atom_type_scat_dispersion_real
+_atom_type_scat_dispersion_imag
+_atom_type_scat_source
+o 3.04850 13.27710 2.28680 5.70110 1.54630 0.32390 0.86700 32.90890 0.25080
+0.04700 0.03200
+International_Tables_for_Crystallography_Vol.C(1991)_Tables_6.1.1.4_and_6.1.1.5

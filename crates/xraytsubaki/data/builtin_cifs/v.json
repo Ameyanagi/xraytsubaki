@@ -1,0 +1,18 @@
+{
+ "key": "v",
+ "name": "Vanadium",
+ "formula": "V",
+ "sg_number": 229,
+ "sg": "I m -3 m",
+ "category": "metal",
+ "source": "COD",
+ "id": "cod-4117482",
+ "url": "https://www.crystallography.net/cod/4117482.html",
+ "year": "2012",
+ "journal": "Journal of the American Chemical Society",
+ "authors": "Wojciech Miiller; Maxim Avdeev; Qingdi Zhou; Brendan J. Kennedy; Neeraj Sharma; Ramzi Kutteh; Gordon J. Kearley; Siegber Schmid; Kevin S. Knight; Peter E. R. Blanchard; Chris D. Ling",
+ "doi": "10.1021/ja211517h",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

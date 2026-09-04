@@ -1,0 +1,18 @@
+{
+ "key": "ceo2",
+ "name": "CeO₂ fluorite",
+ "formula": "Ce O2",
+ "sg_number": 225,
+ "sg": "F m -3 m",
+ "category": "oxide",
+ "source": "COD",
+ "id": "cod-4343161",
+ "url": "https://www.crystallography.net/cod/4343161.html",
+ "year": "2015",
+ "journal": "Inorganic chemistry",
+ "authors": "Artini, Cristina; Pani, Marcella; Carnasciali, Maria Maddalena; Buscaglia, Maria Teresa; Plaisier, Jasper Rikkert; Costa, Giorgio Andrea",
+ "doi": "10.1021/acs.inorgchem.5b00395",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

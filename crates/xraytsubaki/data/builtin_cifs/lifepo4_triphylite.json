@@ -1,0 +1,18 @@
+{
+ "key": "lifepo4_triphylite",
+ "name": "LiFePO₄ triphylite",
+ "formula": "Fe Li O4 P",
+ "sg_number": 62,
+ "sg": "P n m a",
+ "category": "other",
+ "source": "COD",
+ "id": "cod-4001845",
+ "url": "https://www.crystallography.net/cod/4001845.html",
+ "year": "2013",
+ "journal": "Chemistry of Materials",
+ "authors": "Janssen, Yuri; Santhanagopalan, Dhamodaran; Qian, Danna; Chi, Miaofang; Wang, Xiaoping; Hoffmann, Christina; Meng, Ying Shirley; Khalifah, Peter G.",
+ "doi": "10.1021/cm4027682",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

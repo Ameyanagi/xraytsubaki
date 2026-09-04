@@ -1,0 +1,216 @@
+#------------------------------------------------------------------------------
+#$Date: 2017-09-25 02:10:39 +0300 (Mon, 25 Sep 2017) $
+#$Revision: 201211 $
+#$URL: file:///home/coder/svn-repositories/_RELOADED_COD/cod-reloaded/cif/2/30/04/2300448.cif $
+#------------------------------------------------------------------------------
+#
+# This file is available in the Crystallography Open Database (COD),
+# http://www.crystallography.net/. The original data for this entry
+# were provided by IUCr Journals, http://journals.iucr.org/.
+#
+# The file may be used within the scientific community so long as
+# proper attribution is given to the journal article from which the
+# data were obtained.
+#
+data_2300448
+loop_
+_publ_author_name
+'Schreyer, Martin'
+'Guo, Liangfeng'
+'Thirunahari, Satyanarayana'
+'Gao, Feng'
+'Garland, Marc'
+_publ_section_title
+;
+ Simultaneous determination of several crystal structures from powder
+ mixtures: the combination of powder X-ray diffraction, band-target
+ entropy minimization and Rietveld methods
+;
+_journal_coeditor_code           to5064
+_journal_issue                   2
+_journal_name_full               'Journal of Applied Crystallography'
+_journal_page_first              659
+_journal_page_last               667
+_journal_paper_doi               10.1107/S1600576714003379
+_journal_volume                  47
+_journal_year                    2014
+_chemical_formula_analytical     'Al2 O3'
+_chemical_formula_iupac          'Al2 O3'
+_chemical_formula_moiety         'Al2 O3'
+_chemical_formula_structural     'Al2 O3'
+_chemical_formula_sum            'Al2 O3'
+_chemical_formula_weight         101.96
+_chemical_name_mineral           corundum
+_chemical_name_systematic        'aluminium oxide'
+_space_group_crystal_system      trigonal
+_space_group_IT_number           167
+_space_group_name_Hall           '-R 3 2"c'
+_space_group_name_H-M_alt        'R -3 c :H'
+_symmetry_cell_setting           hexagonal
+_symmetry_Int_Tables_number      167
+_symmetry_space_group_name_Hall  '-R 3 2"c'
+_symmetry_space_group_name_H-M   'R -3 c :H'
+_cell_angle_alpha                90
+_cell_angle_beta                 90
+_cell_angle_gamma                120
+_cell_formula_units_Z            6
+_cell_length_a                   4.758152(42)
+_cell_length_b                   4.758152(42)
+_cell_length_c                   12.98970(18)
+_cell_measurement_temperature    298
+_cell_volume                     254.687(5)
+_computing_cell_refinement       'Topas v4.2 (Bruker AXS GmbH, 2009)'
+_computing_data_collection       unknown
+_computing_data_reduction        'Topas v4.2 (Bruker AXS GmbH, 2009)'
+_computing_molecular_graphics    'Diamond 3.1f'
+_computing_publication_material  CSD
+_computing_structure_refinement  'Topas v4.2 (Bruker AXS GmbH, 2009)'
+_computing_structure_solution    'Topas v4.2 (Bruker AXS GmbH, 2009)'
+_diffrn_ambient_temperature      298
+_diffrn_detector                 'Proportional Counter'
+_diffrn_detector_type            'gas filled point detector'
+_diffrn_measurement_device_type  'Philips 3020'
+_diffrn_radiation_monochromator  'Diffracted beam Graphite'
+_diffrn_radiation_probe          x-ray
+_diffrn_radiation_wavelength     1.54180
+_diffrn_source                   'sealed X-ray tube'
+_diffrn_source_target            Cu
+_exptl_absorpt_coefficient_mu    12.608
+_exptl_crystal_density_diffrn    3.989
+_exptl_crystal_F_000             300
+_pd_block_diffractogram_id       al2o3_profile
+_pd_char_colour                  colourless
+_pd_meas_2theta_range_inc        0.02
+_pd_meas_2theta_range_max        150
+_pd_meas_2theta_range_min        5
+_pd_meas_number_of_points        7250
+_pd_meas_scan_method             step
+_pd_proc_2theta_range_inc        0.02
+_pd_proc_2theta_range_max        150
+_pd_proc_2theta_range_min        5
+_pd_proc_info_excluded_regions   0
+_pd_proc_ls_background_function  'Chebychev of order 3, plus 1/x'
+_pd_proc_ls_pref_orient_corr     none
+_pd_proc_ls_profile_function     'fundamental parameter'
+_pd_proc_ls_prof_R_factor        0.118
+_pd_proc_ls_prof_wR_expected     0.247
+_pd_proc_ls_prof_wR_factor       0.236
+_refine_ls_goodness_of_fit_all   0.095
+_refine_ls_hydrogen_treatment    noref
+_refine_ls_matrix_type           fullcycle
+_refine_ls_number_constraints    0
+_refine_ls_number_parameters     12
+_refine_ls_number_restraints     0
+_refine_ls_R_I_factor            0.018
+_refine_ls_shift/su_max          .01
+_refine_ls_structure_factor_coef Inet
+_refine_ls_weighting_details     1/[Y~i~+\s(Y~i~)]
+_refine_ls_weighting_scheme      sigma
+_cod_data_source_file            to5064sup1.cif
+_cod_data_source_block           Al2O3_BTEM
+_cod_original_cell_volume        254.6868(58)
+_cod_original_sg_symbol_H-M      'R -3 c'
+_cod_database_code               2300448
+_cod_database_fobs_code          2300448
+loop_
+_symmetry_equiv_pos_site_id
+_symmetry_equiv_pos_as_xyz
+1 x,y,z
+2 -y,x-y,z
+3 -x+y,-x,z
+4 y,x,-z+1/2
+5 x-y,-y,-z+1/2
+6 -x,-x+y,-z+1/2
+7 -x,-y,-z
+8 y,-x+y,-z
+9 x-y,x,-z
+10 -y,-x,z+1/2
+11 -x+y,y,z+1/2
+12 x,x-y,z+1/2
+13 x+2/3,y+1/3,z+1/3
+14 -y+2/3,x-y+1/3,z+1/3
+15 -x+y+2/3,-x+1/3,z+1/3
+16 y+2/3,x+1/3,-z+5/6
+17 x-y+2/3,-y+1/3,-z+5/6
+18 -x+2/3,-x+y+1/3,-z+5/6
+19 -x+2/3,-y+1/3,-z+1/3
+20 y+2/3,-x+y+1/3,-z+1/3
+21 x-y+2/3,x+1/3,-z+1/3
+22 -y+2/3,-x+1/3,z+5/6
+23 -x+y+2/3,y+1/3,z+5/6
+24 x+2/3,x-y+1/3,z+5/6
+25 x+1/3,y+2/3,z+2/3
+26 -y+1/3,x-y+2/3,z+2/3
+27 -x+y+1/3,-x+2/3,z+2/3
+28 y+1/3,x+2/3,-z+1/6
+29 x-y+1/3,-y+2/3,-z+1/6
+30 -x+1/3,-x+y+2/3,-z+1/6
+31 -x+1/3,-y+2/3,-z+2/3
+32 y+1/3,-x+y+2/3,-z+2/3
+33 x-y+1/3,x+2/3,-z+2/3
+34 -y+1/3,-x+2/3,z+1/6
+35 -x+y+1/3,y+2/3,z+1/6
+36 x+1/3,x-y+2/3,z+1/6
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_symmetry_multiplicity
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_occupancy
+_atom_site_U_iso_or_equiv
+Al1 Al 12 0 0 0.352290(70) 1 0.00333(21)
+O1 O 18 0.30621(29) 0 0.25 1 0.00213(37)
+loop_
+_atom_type_symbol
+_atom_type_scat_source
+Al 'D. Waasmaier & A. Kirfel. Acta Cryst. (1995). A51, 416-413'
+O 'D. Waasmaier & A. Kirfel. Acta Cryst. (1995). A51, 416-413'
+loop_
+_diffrn_radiation_type
+'Cu K\a'
+loop_
+_geom_angle_atom_site_label_1
+_geom_angle_atom_site_label_2
+_geom_angle_atom_site_label_3
+_geom_angle_site_symmetry_1
+_geom_angle_site_symmetry_3
+_geom_angle
+_geom_angle_publ_flag
+O1 Al1 O1 . 2_555 79.56(5) no
+O1 Al1 O1 . 3_555 79.56(6) no
+O1 Al1 O1 . 31_545 86.35(4) no
+O1 Al1 O1 . 32_555 90.78(3) no
+O1 Al1 O1 . 33_445 164.13(7) no
+O1 Al1 O1 2_555 3_555 79.56(6) no
+O1 Al1 O1 2_555 31_545 164.13(7) no
+O1 Al1 O1 2_555 32_555 86.35(4) no
+O1 Al1 O1 2_555 33_445 90.78(4) no
+O1 Al1 O1 3_555 31_545 90.78(5) no
+O1 Al1 O1 3_555 32_555 164.13(7) no
+O1 Al1 O1 3_555 33_445 86.35(5) no
+O1 Al1 O1 31_545 32_555 101.23(6) no
+O1 Al1 O1 31_545 33_445 101.23(7) no
+O1 Al1 O1 32_555 33_445 101.23(6) no
+Al1 O1 Al1 . 4_555 84.73(7) no
+Al1 O1 Al1 . 31_545 93.65(4) no
+Al1 O1 Al1 . 22_554 132.18(3) no
+Al1 O1 Al1 4_555 31_545 132.18(3) no
+Al1 O1 Al1 4_555 22_554 93.65(4) no
+Al1 O1 Al1 31_545 22_554 120.34(8) no
+loop_
+_geom_bond_atom_site_label_1
+_geom_bond_atom_site_label_2
+_geom_bond_site_symmetry_2
+_geom_bond_distance
+_geom_bond_publ_flag
+Al1 O1 . 1.9719(14) no
+Al1 O1 2_555 1.9719(14) no
+Al1 O1 3_555 1.9719(12) no
+Al1 O1 31_545 1.8537(9) no
+Al1 O1 32_555 1.8537(9) no
+Al1 O1 33_445 1.8537(15) no
+loop_
+_pd_proc_wavelength
+1.541802

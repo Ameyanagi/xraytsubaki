@@ -1,0 +1,18 @@
+{
+ "key": "co3o4",
+ "name": "Co₃O₄ spinel",
+ "formula": "Co3 O4",
+ "sg_number": 227,
+ "sg": "F d -3 m :1",
+ "category": "oxide",
+ "source": "COD",
+ "id": "cod-1538531",
+ "url": "https://www.crystallography.net/cod/1538531.html",
+ "year": "1964",
+ "journal": "Journal of Physics and Chemistry of Solids",
+ "authors": "Roth, W.L.",
+ "doi": null,
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

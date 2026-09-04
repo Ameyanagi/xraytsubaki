@@ -1,0 +1,18 @@
+{
+ "key": "caf2_fluorite",
+ "name": "CaF₂ fluorite",
+ "formula": "Ca F2",
+ "sg_number": 225,
+ "sg": "F m -3 m",
+ "category": "other",
+ "source": "COD",
+ "id": "cod-1559793",
+ "url": "https://www.crystallography.net/cod/1559793.html",
+ "year": "2020",
+ "journal": "Chemical science",
+ "authors": "Kleemiss, Florian; Dolomanov, Oleg V.; Bodensteiner, Michael; Peyerimhoff, Norbert; Midgley, Laura; Bourhis, Luc J.; Genoni, Alessandro; Malaspina, Lorraine A.; Jayatilaka, Dylan; Spencer, John L.; White, Fraser; Grundkötter-Stock, Bernhard; Steinhauer, Simon; Lentz, Dieter; Puschmann, Horst; Grabowsky, Simon",
+ "doi": "10.1039/d0sc05526c",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

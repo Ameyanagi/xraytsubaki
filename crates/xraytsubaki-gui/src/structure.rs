@@ -695,6 +695,9 @@ pub struct StructureSummary {
     /// Symmetry-distinct sites (label, element, multiplicity).
     pub sites: Vec<SiteSummary>,
     pub structure: Arc<core::Structure>,
+    /// Set when the "structure" is a non-periodic XYZ cluster; the cluster
+    /// is then built directly from these atoms.
+    pub xyz: Option<Arc<core::Xyz>>,
 }
 
 impl StructureSummary {
@@ -734,6 +737,45 @@ impl StructureSummary {
             lattice,
             sites,
             structure: Arc::new(structure),
+            xyz: None,
+        }
+    }
+
+    /// Summary of an XYZ file: one "site" per element (multiplicity = atom
+    /// count), no lattice.
+    pub fn from_xyz(hit: StructureHit, xyz: core::Xyz) -> Self {
+        let mut sites: Vec<SiteSummary> = Vec::new();
+        for (i, atom) in xyz.atoms.iter().enumerate() {
+            match sites.iter_mut().find(|s| s.symbol == atom.symbol) {
+                Some(s) => s.multiplicity += 1,
+                None => sites.push(SiteSummary {
+                    label: atom.symbol.clone(),
+                    symbol: atom.symbol.clone(),
+                    z: atom.z as u32,
+                    multiplicity: 1,
+                    site_index: i,
+                }),
+            }
+        }
+        let title = if xyz.comment.is_empty() {
+            hit.name.clone()
+        } else {
+            xyz.comment.clone()
+        };
+        let mut structure = core::Structure::new(
+            &title,
+            // A unit cube is always a valid lattice.
+            core::Lattice::from_parameters(1.0, 1.0, 1.0, 90.0, 90.0, 90.0)
+                .expect("unit lattice"),
+            Vec::new(),
+        );
+        structure.source = "xyz".into();
+        Self {
+            hit,
+            lattice: [0.0; 6],
+            sites,
+            structure: Arc::new(structure),
+            xyz: Some(Arc::new(xyz)),
         }
     }
 
@@ -916,81 +958,52 @@ pub fn import_cif(path: &Path) -> Result<StructureSummary, String> {
     Ok(StructureSummary::from_structure(hit, structure))
 }
 
-/// The simple structures the old generator knew, exposed as a database and
-/// converted into real `Structure`s so they run through the core cluster
+/// Import an XYZ file as a ready-made cluster.
+pub fn import_xyz(path: &Path) -> Result<StructureSummary, String> {
+    let xyz = core::read_xyz(path).map_err(|e| e.to_string())?;
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let mut counts: std::collections::BTreeMap<String, usize> = Default::default();
+    for a in &xyz.atoms {
+        *counts.entry(a.symbol.clone()).or_default() += 1;
+    }
+    let formula = counts
+        .iter()
+        .map(|(s, n)| if *n == 1 { s.clone() } else { format!("{s}{n}") })
+        .collect::<Vec<_>>()
+        .join("");
+    let hit = StructureHit {
+        id: path.to_string_lossy().to_string(),
+        formula,
+        name,
+        space_group: "XYZ cluster".into(),
+        source: StructureSourceKind::LocalCif,
+        core: None,
+    };
+    Ok(StructureSummary::from_xyz(hit, xyz))
+}
+
+/// The bundled library of common standards (COD, CC0) — see the core
+/// `BuiltinLibrary`.
+pub struct BuiltinProvider;
+
+impl StructureProvider for BuiltinProvider {
+    fn search(&self, query: &str) -> Result<Vec<StructureHit>, String> {
+        let lib = core::BuiltinLibrary::get().map_err(|e| e.to_string())?;
+        core_search(lib, StructureSourceKind::Builtin, query)
+    }
+
+    fn fetch(&self, hit: &StructureHit) -> Result<StructureSummary, String> {
+        let lib = core::BuiltinLibrary::get().map_err(|e| e.to_string())?;
+        core_fetch(lib, hit)
+    }
+}
+
+/// The simple structures the old generator knew, converted into real
+/// `Structure`s so `feffgen` recipes still run through the core cluster
 /// builder like everything else.
-pub struct BuiltinStructures;
-
-/// id, element(s), structure, space group, a, c, mineral/name
-type BuiltinRow = (
-    &'static str,
-    &'static str,
-    &'static str,
-    &'static str,
-    f64,
-    Option<f64>,
-    &'static str,
-);
-
-const BUILTINS: &[BuiltinRow] = &[
-    // id, element(s), structure, space group, a, c, mineral/name
-    (
-        "ru-hcp",
-        "Ru",
-        "hcp",
-        "P6₃/mmc",
-        2.706,
-        Some(4.282),
-        "ruthenium",
-    ),
-    ("cu-fcc", "Cu", "fcc", "Fm-3m", 3.615, None, "copper"),
-    ("fe-bcc", "Fe", "bcc", "Im-3m", 2.866, None, "α-iron"),
-    ("ni-fcc", "Ni", "fcc", "Fm-3m", 3.524, None, "nickel"),
-    ("pt-fcc", "Pt", "fcc", "Fm-3m", 3.924, None, "platinum"),
-    ("au-fcc", "Au", "fcc", "Fm-3m", 4.078, None, "gold"),
-    ("pd-fcc", "Pd", "fcc", "Fm-3m", 3.891, None, "palladium"),
-    (
-        "co-hcp",
-        "Co",
-        "hcp",
-        "P6₃/mmc",
-        2.507,
-        Some(4.069),
-        "cobalt",
-    ),
-    ("zn-hcp", "Zn", "hcp", "P6₃/mmc", 2.665, Some(4.947), "zinc"),
-    (
-        "si-diamond",
-        "Si",
-        "diamond",
-        "Fd-3m",
-        5.431,
-        None,
-        "silicon",
-    ),
-    ("nio", "Ni,O", "rocksalt", "Fm-3m", 4.177, None, "bunsenite"),
-    ("mgo", "Mg,O", "rocksalt", "Fm-3m", 4.212, None, "periclase"),
-    ("nacl", "Na,Cl", "rocksalt", "Fm-3m", 5.640, None, "halite"),
-    (
-        "zns",
-        "Zn,S",
-        "zincblende",
-        "F-43m",
-        5.409,
-        None,
-        "sphalerite",
-    ),
-    (
-        "cscl",
-        "Cs,Cl",
-        "cscl",
-        "Pm-3m",
-        4.123,
-        None,
-        "caesium chloride",
-    ),
-];
-
 /// Conventional-cell sites of a simple structure type: (frac, element slot).
 fn builtin_basis(structure: &str) -> Option<Vec<([f64; 3], usize)>> {
     let fcc = vec![
@@ -1064,67 +1077,13 @@ pub fn builtin_structure(spec: &crate::feffgen::CrystalSpec) -> Result<core::Str
     Ok(s)
 }
 
-impl BuiltinStructures {
-    fn hit(row: &BuiltinRow) -> StructureHit {
-        let formula = row.1.replace(',', "");
-        StructureHit {
-            id: row.0.to_string(),
-            formula,
-            name: format!("{} ({})", row.6, row.2),
-            space_group: row.3.to_string(),
-            source: StructureSourceKind::Builtin,
-            core: None,
-        }
-    }
-
-    fn spec(row: &BuiltinRow) -> crate::feffgen::CrystalSpec {
-        let elements: Vec<&str> = row.1.split(',').collect();
-        crate::feffgen::CrystalSpec {
-            element: elements[0].to_string(),
-            element2: elements.get(1).map(|s| s.to_string()),
-            structure: row.2.to_string(),
-            a: row.4,
-            c: row.5,
-            edge: "K".to_string(),
-            rmax: 6.0,
-        }
-    }
-}
-
-impl StructureProvider for BuiltinStructures {
-    fn search(&self, query: &str) -> Result<Vec<StructureHit>, String> {
-        let q = query.trim().to_ascii_lowercase();
-        Ok(BUILTINS
-            .iter()
-            .map(Self::hit)
-            .filter(|h| {
-                q.is_empty()
-                    || h.formula.to_ascii_lowercase().contains(&q)
-                    || h.name.to_ascii_lowercase().contains(&q)
-                    || h.id.contains(&q)
-            })
-            .collect())
-    }
-
-    fn fetch(&self, hit: &StructureHit) -> Result<StructureSummary, String> {
-        let row = BUILTINS
-            .iter()
-            .find(|r| r.0 == hit.id)
-            .ok_or_else(|| format!("unknown built-in structure '{}'", hit.id))?;
-        let mut structure = builtin_structure(&Self::spec(row))?;
-        structure.space_group.hm_symbol = Some(row.3.to_string());
-        structure.mineral = Some(row.6.to_string());
-        Ok(StructureSummary::from_structure(hit.clone(), structure))
-    }
-}
-
 /// Provider for a source kind, given the machine configuration.
 pub fn provider_for(
     kind: StructureSourceKind,
     cfg: &SourceConfig,
 ) -> Result<Box<dyn StructureProvider>, String> {
     match kind {
-        StructureSourceKind::Builtin => Ok(Box::new(BuiltinStructures)),
+        StructureSourceKind::Builtin => Ok(Box::new(BuiltinProvider)),
         StructureSourceKind::LocalCif => cfg
             .cif_library
             .clone()
@@ -1194,16 +1153,21 @@ mod tests {
 
     #[test]
     fn builtin_provider_searches_and_fetches() {
-        let p = BuiltinStructures;
-        let hits = p.search("ru").unwrap();
-        assert_eq!(hits.len(), 1);
-        let s = p.fetch(&hits[0]).unwrap();
+        let p = BuiltinProvider;
+        let hits = p.search("ruthenium").unwrap();
+        let hit = hits
+            .iter()
+            .find(|h| h.id == "ru_hcp")
+            .cloned()
+            .unwrap_or_else(|| panic!("{hits:?}"));
+        let s = p.fetch(&hit).unwrap();
         assert_eq!(s.hit.formula, "Ru");
         assert!((s.lattice[5] - 120.0).abs() < 1e-9);
         // hcp: two Ru sites in the conventional cell.
         assert_eq!(s.sites.iter().map(|x| x.multiplicity).sum::<usize>(), 2);
         assert_eq!(s.elements(), vec![("Ru".to_string(), 44)]);
-        assert!(p.search("").unwrap().len() >= 10);
+        assert!(p.search("").unwrap().len() >= 40);
+        assert_eq!(p.search("RuO2").unwrap()[0].id, "ruo2");
         let cfg = SourceConfig::default();
         assert!(provider_for(StructureSourceKind::Amcsd, &cfg).is_err());
         assert!(provider_for(StructureSourceKind::MaterialsProject, &cfg).is_err());
@@ -1212,8 +1176,13 @@ mod tests {
 
     #[test]
     fn builtin_structures_run_through_the_core_cluster_builder() {
-        let p = BuiltinStructures;
-        let hit = p.search("ru-hcp").unwrap().remove(0);
+        let p = BuiltinProvider;
+        let hit = p
+            .search("ru_hcp")
+            .unwrap()
+            .into_iter()
+            .find(|h| h.id == "ru_hcp")
+            .unwrap();
         let s = p.fetch(&hit).unwrap();
         let cluster = core::build_cluster(
             &s.structure,
@@ -1225,9 +1194,9 @@ mod tests {
         )
         .unwrap();
         let view = Cluster::from_core(&cluster);
-        // 12 nearest neighbours (6 × 2.650 + 6 × 2.706) plus the absorber.
+        // 12 nearest neighbours (6 × 2.65 + 6 × 2.71) plus the absorber.
         assert_eq!(view.atoms.len(), 13);
-        assert!((view.shells[1].0 - 2.650).abs() < 0.01, "{:?}", view.shells);
+        assert!((view.shells[1].0 - 2.65).abs() < 0.03, "{:?}", view.shells);
         assert_eq!(view.shells[1].1 + view.shells[2].1, 12);
         // Binary structures keep both elements.
         let nacl = p.search("nacl").unwrap().remove(0);

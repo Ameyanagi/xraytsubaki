@@ -1,0 +1,18 @@
+{
+ "key": "mn2o3_bixbyite",
+ "name": "Mn₂O₃ bixbyite",
+ "formula": "Mn2 O3",
+ "sg_number": 206,
+ "sg": "I a -3",
+ "category": "oxide",
+ "source": "COD",
+ "id": "cod-8103497",
+ "url": "https://www.crystallography.net/cod/8103497.html",
+ "year": "2013",
+ "journal": "Zeitschrift für Kristallographie - Crystalline Materials",
+ "authors": "Klein, H.",
+ "doi": "10.1524/zkri.2012.1568",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

@@ -1,0 +1,18 @@
+{
+ "key": "pt",
+ "name": "Platinum",
+ "formula": "Pt",
+ "sg_number": 225,
+ "sg": "F m -3 m",
+ "category": "metal",
+ "source": "COD",
+ "id": "cod-4334349",
+ "url": "https://www.crystallography.net/cod/4334349.html",
+ "year": "2013",
+ "journal": "Inorganic Chemistry",
+ "authors": "Mikiko Ochi; Ikuya Yamada; Kenya Ohgushi; Yoshihiro Kusano; Masaichiro Mizumaki; Ryoji Takahashi; Shunsuke Yagi; Norimasa Nishiyama; Toru Inoue; Tetsuo Irifune",
+ "doi": "10.1021/ic302809v",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

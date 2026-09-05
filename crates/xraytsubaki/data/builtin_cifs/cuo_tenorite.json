@@ -1,0 +1,18 @@
+{
+ "key": "cuo_tenorite",
+ "name": "CuO tenorite",
+ "formula": "Cu O",
+ "sg_number": 15,
+ "sg": "C 1 2/c 1",
+ "category": "oxide",
+ "source": "COD",
+ "id": "cod-4105682",
+ "url": "https://www.crystallography.net/cod/4105682.html",
+ "year": "2011",
+ "journal": "Journal of the American Chemical Society",
+ "authors": "Catherine F. Smura; Dinah R. Parker; Mohamed Zbiri; Mark R. Johnson; Zoltán A. Gál; Simon J. Clarke",
+ "doi": "10.1021/ja109553u",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

@@ -1,0 +1,278 @@
+#------------------------------------------------------------------------------
+#$Date: 2023-12-06 14:42:42 +0200 (Wed, 06 Dec 2023) $
+#$Revision: 288070 $
+#$URL: file:///home/coder/svn-repositories/_RELOADED_COD/cod-reloaded/cif/4/00/18/4001845.cif $
+#------------------------------------------------------------------------------
+#
+# This file is available in the Crystallography Open Database (COD),
+# http://www.crystallography.net/
+#
+# All data on this site have been placed in the public domain by the
+# contributors.
+#
+data_4001845
+loop_
+_publ_author_name
+'Janssen, Yuri'
+'Santhanagopalan, Dhamodaran'
+'Qian, Danna'
+'Chi, Miaofang'
+'Wang, Xiaoping'
+'Hoffmann, Christina'
+'Meng, Ying Shirley'
+'Khalifah, Peter G.'
+_publ_section_title
+;
+ Reciprocal Salt Flux Growth of LiFePO4Single Crystals with Controlled
+ Defect Concentrations
+;
+_journal_issue                   22
+_journal_name_full               'Chemistry of Materials'
+_journal_page_first              4574
+_journal_paper_doi               10.1021/cm4027682
+_journal_volume                  25
+_journal_year                    2013
+_chemical_formula_moiety         'Li1 Fe1 P1 O4'
+_chemical_formula_sum            'Fe Li O4 P'
+_chemical_formula_weight         157.8
+_space_group_IT_number           62
+_symmetry_cell_setting           orthorhombic
+_symmetry_Int_Tables_number      62
+_symmetry_space_group_name_Hall  '-P 2ac 2n'
+_symmetry_space_group_name_H-M   'P n m a'
+_audit_creation_method           'Jana2006 Version : 04/04/2013'
+_cell_angle_alpha                90
+_cell_angle_beta                 90
+_cell_angle_gamma                90
+_cell_formula_units_Z            4
+_cell_length_a                   10.3360(2)
+_cell_length_b                   6.0060(3)
+_cell_length_c                   4.6932(5)
+_cell_measurement_reflns_used    5488
+_cell_measurement_temperature    293
+_cell_measurement_theta_max      37.85
+_cell_measurement_theta_min      3.39
+_cell_volume                     291.34(3)
+_computing_cell_refinement
+;
+CrysAlisPro, Agilent Technologies,
+Version 1.171.36.28 (release 01-02-2013 CrysAlis171 .NET)
+(compiled Feb  1 2013,16:14:44)
+;
+_computing_data_collection
+;
+CrysAlisPro, Agilent Technologies,
+Version 1.171.36.28 (release 01-02-2013 CrysAlis171 .NET)
+(compiled Feb  1 2013,16:14:44)
+;
+_computing_data_reduction
+;
+CrysAlisPro, Agilent Technologies,
+Version 1.171.36.28 (release 01-02-2013 CrysAlis171 .NET)
+(compiled Feb  1 2013,16:14:44)
+;
+_diffrn_ambient_temperature      293
+_diffrn_detector_area_resol_mean 10.4962
+_diffrn_measured_fraction_theta_full 0.98
+_diffrn_measured_fraction_theta_max 0.98
+_diffrn_measurement_device       'four-cycle diffractometer'
+_diffrn_measurement_device_type  'Xcalibur, Atlas, Gemini'
+_diffrn_measurement_method       '\w scans'
+_diffrn_radiation_monochromator  graphite
+_diffrn_radiation_probe          x-ray
+_diffrn_radiation_source         'Enhance (Mo) X-ray Source'
+_diffrn_radiation_type           'Mo K\a'
+_diffrn_radiation_wavelength     0.7107
+_diffrn_reflns_av_R_equivalents  0.0325
+_diffrn_reflns_av_sigmaI/netI    0.0111
+_diffrn_reflns_limit_h_max       17
+_diffrn_reflns_limit_h_min       -17
+_diffrn_reflns_limit_k_max       10
+_diffrn_reflns_limit_k_min       -10
+_diffrn_reflns_limit_l_max       8
+_diffrn_reflns_limit_l_min       -7
+_diffrn_reflns_number            10796
+_diffrn_reflns_theta_full        37.76
+_diffrn_reflns_theta_max         37.84
+_diffrn_reflns_theta_min         3.94
+_exptl_absorpt_coefficient_mu    5.539
+_exptl_absorpt_correction_T_max  0.269
+_exptl_absorpt_correction_T_min  0.108
+_exptl_absorpt_correction_type   analytical
+_exptl_absorpt_process_details
+;
+CrysAlisPro, Agilent Technologies,
+Version 1.171.36.28 (release 01-02-2013 CrysAlis171 .NET)
+(compiled Feb  1 2013,16:14:44)
+Analytical numeric absorption correction using a multifaceted crystal
+            model based on expressions derived by R.C. Clark & J.S. Reid.
+(Clark, R. C. & Reid, J. S. (1995). Acta Cryst. A51, 887-897)
+;
+_exptl_crystal_density_diffrn    3.5954
+_exptl_crystal_F_000             304
+_exptl_crystal_size_max          0.775
+_exptl_crystal_size_mid          0.462
+_exptl_crystal_size_min          0.377
+_refine_diff_density_max         0.54
+_refine_diff_density_min         -0.34
+_refine_ls_extinction_coef       9700(300)
+_refine_ls_extinction_method
+'B-C type 1 Lorentzian isotropic (Becker & Coppens, 1974)'
+_refine_ls_goodness_of_fit_gt    1.69
+_refine_ls_goodness_of_fit_ref   1.68
+_refine_ls_number_constraints    0
+_refine_ls_number_parameters     41
+_refine_ls_number_reflns         815
+_refine_ls_number_restraints     0
+_refine_ls_R_factor_all          0.0189
+_refine_ls_R_factor_gt           0.0180
+_refine_ls_shift/su_max          0.0191
+_refine_ls_shift/su_mean         0.0026
+_refine_ls_structure_factor_coef Fsqd
+_refine_ls_weighting_details     w=1/(\s^2^(I)+0.0004I^2^)
+_refine_ls_weighting_scheme      sigma
+_refine_ls_wR_factor_gt          0.0472
+_refine_ls_wR_factor_ref         0.0476
+_reflns_number_gt                788
+_reflns_number_total             815
+_reflns_threshold_expression     I>3\s(I)
+_cod_data_source_file            cm4027682_si_002.cif
+_cod_data_source_block           X1_fully_occupied
+_cod_depositor_comments
+;
+The following automatic conversions were performed:
+
+'_diffrn_radiation_probe' value 'X-ray' changed to 'x-ray' according
+to /home/saulius/struct/CIF-dictionaries/cif_core.dic dictionary
+named 'cif_core.dic' version 2.4.2 from 2011-04-26.
+
+Automatic conversion script
+Id: cif_fix_values 1891 2012-01-12 08:04:46Z andrius 
+
+The following automatic conversions were performed:
+
+data name '_atom_site_site_symmetry_mutiplicity' was replaced with
+'_atom_site_site_symmetry_multiplicity' as specified in the
+replacement file 'data/replacement-values/replacement_tags.lst'.
+
+Automatic conversion script
+Id: cif_correct_tags 9268 2022-04-12 08:56:07Z antanas 
+;
+_cod_original_formula_sum        'Fe1 Li1 O4 P1'
+_cod_database_code               4001845
+loop_
+_symmetry_equiv_pos_site_id
+_symmetry_equiv_pos_as_xyz
+1 x,y,z
+2 -x+1/2,-y,z+1/2
+3 -x,y+1/2,-z
+4 x+1/2,-y+1/2,-z+1/2
+5 -x,-y,-z
+6 x+1/2,y,-z+1/2
+7 x,-y+1/2,z
+8 -x+1/2,y+1/2,z+1/2
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_adp_type
+_atom_site_U_iso_or_equiv
+_atom_site_site_symmetry_multiplicity
+_atom_site_occupancy
+_atom_site_calc_flag
+Fe1 Fe 0.282233(16) 0.25 0.97486(4) Uani 0.00750(6) 4 1 d
+P1 P 0.09494(3) 0.25 0.41836(7) Uani 0.00618(8) 4 1 d
+O1 O 0.09706(8) 0.25 0.7431(2) Uani 0.0096(2) 4 1 d
+O2 O 0.45739(8) 0.25 0.2055(2) Uani 0.0088(2) 4 1 d
+O3 O 0.16569(6) 0.04680(11) 0.28500(15) Uani 0.00927(15) 8 1 d
+Li1 Li 0 0 0 Uani 0.0115(6) 4 1 d
+loop_
+_atom_site_aniso_label
+_atom_site_aniso_type_symbol
+_atom_site_aniso_U_11
+_atom_site_aniso_U_22
+_atom_site_aniso_U_33
+_atom_site_aniso_U_12
+_atom_site_aniso_U_13
+_atom_site_aniso_U_23
+Fe1 Fe 0.00788(10) 0.00639(10) 0.00823(11) 0 0.00048(5) 0
+P1 P 0.00723(13) 0.00628(13) 0.00503(14) 0 0.00023(9) 0
+O1 O 0.0118(4) 0.0117(4) 0.0052(4) 0 -0.0005(3) 0
+O2 O 0.0071(3) 0.0109(4) 0.0085(4) 0 0.0003(3) 0
+O3 O 0.0119(3) 0.0073(3) 0.0086(3) 0.00242(19) 0.00128(19) 0.0000(2)
+Li1 Li 0.0143(10) 0.0116(11) 0.0084(11) -0.0028(9) -0.0023(7) -0.0040(8)
+loop_
+_atom_type_symbol
+_atom_type_scat_dispersion_real
+_atom_type_scat_dispersion_imag
+_atom_type_scat_source
+Fe 0.3463 0.8444 'International Tables Vol C tables 4.2.6.8 and 6.1.1.1'
+Li -0.0003 0.0001 'International Tables Vol C tables 4.2.6.8 and 6.1.1.1'
+O 0.0106 0.0060 'International Tables Vol C tables 4.2.6.8 and 6.1.1.1'
+P 0.1023 0.0942 'International Tables Vol C tables 4.2.6.8 and 6.1.1.1'
+loop_
+_geom_angle_atom_site_label_1
+_geom_angle_atom_site_label_2
+_geom_angle_atom_site_label_3
+_geom_angle_site_symmetry_1
+_geom_angle_site_symmetry_3
+_geom_angle
+O1 Fe1 O2 . 1_556 178.73(4)
+O1 Fe1 O3 . 1_556 81.61(3)
+O1 Fe1 O3 . 2_555 90.77(2)
+O1 Fe1 O3 . 7_556 81.61(3)
+O1 Fe1 O3 . 8_555 90.77(2)
+O2 Fe1 O3 1_556 1_556 97.33(3)
+O2 Fe1 O3 1_556 2_555 89.87(2)
+O2 Fe1 O3 1_556 7_556 97.33(3)
+O2 Fe1 O3 1_556 8_555 89.87(2)
+O3 Fe1 O3 1_556 2_555 87.16(3)
+O3 Fe1 O3 1_556 7_556 65.72(2)
+O3 Fe1 O3 1_556 8_555 152.56(2)
+O3 Fe1 O3 2_555 7_556 152.56(2)
+O3 Fe1 O3 2_555 8_555 119.43(3)
+O3 Fe1 O3 7_556 8_555 87.16(3)
+O1 P1 O2 . 4_455 113.06(5)
+O1 P1 O3 . . 113.32(3)
+O1 P1 O3 . 7_555 113.32(3)
+O2 P1 O3 4_455 . 106.44(3)
+O2 P1 O3 4_455 7_555 106.44(3)
+O3 P1 O3 . 7_555 103.47(4)
+O1 Li1 O1 1_554 3_546 180.0(5)
+O1 Li1 O2 1_554 2_554 91.85(3)
+O1 Li1 O2 1_554 4_455 88.15(3)
+O1 Li1 O3 1_554 . 83.63(3)
+O1 Li1 O3 1_554 5_555 96.37(3)
+O1 Li1 O2 3_546 2_554 88.15(3)
+O1 Li1 O2 3_546 4_455 91.85(3)
+O1 Li1 O3 3_546 . 96.37(3)
+O1 Li1 O3 3_546 5_555 83.63(3)
+O2 Li1 O2 2_554 4_455 180.0(5)
+O2 Li1 O3 2_554 . 109.36(3)
+O2 Li1 O3 2_554 5_555 70.64(3)
+O2 Li1 O3 4_455 . 70.64(3)
+O2 Li1 O3 4_455 5_555 109.36(3)
+O3 Li1 O3 . 5_555 180.0(5)
+loop_
+_geom_bond_atom_site_label_1
+_geom_bond_atom_site_label_2
+_geom_bond_site_symmetry_2
+_geom_bond_distance
+Fe1 O1 . 2.2014(9)
+Fe1 O2 1_556 2.1094(9)
+Fe1 O3 1_556 2.2492(7)
+Fe1 O3 2_555 2.0643(7)
+Fe1 O3 7_556 2.2492(7)
+Fe1 O3 8_555 2.0643(7)
+P1 O1 . 1.5243(11)
+P1 O2 4_455 1.5359(9)
+P1 O3 . 1.5543(7)
+P1 O3 7_555 1.5543(7)
+Li1 O1 1_554 2.1713(7)
+Li1 O1 3_546 2.1713(7)
+Li1 O2 2_554 2.0878(7)
+Li1 O2 4_455 2.0878(7)
+Li1 O3 . 2.1911(7)
+Li1 O3 5_555 2.1911(7)

@@ -41,6 +41,9 @@ thiserror = { workspace = true }
 ruviz = { workspace = true, optional = true, features = ["svg", "typst-math"] }
 refeff = { workspace = true, optional = true }
 feff10 = { version = "0.2.2", features = ["prebuilt"], optional = true }
+rusqlite = { version = "0.31", features = ["bundled"], optional = true }
+ureq = { version = "3", features = ["json"], optional = true }
+base64 = "0.23.1"
 
 [features]
 default = ["trust-region"]
@@ -49,6 +52,11 @@ ndarray-compat = ["ndarray"]
 plotting = ["ruviz"]
 refeff-runner = ["dep:refeff"]
 feff10-runner = ["dep:feff10"]
+amcsd = ["dep:rusqlite"]
+# HTTP client shared by the online structure sources.
+http = ["dep:ureq"]
+materials-project = ["http"]
+cod = ["http"]
 
 [dev-dependencies]
 pprof = { version = "0.13", features = ["flamegraph"] }

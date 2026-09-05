@@ -1,0 +1,305 @@
+#------------------------------------------------------------------------------
+#$Date: 2022-07-30 21:38:12 +0300 (Sat, 30 Jul 2022) $
+#$Revision: 277017 $
+#$URL: file:///home/coder/svn-repositories/_RELOADED_COD/cod-reloaded/cif/3/00/03/3000327.cif $
+#------------------------------------------------------------------------------
+#
+# This file is available in the Crystallography Open Database (COD),
+# http://www.crystallography.net/
+#
+# All data on this site have been placed in the public domain by the
+# contributors.
+#
+data_3000327
+loop_
+_publ_author_name
+'Paul, Tanmoy'
+_publ_section_title
+;
+ A study on Ti-doped Fe3O4 anode for Li ion battery using machine
+ learning, electrochemical and distribution function of relaxation times
+ (DFRTs) analyses
+;
+_journal_name_full               'Scientific Reports'
+_journal_page_first              4851
+_journal_year                    2022
+_chemical_absolute_configuration unk
+_chemical_compound_source
+;
+?
+;
+_chemical_formula_moiety         ' Fe3 O4'
+_chemical_formula_sum            'Fe3 O4'
+_chemical_formula_weight         231.53
+_chemical_name_systematic
+; 
+iron oxide
+;
+_space_group_IT_number           227
+_space_group_name_Hall           '-F 4vw 2vw 3'
+_space_group_name_H-M_alt        'F d -3 m :2'
+_symmetry_cell_setting           cubic
+_symmetry_space_group_name_Hall  '-F 4vw 2vw 3'
+_symmetry_space_group_name_H-M   'F d -3 m :2'
+_cell_angle_alpha                90.0000
+_cell_angle_beta                 90.0000
+_cell_angle_gamma                90.0000
+_cell_formula_units_Z            8
+_cell_length_a                   8.39912
+_cell_length_b                   8.39912
+_cell_length_c                   8.39912
+_cell_measurement_reflns_used    0
+_cell_measurement_temperature    293
+_cell_measurement_theta_max      0
+_cell_measurement_theta_min      0
+_cell_volume                     592.518
+_diffrn_ambient_temperature      293
+_diffrn_measured_fraction_theta_full 0.995
+_diffrn_measured_fraction_theta_max 0.934
+_diffrn_measurement_device_type
+; 
+Unknown 
+;
+_diffrn_measurement_method       'profile data from \q/2\q scans'
+_diffrn_radiation_monochromator  graphite
+_diffrn_radiation_type           'cu K\a'
+_refine_ls_number_parameters     8
+_refine_ls_number_reflns         32
+_refine_ls_number_restraints     0
+_refine_ls_R_I_factor            11.0044
+_cod_data_source_file            Cubic-Fe3O4-Ti2O3.cif
+_cod_data_source_block           CRYSTALS_cif
+_cod_depositor_comments
+;Extending hold period by 12 months (from 2022-03-22 to 2023-03-22)
+
+ Releasing structure 3000327 into public domain as published material.
+;
+_cod_original_cell_volume        592.519
+_cod_original_sg_symbol_H-M      '-F 4vw 2vw 3'
+_cod_database_code               3000327
+loop_
+_symmetry_equiv_pos_as_xyz
+x,y,z
+x,-y+1/4,-z+1/4
+-x+1/4,y,-z+1/4
+-x+1/4,-y+1/4,z
+y,z,x
+-y+1/4,-z+1/4,x
+y,-z+1/4,-x+1/4
+-y+1/4,z,-x+1/4
+z,x,y
+-z+1/4,x,-y+1/4
+-z+1/4,-x+1/4,y
+z,-x+1/4,-y+1/4
+y,x,z
+-y+1/4,x,-z+1/4
+y,-x+1/4,-z+1/4
+-y+1/4,-x+1/4,z
+z,y,x
+-z+1/4,-y+1/4,x
+-z+1/4,y,-x+1/4
+z,-y+1/4,-x+1/4
+x,z,y
+x,-z+1/4,-y+1/4
+-x+1/4,-z+1/4,y
+-x+1/4,z,-y+1/4
+-x,-y,-z
+-x,y+3/4,z+3/4
+x+3/4,-y,z+3/4
+x+3/4,y+3/4,-z
+-y,-z,-x
+y+3/4,z+3/4,-x
+-y,z+3/4,x+3/4
+y+3/4,-z,x+3/4
+-z,-x,-y
+z+3/4,-x,y+3/4
+z+3/4,x+3/4,-y
+-z,x+3/4,y+3/4
+-y,-x,-z
+y+3/4,-x,z+3/4
+-y,x+3/4,z+3/4
+y+3/4,x+3/4,-z
+-z,-y,-x
+z+3/4,y+3/4,-x
+z+3/4,-y,x+3/4
+-z,y+3/4,x+3/4
+-x,-z,-y
+-x,z+3/4,y+3/4
+x+3/4,z+3/4,-y
+x+3/4,-z,y+3/4
+x+1/2,y+1/2,z
+x+1/2,-y+3/4,-z+1/4
+-x+3/4,y+1/2,-z+1/4
+-x+3/4,-y+3/4,z
+y+1/2,z+1/2,x
+-y+3/4,-z+3/4,x
+y+1/2,-z+3/4,-x+1/4
+-y+3/4,z+1/2,-x+1/4
+z+1/2,x+1/2,y
+-z+3/4,x+1/2,-y+1/4
+-z+3/4,-x+3/4,y
+z+1/2,-x+3/4,-y+1/4
+y+1/2,x+1/2,z
+-y+3/4,x+1/2,-z+1/4
+y+1/2,-x+3/4,-z+1/4
+-y+3/4,-x+3/4,z
+z+1/2,y+1/2,x
+-z+3/4,-y+3/4,x
+-z+3/4,y+1/2,-x+1/4
+z+1/2,-y+3/4,-x+1/4
+x+1/2,z+1/2,y
+x+1/2,-z+3/4,-y+1/4
+-x+3/4,-z+3/4,y
+-x+3/4,z+1/2,-y+1/4
+-x+1/2,-y+1/2,-z
+-x+1/2,y+1/4,z+3/4
+x+1/4,-y+1/2,z+3/4
+x+1/4,y+1/4,-z
+-y+1/2,-z+1/2,-x
+y+1/4,z+1/4,-x
+-y+1/2,z+1/4,x+3/4
+y+1/4,-z+1/2,x+3/4
+-z+1/2,-x+1/2,-y
+z+1/4,-x+1/2,y+3/4
+z+1/4,x+1/4,-y
+-z+1/2,x+1/4,y+3/4
+-y+1/2,-x+1/2,-z
+y+1/4,-x+1/2,z+3/4
+-y+1/2,x+1/4,z+3/4
+y+1/4,x+1/4,-z
+-z+1/2,-y+1/2,-x
+z+1/4,y+1/4,-x
+z+1/4,-y+1/2,x+3/4
+-z+1/2,y+1/4,x+3/4
+-x+1/2,-z+1/2,-y
+-x+1/2,z+1/4,y+3/4
+x+1/4,z+1/4,-y
+x+1/4,-z+1/2,y+3/4
+x+1/2,y,z+1/2
+x+1/2,-y+1/4,-z+3/4
+-x+3/4,y,-z+3/4
+-x+3/4,-y+1/4,z+1/2
+y+1/2,z,x+1/2
+-y+3/4,-z+1/4,x+1/2
+y+1/2,-z+1/4,-x+3/4
+-y+3/4,z,-x+3/4
+z+1/2,x,y+1/2
+-z+3/4,x,-y+3/4
+-z+3/4,-x+1/4,y+1/2
+z+1/2,-x+1/4,-y+3/4
+y+1/2,x,z+1/2
+-y+3/4,x,-z+3/4
+y+1/2,-x+1/4,-z+3/4
+-y+3/4,-x+1/4,z+1/2
+z+1/2,y,x+1/2
+-z+3/4,-y+1/4,x+1/2
+-z+3/4,y,-x+3/4
+z+1/2,-y+1/4,-x+3/4
+x+1/2,z,y+1/2
+x+1/2,-z+1/4,-y+3/4
+-x+3/4,-z+1/4,y+1/2
+-x+3/4,z,-y+3/4
+-x+1/2,-y,-z+1/2
+-x+1/2,y+3/4,z+1/4
+x+1/4,-y,z+1/4
+x+1/4,y+3/4,-z+1/2
+-y+1/2,-z,-x+1/2
+y+1/4,z+3/4,-x+1/2
+-y+1/2,z+3/4,x+1/4
+y+1/4,-z,x+1/4
+-z+1/2,-x,-y+1/2
+z+1/4,-x,y+1/4
+z+1/4,x+3/4,-y+1/2
+-z+1/2,x+3/4,y+1/4
+-y+1/2,-x,-z+1/2
+y+1/4,-x,z+1/4
+-y+1/2,x+3/4,z+1/4
+y+1/4,x+3/4,-z+1/2
+-z+1/2,-y,-x+1/2
+z+1/4,y+3/4,-x+1/2
+z+1/4,-y,x+1/4
+-z+1/2,y+3/4,x+1/4
+-x+1/2,-z,-y+1/2
+-x+1/2,z+3/4,y+1/4
+x+1/4,z+3/4,-y+1/2
+x+1/4,-z,y+1/4
+x,y+1/2,z+1/2
+x,-y+3/4,-z+3/4
+-x+1/4,y+1/2,-z+3/4
+-x+1/4,-y+3/4,z+1/2
+y,z+1/2,x+1/2
+-y+1/4,-z+3/4,x+1/2
+y,-z+3/4,-x+3/4
+-y+1/4,z+1/2,-x+3/4
+z,x+1/2,y+1/2
+-z+1/4,x+1/2,-y+3/4
+-z+1/4,-x+3/4,y+1/2
+z,-x+3/4,-y+3/4
+y,x+1/2,z+1/2
+-y+1/4,x+1/2,-z+3/4
+y,-x+3/4,-z+3/4
+-y+1/4,-x+3/4,z+1/2
+z,y+1/2,x+1/2
+-z+1/4,-y+3/4,x+1/2
+-z+1/4,y+1/2,-x+3/4
+z,-y+3/4,-x+3/4
+x,z+1/2,y+1/2
+x,-z+3/4,-y+3/4
+-x+1/4,-z+3/4,y+1/2
+-x+1/4,z+1/2,-y+3/4
+-x,-y+1/2,-z+1/2
+-x,y+1/4,z+1/4
+x+3/4,-y+1/2,z+1/4
+x+3/4,y+1/4,-z+1/2
+-y,-z+1/2,-x+1/2
+y+3/4,z+1/4,-x+1/2
+-y,z+1/4,x+1/4
+y+3/4,-z+1/2,x+1/4
+-z,-x+1/2,-y+1/2
+z+3/4,-x+1/2,y+1/4
+z+3/4,x+1/4,-y+1/2
+-z,x+1/4,y+1/4
+-y,-x+1/2,-z+1/2
+y+3/4,-x+1/2,z+1/4
+-y,x+1/4,z+1/4
+y+3/4,x+1/4,-z+1/2
+-z,-y+1/2,-x+1/2
+z+3/4,y+1/4,-x+1/2
+z+3/4,-y+1/2,x+1/4
+-z,y+1/4,x+1/4
+-x,-z+1/2,-y+1/2
+-x,z+1/4,y+1/4
+x+3/4,z+1/4,-y+1/2
+x+3/4,-z+1/2,y+1/4
+loop_
+_atom_site_label
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_U_iso_or_equiv
+_atom_site_occupancy
+_atom_site_adp_type
+_atom_site_type_symbol
+FeA 0.12500 0.12500 0.12500 1 1.00000 Uiso Fe
+FeB 0.50000 0.50000 0.50000 1 0.99952 Uiso Fe
+O 0.2555 0.2555 0.2555 1 1.000 Uiso O
+loop_
+_atom_type_symbol
+_atom_type_scat_Cromer_Mann_a1
+_atom_type_scat_Cromer_Mann_b1
+_atom_type_scat_Cromer_Mann_a2
+_atom_type_scat_Cromer_Mann_b2
+_atom_type_scat_Cromer_Mann_a3
+_atom_type_scat_Cromer_Mann_b3
+_atom_type_scat_Cromer_Mann_a4
+_atom_type_scat_Cromer_Mann_b4
+_atom_type_scat_Cromer_Mann_c
+_atom_type_scat_dispersion_real
+_atom_type_scat_dispersion_imag
+_atom_type_scat_source
+Fe 11.76950 4.76110 7.35730 0.30720 3.52220 15.35350 2.30450 76.88050 1.03690
+-1.17900 3.20400
+International_Tables_for_Crystallography_Vol.C(1991)_Tables_6.1.1.4_and_6.1.1.5
+O 3.04850 13.27710 2.28680 5.70110 1.54630 0.32390 0.86700 32.90890 0.25080
+0.04700 0.03200
+International_Tables_for_Crystallography_Vol.C(1991)_Tables_6.1.1.4_and_6.1.1.5

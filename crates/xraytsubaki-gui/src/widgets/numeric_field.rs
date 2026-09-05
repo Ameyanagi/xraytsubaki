@@ -62,6 +62,7 @@ pub struct NumericField {
     /// Bumped per rejected commit so an old flash-clear timer never
     /// extinguishes a newer error.
     error_epoch: u64,
+    mixed: bool,
 }
 
 /// "pre-edge start (eV)" → ("pre-edge start", "eV").
@@ -80,6 +81,7 @@ fn split_unit(label: &str) -> (String, String) {
 
 pub enum FieldEvent {
     Changed(Option<f64>),
+    InspectMixed,
     /// Input was rejected; the payload is a ready-to-show status message.
     Invalid(SharedString),
 }
@@ -175,6 +177,7 @@ impl NumericField {
                 FieldKind::Integer { .. } => 1.0,
             },
             error_epoch: 0,
+            mixed: false,
         }
     }
 
@@ -227,6 +230,13 @@ impl NumericField {
     ) {
         self.input
             .update(cx, |i, cx| i.set_placeholder(placeholder, cx));
+    }
+
+    pub fn set_mixed(&mut self, mixed: bool, cx: &mut Context<Self>) {
+        if self.mixed != mixed {
+            self.mixed = mixed;
+            cx.notify();
+        }
     }
 
     /// Last committed value (`None` = auto).
@@ -292,8 +302,21 @@ impl Render for NumericField {
                     .flex_none()
                     .w(px(16.))
                     .text_size(px(10.))
-                    .text_color(if can_reset { t.accent } else { t.border })
-                    .when(can_reset, |d| {
+                    .text_color(if self.mixed {
+                        t.warn
+                    } else if can_reset {
+                        t.accent
+                    } else {
+                        t.border
+                    })
+                    .when(self.mixed, |d| {
+                        d.cursor_pointer().on_click(
+                            cx.listener(|_, _: &ClickEvent, _, cx| {
+                                cx.emit(FieldEvent::InspectMixed)
+                            }),
+                        )
+                    })
+                    .when(can_reset && !self.mixed, |d| {
                         d.cursor_pointer()
                             .hover(|d| d.text_color(t.text))
                             .on_click(cx.listener(|this, _: &ClickEvent, _w, cx| {
@@ -301,7 +324,13 @@ impl Render for NumericField {
                                 cx.emit(FieldEvent::Changed(None));
                             }))
                     })
-                    .child(if can_reset { "↺" } else { "" }),
+                    .child(if self.mixed {
+                        "⚠"
+                    } else if can_reset {
+                        "↺"
+                    } else {
+                        ""
+                    }),
             )
             .child(
                 div()

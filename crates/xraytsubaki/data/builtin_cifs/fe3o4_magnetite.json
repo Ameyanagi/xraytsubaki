@@ -1,0 +1,18 @@
+{
+ "key": "fe3o4_magnetite",
+ "name": "Fe₃O₄ magnetite",
+ "formula": "Fe3 O4",
+ "sg_number": 227,
+ "sg": "F d -3 m :2",
+ "category": "oxide",
+ "source": "COD",
+ "id": "cod-3000327",
+ "url": "https://www.crystallography.net/cod/3000327.html",
+ "year": "2022",
+ "journal": "Scientific Reports",
+ "authors": "Paul, Tanmoy",
+ "doi": null,
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

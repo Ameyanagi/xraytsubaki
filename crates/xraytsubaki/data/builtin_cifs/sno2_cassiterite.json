@@ -1,0 +1,18 @@
+{
+ "key": "sno2_cassiterite",
+ "name": "SnO₂ cassiterite",
+ "formula": "O2 Sn",
+ "sg_number": 136,
+ "sg": "P 42/m n m",
+ "category": "oxide",
+ "source": "COD",
+ "id": "cod-2104743",
+ "url": "https://www.crystallography.net/cod/2104743.html",
+ "year": "2010",
+ "journal": "Acta Crystallographica Section B",
+ "authors": "Elliot, Alexander Dean",
+ "doi": "10.1107/S0108768110011845",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

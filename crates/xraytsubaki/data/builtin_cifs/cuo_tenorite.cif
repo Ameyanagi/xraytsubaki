@@ -1,0 +1,141 @@
+#------------------------------------------------------------------------------
+#$Date: 2016-03-21 18:08:12 +0200 (Mon, 21 Mar 2016) $
+#$Revision: 178802 $
+#$URL: file:///home/coder/svn-repositories/_RELOADED_COD/cod-reloaded/cif/4/10/56/4105682.cif $
+#------------------------------------------------------------------------------
+#
+# This file is available in the Crystallography Open Database (COD),
+# http://www.crystallography.net/
+#
+# All data on this site have been placed in the public domain by the
+# contributors.
+#
+data_4105682
+loop_
+_publ_author_name
+'Catherine F. Smura'
+'Dinah R. Parker'
+'Mohamed Zbiri'
+'Mark R. Johnson'
+'Zolt\'an A. G\'al'
+'Simon J. Clarke'
+_publ_section_title
+;
+ High-Spin Cobalt(II) Ions in Square Planar Coordination: Structures and
+ Magnetism of the Oxysulfides Sr2CoO2Cu2S2 and Ba2CoO2Cu2S2 and Their
+ Solid Solution
+;
+_journal_name_full               'Journal of the American Chemical Society'
+_journal_page_first              2691
+_journal_page_last               2705
+_journal_paper_doi               10.1021/ja109553u
+_journal_volume                  133
+_journal_year                    2011
+_chemical_formula_sum            'Cu O'
+_chemical_formula_weight         79.54
+_space_group_IT_number           15
+_symmetry_cell_setting           monoclinic
+_symmetry_space_group_name_Hall  '-C 2yc'
+_symmetry_space_group_name_H-M   'C 1 2/c 1'
+_audit_author_name               'Simon Clarke'
+_audit_creation_date             2010-10-22T22:45
+_audit_creation_method           'from EXP file using GSAS2CIF'
+_audit_update_record
+' 2010-10-22T22:45  Initial CIF as created by GSAS2CIF'
+_cell_angle_alpha                90.0
+_cell_angle_beta                 98.64(8)
+_cell_angle_gamma                90.0
+_cell_formula_units_Z            4
+_cell_length_a                   4.649(5)
+_cell_length_b                   3.4382(34)
+_cell_length_c                   5.187(6)
+_cell_volume                     81.97(15)
+_computing_structure_refinement  GSAS
+_pd_block_id
+2010-10-22T22:45|DRP053__EX_POL_RT_SJ_phase4|Simon_Clarke||
+_pd_phase_name
+'from D:/Data/oxychalcogenides/CeCuOS_phases/CeCuOS/CeCuOS_doublere'
+_pd_proc_ls_prof_R_factor        0.0208
+_pd_proc_ls_prof_wR_factor       0.0116
+_refine_ls_goodness_of_fit_all   1.67
+_refine_ls_matrix_type           full
+_refine_ls_number_parameters     94
+_refine_ls_number_restraints     0
+_refine_ls_shift/su_max          0.08
+_refine_ls_shift/su_mean         0.00
+_cod_data_source_file            ja109553u_si_003_4.cif
+_cod_data_source_block           DRP053__EX_POL_RT_SJ_phase_4
+_cod_original_cell_volume        81.97(10)
+_cod_database_code               4105682
+_cod_database_fobs_code          4105682
+loop_
+_symmetry_equiv_pos_site_id
+_symmetry_equiv_pos_as_xyz
+1 +x,+y,+z
+2 -x,+y,-z+1/2
+-1 -x,-y,-z
+-2 +x,-y,+z+1/2
+101 +x+1/2,+y+1/2,+z
+102 -x+1/2,+y+1/2,-z+1/2
+-101 -x+1/2,-y+1/2,-z
+-102 +x+1/2,-y+1/2,+z+1/2
+loop_
+_atom_site_type_symbol
+_atom_site_label
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_occupancy
+_atom_site_thermal_displace_type
+_atom_site_U_iso_or_equiv
+_atom_site_symmetry_multiplicity
+Cu Cu1 0.25 0.25 0.0 1.0 Uiso 0.00035 4
+O O1 0.0 0.417 0.25 1.0 Uiso 0.00597 4
+loop_
+_atom_type_symbol
+_atom_type_number_in_cell
+Cu 4.0
+O 4.0
+loop_
+_geom_angle_atom_site_label_1
+_geom_angle_atom_site_label_2
+_geom_angle_atom_site_label_3
+_geom_angle
+_geom_angle_site_symmetry_1
+_geom_angle_site_symmetry_3
+_geom_angle_publ_flag
+O1 Cu1 O1 85.14(7) 1_555 -1_565 n
+O1 Cu1 O1 94.86(7) 1_555 101_545 n
+O1 Cu1 O1 180.0 1_555 -101_445 n
+O1 Cu1 O1 180.0 -1_565 101_545 n
+O1 Cu1 O1 94.86(7) -1_565 -101_445 n
+O1 Cu1 O1 85.14(7) 101_545 -101_445 n
+Cu1 O1 Cu1 145.81(4) 1_555 2_555 n
+Cu1 O1 Cu1 94.86(7) 1_555 -1_565 n
+Cu1 O1 Cu1 104.86(7) 1_555 -2_565 n
+Cu1 O1 Cu1 104.86(7) 2_555 -1_565 n
+Cu1 O1 Cu1 94.86(7) 2_555 -2_565 n
+Cu1 O1 Cu1 109.03(8) -1_565 -2_565 n
+loop_
+_geom_bond_atom_site_label_1
+_geom_bond_atom_site_label_2
+_geom_bond_distance
+_geom_bond_site_symmetry_2
+_geom_bond_publ_flag
+Cu1 Cu1 2.8912(21) -1_555 n
+Cu1 Cu1 2.8912(21) -1_565 n
+Cu1 Cu1 2.8912(21) -1_655 n
+Cu1 Cu1 2.8912(21) -1_665 n
+Cu1 O1 1.9532(17) 1_555 n
+Cu1 O1 1.9724(16) -1_565 n
+Cu1 O1 1.9724(16) 101_545 n
+Cu1 O1 1.9532(17) -101_445 n
+O1 Cu1 1.9532(17) 1_555 n
+O1 Cu1 1.9532(17) 2_555 n
+O1 Cu1 1.9724(16) -1_565 n
+O1 Cu1 1.9724(16) -2_565 n
+loop_
+_pd_block_diffractogram_id
+2010-10-22T22:45|DRP053__EX_POL_RT_SJ_H_01|Simon_Clarke|POLARIS
+2010-10-22T22:45|DRP053__EX_POL_RT_SJ_H_04|Simon_Clarke|POLARIS
+2010-10-22T22:45|DRP053__EX_POL_RT_SJ_H_05|Simon_Clarke|POLARIS

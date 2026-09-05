@@ -1,0 +1,90 @@
+#------------------------------------------------------------------------------
+#$Date: 2024-05-29 17:00:33 +0300 (Wed, 29 May 2024) $
+#$Revision: 292100 $
+#$URL: file:///home/coder/svn-repositories/_RELOADED_COD/cod-reloaded/cif/9/01/73/9017316.cif $
+#------------------------------------------------------------------------------
+#
+# This file is available in the Crystallography Open Database (COD),
+# http://www.crystallography.net/. The original data for this entry
+# were provided the American Mineralogist Crystal Structure Database,
+# http://rruff.geo.arizona.edu/AMS/amcsd.php
+#
+# The file may be used within the scientific community so long as
+# proper attribution is given to the journal article from which the
+# data were obtained.
+#
+data_9017316
+loop_
+_publ_author_name
+'Swaminathan, S.'
+'Craven, B. M.'
+_publ_section_title
+;
+ The crystal structure and molecular thermal motion of urea
+ at 12, 60 and 123 K from neutron diffraction
+ Note: neutron data, T = 123 K
+;
+_journal_name_full               'Acta Crystallographica, Section B'
+_journal_page_first              300
+_journal_page_last               306
+_journal_volume                  40
+_journal_year                    1984
+_chemical_compound_source        Synthetic
+_chemical_formula_sum            'C H4 N2 O'
+_chemical_name_mineral           Urea
+_space_group_IT_number           113
+_space_group_name_Hall           'P -4 2ab'
+_space_group_name_H-M_alt        'P -4 21 m'
+_symmetry_space_group_name_H-M   'P -4 21 m'
+_cell_angle_alpha                90
+_cell_angle_beta                 90
+_cell_angle_gamma                90
+_cell_length_a                   5.584
+_cell_length_b                   5.584
+_cell_length_c                   4.689
+_cell_formula_units_Z            2
+_cell_volume                     146.208
+_database_code_amcsd             0020672
+_diffrn_ambient_temperature      123
+_exptl_crystal_density_diffrn    1.364
+_cod_data_source_file            inputs/fixed/downloads/11/11353.cif
+_cod_data_source_block           11353
+_cod_database_code               9017316
+loop_
+_space_group_symop_operation_xyz
+x,y,z
+1/2-y,1/2-x,z
+y,-x,-z
+1/2-x,1/2+y,-z
+-x,-y,z
+1/2+y,1/2+x,z
+-y,x,-z
+1/2+x,1/2-y,-z
+loop_
+_atom_site_aniso_label
+_atom_site_aniso_U_11
+_atom_site_aniso_U_22
+_atom_site_aniso_U_33
+_atom_site_aniso_U_12
+_atom_site_aniso_U_13
+_atom_site_aniso_U_23
+C 0.01470 0.01470 0.00650 0.00010 0.00000 0.00000
+H1 0.04400 0.04400 0.02160 -0.02220 -0.00310 -0.00310
+H2 0.04300 0.04300 0.01400 -0.01580 0.00190 0.00190
+N 0.02860 0.02860 0.00950 -0.01470 0.00020 0.00020
+O 0.01970 0.01970 0.00630 0.00170 0.00000 0.00000
+loop_
+_atom_site_label
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+C 0.00000 0.50000 0.32800
+H1 0.25570 0.75570 0.28410
+H2 0.14310 0.64310 -0.03480
+N 0.14470 0.64470 0.17850
+O 0.00000 0.50000 0.59620
+loop_
+_cod_related_entry_id
+_cod_related_entry_database
+_cod_related_entry_code
+1 AMCSD 0020672

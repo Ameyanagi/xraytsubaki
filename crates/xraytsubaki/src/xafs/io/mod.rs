@@ -6,8 +6,10 @@ pub mod athena;
 pub mod xafs_bson;
 pub mod xafs_json;
 pub mod xasdatatype;
+pub mod xdi;
 
 pub use athena::{AthenaGroup, AthenaParams, AthenaProject, AthenaValue};
+pub use xdi::{XdiColumn, XdiError, XdiFile, XdiHeader, XdiSignal};
 
 use crate::xafs::errors::IOError;
 use crate::xafs::xasspectrum::XASSpectrum;

@@ -1,0 +1,245 @@
+#------------------------------------------------------------------------------
+#$Date: 2016-03-21 01:21:50 +0200 (Mon, 21 Mar 2016) $
+#$Revision: 178377 $
+#$URL: file:///home/coder/svn-repositories/_RELOADED_COD/cod-reloaded/cif/4/00/09/4000948.cif $
+#------------------------------------------------------------------------------
+#
+# This file is available in the Crystallography Open Database (COD),
+# http://www.crystallography.net/
+#
+# All data on this site have been placed in the public domain by the
+# contributors.
+#
+data_4000948
+loop_
+_publ_author_name
+'Ling, Chris D.'
+'Avdeev, Maxim'
+'Kharton, Vladislav V.'
+'Yaremchenko, Aleksey A.'
+'Macquart, Ren\'e B.'
+'Hoelzel, Markus'
+_publ_section_title
+;
+ Structures, Phase Transitions, Hydration, and Ionic Conductivity of
+ Ba4Ta2O9
+;
+_journal_issue                   2
+_journal_name_full               'Chemistry of Materials'
+_journal_page_first              532
+_journal_paper_doi               10.1021/cm903170t
+_journal_volume                  22
+_journal_year                    2010
+_chemical_formula_sum            Nb
+_chemical_formula_weight         92.91
+_chemical_name_systematic        ' ?'
+_space_group_IT_number           229
+_symmetry_cell_setting           cubic
+_symmetry_space_group_name_Hall  '-I 4 2 3'
+_symmetry_space_group_name_H-M   'I m -3 m'
+_cell_angle_alpha                90.0
+_cell_angle_beta                 90.0
+_cell_angle_gamma                90.0
+_cell_formula_units_Z            2
+_cell_length_a                   3.30121(10)
+_cell_length_b                   3.30121
+_cell_length_c                   3.30121
+_cell_volume                     35.9765(11)
+_pd_block_id
+2009-08-27T22:46|A_BA4TA2O9_RT_phase2|Chris_Ling||
+_pd_phase_name
+'from /Users/Chris/Desktop/a_Ba4Ta2O9/A-BA4NB2O9_1273K.EXP'
+_cod_data_source_file            cm903170t_si_001.cif
+_cod_data_source_block           A_BA4TA2O9_RT_phase_2
+_cod_depositor_comments
+;
+The following automatic conversions were performed:
+
+'_geom_bond_publ_flag' value 'N' changed to 'n' according to
+/home/saulius/struct/CIF-dictionaries/cif_core.dic dictionary named
+'cif_core.dic' version 2.4.2 from 2011-04-26 (14
+times).
+
+'_geom_angle_publ_flag' value 'N' changed to 'n' according
+to /home/saulius/struct/CIF-dictionaries/cif_core.dic dictionary
+named 'cif_core.dic' version 2.4.2 from 2011-04-26 (28 times).
+
+Automatic conversion script
+Id: cif_fix_values 1715 2011-07-08 13:25:40Z adriana 
+;
+_cod_original_cell_volume        35.9770(30)
+_cod_original_sg_symbol_H-M      'I m 3 m'
+_cod_database_code               4000948
+loop_
+_symmetry_equiv_pos_site_id
+_symmetry_equiv_pos_as_xyz
+1 +x,+y,+z
+2 +z,+x,+y
+3 +y,+z,+x
+4 +x,+y,-z
+5 -z,+x,+y
+6 +y,-z,+x
+7 -z,+x,-y
+8 -y,-z,+x
+9 +y,-z,-x
+10 -x,+y,-z
+11 -z,-x,+y
+12 +x,-y,-z
+13 +y,+x,+z
+14 +z,+y,+x
+15 +x,+z,+y
+16 +y,+x,-z
+17 -z,+y,+x
+18 +x,-z,+y
+19 -z,+y,-x
+20 -x,-z,+y
+21 +x,-z,-y
+22 -y,+x,-z
+23 -z,-y,+x
+24 +y,-x,-z
+-1 -x,-y,-z
+-2 -z,-x,-y
+-3 -y,-z,-x
+-4 -x,-y,+z
+-5 +z,-x,-y
+-6 -y,+z,-x
+-7 +z,-x,+y
+-8 +y,+z,-x
+-9 -y,+z,+x
+-10 +x,-y,+z
+-11 +z,+x,-y
+-12 -x,+y,+z
+-13 -y,-x,-z
+-14 -z,-y,-x
+-15 -x,-z,-y
+-16 -y,-x,+z
+-17 +z,-y,-x
+-18 -x,+z,-y
+-19 +z,-y,+x
+-20 +x,+z,-y
+-21 -x,+z,+y
+-22 +y,-x,+z
+-23 +z,+y,-x
+-24 -y,+x,+z
+101 +x+1/2,+y+1/2,+z+1/2
+102 +z+1/2,+x+1/2,+y+1/2
+103 +y+1/2,+z+1/2,+x+1/2
+104 +x+1/2,+y+1/2,-z+1/2
+105 -z+1/2,+x+1/2,+y+1/2
+106 +y+1/2,-z+1/2,+x+1/2
+107 -z+1/2,+x+1/2,-y+1/2
+108 -y+1/2,-z+1/2,+x+1/2
+109 +y+1/2,-z+1/2,-x+1/2
+110 -x+1/2,+y+1/2,-z+1/2
+111 -z+1/2,-x+1/2,+y+1/2
+112 +x+1/2,-y+1/2,-z+1/2
+113 +y+1/2,+x+1/2,+z+1/2
+114 +z+1/2,+y+1/2,+x+1/2
+115 +x+1/2,+z+1/2,+y+1/2
+116 +y+1/2,+x+1/2,-z+1/2
+117 -z+1/2,+y+1/2,+x+1/2
+118 +x+1/2,-z+1/2,+y+1/2
+119 -z+1/2,+y+1/2,-x+1/2
+120 -x+1/2,-z+1/2,+y+1/2
+121 +x+1/2,-z+1/2,-y+1/2
+122 -y+1/2,+x+1/2,-z+1/2
+123 -z+1/2,-y+1/2,+x+1/2
+124 +y+1/2,-x+1/2,-z+1/2
+-101 -x+1/2,-y+1/2,-z+1/2
+-102 -z+1/2,-x+1/2,-y+1/2
+-103 -y+1/2,-z+1/2,-x+1/2
+-104 -x+1/2,-y+1/2,+z+1/2
+-105 +z+1/2,-x+1/2,-y+1/2
+-106 -y+1/2,+z+1/2,-x+1/2
+-107 +z+1/2,-x+1/2,+y+1/2
+-108 +y+1/2,+z+1/2,-x+1/2
+-109 -y+1/2,+z+1/2,+x+1/2
+-110 +x+1/2,-y+1/2,+z+1/2
+-111 +z+1/2,+x+1/2,-y+1/2
+-112 -x+1/2,+y+1/2,+z+1/2
+-113 -y+1/2,-x+1/2,-z+1/2
+-114 -z+1/2,-y+1/2,-x+1/2
+-115 -x+1/2,-z+1/2,-y+1/2
+-116 -y+1/2,-x+1/2,+z+1/2
+-117 +z+1/2,-y+1/2,-x+1/2
+-118 -x+1/2,+z+1/2,-y+1/2
+-119 +z+1/2,-y+1/2,+x+1/2
+-120 +x+1/2,+z+1/2,-y+1/2
+-121 -x+1/2,+z+1/2,+y+1/2
+-122 +y+1/2,-x+1/2,+z+1/2
+-123 +z+1/2,+y+1/2,-x+1/2
+-124 -y+1/2,+x+1/2,+z+1/2
+loop_
+_atom_site_type_symbol
+_atom_site_label
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_occupancy
+_atom_site_thermal_displace_type
+_atom_site_U_iso_or_equiv
+_atom_site_symmetry_multiplicity
+Nb Nb 0.0 0.0 0.0 1.0 Uiso 0.0187(8) 2
+loop_
+_atom_type_symbol
+_atom_type_number_in_cell
+Nb 2.0
+loop_
+_geom_angle_atom_site_label_1
+_geom_angle_atom_site_label_2
+_geom_angle_atom_site_label_3
+_geom_angle
+_geom_angle_site_symmetry_1
+_geom_angle_site_symmetry_3
+_geom_angle_publ_flag
+Nb Nb Nb 70.5288(24) 101_444 101_445 n
+Nb Nb Nb 70.5288(12) 101_444 101_454 n
+Nb Nb Nb 109.4712(12) 101_444 101_455 n
+Nb Nb Nb 70.5288(12) 101_444 101_544 n
+Nb Nb Nb 109.4712(12) 101_444 101_545 n
+Nb Nb Nb 109.4712(24) 101_444 101_554 n
+Nb Nb Nb 179.9604 101_444 101_555 n
+Nb Nb Nb 109.4712(12) 101_445 101_454 n
+Nb Nb Nb 70.5288(12) 101_445 101_455 n
+Nb Nb Nb 109.4712(12) 101_445 101_544 n
+Nb Nb Nb 70.5288(12) 101_445 101_545 n
+Nb Nb Nb 180.0 101_445 101_554 n
+Nb Nb Nb 109.4712(24) 101_445 101_555 n
+Nb Nb Nb 70.5288(24) 101_454 101_455 n
+Nb Nb Nb 109.4712(24) 101_454 101_544 n
+Nb Nb Nb 180.0 101_454 101_545 n
+Nb Nb Nb 70.5288(12) 101_454 101_554 n
+Nb Nb Nb 109.4712(12) 101_454 101_555 n
+Nb Nb Nb 180.0 101_455 101_544 n
+Nb Nb Nb 109.4712(24) 101_455 101_545 n
+Nb Nb Nb 109.4712(12) 101_455 101_554 n
+Nb Nb Nb 70.5288(12) 101_455 101_555 n
+Nb Nb Nb 70.5288(24) 101_544 101_545 n
+Nb Nb Nb 70.5288(12) 101_544 101_554 n
+Nb Nb Nb 109.4712(12) 101_544 101_555 n
+Nb Nb Nb 109.4712(12) 101_545 101_554 n
+Nb Nb Nb 70.5288(12) 101_545 101_555 n
+Nb Nb Nb 70.5288(24) 101_554 101_555 n
+loop_
+_geom_bond_atom_site_label_1
+_geom_bond_atom_site_label_2
+_geom_bond_distance
+_geom_bond_site_symmetry_2
+_geom_bond_publ_flag
+Nb Nb 3.30121(10) 1_455 n
+Nb Nb 3.30121(10) 1_545 n
+Nb Nb 3.30121(10) 1_554 n
+Nb Nb 3.30121(10) 1_556 n
+Nb Nb 3.30121(10) 1_565 n
+Nb Nb 3.30121(10) 1_655 n
+Nb Nb 2.85893(7) 101_444 n
+Nb Nb 2.85893(7) 101_445 n
+Nb Nb 2.85893(7) 101_454 n
+Nb Nb 2.85893(7) 101_455 n
+Nb Nb 2.85893(7) 101_544 n
+Nb Nb 2.85893(7) 101_545 n
+Nb Nb 2.85893(7) 101_554 n
+Nb Nb 2.85893(7) 101_555 n
+loop_
+_pd_block_diffractogram_id
+2009-08-27T22:46|A_BA4TA2O9_RT_H_01|Chris_Ling|SPODI

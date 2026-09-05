@@ -1,0 +1,18 @@
+{
+ "key": "mos2_2h",
+ "name": "2H-MoS₂ molybdenite",
+ "formula": "Mo S2",
+ "sg_number": 194,
+ "sg": "P 63/m m c",
+ "category": "sulfide",
+ "source": "COD",
+ "id": "cod-9007660",
+ "url": "https://www.crystallography.net/cod/9007660.html",
+ "year": "1983",
+ "journal": "Acta Crystallographica, Section B",
+ "authors": "Schonfeld, B.; Huang, J. J.; Moss, S. C.",
+ "doi": "10.1107/S0108768183002645",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

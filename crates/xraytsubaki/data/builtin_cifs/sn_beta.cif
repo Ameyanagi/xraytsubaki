@@ -1,0 +1,171 @@
+#------------------------------------------------------------------------------
+#$Date: 2016-08-06 09:34:39 +0300 (Sat, 06 Aug 2016) $
+#$Revision: 185070 $
+#$URL: file:///home/coder/svn-repositories/_RELOADED_COD/cod-reloaded/cif/7/04/02/7040217.cif $
+#------------------------------------------------------------------------------
+#
+# This file is available in the Crystallography Open Database (COD),
+# http://www.crystallography.net/
+#
+# All data on this site have been placed in the public domain by the
+# contributors.
+#
+data_7040217
+loop_
+_publ_author_name
+'Allison, M. C.'
+'Avdeev, M.'
+'Schmid, S.'
+'Liu, S.'
+'S\"ohnel, T'
+'Ling, C. D.'
+_publ_section_title
+;
+ Synthesis, structure and geometrically frustrated magnetism of the
+ layered oxide-stannide compounds Fe(Fe3-xMnx)Si2Sn7O16.
+;
+_journal_issue                   23
+_journal_name_full
+'Dalton transactions (Cambridge, England : 2003)'
+_journal_page_first              9689
+_journal_page_last               9694
+_journal_paper_doi               10.1039/c6dt01074a
+_journal_volume                  45
+_journal_year                    2016
+_chemical_formula_iupac          Sn
+_chemical_formula_moiety         Sn
+_chemical_formula_structural     Sn
+_chemical_formula_sum            Sn
+_chemical_formula_weight         118.690
+_chemical_name_systematic
+; 
+Tin
+;
+_space_group_IT_number           141
+_symmetry_cell_setting           tetragonal
+_symmetry_space_group_name_Hall  '-I 4bd 2'
+_symmetry_space_group_name_H-M   'I 41/a m d :2'
+_cell_angle_alpha                90.00000
+_cell_angle_beta                 90.00000
+_cell_angle_gamma                90.00000
+_cell_formula_units_Z            4
+_cell_length_a                   5.8323(6)
+_cell_length_b                   5.8323(6)
+_cell_length_c                   3.1823(6)
+_cell_measurement_reflns_used    32
+_cell_measurement_temperature    298
+_cell_measurement_theta_max      81.9379
+_cell_measurement_theta_min      1.3754
+_cell_volume                     108.25(3)
+_computing_structure_refinement  FULLPROF
+_diffrn_ambient_temperature      298
+_diffrn_detector_type            '128 linear position sensitive detectors'
+_diffrn_measurement_device_type  local
+_diffrn_radiation_monochromator  'Ge 335'
+_diffrn_radiation_type           neutron
+_diffrn_radiation_wavelength     1.62150
+_diffrn_source                   'nuclear reactor'
+_diffrn_source_type
+'Echidna (high resolution neutron powder diffractometer)'
+_pd_calc_method                  'Rietveld Refinement'
+_pd_char_colour                  grey
+_pd_char_particle_morphology     powder
+_pd_instr_location
+; 
+'Echidna (high resolution powder diffractometer), Bragg Institute,
+ANSTO (Australia)'
+;
+_pd_meas_2theta_range_inc        0.125000
+_pd_meas_2theta_range_max        163.87579
+_pd_meas_2theta_range_min        2.75080
+_pd_meas_number_of_points        0
+_pd_meas_scan_method             fixed
+_pd_prep_temperature             1273
+_pd_proc_2theta_range_inc        0.125000
+_pd_proc_2theta_range_max        163.7290
+_pd_proc_2theta_range_min        2.6040
+_pd_proc_ls_pref_orient_corr     ' ?'
+_pd_proc_ls_prof_R_factor        3.0522
+_pd_proc_ls_prof_wR_expected     2.3704
+_pd_proc_ls_prof_wR_factor       3.9401
+_pd_proc_wavelength              1.621500
+_pd_spec_mounting                'vanadium can'
+_pd_spec_mount_mode              transmission
+_pd_spec_shape                   cylinder
+_refine_ls_goodness_of_fit_all   1.6
+_refine_ls_number_parameters     44
+_refine_ls_number_reflns         32
+_refine_ls_number_restraints     0
+_refine_ls_R_I_factor            10.9186
+_refine_ls_shift/su_max          0.0367
+_cod_data_source_file            c6dt01074a3.cif
+_cod_data_source_block           Sn
+_cod_depositor_comments
+;
+The following automatic conversions were performed:
+
+'_symmetry_cell_setting' value 'Tetragonal' changed to 'tetragonal'
+according to
+/usr/data/users/saulius/crontab/automatic-downloads/current/RSC/lib/dictionaries/cif_core.dic
+dictionary named 'cif_core.dic' version 2.4.2 from 2011-04-26.
+
+Automatic conversion script
+Id: cif_fix_values 4268 2015-11-12 08:31:59Z antanas 
+;
+_cod_original_cell_volume        108.25(2)
+_cod_original_sg_symbol_H-M      'I 41/a m d'
+_cod_database_code               7040217
+_pd_proc_ls_prof_cr_factor       8.4275
+_pd_proc_ls_prof_cwr_factor      8.8232
+_pd_proc_ls_prof_cwr_expected    5.3081
+_pd_proc_ls_prof_chi2            2.7629
+_pd_proc_ls_prof_echi2           2.7629
+loop_
+_symmetry_equiv_pos_as_xyz
+x,y,z
+-y+1/4,x+3/4,z+1/4
+-x+1/2,-y,z+1/2
+y+1/4,-x+1/4,z+3/4
+-x,y,z
+y+3/4,x+3/4,z+1/4
+x+1/2,-y,z+1/2
+-y+3/4,-x+1/4,z+3/4
+-x,-y,-z
+y+3/4,-x+1/4,-z+3/4
+x+1/2,y,-z+1/2
+-y+3/4,x+3/4,-z+1/4
+x,-y,-z
+-y+1/4,-x+1/4,-z+3/4
+-x+1/2,y,-z+1/2
+y+1/4,x+3/4,-z+1/4
+x+1/2,y+1/2,z+1/2
+-y+3/4,x+1/4,z+3/4
+-x,-y+1/2,z
+y+3/4,-x+3/4,z+1/4
+-x+1/2,y+1/2,z+1/2
+y+1/4,x+1/4,z+3/4
+x,-y+1/2,z
+-y+1/4,-x+3/4,z+1/4
+-x+1/2,-y+1/2,-z+1/2
+y+1/4,-x+3/4,-z+1/4
+x,y+1/2,-z
+-y+1/4,x+1/4,-z+3/4
+x+1/2,-y+1/2,-z+1/2
+-y+3/4,-x+3/4,-z+1/4
+-x,y+1/2,-z
+y+3/4,x+1/4,-z+3/4
+loop_
+_atom_site_label
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_U_iso_or_equiv
+_atom_site_occupancy
+_atom_site_adp_type
+_atom_site_type_symbol
+Sn1 0.00000 0.25000 0.87500 0.00000 1.00000 Uiso Sn
+loop_
+_atom_type_symbol
+_atom_type_scat_length_neutron
+_atom_type_scat_source
+SN 0.62250 V.F._Sears_Neutron_News_3_26_(1992)

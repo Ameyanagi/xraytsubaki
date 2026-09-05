@@ -1,0 +1,134 @@
+#------------------------------------------------------------------------------
+#$Date: 2017-01-29 23:22:55 +0200 (Sun, 29 Jan 2017) $
+#$Revision: 191079 $
+#$URL: file:///home/coder/svn-repositories/_RELOADED_COD/cod-reloaded/cif/2/10/47/2104743.cif $
+#------------------------------------------------------------------------------
+#
+# This file is available in the Crystallography Open Database (COD),
+# http://www.crystallography.net/. The original data for this entry
+# were provided by IUCr Journals, http://journals.iucr.org/.
+#
+# The file may be used within the scientific community so long as
+# proper attribution is given to the journal article from which the
+# data were obtained.
+#
+data_2104743
+loop_
+_publ_author_name
+'Elliot, Alexander Dean'
+_publ_section_title
+;
+ Structure of pyrrhotite 5<i>C</i> (Fe~9~S~10~)
+;
+_journal_coeditor_code           KD5037
+_journal_issue                   3
+_journal_name_full               'Acta Crystallographica Section B'
+_journal_page_first              271
+_journal_page_last               279
+_journal_paper_doi               10.1107/S0108768110011845
+_journal_volume                  66
+_journal_year                    2010
+_chemical_formula_structural     SnO2
+_chemical_formula_sum            'O2 Sn'
+_chemical_formula_weight         150.709
+_chemical_name_mineral           Cassiterite
+_space_group_crystal_system      tetragonal
+_space_group_IT_number           136
+_space_group_name_Hall           '-P 4n 2n'
+_space_group_name_H-M_alt        'P 42/m n m'
+_symmetry_space_group_name_Hall  '-P 4n 2n'
+_symmetry_space_group_name_H-M   'P 42/m n m'
+_cell_angle_alpha                90
+_cell_angle_beta                 90
+_cell_angle_gamma                90
+_cell_formula_units_Z            2
+_cell_length_a                   4.73570(16)
+_cell_length_b                   4.73570(16)
+_cell_length_c                   3.18732(22)
+_cell_volume                     71.482(6)
+_exptl_absorpt_coefficient_mu    25.9276(25)
+_exptl_crystal_density_diffrn    7.00195(67)
+_pd_block_id                     2010-05-13T00:17|Cassiterite|A.Elliot|5Ca2
+_pd_proc_ls_profile_function
+;
+Crystallite size and strain modelled with Lorentzian and 
+Gaussian component convolutions
+Cassiterite Phase
+    CS_L(cscassiterite, 167.72958`_10.81737_LIMIT_MIN_100 
+    min =100; max =1000;)
+;
+_refine_ls_R_I_factor            0.02054
+_cod_data_source_file            kd5037.cif
+_cod_data_source_block           (5Ca2)_Cassiterite
+_cod_depositor_comments
+;
+ Moving _atom_site_aniso_U_* data items from the _atom_site loop to the
+ _atom_site_aniso loop and adding the _atom_site_aniso_label data item.
+
+ Antanas Vaitkus,
+ 2017-01-29
+;
+_cod_original_cell_volume        71.4816(69)
+_cod_database_code               2104743
+loop_
+_symmetry_equiv_pos_as_xyz
+'-x, -y, -z'
+'-x, -y, z'
+'-x+1/2, y+1/2, -z+1/2'
+'-x+1/2, y+1/2, z+1/2'
+'-y, -x, -z'
+'-y, -x, z'
+'-y+1/2, x+1/2, -z+1/2'
+'-y+1/2, x+1/2, z+1/2'
+'y, x, -z'
+'y, x, z'
+'y+1/2, -x+1/2, -z+1/2'
+'y+1/2, -x+1/2, z+1/2'
+'x, y, -z'
+'x, y, z'
+'x+1/2, -y+1/2, -z+1/2'
+'x+1/2, -y+1/2, z+1/2'
+loop_
+_atom_site_aniso_label
+_atom_site_aniso_U_11
+_atom_site_aniso_U_22
+_atom_site_aniso_U_33
+_atom_site_aniso_U_12
+_atom_site_aniso_U_13
+_atom_site_aniso_U_23
+Sn 0.0035 0.0035 0.0041 -0.00026 0 0
+O 0.0061 0.0061 0.0054 -0.0037 0 0
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_symmetry_multiplicity
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_occupancy
+Sn Sn+4 2 0 0 0 1
+O O-2 4 0.3053 0.3053 0 1
+loop_
+_atom_type_symbol
+_atom_type_description
+_atom_type_scat_dispersion_real
+_atom_type_scat_dispersion_imag
+_atom_type_scat_source
+O O2- 8.016 0.0086 'Default dataset used by TOPAS R3'
+Sn Sn4+ 49.635 1.856 'Default dataset used by TOPAS R3'
+loop_
+_citation_title
+_citation_page_first
+_citation_page_last
+_citation_year
+_citation_journal_abbrev
+_citation_journal_volume
+_citation_journal_id_ISSN
+' High temperature structures of the rutile-type oxides, TiO2 and SnO2' 219 223
+1984
+;
+;
+;
+;
+;
+;

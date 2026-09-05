@@ -1,0 +1,18 @@
+{
+ "key": "mn_alpha",
+ "name": "α-Manganese",
+ "formula": "Mn",
+ "sg_number": 217,
+ "sg": "I -4 3 m",
+ "category": "metal",
+ "source": "COD",
+ "id": "cod-9011108",
+ "url": "https://www.crystallography.net/cod/9011108.html",
+ "year": "1970",
+ "journal": "Acta Crystallographica, Section B",
+ "authors": "Oberteuffer, J. A.; Ibers, J. A.",
+ "doi": "10.1107/S0567740870004399",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

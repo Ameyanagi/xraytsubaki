@@ -54,6 +54,7 @@ fn parse_feff85l_dat(path: &Path) -> Result<FeffDat, FittingError> {
     let mut degen: Option<f64> = None;
     let mut reff: Option<f64> = None;
     let mut geometry: Vec<String> = Vec::new();
+    let mut geometry_atoms: Vec<crate::xafs::fitting::types::PathAtom> = Vec::new();
 
     let mut cols: Vec<[f64; 7]> = Vec::new();
 
@@ -145,6 +146,9 @@ fn parse_feff85l_dat(path: &Path) -> Result<FeffDat, FittingError> {
                         .map(|value| (*value).to_string())
                         .unwrap_or_else(|| format!("atom_{}", geometry.len()));
                     geometry.push(label);
+                    if let Some(atom) = crate::xafs::structure::paths::parse_geometry_line(line) {
+                        geometry_atoms.push(atom);
+                    }
                 }
             }
             Mode::Arrays => {
@@ -244,6 +248,7 @@ fn parse_feff85l_dat(path: &Path) -> Result<FeffDat, FittingError> {
         pha,
         amp,
         geometry,
+        geometry_atoms,
     })
 }
 

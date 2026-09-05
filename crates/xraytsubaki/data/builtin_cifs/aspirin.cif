@@ -1,0 +1,162 @@
+#------------------------------------------------------------------------------
+#$Date: 2025-08-21 23:04:39 +0300 (Thu, 21 Aug 2025) $
+#$Revision: 301851 $
+#$URL: file:///home/coder/svn-repositories/_RELOADED_COD/cod-reloaded/cif/7/05/08/7050899.cif $
+#------------------------------------------------------------------------------
+#
+# This file is available in the Crystallography Open Database (COD),
+# http://www.crystallography.net/
+#
+# All data on this site have been placed in the public domain by the
+# contributors.
+#
+data_7050899
+loop_
+_publ_author_name
+'Chick Wilson'
+_publ_section_title
+;
+Interesting proton behaviour in molecular
+structures.  Variable temperature neutron diffraction and ab initio
+study of acetylsalicylic acid: characterising librational motions and
+comparing protons in different hydrogen bonding potentials
+;
+_journal_issue                   12
+_journal_name_full               'New Journal of Chemistry'
+_journal_page_first              1733
+_journal_page_last               1739
+_journal_paper_doi               10.1039/b203775k
+_journal_volume                  26
+_journal_year                    2002
+_chemical_formula_sum            'C9 H8 O4'
+_chemical_formula_weight         180.16
+_chemical_name_common            Aspirin
+_space_group_IT_number           14
+_symmetry_cell_setting           monoclinic
+_symmetry_space_group_name_Hall  '-P 2ybc'
+_symmetry_space_group_name_H-M   'P 1 21/c 1'
+_cell_angle_alpha                90.00
+_cell_angle_beta                 95.88(2)
+_cell_angle_gamma                90.00
+_cell_formula_units_Z            4
+_cell_length_a                   11.305(3)
+_cell_length_b                   6.5630(10)
+_cell_length_c                   11.305(3)
+_cell_measurement_temperature    180(1)
+_cell_volume                     834.4(3)
+_diffrn_ambient_temperature      180(1)
+_exptl_crystal_density_diffrn    1.433
+_cod_depositor_comments
+;
+The following automatic conversions were performed:
+'_symmetry_cell_setting' value 'Monoclinic' changed to 'monoclinic'
+according to '/home/saulius/struct/CIF-dictionaries/cif_core.dic'
+dictionary named 'cif_core.dic' version 2.4.1 from 2010-06-29.
+
+Automatic conversion script
+Id: cif_fix_enum 1527 2010-12-29 10:47:43Z saulius 
+;
+_cod_original_sg_symbol_H-M      'P 21/c'
+_cod_database_code               7050899
+loop_
+_symmetry_equiv_pos_as_xyz
+'x, y, z'
+'-x, y+1/2, -z+1/2'
+'-x, -y, -z'
+'x, -y-1/2, z-1/2'
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_U_iso_or_equiv
+_atom_site_adp_type
+_atom_site_occupancy
+_atom_site_calc_flag
+_atom_site_refinement_flags
+_atom_site_disorder_assembly
+_atom_site_disorder_group
+C1 C 0.1537(4) 0.5621(7) 0.0669(4) 0.0184(8) Uani 1 d . . .
+C2 C 0.2469(4) 0.4843(6) 0.0078(4) 0.0170(8) Uani 1 d . . .
+C3 C 0.3000(4) 0.3002(7) 0.0405(5) 0.0248(10) Uani 1 d . . .
+C4 C 0.2609(5) 0.1885(7) 0.1348(5) 0.0258(10) Uani 1 d . . .
+C5 C 0.1690(5) 0.2637(8) 0.1944(5) 0.0243(9) Uani 1 d . . .
+C6 C 0.1161(4) 0.4475(7) 0.1610(4) 0.0195(8) Uani 1 d . . .
+C7 C 0.0901(4) 0.7550(7) 0.0371(4) 0.0175(8) Uani 1 d . . .
+C8 C 0.3666(4) 0.7380(7) -0.0633(4) 0.0210(9) Uani 1 d . . .
+C9 C 0.3979(5) 0.8399(10) -0.1734(5) 0.0310(12) Uani 1 d . . .
+O1 O 0.1227(5) 0.8586(9) -0.0528(6) 0.0263(12) Uani 1 d . . .
+O2 O 0.0106(6) 0.8127(9) 0.0957(5) 0.0271(12) Uani 1 d . . .
+O3 O 0.2871(5) 0.5836(8) -0.0896(5) 0.0208(10) Uani 1 d . . .
+O4 O 0.4036(6) 0.7813(10) 0.0367(6) 0.0323(14) Uani 1 d . . .
+H1 H 0.3721(11) 0.2451(19) -0.0089(13) 0.047(3) Uani 1 d . . .
+H2 H 0.3036(13) 0.0459(17) 0.1607(12) 0.045(3) Uani 1 d . . .
+H3 H 0.1389(12) 0.1770(19) 0.2702(12) 0.044(3) Uani 1 d . . .
+H4 H 0.0415(10) 0.5074(19) 0.2061(12) 0.041(3) Uani 1 d . . .
+H5 H 0.4618(16) 0.960(3) -0.1496(14) 0.067(5) Uani 1 d . . .
+H6 H 0.3215(16) 0.897(5) -0.221(2) 0.115(11) Uani 1 d . . .
+H7 H 0.432(3) 0.735(3) -0.233(2) 0.100(9) Uani 1 d . . .
+H8 H 0.0710(10) 0.9832(17) -0.0664(11) 0.037(2) Uani 1 d . . .
+loop_
+_atom_site_aniso_label
+_atom_site_aniso_U_11
+_atom_site_aniso_U_22
+_atom_site_aniso_U_33
+_atom_site_aniso_U_23
+_atom_site_aniso_U_13
+_atom_site_aniso_U_12
+C1 0.019(2) 0.0180(17) 0.018(2) 0.0020(15) 0.0007(16) 0.0008(15)
+C2 0.0173(19) 0.0169(17) 0.0169(19) -0.0018(15) 0.0024(15) 0.0007(14)
+C3 0.021(2) 0.019(2) 0.034(3) -0.0018(18) 0.0066(19) 0.0062(16)
+C4 0.028(2) 0.017(2) 0.032(3) 0.0023(18) 0.004(2) 0.0063(17)
+C5 0.024(2) 0.023(2) 0.025(2) 0.0064(18) 0.0016(17) 0.0009(17)
+C6 0.0171(19) 0.0203(18) 0.021(2) 0.0019(16) 0.0031(16) 0.0013(15)
+C7 0.0173(18) 0.0191(19) 0.0164(19) 0.0017(17) 0.0034(14) 0.0025(16)
+C8 0.0167(18) 0.027(2) 0.020(2) -0.0010(18) 0.0036(16) -0.0015(16)
+C9 0.025(2) 0.045(3) 0.023(2) 0.002(2) 0.0024(19) -0.012(2)
+O1 0.027(3) 0.020(2) 0.033(3) 0.008(2) 0.012(2) 0.009(2)
+O2 0.033(3) 0.027(3) 0.023(3) 0.006(2) 0.009(2) 0.013(2)
+O3 0.021(2) 0.023(2) 0.019(2) -0.0027(19) 0.0042(19) -0.0032(19)
+O4 0.036(3) 0.035(3) 0.025(3) -0.002(2) 0.002(2) -0.018(3)
+H1 0.045(6) 0.037(5) 0.067(8) 0.003(5) 0.033(6) 0.009(5)
+H2 0.061(8) 0.025(5) 0.049(7) 0.009(5) 0.002(6) 0.013(5)
+H3 0.054(7) 0.034(5) 0.045(6) 0.020(5) 0.005(5) -0.003(5)
+H4 0.030(5) 0.041(6) 0.054(7) 0.007(5) 0.017(5) 0.006(4)
+H5 0.075(10) 0.080(10) 0.047(8) 0.008(7) 0.007(7) -0.049(9)
+H6 0.046(9) 0.20(3) 0.091(15) 0.100(19) -0.019(9) -0.007(12)
+H7 0.18(2) 0.057(10) 0.080(13) -0.019(9) 0.077(15) -0.023(12)
+H8 0.037(5) 0.033(5) 0.042(6) 0.011(4) 0.010(4) 0.008(4)
+loop_
+_geom_bond_atom_site_label_1
+_geom_bond_atom_site_label_2
+_geom_bond_distance
+_geom_bond_site_symmetry_2
+_geom_bond_publ_flag
+C1 C2 1.401(6) . ?
+C1 C6 1.405(7) . ?
+C1 C7 1.477(6) . ?
+C2 C3 1.382(6) . ?
+C2 O3 1.394(7) . ?
+C3 C4 1.402(8) . ?
+C3 H1 1.096(12) . ?
+C4 C5 1.386(8) . ?
+C4 H2 1.080(12) . ?
+C5 C6 1.382(7) . ?
+C5 H3 1.110(13) . ?
+C6 H4 1.101(12) . ?
+C7 O2 1.229(7) . ?
+C7 O1 1.307(7) . ?
+C8 O4 1.199(7) . ?
+C8 O3 1.367(7) . ?
+C8 C9 1.487(7) . ?
+C9 H5 1.082(16) . ?
+C9 H6 1.042(18) . ?
+C9 H7 1.07(2) . ?
+O1 H8 1.008(12) . ?
+loop_
+_cod_related_entry_id
+_cod_related_entry_database
+_cod_related_entry_code
+1 ChemSpider 2157
+2 PubChem 2244

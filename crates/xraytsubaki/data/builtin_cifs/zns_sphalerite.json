@@ -1,0 +1,18 @@
+{
+ "key": "zns_sphalerite",
+ "name": "ZnS sphalerite",
+ "formula": "S Zn",
+ "sg_number": 216,
+ "sg": "F -4 3 m",
+ "category": "sulfide",
+ "source": "COD",
+ "id": "cod-5000088",
+ "url": "https://www.crystallography.net/cod/5000088.html",
+ "year": "1992",
+ "journal": "Physical Review, Serie 3. B - Condensed Matter (18,1978-)",
+ "authors": "Yeh, C; Lu, Z W; Froyen, S; Zunger, A",
+ "doi": "10.1103/PhysRevB.46.10086",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

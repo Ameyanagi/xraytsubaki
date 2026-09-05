@@ -1,0 +1,89 @@
+#------------------------------------------------------------------------------
+#$Date: 2025-11-01 14:29:51 +0200 (Sat, 01 Nov 2025) $
+#$Revision: 303136 $
+#$URL: file:///home/coder/svn-repositories/_RELOADED_COD/cod-reloaded/cif/9/00/05/9000594.cif $
+#------------------------------------------------------------------------------
+#
+# This file is available in the Crystallography Open Database (COD),
+# http://www.crystallography.net/. The original data for this entry
+# were provided the American Mineralogist Crystal Structure Database,
+# http://rruff.geo.arizona.edu/AMS/amcsd.php
+#
+# The file may be used within the scientific community so long as
+# proper attribution is given to the journal article from which the
+# data were obtained.
+#
+data_9000594
+loop_
+_publ_author_name
+'Bayliss, P.'
+_publ_section_title
+;
+ Crystal structure refinement of a weakly anisotropic pyrite
+ cubic model
+;
+_journal_name_full               'American Mineralogist'
+_journal_page_first              1168
+_journal_page_last               1172
+_journal_volume                  62
+_journal_year                    1977
+_chemical_formula_sum            'Fe S2'
+_chemical_name_mineral           Pyrite
+_space_group_IT_number           205
+_symmetry_space_group_name_Hall  '-P 2ac 2ab 3'
+_symmetry_space_group_name_H-M   'P a -3'
+_cell_angle_alpha                90
+_cell_angle_beta                 90
+_cell_angle_gamma                90
+_cell_formula_units_Z            4
+_cell_length_a                   5.4166
+_cell_length_b                   5.4166
+_cell_length_c                   5.4166
+_cell_volume                     158.921
+_database_code_amcsd             0000605
+_exptl_crystal_density_diffrn    5.015
+_cod_original_sg_symbol_H-M      'P a 3'
+_cod_database_code               9000594
+loop_
+_symmetry_equiv_pos_as_xyz
+x,y,z
+1/2+z,x,1/2-y
+z,1/2-x,1/2+y
+1/2-z,1/2+x,y
+-z,-x,-y
+1/2+y,1/2-z,-x
+1/2-y,-z,1/2+x
+-y,1/2+z,1/2-x
+y,z,x
+x,1/2-y,1/2+z
+1/2-x,1/2+y,z
+1/2+x,y,1/2-z
+-x,-y,-z
+1/2-z,-x,1/2+y
+-z,1/2+x,1/2-y
+1/2+z,1/2-x,-y
+z,x,y
+1/2-y,1/2+z,x
+1/2+y,z,1/2-x
+y,1/2-z,1/2+x
+-y,-z,-x
+-x,1/2+y,1/2-z
+1/2+x,1/2-y,-z
+1/2-x,-y,1/2+z
+loop_
+_atom_site_label
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_U_iso_or_equiv
+Fe 0.00000 0.00000 0.00000 0.00355
+S 0.38510 0.38510 0.38510 0.00418
+loop_
+_cod_related_entry_id
+_cod_related_entry_database
+_cod_related_entry_code
+1 AMCSD 0000605
+2 ROD 1000092
+3 ROD 1000113
+4 ROD 1000267
+5 ROD 1000291

@@ -1,0 +1,18 @@
+{
+ "key": "pto2_alpha",
+ "name": "α-PtO₂",
+ "formula": "O2 Pt",
+ "sg_number": 164,
+ "sg": "P -3 m 1",
+ "category": "oxide",
+ "source": "COD",
+ "id": "cod-1537410",
+ "url": "https://www.crystallography.net/cod/1537410.html",
+ "year": "1971",
+ "journal": "Advances in Chemistry Series",
+ "authors": "Hoekstra, H.R.; Gallagher, F.X.; Siegel, S.",
+ "doi": null,
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

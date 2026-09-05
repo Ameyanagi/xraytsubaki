@@ -10,6 +10,7 @@ use xraytsubaki::prelude::*;
 /// (element(s), common structure type, lattice constants, edge, cluster
 /// radius) — covers the common metal/oxide cases without full space-group
 /// machinery; arbitrary structures can still be pasted into feff.inp.
+#[derive(Clone, Debug, PartialEq)]
 pub struct CrystalSpec {
     pub element: String,
     /// Second element for binary structures (rocksalt, zincblende, cscl).
@@ -24,189 +25,44 @@ pub struct CrystalSpec {
     pub rmax: f64,
 }
 
-const SYMBOLS: &[&str] = &[
-    "H", "He", "Li", "Be", "B", "C", "N", "O", "F", "Ne", "Na", "Mg", "Al", "Si", "P", "S", "Cl",
-    "Ar", "K", "Ca", "Sc", "Ti", "V", "Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn", "Ga", "Ge", "As",
-    "Se", "Br", "Kr", "Rb", "Sr", "Y", "Zr", "Nb", "Mo", "Tc", "Ru", "Rh", "Pd", "Ag", "Cd", "In",
-    "Sn", "Sb", "Te", "I", "Xe", "Cs", "Ba", "La", "Ce", "Pr", "Nd", "Pm", "Sm", "Eu", "Gd", "Tb",
-    "Dy", "Ho", "Er", "Tm", "Yb", "Lu", "Hf", "Ta", "W", "Re", "Os", "Ir", "Pt", "Au", "Hg", "Tl",
-    "Pb", "Bi", "Po", "At", "Rn", "Fr", "Ra", "Ac", "Th", "Pa", "U",
-];
-
-fn atomic_number(symbol: &str) -> Option<usize> {
-    SYMBOLS
-        .iter()
-        .position(|s| s.eq_ignore_ascii_case(symbol))
-        .map(|i| i + 1)
-}
-
-fn hole_index(edge: &str) -> Option<u32> {
-    match edge.trim().to_ascii_uppercase().as_str() {
-        "K" => Some(1),
-        "L1" => Some(2),
-        "L2" => Some(3),
-        "L3" => Some(4),
-        _ => None,
-    }
-}
-
-type Atom = (f64, f64, f64, usize); // x, y, z, potential index
-type Basis = Vec<([f64; 3], usize)>; // (frac coords, potential index)
-type Cell = [[f64; 3]; 3];
-
-/// Atoms within rmax of the absorber at the origin for the given structure.
-fn build_cluster(spec: &CrystalSpec) -> Result<Vec<Atom>, String> {
-    let a = spec.a;
-    if !(a > 0.5 && a < 50.0) {
-        return Err(format!("implausible lattice constant a = {a}"));
-    }
-    let rmax = spec.rmax.clamp(2.0, 12.0);
-    // (lattice vectors, basis as (frac coords, potential))
-    let cubic = |basis: Basis| ([[a, 0.0, 0.0], [0.0, a, 0.0], [0.0, 0.0, a]], basis);
-    let structure = spec.structure.trim().to_ascii_lowercase();
-    let (cell, basis): (Cell, Basis) = match structure.as_str() {
-        // conventional cubic cells keep the math obvious
-        "fcc" => cubic(vec![
-            ([0.0, 0.0, 0.0], 1),
-            ([0.5, 0.5, 0.0], 1),
-            ([0.5, 0.0, 0.5], 1),
-            ([0.0, 0.5, 0.5], 1),
-        ]),
-        "bcc" => cubic(vec![([0.0, 0.0, 0.0], 1), ([0.5, 0.5, 0.5], 1)]),
-        "cscl" => cubic(vec![([0.0, 0.0, 0.0], 1), ([0.5, 0.5, 0.5], 2)]),
-        "rocksalt" => cubic(vec![
-            ([0.0, 0.0, 0.0], 1),
-            ([0.5, 0.5, 0.0], 1),
-            ([0.5, 0.0, 0.5], 1),
-            ([0.0, 0.5, 0.5], 1),
-            ([0.5, 0.0, 0.0], 2),
-            ([0.0, 0.5, 0.0], 2),
-            ([0.0, 0.0, 0.5], 2),
-            ([0.5, 0.5, 0.5], 2),
-        ]),
-        "zincblende" | "diamond" => {
-            let p2 = if structure == "diamond" { 1 } else { 2 };
-            cubic(vec![
-                ([0.0, 0.0, 0.0], 1),
-                ([0.5, 0.5, 0.0], 1),
-                ([0.5, 0.0, 0.5], 1),
-                ([0.0, 0.5, 0.5], 1),
-                ([0.25, 0.25, 0.25], p2),
-                ([0.75, 0.75, 0.25], p2),
-                ([0.75, 0.25, 0.75], p2),
-                ([0.25, 0.75, 0.75], p2),
-            ])
-        }
-        "hcp" => {
-            let c = spec.c.unwrap_or(a * (8.0f64 / 3.0).sqrt());
-            (
-                [
-                    [a, 0.0, 0.0],
-                    [-a / 2.0, a * 3.0f64.sqrt() / 2.0, 0.0],
-                    [0.0, 0.0, c],
-                ],
-                vec![([0.0, 0.0, 0.0], 1), ([1.0 / 3.0, 2.0 / 3.0, 0.5], 1)],
-            )
-        }
-        other => {
-            return Err(format!(
-                "unknown structure '{other}' (fcc, bcc, hcp, diamond, rocksalt, zincblende, cscl)"
-            ));
-        }
-    };
-
-    let mut atoms: Vec<Atom> = Vec::new();
-    let n = (rmax / a).ceil() as i32 + 2;
-    for i in -n..=n {
-        for j in -n..=n {
-            for k in -n..=n {
-                for (frac, pot) in &basis {
-                    let fx = i as f64 + frac[0];
-                    let fy = j as f64 + frac[1];
-                    let fz = k as f64 + frac[2];
-                    let x = fx * cell[0][0] + fy * cell[1][0] + fz * cell[2][0];
-                    let y = fx * cell[0][1] + fy * cell[1][1] + fz * cell[2][1];
-                    let z = fx * cell[0][2] + fy * cell[1][2] + fz * cell[2][2];
-                    let d = (x * x + y * y + z * z).sqrt();
-                    if d <= rmax {
-                        atoms.push((x, y, z, *pot));
-                    }
-                }
-            }
-        }
-    }
-    atoms.sort_by(|p, q| {
-        (p.0 * p.0 + p.1 * p.1 + p.2 * p.2).total_cmp(&(q.0 * q.0 + q.1 * q.1 + q.2 * q.2))
-    });
-    if atoms.is_empty() || (atoms[0].0.abs() + atoms[0].1.abs() + atoms[0].2.abs()) > 1e-9 {
-        return Err("no absorber atom at the origin".into());
-    }
-    Ok(atoms)
-}
-
-/// Render a feff.inp for the crystal spec (FEFF10-strict card set).
+/// `feff.inp` text for a simple crystal, generated through the core
+/// structure module (`builtin_structure` → `build_cluster` → `write_feff_inp`).
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn generate_inp(spec: &CrystalSpec) -> Result<String, String> {
-    let el1 = spec.element.trim();
-    let z1 = atomic_number(el1).ok_or_else(|| format!("unknown element '{el1}'"))?;
-    let needs_el2 = matches!(
-        spec.structure.trim().to_ascii_lowercase().as_str(),
-        "rocksalt" | "zincblende" | "cscl"
-    );
-    let el2 = spec
-        .element2
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty());
-    let z2 = match (needs_el2, el2) {
-        (true, Some(sym)) => Some((
-            sym,
-            atomic_number(sym).ok_or_else(|| format!("unknown element '{sym}'"))?,
-        )),
-        (true, None) => return Err("this structure needs a second element".into()),
-        (false, _) => None,
+    use xraytsubaki::xafs::structure::{
+        AbsorberSelection, ClusterOptions, Edge, FeffInputOptions, build_cluster, write_feff_inp,
     };
-    let hole = hole_index(&spec.edge)
+    let structure = crate::structure::builtin_structure(spec)?;
+    let el1 = spec.element.trim();
+    let edge = Edge::parse(&spec.edge)
         .ok_or_else(|| format!("unknown edge '{}' (K, L1, L2, L3)", spec.edge))?;
-    let mut atoms = build_cluster(spec)?;
-    // absorber takes potential 0
-    atoms[0].3 = 0;
-
-    let mut s = format!(
-        "TITLE {el1} {} (generated by xraytsubaki)\n\
-         HOLE {hole}   1.0\n\n\
-         CONTROL   1      1     1     1     1     1\n\
-         PRINT     1      0     0     0     0     3\n\
-         RMAX      {:.1}\n\
-         NLEG      4\n\
-         EXAFS     20\n\n\
-         POTENTIALS\n\
-         \x20       0   {z1}   {el1}\n\
-         \x20       1   {z1}   {el1}\n",
-        spec.structure.trim(),
-        spec.rmax.clamp(2.0, 12.0),
-    );
-    if let Some((sym, z)) = z2 {
-        s.push_str(&format!("        2   {z}   {sym}\n"));
-    }
-    s.push_str("\nATOMS\n");
-    for (x, y, z, pot) in &atoms {
-        let tag = match pot {
-            0 => format!("{el1}0"),
-            1 => format!("{el1}1"),
-            _ => format!("{}2", z2.map(|(sym, _)| sym).unwrap_or(el1)),
-        };
-        let d = (x * x + y * y + z * z).sqrt();
-        s.push_str(&format!(
-            "  {x:9.5}  {y:9.5}  {z:9.5}  {pot} {tag:<12} {d:9.5}\n"
-        ));
-    }
-    s.push_str("END\n");
-    Ok(s)
+    let radius = spec.rmax.clamp(2.0, 12.0);
+    let cluster = build_cluster(
+        &structure,
+        &AbsorberSelection::Element(el1.to_string()),
+        &ClusterOptions {
+            radius,
+            ..Default::default()
+        },
+    )
+    .map_err(|e| e.to_string())?;
+    let opts = FeffInputOptions {
+        edge,
+        rmax: Some(radius),
+        rpath: Some(radius),
+        ..Default::default()
+    };
+    Ok(write_feff_inp(&cluster, &opts))
 }
 
 /// Create a workspace containing a feff.inp generated from `spec`.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn new_workspace_from_spec(spec: &CrystalSpec) -> Result<PathBuf, String> {
-    let inp = generate_inp(spec)?;
+    new_workspace_with(&generate_inp(spec)?)
+}
+
+/// Create a workspace containing the given feff.inp text.
+pub fn new_workspace_with(inp: &str) -> Result<PathBuf, String> {
     let dir = workspace_dir()?;
     std::fs::write(dir.join("feff.inp"), inp).map_err(|e| e.to_string())?;
     Ok(dir)
@@ -217,12 +73,13 @@ fn workspace_dir() -> Result<PathBuf, String> {
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|e| e.to_string())?
-        .as_secs();
+        .as_nanos();
     let dir = PathBuf::from(home)
         .join(".xraytsubaki")
         .join("feff")
         .join(format!("ws-{stamp}"));
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(dir.parent().expect("workspace parent")).map_err(|e| e.to_string())?;
+    std::fs::create_dir(&dir).map_err(|e| e.to_string())?;
     Ok(dir)
 }
 
@@ -285,6 +142,7 @@ pub fn new_workspace() -> Result<PathBuf, String> {
 ///
 /// ReFEFF runs in-process; FEFFRS uses its embedded worker pipeline. Neither
 /// route requires a separately installed command-line executable.
+#[cfg(test)]
 pub fn run_feff10_subprocess(workspace: &Path) -> Result<Vec<PathBuf>, String> {
     run_feff10(workspace)
 }
@@ -293,8 +151,13 @@ pub fn run_feff10_subprocess(workspace: &Path) -> Result<Vec<PathBuf>, String> {
 /// `workspace/feff.inp`; returns the generated feffNNNN.dat files. A build
 /// containing both backends defaults to ReFEFF and accepts
 /// `XTS_FEFF_BACKEND=feffrs` as a runtime override.
+#[cfg(test)]
 pub fn run_feff10(workspace: &Path) -> Result<Vec<PathBuf>, String> {
     let mode = selected_feff_mode()?;
+    run_backend(workspace, mode)
+}
+
+pub fn run_backend(workspace: &Path, mode: FeffExecutionMode) -> Result<Vec<PathBuf>, String> {
     let request = FeffRunRequest {
         executable_path: PathBuf::new(),
         workspace_dir: workspace.to_path_buf(),
@@ -309,7 +172,15 @@ pub fn run_feff10(workspace: &Path) -> Result<Vec<PathBuf>, String> {
         .map_err(|e| e.to_string())
 }
 
-fn selected_feff_mode() -> Result<FeffExecutionMode, String> {
+pub fn backend_name(mode: FeffExecutionMode) -> &'static str {
+    match mode {
+        FeffExecutionMode::RefeffPipeline => "ReFEFF",
+        FeffExecutionMode::Feff10Pipeline => "FEFF-RS / FEFF10",
+        _ => "No calculation engine available",
+    }
+}
+
+pub(crate) fn selected_feff_mode() -> Result<FeffExecutionMode, String> {
     #[cfg(all(feature = "refeff-runner", feature = "feff10-runner"))]
     {
         return match std::env::var("XTS_FEFF_BACKEND")
@@ -390,7 +261,8 @@ mod tests {
         };
         let inp = generate_inp(&spec).expect("inp");
         assert!(inp.contains("POTENTIALS"));
-        assert!(inp.contains(" 2   8   O"));
+        assert!(inp.contains("  8   O"), "{inp}");
+        assert!(inp.contains("ATOMS"));
     }
 
     /// The legacy-named background route must produce path files through

@@ -79,12 +79,15 @@ pub struct ImportPreview {
     pub auto_mode: DetectionMode,
     /// Current assignments after applying all manual overrides.
     pub resolved: ResolvedImport,
+    /// Original XDI metadata, comments and units for the import inspector.
+    pub xdi: Option<XdiHeader>,
 }
 
 #[derive(Debug)]
 struct ParsedData {
     names: Option<Vec<String>>,
     rows: Vec<Vec<f64>>,
+    xdi: Option<XdiHeader>,
 }
 
 #[derive(Debug)]
@@ -97,15 +100,26 @@ struct DetectedRoles {
     mu_col: Option<usize>,
     named_i0: bool,
     named_it: bool,
+    named_ir: bool,
     named_fluor: bool,
 }
 
-const ENERGY_NAMES: &[&str] = &["energy", "e", "mono_e", "energy_ev", "en"];
+const ENERGY_NAMES: &[&str] = &["energy", "angle", "e", "mono_e", "energy_ev", "en"];
 const I0_NAMES: &[&str] = &["i0", "io", "i_0", "monitor", "mon"];
 const IT_NAMES: &[&str] = &["it", "i1", "i_t", "itrans", "trans", "transmission"];
-const IR_NAMES: &[&str] = &["ir", "i2", "iref", "i_r", "ref", "reference"];
+const IR_NAMES: &[&str] = &["ir", "i2", "iref", "irefer", "i_r", "ref", "reference"];
 const FLUOR_NAMES: &[&str] = &["iff", "if", "i_f", "fluo", "fluor", "fl", "pips", "ifluor"];
-const MU_NAMES: &[&str] = &["mu", "xmu", "mutrans", "mu_t", "norm", "mufluor"];
+const MU_NAMES: &[&str] = &[
+    "mu",
+    "xmu",
+    "mutrans",
+    "mu_t",
+    "norm",
+    "mufluor",
+    "normtrans",
+    "normfluor",
+];
+const REF_MU_NAMES: &[&str] = &["murefer", "normrefer"];
 
 fn name_matches(name: &str, exact: &[&str]) -> bool {
     let name = name.to_ascii_lowercase();
@@ -118,6 +132,20 @@ fn fluorescence_name_matches(name: &str) -> bool {
 }
 
 fn parse_data(text: &str) -> Result<ParsedData, String> {
+    if io::xdi::is_xdi(text) {
+        let file = XdiFile::parse(text).map_err(|e| e.to_string())?;
+        return Ok(ParsedData {
+            names: Some(
+                file.header
+                    .columns
+                    .iter()
+                    .map(|c| c.label.clone())
+                    .collect(),
+            ),
+            rows: file.data,
+            xdi: Some(file.header),
+        });
+    }
     let mut rows = Vec::new();
     let mut width = 0usize;
     let mut last_comment = None;
@@ -157,7 +185,25 @@ fn parse_data(text: &str) -> Result<ParsedData, String> {
             .collect::<Vec<_>>();
         (names.len() == width).then_some(names)
     });
-    Ok(ParsedData { names, rows })
+    Ok(ParsedData {
+        names,
+        rows,
+        xdi: None,
+    })
+}
+
+fn parse_file_data(text: &str, path: &std::path::Path) -> Result<ParsedData, String> {
+    if path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("xdi"))
+        && !io::xdi::is_xdi(text)
+    {
+        return Err(format!(
+            "{}: XDI file is missing its '# XDI/1.0' signature",
+            path.display()
+        ));
+    }
+    parse_data(text).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 fn monotonic_energy_column(rows: &[Vec<f64>], width: usize) -> Option<usize> {
@@ -195,7 +241,15 @@ fn detect_roles(data: &ParsedData) -> DetectedRoles {
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let mu_col = find(MU_NAMES);
+    let has_sample_intensities =
+        named_i0.is_some() && (named_it.is_some() || !fluor_cols.is_empty());
+    let mu_col = find(MU_NAMES).or_else(|| {
+        if has_sample_intensities {
+            None
+        } else {
+            find(REF_MU_NAMES)
+        }
+    });
     let energy_col = named_energy
         .or_else(|| {
             data.names
@@ -217,6 +271,7 @@ fn detect_roles(data: &ParsedData) -> DetectedRoles {
         mu_col,
         named_i0: named_i0.is_some(),
         named_it: named_it.is_some(),
+        named_ir: named_ir.is_some(),
         named_fluor: !fluor_cols.is_empty(),
     }
 }
@@ -239,6 +294,7 @@ fn resolve_import(data: &ParsedData, import: &ImportConfig) -> ResolvedImport {
         {
             DetectionMode::Fluorescence
         }
+        DetectionMode::Auto if detected.named_it && detected.named_ir => DetectionMode::Reference,
         DetectionMode::Auto => DetectionMode::Transmission,
         mode => mode,
     };
@@ -292,13 +348,15 @@ pub fn preview_import(
         .read_to_end(&mut buf)
         .map_err(|e| format!("{}: {e}", path.display()))?;
     let truncated = buf.len() == PREVIEW_BYTES;
-    let text = String::from_utf8_lossy(&buf);
+    let text = String::from_utf8_lossy(&buf)
+        .replace("\r\n", "\n")
+        .replace('\r', "\n");
     let mut lines: Vec<&str> = text.lines().collect();
     if truncated {
         // the final line may be cut mid-number
         lines.pop();
     }
-    let data = parse_data(&lines.join("\n")).map_err(|e| format!("{}: {e}", path.display()))?;
+    let data = parse_file_data(&lines.join("\n"), path)?;
     let detected = resolve_import(&data, &ImportConfig::default());
     let mut auto_import = import.clone();
     auto_import.mode = DetectionMode::Auto;
@@ -311,21 +369,38 @@ pub fn preview_import(
         detected,
         auto_mode,
         resolved,
+        xdi: data.xdi,
     })
 }
 
 /// Energy and mu(E) for one file under the import configuration. Rows whose
-/// math is non-finite (e.g. log of a non-positive ratio) are dropped.
+/// math is non-finite (e.g. log of a non-positive ratio) are dropped. Energy
+/// and mu are sorted together, including descending monochromator-angle scans.
 pub fn load_mu(
     path: &std::path::Path,
     import: &ImportConfig,
 ) -> Result<(Vec<f64>, Vec<f64>), String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let data = parse_data(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut data = parse_file_data(&text, path)?;
     if data.rows.len() < 2 {
         return Err(format!("{}: no numeric data rows", path.display()));
     }
     let resolved = resolve_import(&data, import);
+    if let Some(header) = &data.xdi {
+        for row in &mut data.rows {
+            let value = row
+                .get_mut(resolved.energy_col)
+                .ok_or_else(|| format!("{}: energy column out of range", path.display()))?;
+            *value = header
+                .energy_ev(resolved.energy_col, *value)
+                .map_err(|e| format!("{}: {e}", path.display()))?;
+        }
+    }
+    let ref_mu_col = data
+        .names
+        .as_ref()
+        .and_then(|names| names.iter().position(|n| name_matches(n, REF_MU_NAMES)))
+        .filter(|_| import.it_col.is_none() && import.ir_col.is_none());
     let rows = data.rows;
     let width = rows[0].len();
     let need = |col: usize, name: &str| -> Result<usize, String> {
@@ -371,12 +446,21 @@ pub fn load_mu(
             }
         }
         DetectionMode::Reference => {
-            let (it, ir) = (need(resolved.it_col, "It")?, need(resolved.ir_col, "Ir")?);
-            for row in &rows {
-                let m = (row[it] / row[ir]).ln();
-                if m.is_finite() && row[e].is_finite() {
-                    energy.push(row[e]);
-                    mu.push(m);
+            if let Some(col) = ref_mu_col {
+                for row in &rows {
+                    if row[col].is_finite() && row[e].is_finite() {
+                        energy.push(row[e]);
+                        mu.push(row[col]);
+                    }
+                }
+            } else {
+                let (it, ir) = (need(resolved.it_col, "It")?, need(resolved.ir_col, "Ir")?);
+                for row in &rows {
+                    let m = (row[it] / row[ir]).ln();
+                    if m.is_finite() && row[e].is_finite() {
+                        energy.push(row[e]);
+                        mu.push(m);
+                    }
                 }
             }
         }
@@ -398,6 +482,11 @@ pub fn load_mu(
             "{}: fewer than 2 finite data points",
             path.display()
         ));
+    }
+    if energy.windows(2).any(|pair| pair[0] > pair[1]) {
+        let mut paired = energy.into_iter().zip(mu).collect::<Vec<_>>();
+        paired.sort_by(|a, b| a.0.total_cmp(&b.0));
+        (energy, mu) = paired.into_iter().unzip();
     }
     Ok((energy, mu))
 }
@@ -842,6 +931,114 @@ pub fn resample_chik(sp: &XASSpectrum, grid: &[f64]) -> Option<Vec<f64>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn xdi_import_uses_declared_columns_units_and_signal_math() {
+        let path = std::env::temp_dir().join(format!("xts-xdi-signals-{}.XDI", std::process::id()));
+        for (labels, values, mode, mu) in [
+            (
+                vec!["energy keV", "i0", "itrans", "irefer"],
+                "8.9 10 5 2.5\n9 10 5 2.5",
+                DetectionMode::Auto,
+                2.0_f64.ln(),
+            ),
+            (
+                vec!["energy keV", "i0", "ifluor"],
+                "8.9 10 2\n9 10 2",
+                DetectionMode::Auto,
+                0.2,
+            ),
+            (
+                vec!["energy keV", "i0", "itrans", "irefer"],
+                "8.9 10 5 2.5\n9 10 5 2.5",
+                DetectionMode::Reference,
+                2.0_f64.ln(),
+            ),
+            (
+                vec!["energy keV", "murefer", "mutrans"],
+                "8.9 0.1 0.4\n9 0.1 0.4",
+                DetectionMode::Auto,
+                0.4,
+            ),
+            (
+                vec!["energy keV", "murefer", "mutrans"],
+                "8.9 0.1 0.4\n9 0.1 0.4",
+                DetectionMode::Reference,
+                0.1,
+            ),
+        ] {
+            let columns = labels
+                .iter()
+                .enumerate()
+                .map(|(i, label)| format!("# Column.{}: {label}\n", i + 1))
+                .collect::<String>();
+            // No optional label line: declarations alone must work.
+            std::fs::write(
+                &path,
+                format!(
+                    "# XDI/1.0\n{columns}# Element.symbol: Cu\n# Element.edge: K\n# ---\n{values}\n"
+                ),
+            )
+            .unwrap();
+            let import = ImportConfig {
+                mode,
+                ..Default::default()
+            };
+            let preview = preview_import(&path, &import).unwrap();
+            assert_eq!(preview.names.as_ref().unwrap()[1], labels[1]);
+            assert_eq!(
+                preview.xdi.as_ref().unwrap().get("element.symbol"),
+                Some("Cu")
+            );
+            assert_eq!(preview.rows[0][0], 8.9); // preview displays original units
+            let (energy, actual) = load_mu(&path, &import).unwrap();
+            assert_eq!(energy, [8900., 9000.]);
+            assert!((actual[0] - mu).abs() < 1e-12);
+        }
+        // A signature remains authoritative when the extension is .dat.
+        let renamed = path.with_extension("dat");
+        std::fs::copy(&path, &renamed).unwrap();
+        assert!(
+            preview_import(&renamed, &ImportConfig::default())
+                .unwrap()
+                .xdi
+                .is_some()
+        );
+        std::fs::write(&path, "# energy mu\n8900 .4\n9000 .5\n").unwrap();
+        assert!(
+            load_mu(&path, &ImportConfig::default())
+                .unwrap_err()
+                .contains("signature")
+        );
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(renamed);
+    }
+
+    #[test]
+    fn xdi_nickel_foil_auto_import_preserves_measured_mu() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../xraytsubaki/tests/testfiles/xraylarch_d867/xafsdata/ni_metal_rt.xdi");
+        let preview = preview_import(&path, &ImportConfig::default()).unwrap();
+        assert_eq!(preview.resolved.mode, DetectionMode::MuColumn);
+        assert_eq!(preview.resolved.mu_col, Some(1));
+        let (energy, mu) = load_mu(&path, &ImportConfig::default()).unwrap();
+        assert_eq!(energy[0], 8133.0);
+        assert_eq!(mu[0], -1.1873423); // already mu: never take a second logarithm
+        let spectrum = process_file(&path, &PipelineParams::default()).unwrap();
+        assert!(spectrum.get_k().unwrap().len() > 200);
+        assert!(spectrum.get_chi().unwrap().iter().all(|x| x.is_finite()));
+    }
+
+    #[test]
+    fn xdi_angle_import_sorts_energy_and_signal_for_merge() {
+        let path = std::env::temp_dir().join(format!("xts-xdi-angle-{}.xdi", std::process::id()));
+        std::fs::write(&path, "# XDI/1.0\n# Column.1: angle degrees\n# Column.2: mutrans\n# Mono.d_spacing: 3.1356\n# ---\n29 .2\n30 .4\n").unwrap();
+        let (energy, mu) = load_raw(&path, &PipelineParams::default()).unwrap();
+        assert!(energy[0] < energy[1]);
+        assert!((energy[0] - 3954.0821033677844).abs() < 1e-6);
+        assert_eq!(mu, [0.4, 0.2]);
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn parse_cols_lists_and_ranges() {

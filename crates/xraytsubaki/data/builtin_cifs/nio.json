@@ -1,0 +1,18 @@
+{
+ "key": "nio",
+ "name": "NiO bunsenite",
+ "formula": "Ni O",
+ "sg_number": 225,
+ "sg": "F m -3 m",
+ "category": "oxide",
+ "source": "COD",
+ "id": "cod-4329323",
+ "url": "https://www.crystallography.net/cod/4329323.html",
+ "year": "2012",
+ "journal": "Inorganic Chemistry",
+ "authors": "Andrew C. Malingowski; Peter W. Stephens; Ashfia Huq; Qingzhen Huang; Syed Khalid; Peter G. Khalifah",
+ "doi": "10.1021/ic202715c",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

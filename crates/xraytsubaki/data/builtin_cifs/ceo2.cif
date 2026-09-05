@@ -1,0 +1,452 @@
+#------------------------------------------------------------------------------
+#$Date: 2025-11-01 12:42:57 +0200 (Sat, 01 Nov 2025) $
+#$Revision: 303132 $
+#$URL: file:///home/coder/svn-repositories/_RELOADED_COD/cod-reloaded/cif/4/34/31/4343161.cif $
+#------------------------------------------------------------------------------
+#
+# This file is available in the Crystallography Open Database (COD),
+# http://www.crystallography.net/
+#
+# All data on this site have been placed in the public domain by the
+# contributors.
+#
+data_4343161
+loop_
+_publ_author_name
+'Artini, Cristina'
+'Pani, Marcella'
+'Carnasciali, Maria Maddalena'
+'Buscaglia, Maria Teresa'
+'Plaisier, Jasper Rikkert'
+'Costa, Giorgio Andrea'
+_publ_section_title
+;
+ Structural Features of Sm- and Gd-Doped Ceria Studied by Synchrotron
+ X-ray Diffraction and \m-Raman Spectroscopy.
+;
+_journal_issue                   8
+_journal_name_full               'Inorganic chemistry'
+_journal_page_first              4126
+_journal_page_last               4137
+_journal_paper_doi               10.1021/acs.inorgchem.5b00395
+_journal_volume                  54
+_journal_year                    2015
+_chemical_formula_sum            'Ce O2'
+_chemical_formula_weight         172.12
+_chemical_name_common            'Cerium dioxide'
+_space_group_IT_number           225
+_symmetry_cell_setting           cubic
+_symmetry_space_group_name_Hall  '-F 4 2 3'
+_symmetry_space_group_name_H-M   'F m -3 m'
+_cell_angle_alpha                90.00000
+_cell_angle_beta                 90.00000
+_cell_angle_gamma                90.00000
+_cell_formula_units_Z            4
+_cell_length_a                   5.40972(11)
+_cell_length_b                   5.40972(11)
+_cell_length_c                   5.40972(11)
+_cell_measurement_temperature    295
+_cell_volume                     158.316(6)
+_computing_structure_refinement  FULLPROF
+_diffrn_ambient_temperature      295
+_diffrn_detector                 'fast scintillator detector'
+_diffrn_measurement_device_type  'Huber 4-axes X-ray diffractometer'
+_diffrn_measurement_method       '2\q in the range 5-60 deg'
+_diffrn_radiation_wavelength     0.749230
+_diffrn_source                   synchrotron
+_exptl_absorpt_coefficient_mu    37.66
+_exptl_absorpt_correction_type   none
+_pd_char_colour                  'pale yellow'
+_pd_instr_location
+; powder diffraction beamline (MCX) of the Elettra synchrotron radiation
+ facility located in Trieste, Italy
+;
+_pd_meas_2theta_range_inc        0.010003
+_pd_meas_2theta_range_max        60.00000
+_pd_meas_2theta_range_min        9.00000
+_pd_meas_number_of_points        5101
+_pd_meas_scan_method             step
+_pd_prep_pressure                101
+_pd_prep_temperature             1473
+_pd_proc_2theta_range_inc        0.010003
+_pd_proc_2theta_range_max        60.0150
+_pd_proc_2theta_range_min        9.0150
+_pd_proc_ls_background_function
+;
+linear interpolation between a set of background points with refinable heights
+;
+_pd_proc_ls_profile_function     Pseudo-Voigt
+_pd_proc_ls_prof_R_factor        9.8210
+_pd_proc_ls_prof_wR_expected     10.2454
+_pd_proc_ls_prof_wR_factor       13.2573
+_pd_proc_wavelength              0.749230
+_pd_spec_mounting
+' quartz capillary tube with inner diameter of 0.5 mm '
+_pd_spec_mount_mode              transmission
+_pd_spec_shape                   cylinder
+_pd_spec_size_axial              20
+_pd_spec_size_equat              0.5
+_refine_ls_goodness_of_fit_all   1.29
+_refine_ls_number_parameters     80
+_refine_ls_number_reflns         22
+_refine_ls_number_restraints     0
+_refine_ls_R_I_factor            2.7157
+_refine_ls_shift/su_max          0.1
+_cod_data_source_file            ic5b00395_si_002.cif
+_cod_data_source_block           CeO2
+_cod_depositor_comments
+;
+The following automatic conversions were performed:
+
+'_symmetry_cell_setting' value 'Cubic' changed to 'cubic' according
+to
+/usr/data/users/saulius/crontab/automatic-downloads/current/ACS/lib/dictionaries/cif_core.dic
+dictionary named 'cif_core.dic' version 2.4.2 from 2011-04-26.
+
+Automatic conversion script
+Id: cif_fix_values 3271 2015-04-21 07:52:19Z andrius 
+;
+_cod_original_cell_volume        158.316(5)
+_cod_database_code               4343161
+_pd_proc_ls_prof_cr_factor       24.1235
+_pd_proc_ls_prof_cwr_factor      22.6107
+_pd_proc_ls_prof_cwr_expected    17.4738
+_pd_proc_ls_prof_chi2            1.6744
+_pd_proc_ls_prof_echi2           1.7619
+loop_
+_symmetry_equiv_pos_as_xyz
+x,y,z
+x,-y,-z
+-x,y,-z
+-x,-y,z
+y,z,x
+-y,-z,x
+y,-z,-x
+-y,z,-x
+z,x,y
+-z,x,-y
+-z,-x,y
+z,-x,-y
+y,x,z
+-y,x,-z
+y,-x,-z
+-y,-x,z
+z,y,x
+-z,-y,x
+-z,y,-x
+z,-y,-x
+x,z,y
+x,-z,-y
+-x,-z,y
+-x,z,-y
+-x,-y,-z
+-x,y,z
+x,-y,z
+x,y,-z
+-y,-z,-x
+y,z,-x
+-y,z,x
+y,-z,x
+-z,-x,-y
+z,-x,y
+z,x,-y
+-z,x,y
+-y,-x,-z
+y,-x,z
+-y,x,z
+y,x,-z
+-z,-y,-x
+z,y,-x
+z,-y,x
+-z,y,x
+-x,-z,-y
+-x,z,y
+x,z,-y
+x,-z,y
+x+1/2,y+1/2,z
+x+1/2,-y+1/2,-z
+-x+1/2,y+1/2,-z
+-x+1/2,-y+1/2,z
+y+1/2,z+1/2,x
+-y+1/2,-z+1/2,x
+y+1/2,-z+1/2,-x
+-y+1/2,z+1/2,-x
+z+1/2,x+1/2,y
+-z+1/2,x+1/2,-y
+-z+1/2,-x+1/2,y
+z+1/2,-x+1/2,-y
+y+1/2,x+1/2,z
+-y+1/2,x+1/2,-z
+y+1/2,-x+1/2,-z
+-y+1/2,-x+1/2,z
+z+1/2,y+1/2,x
+-z+1/2,-y+1/2,x
+-z+1/2,y+1/2,-x
+z+1/2,-y+1/2,-x
+x+1/2,z+1/2,y
+x+1/2,-z+1/2,-y
+-x+1/2,-z+1/2,y
+-x+1/2,z+1/2,-y
+-x+1/2,-y+1/2,-z
+-x+1/2,y+1/2,z
+x+1/2,-y+1/2,z
+x+1/2,y+1/2,-z
+-y+1/2,-z+1/2,-x
+y+1/2,z+1/2,-x
+-y+1/2,z+1/2,x
+y+1/2,-z+1/2,x
+-z+1/2,-x+1/2,-y
+z+1/2,-x+1/2,y
+z+1/2,x+1/2,-y
+-z+1/2,x+1/2,y
+-y+1/2,-x+1/2,-z
+y+1/2,-x+1/2,z
+-y+1/2,x+1/2,z
+y+1/2,x+1/2,-z
+-z+1/2,-y+1/2,-x
+z+1/2,y+1/2,-x
+z+1/2,-y+1/2,x
+-z+1/2,y+1/2,x
+-x+1/2,-z+1/2,-y
+-x+1/2,z+1/2,y
+x+1/2,z+1/2,-y
+x+1/2,-z+1/2,y
+x+1/2,y,z+1/2
+x+1/2,-y,-z+1/2
+-x+1/2,y,-z+1/2
+-x+1/2,-y,z+1/2
+y+1/2,z,x+1/2
+-y+1/2,-z,x+1/2
+y+1/2,-z,-x+1/2
+-y+1/2,z,-x+1/2
+z+1/2,x,y+1/2
+-z+1/2,x,-y+1/2
+-z+1/2,-x,y+1/2
+z+1/2,-x,-y+1/2
+y+1/2,x,z+1/2
+-y+1/2,x,-z+1/2
+y+1/2,-x,-z+1/2
+-y+1/2,-x,z+1/2
+z+1/2,y,x+1/2
+-z+1/2,-y,x+1/2
+-z+1/2,y,-x+1/2
+z+1/2,-y,-x+1/2
+x+1/2,z,y+1/2
+x+1/2,-z,-y+1/2
+-x+1/2,-z,y+1/2
+-x+1/2,z,-y+1/2
+-x+1/2,-y,-z+1/2
+-x+1/2,y,z+1/2
+x+1/2,-y,z+1/2
+x+1/2,y,-z+1/2
+-y+1/2,-z,-x+1/2
+y+1/2,z,-x+1/2
+-y+1/2,z,x+1/2
+y+1/2,-z,x+1/2
+-z+1/2,-x,-y+1/2
+z+1/2,-x,y+1/2
+z+1/2,x,-y+1/2
+-z+1/2,x,y+1/2
+-y+1/2,-x,-z+1/2
+y+1/2,-x,z+1/2
+-y+1/2,x,z+1/2
+y+1/2,x,-z+1/2
+-z+1/2,-y,-x+1/2
+z+1/2,y,-x+1/2
+z+1/2,-y,x+1/2
+-z+1/2,y,x+1/2
+-x+1/2,-z,-y+1/2
+-x+1/2,z,y+1/2
+x+1/2,z,-y+1/2
+x+1/2,-z,y+1/2
+x,y+1/2,z+1/2
+x,-y+1/2,-z+1/2
+-x,y+1/2,-z+1/2
+-x,-y+1/2,z+1/2
+y,z+1/2,x+1/2
+-y,-z+1/2,x+1/2
+y,-z+1/2,-x+1/2
+-y,z+1/2,-x+1/2
+z,x+1/2,y+1/2
+-z,x+1/2,-y+1/2
+-z,-x+1/2,y+1/2
+z,-x+1/2,-y+1/2
+y,x+1/2,z+1/2
+-y,x+1/2,-z+1/2
+y,-x+1/2,-z+1/2
+-y,-x+1/2,z+1/2
+z,y+1/2,x+1/2
+-z,-y+1/2,x+1/2
+-z,y+1/2,-x+1/2
+z,-y+1/2,-x+1/2
+x,z+1/2,y+1/2
+x,-z+1/2,-y+1/2
+-x,-z+1/2,y+1/2
+-x,z+1/2,-y+1/2
+-x,-y+1/2,-z+1/2
+-x,y+1/2,z+1/2
+x,-y+1/2,z+1/2
+x,y+1/2,-z+1/2
+-y,-z+1/2,-x+1/2
+y,z+1/2,-x+1/2
+-y,z+1/2,x+1/2
+y,-z+1/2,x+1/2
+-z,-x+1/2,-y+1/2
+z,-x+1/2,y+1/2
+z,x+1/2,-y+1/2
+-z,x+1/2,y+1/2
+-y,-x+1/2,-z+1/2
+y,-x+1/2,z+1/2
+-y,x+1/2,z+1/2
+y,x+1/2,-z+1/2
+-z,-y+1/2,-x+1/2
+z,y+1/2,-x+1/2
+z,-y+1/2,x+1/2
+-z,y+1/2,x+1/2
+-x,-z+1/2,-y+1/2
+-x,z+1/2,y+1/2
+x,z+1/2,-y+1/2
+x,-z+1/2,y+1/2
+loop_
+_atom_site_label
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_U_iso_or_equiv
+_atom_site_occupancy
+_atom_site_adp_type
+_atom_site_type_symbol
+Ce 0.00000 0.00000 0.00000 0.00619(15) 1.00000 Uiso Ce
+O 0.25000 0.25000 0.25000 0.0110(8) 1.00000 Uiso O
+loop_
+_atom_type_symbol
+_atom_type_scat_Cromer_Mann_a1
+_atom_type_scat_Cromer_Mann_b1
+_atom_type_scat_Cromer_Mann_a2
+_atom_type_scat_Cromer_Mann_b2
+_atom_type_scat_Cromer_Mann_a3
+_atom_type_scat_Cromer_Mann_b3
+_atom_type_scat_Cromer_Mann_a4
+_atom_type_scat_Cromer_Mann_b4
+_atom_type_scat_Cromer_Mann_c
+_atom_type_scat_dispersion_real
+_atom_type_scat_dispersion_imag
+_atom_type_scat_source
+ce 21.16710 2.81219 19.76950 0.22684 11.85130 17.60830 3.33049 127.11300 1.86264
+-0.56400 2.63200
+International_Tables_for_Crystallography_Vol.C(1991)_Tables_6.1.1.4_and_6.1.1.5
+o 3.04850 13.27710 2.28680 5.70110 1.54630 0.32390 0.86700 32.90890 0.25080
+0.00800 0.00600
+International_Tables_for_Crystallography_Vol.C(1991)_Tables_6.1.1.4_and_6.1.1.5
+loop_
+_geom_angle_atom_site_label_1
+_geom_angle_atom_site_label_2
+_geom_angle_atom_site_label_3
+_geom_angle
+_geom_angle_site_symmetry_1
+_geom_angle_site_symmetry_3
+O Ce O 109.471(2) 1_555 2_555
+O Ce O 109.471(2) 1_555 3_555
+O Ce O 109.471(2) 1_555 4_555
+O Ce O 180.000(3) 1_555 25_555
+O Ce O 70.5288(18) 1_555 26_555
+O Ce O 70.5288(18) 1_555 27_555
+O Ce O 70.5288(18) 1_555 28_555
+O Ce O 109.471(2) 2_555 3_555
+O Ce O 109.471(2) 2_555 4_555
+O Ce O 70.5288(18) 2_555 25_555
+O Ce O 180.000(3) 2_555 26_555
+O Ce O 70.5288(18) 2_555 27_555
+O Ce O 70.5288(18) 2_555 28_555
+O Ce O 109.471(2) 3_555 4_555
+O Ce O 70.5288(18) 3_555 25_555
+O Ce O 70.5288(18) 3_555 26_555
+O Ce O 180.000(3) 3_555 27_555
+O Ce O 70.5288(18) 3_555 28_555
+O Ce O 70.5288(18) 4_555 25_555
+O Ce O 70.5288(18) 4_555 26_555
+O Ce O 70.5288(18) 4_555 27_555
+O Ce O 180.000(3) 4_555 28_555
+O Ce O 109.471(2) 25_555 26_555
+O Ce O 109.471(2) 25_555 27_555
+O Ce O 109.471(2) 25_555 28_555
+O Ce O 109.471(2) 26_555 27_555
+O Ce O 109.471(2) 26_555 28_555
+O Ce O 109.471(2) 27_555 28_555
+Ce O Ce 109.471(2) 1_555 49_555
+Ce O Ce 109.471(2) 1_555 97_555
+Ce O Ce 109.471(2) 1_555 145_555
+Ce O O 54.7356(15) 1_555 26_555
+Ce O O 125.264(3) 1_555 26_655
+Ce O O 54.7356(15) 1_555 27_555
+Ce O O 125.264(3) 1_555 27_565
+Ce O O 54.7356(15) 1_555 28_555
+Ce O O 125.264(3) 1_555 28_556
+Ce O Ce 109.471(2) 49_555 97_555
+Ce O Ce 109.471(2) 49_555 145_555
+Ce O O 125.264(3) 49_555 26_555
+Ce O O 54.7356(15) 49_555 26_655
+Ce O O 125.264(3) 49_555 27_555
+Ce O O 54.7356(15) 49_555 27_565
+Ce O O 54.7356(15) 49_555 28_555
+Ce O O 125.264(3) 49_555 28_556
+Ce O Ce 109.471(2) 97_555 145_555
+Ce O O 125.264(3) 97_555 26_555
+Ce O O 54.7356(15) 97_555 26_655
+Ce O O 54.7356(15) 97_555 27_555
+Ce O O 125.264(3) 97_555 27_565
+Ce O O 125.264(3) 97_555 28_555
+Ce O O 54.7356(15) 97_555 28_556
+Ce O O 54.7356(15) 145_555 26_555
+Ce O O 125.264(3) 145_555 26_655
+Ce O O 125.264(3) 145_555 27_555
+Ce O O 54.7356(15) 145_555 27_565
+Ce O O 125.264(3) 145_555 28_555
+Ce O O 54.7356(15) 145_555 28_556
+O O O 180.000(5) 26_555 26_655
+O O O 90.000(2) 26_555 27_555
+O O O 90.000(2) 26_555 27_565
+O O O 90.000(2) 26_555 28_555
+O O O 90.000(2) 26_555 28_556
+O O O 90.000(2) 26_655 27_555
+O O O 90.000(2) 26_655 27_565
+O O O 90.000(2) 26_655 28_555
+O O O 90.000(2) 26_655 28_556
+O O O 180.000(5) 27_555 27_565
+O O O 90.000(2) 27_555 28_555
+O O O 90.000(2) 27_555 28_556
+O O O 90.000(2) 27_565 28_555
+O O O 90.000(2) 27_565 28_556
+O O O 180.000(5) 28_555 28_556
+loop_
+_geom_bond_atom_site_label_1
+_geom_bond_atom_site_label_2
+_geom_bond_distance
+_geom_bond_site_symmetry_2
+Ce O 2.34248(3) 1_555
+Ce O 2.34248(3) 2_555
+Ce O 2.34248(3) 3_555
+Ce O 2.34248(3) 4_555
+Ce O 2.34248(3) 25_555
+Ce O 2.34248(3) 26_555
+Ce O 2.34248(3) 27_555
+Ce O 2.34248(3) 28_555
+O Ce 2.34248(3) 1_555
+O Ce 2.34248(3) 49_555
+O Ce 2.34248(3) 97_555
+O Ce 2.34248(3) 145_555
+O O 2.70486(6) 26_555
+O O 2.70486(6) 26_655
+O O 2.70486(6) 27_555
+O O 2.70486(6) 27_565
+O O 2.70486(6) 28_555
+O O 2.70486(6) 28_556
+loop_
+_cod_related_entry_id
+_cod_related_entry_database
+_cod_related_entry_code
+1 ROD 1000009
+2 ROD 3500079
+3 ROD 3500118
+4 ROD 3500164
+5 ROD 3500231

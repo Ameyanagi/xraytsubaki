@@ -1,0 +1,18 @@
+{
+ "key": "v2o5",
+ "name": "V₂O₅ shcherbinaite",
+ "formula": "O5 V2",
+ "sg_number": 59,
+ "sg": "P m m n :1",
+ "category": "oxide",
+ "source": "COD",
+ "id": "cod-4124511",
+ "url": "https://www.crystallography.net/cod/4124511.html",
+ "year": "2002",
+ "journal": "Journal of the American Chemical Society",
+ "authors": "Petkov, V.; Trikalitis, P.N.; Bozin, E.S.; Billinge, S.J.L.; Vogt, T.; Kanatzidis, M.G.",
+ "doi": null,
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

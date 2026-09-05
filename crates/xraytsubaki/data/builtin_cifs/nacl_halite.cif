@@ -1,0 +1,903 @@
+#------------------------------------------------------------------------------
+#$Date: 2023-10-07 00:56:35 +0300 (Sat, 07 Oct 2023) $
+#$Revision: 286826 $
+#$URL: file:///home/coder/svn-repositories/_RELOADED_COD/cod-reloaded/cif/7/13/21/7132177.cif $
+#------------------------------------------------------------------------------
+#
+# This file is available in the Crystallography Open Database (COD),
+# http://www.crystallography.net/
+#
+# All data on this site have been placed in the public domain by the
+# contributors.
+#
+data_7132177
+loop_
+_publ_author_name
+'Mettler, Marie'
+'Dewandre, Adrien'
+'Tumanov, Nikolay'
+'Wouters, Johan'
+'Septavaux, Jean'
+_publ_section_title
+;
+ Single crystal formation in core-shell capsules.
+;
+_journal_name_full               'Chemical communications (Cambridge, England)'
+_journal_paper_doi               10.1039/d3cc03727d
+_journal_year                    2023
+_chemical_formula_moiety         'Cl Na'
+_chemical_formula_sum            'Cl Na'
+_chemical_formula_weight         58.44
+_chemical_name_common            'rock salt'
+_chemical_name_systematic        'sodium chloride'
+_space_group_crystal_system      cubic
+_space_group_IT_number           225
+_space_group_name_Hall           '-F 4 2 3'
+_space_group_name_H-M_alt        'F m -3 m'
+_atom_sites_solution_primary     dual
+_atom_sites_solution_secondary   dual
+_audit_creation_date             2023-04-05
+_audit_creation_method
+;
+Olex2 1.5
+(compiled 2021.12.09 svn.r5202d8cf for OlexSys, GUI svn.r6439)
+;
+_cell_angle_alpha                90
+_cell_angle_beta                 90
+_cell_angle_gamma                90
+_cell_formula_units_Z            4
+_cell_length_a                   5.6357(3)
+_cell_length_b                   5.6357(3)
+_cell_length_c                   5.6357(3)
+_cell_measurement_reflns_used    206
+_cell_measurement_temperature    295(2)
+_cell_measurement_theta_max      32.2330
+_cell_measurement_theta_min      6.2540
+_cell_volume                     178.996(17)
+_computing_cell_refinement       'CrysAlisPro 1.171.40.53 (Rigaku OD, 2019)'
+_computing_data_collection       'CrysAlisPro 1.171.40.53 (Rigaku OD, 2019)'
+_computing_data_reduction        'CrysAlisPro 1.171.40.53 (Rigaku OD, 2019)'
+_computing_molecular_graphics    'Olex2 1.5 (Dolomanov et al., 2009)'
+_computing_publication_material  'Olex2 1.5 (Dolomanov et al., 2009)'
+_computing_structure_refinement  'SHELXL 2019/3 (Sheldrick, 2015)'
+_computing_structure_solution    'SHELXT 2014/5 (Sheldrick, 2014)'
+_diffrn_ambient_temperature      295(2)
+_diffrn_detector                 'CCD plate'
+_diffrn_detector_area_resol_mean 10.3712
+_diffrn_detector_type            Ruby
+_diffrn_measured_fraction_theta_full 1.000
+_diffrn_measured_fraction_theta_max 1.000
+_diffrn_measurement_details
+;
+List of Runs (angles in degrees, time in seconds):
+
+  # Type    Start    End  Width  t~exp~   \w     \q     \k     \f   Frames
+--------------------------------------------------------------------------
+  1  \w     -6.00  38.00   1.00    5.00    --   19.07  77.00-150.00   44
+  2  \w    -17.00  35.00   1.00    5.00    --   19.07 -77.00 -30.00   52
+  3  \w    -83.00 -20.00   1.00    5.00    --  -19.23 -38.00  60.00   63
+;
+_diffrn_measurement_device       'four-circle diffractometer'
+_diffrn_measurement_device_type  'Xcalibur, Ruby, Gemini ultra'
+_diffrn_measurement_method       '\w scans'
+_diffrn_orient_matrix_type
+'CrysAlisPro convention (1999,Acta A55,543-557)'
+_diffrn_orient_matrix_UB_11      -0.1023072000
+_diffrn_orient_matrix_UB_12      -0.0683046000
+_diffrn_orient_matrix_UB_13      -0.0265340000
+_diffrn_orient_matrix_UB_21      0.0181122000
+_diffrn_orient_matrix_UB_22      0.0204207000
+_diffrn_orient_matrix_UB_23      -0.1228213000
+_diffrn_orient_matrix_UB_31      0.0709564000
+_diffrn_orient_matrix_UB_32      -0.1038025000
+_diffrn_orient_matrix_UB_33      -0.0067250000
+_diffrn_radiation_monochromator  graphite
+_diffrn_radiation_probe          x-ray
+_diffrn_radiation_type           'Mo K\a'
+_diffrn_radiation_wavelength     0.71073
+_diffrn_reflns_av_R_equivalents  0.0228
+_diffrn_reflns_av_unetI/netI     0.0131
+_diffrn_reflns_Laue_measured_fraction_full 1.000
+_diffrn_reflns_Laue_measured_fraction_max 1.000
+_diffrn_reflns_limit_h_max       3
+_diffrn_reflns_limit_h_min       -8
+_diffrn_reflns_limit_k_max       6
+_diffrn_reflns_limit_k_min       -8
+_diffrn_reflns_limit_l_max       8
+_diffrn_reflns_limit_l_min       -3
+_diffrn_reflns_number            212
+_diffrn_reflns_point_group_measured_fraction_full 1.000
+_diffrn_reflns_point_group_measured_fraction_max 1.000
+_diffrn_reflns_theta_full        25.242
+_diffrn_reflns_theta_max         30.295
+_diffrn_reflns_theta_min         6.270
+_diffrn_source                   'fine-focus sealed X-ray tube'
+_diffrn_source_type              'Enhance (Mo) X-ray Source'
+_exptl_absorpt_coefficient_mu    1.774
+_exptl_absorpt_correction_T_max  0.904
+_exptl_absorpt_correction_T_min  0.833
+_exptl_absorpt_correction_type   analytical
+_exptl_absorpt_process_details
+;
+CrysAlisPro 1.171.40.53 (Rigaku Oxford Diffraction, 2019)
+Analytical numeric absorption correction using a multifaceted crystal
+			model based on expressions derived by R.C. Clark & J.S. Reid.
+(Clark, R. C. & Reid, J. S. (1995). Acta Cryst. A51, 887-897)
+Empirical absorption correction using spherical harmonics,
+ implemented in SCALE3 ABSPACK scaling algorithm.
+;
+_exptl_crystal_colour            colourless
+_exptl_crystal_density_diffrn    2.169
+_exptl_crystal_description       block
+_exptl_crystal_F_000             112
+_exptl_crystal_preparation
+;
+crystallized and measured in a plactic sphere
+;
+_exptl_crystal_size_max          0.15
+_exptl_crystal_size_mid          0.12
+_exptl_crystal_size_min          0.059
+_refine_diff_density_max         0.107
+_refine_diff_density_min         -0.092
+_refine_diff_density_rms         0.032
+_refine_ls_extinction_coef       0.044(9)
+_refine_ls_extinction_expression Fc^*^=kFc[1+0.001xFc^2^\l^3^/sin(2\q)]^-1/4^
+_refine_ls_extinction_method     'SHELXL-2019/2 (Sheldrick 2019)'
+_refine_ls_goodness_of_fit_ref   1.246
+_refine_ls_hydrogen_treatment    undef
+_refine_ls_matrix_type           full
+_refine_ls_number_parameters     4
+_refine_ls_number_reflns         26
+_refine_ls_number_restraints     0
+_refine_ls_restrained_S_all      1.246
+_refine_ls_R_factor_all          0.0102
+_refine_ls_R_factor_gt           0.0102
+_refine_ls_shift/su_max          0.000
+_refine_ls_shift/su_mean         0.000
+_refine_ls_structure_factor_coef Fsqd
+_refine_ls_weighting_details
+'w=1/[\s^2^(Fo^2^)+0.1711P] where P=(Fo^2^+2Fc^2^)/3'
+_refine_ls_weighting_scheme      calc
+_refine_ls_wR_factor_gt          0.0239
+_refine_ls_wR_factor_ref         0.0239
+_reflns_Friedel_coverage         0.000
+_reflns_number_gt                26
+_reflns_number_total             26
+_reflns_threshold_expression     'I > 2\s(I)'
+_cod_data_source_file            d3cc03727d2.cif
+_cod_data_source_block           nt1009_NaCl_in_capsule
+_cod_original_cell_volume        179.00(3)
+_cod_database_code               7132177
+_shelx_shelxl_version_number     2019/3
+_chemical_oxdiff_formula         NaCl
+_shelx_space_group_comment
+;
+The symmetry employed for this shelxl refinement is uniquely defined
+by the following loop, which should always be used as a source of
+symmetry information in preference to the above space-group names.
+They are only intended as comments.
+;
+_shelx_estimated_absorpt_t_max   0.903
+_shelx_estimated_absorpt_t_min   0.777
+_olex2_refinement_description
+;
+;
+_shelx_res_file
+;
+TITL nt1009_nacl_in_capsule_a.res in Fm-3m
+    nt1009_NaCl_in_capsule.res
+    created by SHELXL-2019/3 at 16:48:36 on 04-Apr-2023
+REM Old TITL nt1009_NaCl_in_capsule in Fm-3m
+REM SHELXT solution in Fm-3m
+REM R1 0.069, Rweak 0.009, Alpha 0.008, Orientation as input
+REM Formula found by SHELXT: Cl
+CELL 0.71073 5.6357 5.6357 5.6357 90 90 90
+ZERR 4 0.0003 0.0003 0.0003 0 0 0
+LATT 4
+SYMM -X,-Y,+Z
+SYMM -X,+Y,-Z
+SYMM +X,-Y,-Z
+SYMM +Z,+X,+Y
+SYMM +Z,-X,-Y
+SYMM -Z,-X,+Y
+SYMM -Z,+X,-Y
+SYMM +Y,+Z,+X
+SYMM -Y,+Z,-X
+SYMM +Y,-Z,-X
+SYMM -Y,-Z,+X
+SYMM +Y,+X,-Z
+SYMM -Y,-X,-Z
+SYMM +Y,-X,+Z
+SYMM -Y,+X,+Z
+SYMM +X,+Z,-Y
+SYMM -X,+Z,+Y
+SYMM -X,-Z,-Y
+SYMM +X,-Z,+Y
+SYMM +Z,+Y,-X
+SYMM +Z,-Y,+X
+SYMM -Z,+Y,+X
+SYMM -Z,-Y,-X
+SFAC Cl Na
+UNIT 4 4
+
+L.S. 4
+PLAN  5
+CONF
+list 4
+fmap 2
+ACTA
+SHEL 99 0.7
+TEMP 22
+SIZE 0.059 0.12 0.15
+WGHT    0.000000    0.171100
+EXTI    0.043890
+FVAR       1.32978
+CL1   1    0.500000    1.000000    0.500000    10.02083    0.02045    0.02045 =
+         0.02045    0.00000    0.00000    0.00000
+NA1   2    0.500000    0.500000    0.500000    10.02083    0.02312    0.02312 =
+         0.02312    0.00000    0.00000    0.00000
+HKLF 4
+
+
+
+
+REM  nt1009_nacl_in_capsule_a.res in Fm-3m
+REM wR2 = 0.0239, GooF = S = 1.246, Restrained GooF = 1.246 for all data
+REM R1 = 0.0102 for 26 Fo > 4sig(Fo) and 0.0102 for all 26 data
+REM 4 parameters refined using 0 restraints
+
+END
+
+WGHT      0.0000      0.1711
+
+REM Highest difference peak  0.107,  deepest hole -0.092,  1-sigma level  0.032
+Q1    1   0.3801  1.0000  0.6199  10.25000  0.05    0.11
+Q2    1   0.5000  0.2745  0.5000  10.12500  0.05    0.06
+Q3    1   0.3533  0.8533  0.7341  10.50000  0.05    0.06
+Q4    1   0.7324  0.3214  0.6101  11.00000  0.05    0.05
+Q5    1   0.5000  0.3852  0.6148  10.25000  0.05    0.02
+;
+_shelx_res_checksum              61053
+_shelx_hkl_file
+;
+  -1  -1  -1  594.20   15.70
+  -1   1   1  625.34   16.71
+   1  -1   1  641.90   17.07
+   1  -1   1  614.89   14.62
+  -1   1  -1  620.45   17.07
+   1   1   1  629.31   15.98
+   0   0   2 9999.00  215.26
+  -2   0   0 9736.14  214.89
+   0  -2  -2 7202.46  146.91
+  -2   2   0 7239.29  145.31
+   2   2   0 6978.38  142.61
+   0   2   2 7068.14  146.68
+   2   0   2 6884.02  139.02
+   0   2   2 7273.83  147.88
+   0  -2   2 7061.93  143.79
+   2   0   2 7199.74  149.11
+  -2  -2   0 7228.34  147.16
+   0  -2   2 7252.33  144.18
+   2  -2   2 5060.00  104.66
+   2  -2   2 5316.84  111.17
+  -2  -2  -2 5128.82  108.04
+  -2   2  -2 5105.38  111.23
+  -2   2   2 5209.54  110.60
+   2   2   2 5207.68  107.62
+  -2   2  -2 5129.30  106.98
+  -1  -1   3  172.37   10.20
+  -1   1   3  180.29   10.57
+  -1  -3  -1  177.65    9.89
+  -3   1  -1  176.78    5.79
+   3   1   1  181.88    9.70
+  -1   3  -1  170.74    7.96
+   1   1   3  186.81   10.43
+   1  -1   3  178.06    9.56
+  -1  -3  -1  190.46    8.58
+  -1   1  -3  182.81    9.75
+  -1   3   1  181.97    7.63
+  -3  -1  -1  168.89    7.21
+   1  -3   3  156.55    9.25
+  -1   3  -3  132.67    7.58
+  -1   3   3  162.69   10.29
+  -3   3  -1  145.63    8.10
+  -1  -3   3  158.36    8.96
+  -3   1   3  159.03   11.24
+   3   3   1  126.48    7.81
+   1  -3   3  161.58    9.54
+   3   1   3  148.30    6.31
+  -3  -3   1  146.65    6.74
+  -3  -3  -1  159.22   10.33
+  -3   3  -1  157.78   10.57
+   3  -3   3  152.76    7.63
+  -3   3   3  162.20   11.90
+  -4   0   0 3824.56   91.94
+   0   0   4 3964.47   92.97
+  -4   0  -2 3009.85   68.65
+   0   2   4 3119.66   67.52
+  -2   4   0 3144.80   52.77
+  -2   4   0 3159.23   63.76
+  -2  -4   0 3183.36   68.46
+   0  -2   4 3064.06   64.58
+  -2   0   4 3285.94   70.39
+  -4   2   0 3159.76   68.29
+  -4   2   0 2993.43   59.75
+   0  -4   2 3103.18   66.52
+  -2  -2   4 2548.38   64.46
+  -4  -2  -2 2396.47   55.38
+   2  -4   2 2376.01   58.85
+  -2   4  -2 2320.59   49.97
+  -4   2  -2 2440.46   65.12
+  -2   2   4 2499.59   64.50
+  -2   4   2 2467.68   57.78
+  -2   4  -2 2472.18   59.66
+  -2  -4   2 2423.17   64.48
+  -4  -2   2 2369.53   58.32
+  -2  -4  -2 2434.82   63.23
+  -4   0   4 1679.03   53.05
+  -4  -4   0 1633.67   49.29
+  -4   4   0 1659.80   50.50
+   0  -4   4 1722.25   43.33
+   0   4   4 1610.12   48.02
+   0  -4   4 1594.97   48.92
+  -4  -4  -2 1393.08   42.83
+  -2  -4   4 1336.17   40.79
+  -2   4   4 1359.88   44.02
+  -4   2   4 1447.04   47.64
+   2  -4   4 1347.59   40.02
+  -4   4  -2 1382.16   45.63
+  -4   4   2 1405.86   42.36
+  -4  -2   4 1367.94   46.17
+  -4   4   4  873.98   35.10
+  -4  -4   4  799.75   33.18
+  -1  -5  -1  156.48   12.08
+   1  -5   1  131.76   10.71
+   1  -1   5  148.84   11.44
+  -5  -1  -1  136.14   11.12
+  -5   1   1  136.93   11.67
+  -1  -5   1  145.76    4.97
+  -1  -5   1  159.39   12.46
+  -5  -1   1  140.59   10.75
+  -1   1   5  149.12   12.11
+  -1  -1   5  169.60   12.76
+  -1  -5  -1  139.69    7.89
+  -1   5  -1  153.71    8.15
+  -5   1  -1  144.38   12.20
+  -5  -1  -1  145.00    7.64
+   1   1   5  161.98   12.30
+  -1  -5   1  143.56    4.93
+  -5   1  -1  140.23    6.08
+  -3   1   5  144.95   12.95
+   1  -5   3  116.32   10.57
+  -5  -3   1  127.94    9.23
+  -5  -3  -1  136.16   10.26
+  -3   5   1  141.15    7.99
+  -3  -5   1  117.96   11.39
+  -1  -3   5  121.13   10.32
+  -1   3   5  120.25   11.28
+  -5   3   1  148.60   12.98
+  -1   5   3  143.11    9.82
+  -1  -5   3  124.55   11.45
+  -3   5  -1  112.88    9.68
+  -5   3  -1  134.94   12.47
+  -3  -5  -1  146.91   12.23
+  -3  -1   5  135.80   12.84
+  -3  -5   3  139.50   10.40
+  -5   3   3  122.47   11.97
+  -3   3   5  114.60   11.79
+  -3   5   3  130.93   10.40
+  -5  -3   3  125.12    9.18
+  -3  -5   3  123.71   12.61
+  -3  -3   5  119.78   11.85
+   3  -5   3  119.02    9.46
+  -1  -5   5   73.79    9.61
+  -5  -1   5   98.96   12.10
+  -5  -5  -1   96.10   10.54
+  -5   1   5   96.36   12.03
+   1  -5   5   92.34    9.98
+  -5   5  -1  102.32   11.64
+  -1   5   5  103.30   10.73
+  -5  -5   1   81.58   10.26
+  -5   5   1  103.27   11.81
+  -5  -3   5   87.25   11.12
+  -5   3   5   74.32   10.34
+  -3   5   5   70.85    9.67
+  -5  -5   3   78.61   11.05
+   0  -6   0 1380.44   46.12
+   0   0   6 1301.21   45.65
+  -6   0   0 1283.20   44.84
+  -6   0  -2 1218.40   44.81
+  -6   2   0 1086.06   42.52
+  -6   0   2 1123.65   41.59
+  -6  -2   0 1155.61   39.71
+   0  -6   2 1132.65   42.80
+  -2   0   6 1197.66   44.06
+  -2   6   0 1288.00   37.20
+   0  -2   6 1075.10   39.71
+   0   2   6 1137.30   42.64
+  -6  -2   0 1118.94   35.92
+  -2  -6   0 1158.52   42.66
+   2  -6   2  942.40   35.87
+  -6  -2   2  887.64   33.37
+  -6   2  -2  873.96   38.71
+  -2  -2   6  951.89   38.00
+  -2  -6   2  935.22   39.71
+  -2   2   6  984.04   40.02
+  -6   2   2  900.07   38.52
+  -2  -6  -2  963.46   39.05
+  -6   4   0  654.48   33.06
+  -4   6   0  685.26   30.78
+  -4  -6   0  685.18   33.53
+  -4   0   6  661.20   33.73
+   0  -6   4  673.57   32.55
+  -6  -4   0  601.28   28.47
+   0  -4   6  698.79   28.41
+  -6  -2   4  578.82   26.70
+   2  -6   4  518.44   25.52
+  -6   2   4  613.85   32.18
+  -4   6  -2  526.53   26.90
+  -4  -2   6  516.13   29.45
+  -6   4  -2  559.34   30.96
+  -4   2   6  610.37   32.25
+  -4  -6   2  565.02   30.95
+  -6   4   2  584.68   31.87
+  -2  -4   6  608.75   28.34
+  -2   4   6  620.91   30.93
+  -6   4   2  570.53   28.02
+  -2  -6   4  487.48   28.48
+  -6  -4   2  514.75   27.90
+  -4  -6  -2  542.20   28.95
+  -6  -4   4  342.39   23.47
+  -6   4   4  303.14   23.06
+  -4  -4   6  291.57   21.44
+  -4   4   6  357.25   24.91
+  -6  -6   0  200.49   18.53
+   0  -6   6  210.40   18.48
+  -7  -1  -1  103.51   11.99
+  -1  -7   1  102.42   11.94
+  -7   1   1   93.94   11.47
+  -1  -1   7   92.72   11.45
+  -1   1   7   96.16   11.91
+  -7  -1   1  100.01   10.94
+  -7   1  -1   95.14   11.89
+   1  -7   1   78.18   10.34
+  -1  -7  -1  104.94   12.62
+  -3  -7  -1   97.11   12.25
+   1  -7   3   91.40   11.38
+  -7   3  -1   71.55   10.54
+  -3  -7   1  105.72   13.77
+  -7   1   3   99.22   12.39
+  -7   3   1   64.49   10.19
+  -3  -1   7   81.34   11.28
+  -3   1   7   88.80   12.25
+  -7  -1   3   78.45    9.94
+  -1  -3   7   83.60   10.24
+  -1   3   7   87.86   11.77
+  -1  -7   3   83.70   11.63
+  -7  -3   1   75.06    9.28
+  -7   3   3   73.42   10.90
+  -3  -3   7   73.36   11.06
+  -3   3   7   94.86   12.72
+  -8   0   0  395.67   26.28
+   0   0   8  420.33   26.91
+   0  -8   0  418.47   27.76
+  -8  -2   0  263.69   20.83
+   0  -2   8  294.79   22.02
+  -8   0   2  319.68   22.93
+   0   0   0    0.00    0.00
+
+
+TITL nt1009_NaCl_in_capsule in Fm-3m
+REM Fm-3m (#225 in standard setting)
+CELL 0.71073   5.635674   5.635674   5.635674  90.0000  90.0000  90.0000
+ZERR    4.00   0.000298   0.000298   0.000298   0.0000   0.0000   0.0000
+LATT  4
+SYMM -x,-y, z
+SYMM -x, y,-z
+SYMM  x,-y,-z
+SYMM  z, x, y
+SYMM  z,-x,-y
+SYMM -z,-x, y
+SYMM -z, x,-y
+SYMM  y, z, x
+SYMM -y, z,-x
+SYMM  y,-z,-x
+SYMM -y,-z, x
+SYMM  y, x,-z
+SYMM -y,-x,-z
+SYMM  y,-x, z
+SYMM -y, x, z
+SYMM  x, z,-y
+SYMM -x, z, y
+SYMM -x,-z,-y
+SYMM  x,-z, y
+SYMM  z, y,-x
+SYMM  z,-y, x
+SYMM -z, y, x
+SYMM -z,-y,-x
+SFAC Na Cl
+UNIT 4.00 4.00
+TREF
+HKLF 4
+END
+_computing_structure_solution     'SHELXT 2014/5 (Sheldrick, 2014)'
+;
+_shelx_hkl_checksum              57208
+_olex2_submission_special_instructions 'No special instructions were received'
+_oxdiff_exptl_absorpt_empirical_details
+;
+Empirical correction (ABSPACK) includes:
+- Absorption correction using spherical harmonics
+- Frame scaling
+;
+_oxdiff_exptl_absorpt_empirical_full_max 1.085
+_oxdiff_exptl_absorpt_empirical_full_min 0.912
+loop_
+_space_group_symop_operation_xyz
+'x, y, z'
+'-x, -y, z'
+'-x, y, -z'
+'x, -y, -z'
+'z, x, y'
+'z, -x, -y'
+'-z, -x, y'
+'-z, x, -y'
+'y, z, x'
+'-y, z, -x'
+'y, -z, -x'
+'-y, -z, x'
+'y, x, -z'
+'-y, -x, -z'
+'y, -x, z'
+'-y, x, z'
+'x, z, -y'
+'-x, z, y'
+'-x, -z, -y'
+'x, -z, y'
+'z, y, -x'
+'z, -y, x'
+'-z, y, x'
+'-z, -y, -x'
+'x, y+1/2, z+1/2'
+'-x, -y+1/2, z+1/2'
+'-x, y+1/2, -z+1/2'
+'x, -y+1/2, -z+1/2'
+'z, x+1/2, y+1/2'
+'z, -x+1/2, -y+1/2'
+'-z, -x+1/2, y+1/2'
+'-z, x+1/2, -y+1/2'
+'y, z+1/2, x+1/2'
+'-y, z+1/2, -x+1/2'
+'y, -z+1/2, -x+1/2'
+'-y, -z+1/2, x+1/2'
+'y, x+1/2, -z+1/2'
+'-y, -x+1/2, -z+1/2'
+'y, -x+1/2, z+1/2'
+'-y, x+1/2, z+1/2'
+'x, z+1/2, -y+1/2'
+'-x, z+1/2, y+1/2'
+'-x, -z+1/2, -y+1/2'
+'x, -z+1/2, y+1/2'
+'z, y+1/2, -x+1/2'
+'z, -y+1/2, x+1/2'
+'-z, y+1/2, x+1/2'
+'-z, -y+1/2, -x+1/2'
+'x+1/2, y, z+1/2'
+'-x+1/2, -y, z+1/2'
+'-x+1/2, y, -z+1/2'
+'x+1/2, -y, -z+1/2'
+'z+1/2, x, y+1/2'
+'z+1/2, -x, -y+1/2'
+'-z+1/2, -x, y+1/2'
+'-z+1/2, x, -y+1/2'
+'y+1/2, z, x+1/2'
+'-y+1/2, z, -x+1/2'
+'y+1/2, -z, -x+1/2'
+'-y+1/2, -z, x+1/2'
+'y+1/2, x, -z+1/2'
+'-y+1/2, -x, -z+1/2'
+'y+1/2, -x, z+1/2'
+'-y+1/2, x, z+1/2'
+'x+1/2, z, -y+1/2'
+'-x+1/2, z, y+1/2'
+'-x+1/2, -z, -y+1/2'
+'x+1/2, -z, y+1/2'
+'z+1/2, y, -x+1/2'
+'z+1/2, -y, x+1/2'
+'-z+1/2, y, x+1/2'
+'-z+1/2, -y, -x+1/2'
+'x+1/2, y+1/2, z'
+'-x+1/2, -y+1/2, z'
+'-x+1/2, y+1/2, -z'
+'x+1/2, -y+1/2, -z'
+'z+1/2, x+1/2, y'
+'z+1/2, -x+1/2, -y'
+'-z+1/2, -x+1/2, y'
+'-z+1/2, x+1/2, -y'
+'y+1/2, z+1/2, x'
+'-y+1/2, z+1/2, -x'
+'y+1/2, -z+1/2, -x'
+'-y+1/2, -z+1/2, x'
+'y+1/2, x+1/2, -z'
+'-y+1/2, -x+1/2, -z'
+'y+1/2, -x+1/2, z'
+'-y+1/2, x+1/2, z'
+'x+1/2, z+1/2, -y'
+'-x+1/2, z+1/2, y'
+'-x+1/2, -z+1/2, -y'
+'x+1/2, -z+1/2, y'
+'z+1/2, y+1/2, -x'
+'z+1/2, -y+1/2, x'
+'-z+1/2, y+1/2, x'
+'-z+1/2, -y+1/2, -x'
+'-x, -y, -z'
+'x, y, -z'
+'x, -y, z'
+'-x, y, z'
+'-z, -x, -y'
+'-z, x, y'
+'z, x, -y'
+'z, -x, y'
+'-y, -z, -x'
+'y, -z, x'
+'-y, z, x'
+'y, z, -x'
+'-y, -x, z'
+'y, x, z'
+'-y, x, -z'
+'y, -x, -z'
+'-x, -z, y'
+'x, -z, -y'
+'x, z, y'
+'-x, z, -y'
+'-z, -y, x'
+'-z, y, -x'
+'z, -y, -x'
+'z, y, x'
+'-x, -y+1/2, -z+1/2'
+'x, y+1/2, -z+1/2'
+'x, -y+1/2, z+1/2'
+'-x, y+1/2, z+1/2'
+'-z, -x+1/2, -y+1/2'
+'-z, x+1/2, y+1/2'
+'z, x+1/2, -y+1/2'
+'z, -x+1/2, y+1/2'
+'-y, -z+1/2, -x+1/2'
+'y, -z+1/2, x+1/2'
+'-y, z+1/2, x+1/2'
+'y, z+1/2, -x+1/2'
+'-y, -x+1/2, z+1/2'
+'y, x+1/2, z+1/2'
+'-y, x+1/2, -z+1/2'
+'y, -x+1/2, -z+1/2'
+'-x, -z+1/2, y+1/2'
+'x, -z+1/2, -y+1/2'
+'x, z+1/2, y+1/2'
+'-x, z+1/2, -y+1/2'
+'-z, -y+1/2, x+1/2'
+'-z, y+1/2, -x+1/2'
+'z, -y+1/2, -x+1/2'
+'z, y+1/2, x+1/2'
+'-x+1/2, -y, -z+1/2'
+'x+1/2, y, -z+1/2'
+'x+1/2, -y, z+1/2'
+'-x+1/2, y, z+1/2'
+'-z+1/2, -x, -y+1/2'
+'-z+1/2, x, y+1/2'
+'z+1/2, x, -y+1/2'
+'z+1/2, -x, y+1/2'
+'-y+1/2, -z, -x+1/2'
+'y+1/2, -z, x+1/2'
+'-y+1/2, z, x+1/2'
+'y+1/2, z, -x+1/2'
+'-y+1/2, -x, z+1/2'
+'y+1/2, x, z+1/2'
+'-y+1/2, x, -z+1/2'
+'y+1/2, -x, -z+1/2'
+'-x+1/2, -z, y+1/2'
+'x+1/2, -z, -y+1/2'
+'x+1/2, z, y+1/2'
+'-x+1/2, z, -y+1/2'
+'-z+1/2, -y, x+1/2'
+'-z+1/2, y, -x+1/2'
+'z+1/2, -y, -x+1/2'
+'z+1/2, y, x+1/2'
+'-x+1/2, -y+1/2, -z'
+'x+1/2, y+1/2, -z'
+'x+1/2, -y+1/2, z'
+'-x+1/2, y+1/2, z'
+'-z+1/2, -x+1/2, -y'
+'-z+1/2, x+1/2, y'
+'z+1/2, x+1/2, -y'
+'z+1/2, -x+1/2, y'
+'-y+1/2, -z+1/2, -x'
+'y+1/2, -z+1/2, x'
+'-y+1/2, z+1/2, x'
+'y+1/2, z+1/2, -x'
+'-y+1/2, -x+1/2, z'
+'y+1/2, x+1/2, z'
+'-y+1/2, x+1/2, -z'
+'y+1/2, -x+1/2, -z'
+'-x+1/2, -z+1/2, y'
+'x+1/2, -z+1/2, -y'
+'x+1/2, z+1/2, y'
+'-x+1/2, z+1/2, -y'
+'-z+1/2, -y+1/2, x'
+'-z+1/2, y+1/2, -x'
+'z+1/2, -y+1/2, -x'
+'z+1/2, y+1/2, x'
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_U_iso_or_equiv
+_atom_site_adp_type
+_atom_site_occupancy
+_atom_site_site_symmetry_order
+_atom_site_calc_flag
+_atom_site_refinement_flags_posn
+_atom_site_refinement_flags_adp
+_atom_site_refinement_flags_occupancy
+_atom_site_disorder_assembly
+_atom_site_disorder_group
+Cl1 Cl 0.500000 1.000000 0.500000 0.0204(4) Uani 1 48 d S T P . .
+Na1 Na 0.500000 0.500000 0.500000 0.0231(5) Uani 1 48 d S T P . .
+loop_
+_atom_site_aniso_label
+_atom_site_aniso_U_11
+_atom_site_aniso_U_22
+_atom_site_aniso_U_33
+_atom_site_aniso_U_23
+_atom_site_aniso_U_13
+_atom_site_aniso_U_12
+Cl1 0.0204(4) 0.0204(4) 0.0204(4) 0.000 0.000 0.000
+Na1 0.0231(5) 0.0231(5) 0.0231(5) 0.000 0.000 0.000
+loop_
+_atom_type_symbol
+_atom_type_description
+_atom_type_scat_dispersion_real
+_atom_type_scat_dispersion_imag
+_atom_type_scat_source
+Cl Cl 0.1484 0.1585 'International Tables Vol C Tables 4.2.6.8 and 6.1.1.4'
+Na Na 0.0362 0.0249 'International Tables Vol C Tables 4.2.6.8 and 6.1.1.4'
+loop_
+_exptl_crystal_face_index_h
+_exptl_crystal_face_index_k
+_exptl_crystal_face_index_l
+_exptl_crystal_face_perp_dist
+0 1 0 0.0436
+1 0 0 0.0614
+1 1 0 0.0482
+1 -1 0 0.0817
+0 -1 0 0.0846
+0 0 1 0.0295
+0 0 -1 0.0295
+-4 -7 1 0.0624
+-3 7 0 0.0464
+-8 0 2 0.0669
+loop_
+_geom_angle_atom_site_label_1
+_geom_angle_atom_site_label_2
+_geom_angle_atom_site_label_3
+_geom_angle
+_geom_angle_site_symmetry_1
+_geom_angle_site_symmetry_3
+_geom_angle_publ_flag
+Na1 Cl1 Na1 90.0 73 . ?
+Na1 Cl1 Na1 90.0 1_565 25 ?
+Na1 Cl1 Na1 90.0 1_565 73_455 ?
+Na1 Cl1 Na1 90.0 73 1_565 ?
+Na1 Cl1 Na1 180.0 73 73_455 ?
+Na1 Cl1 Na1 180.0 . 1_565 ?
+Na1 Cl1 Na1 90.0 . 25 ?
+Na1 Cl1 Na1 90.0 73 25_554 ?
+Na1 Cl1 Na1 180.0 25_554 25 ?
+Na1 Cl1 Na1 90.0 . 25_554 ?
+Na1 Cl1 Na1 90.0 . 73_455 ?
+Na1 Cl1 Na1 90.0 1_565 25_554 ?
+Na1 Cl1 Na1 90.0 25_554 73_455 ?
+Na1 Cl1 Na1 90.0 73 25 ?
+Na1 Cl1 Na1 90.0 25 73_455 ?
+Cl1 Na1 Cl1 90.0 73_545 . ?
+Cl1 Na1 Cl1 90.0 1_545 25_545 ?
+Cl1 Na1 Cl1 90.0 1_545 73_445 ?
+Cl1 Na1 Cl1 90.0 73_545 1_545 ?
+Cl1 Na1 Cl1 180.0 73_545 73_445 ?
+Cl1 Na1 Cl1 180.0 . 1_545 ?
+Cl1 Na1 Cl1 90.0 . 25_545 ?
+Cl1 Na1 Cl1 90.0 73_545 25_544 ?
+Cl1 Na1 Cl1 180.0 25_544 25_545 ?
+Cl1 Na1 Cl1 90.0 . 25_544 ?
+Cl1 Na1 Cl1 90.0 . 73_445 ?
+Cl1 Na1 Cl1 90.0 1_545 25_544 ?
+Cl1 Na1 Cl1 90.0 25_544 73_445 ?
+Cl1 Na1 Cl1 90.0 73_545 25_545 ?
+Cl1 Na1 Cl1 90.0 25_545 73_445 ?
+Cl1 Na1 Na1 90.0 . 49_454 ?
+Cl1 Na1 Na1 45.0 73_445 73_445 ?
+Cl1 Na1 Na1 45.0 . 25 ?
+Cl1 Na1 Na1 45.0 25_544 49_454 ?
+Cl1 Na1 Na1 135.0 25_544 49 ?
+Cl1 Na1 Na1 45.0 73_445 49_454 ?
+Cl1 Na1 Na1 90.0 73_445 25 ?
+Cl1 Na1 Na1 90.0 25_544 73 ?
+Cl1 Na1 Na1 90.0 . 49 ?
+Cl1 Na1 Na1 90.0 25_545 73 ?
+Cl1 Na1 Na1 135.0 73_445 49 ?
+Cl1 Na1 Na1 135.0 73_445 73 ?
+Cl1 Na1 Na1 135.0 25_544 25 ?
+Cl1 Na1 Na1 90.0 73_545 25_544 ?
+Cl1 Na1 Na1 90.0 25_545 73_445 ?
+Cl1 Na1 Na1 135.0 . 25_544 ?
+Cl1 Na1 Na1 45.0 73_545 49 ?
+Cl1 Na1 Na1 45.0 1_545 25_544 ?
+Cl1 Na1 Na1 90.0 1_545 49 ?
+Cl1 Na1 Na1 45.0 25_544 25_544 ?
+Cl1 Na1 Na1 45.0 25_545 49 ?
+Cl1 Na1 Na1 90.0 73_445 25_544 ?
+Cl1 Na1 Na1 90.0 73_545 25 ?
+Cl1 Na1 Na1 135.0 73_545 73_445 ?
+Cl1 Na1 Na1 135.0 1_545 25 ?
+Cl1 Na1 Na1 135.0 . 73_445 ?
+Cl1 Na1 Na1 45.0 25_545 25 ?
+Cl1 Na1 Na1 45.0 1_545 73_445 ?
+Cl1 Na1 Na1 135.0 73_545 49_454 ?
+Cl1 Na1 Na1 90.0 25_544 73_445 ?
+Cl1 Na1 Na1 90.0 1_545 49_454 ?
+Cl1 Na1 Na1 45.0 73_545 73 ?
+Cl1 Na1 Na1 135.0 25_545 49_454 ?
+Cl1 Na1 Na1 45.0 . 73 ?
+Cl1 Na1 Na1 135.0 1_545 73 ?
+Cl1 Na1 Na1 135.0 25_545 25_544 ?
+Na1 Na1 Na1 60.0 73 25 ?
+Na1 Na1 Na1 120.0 73 25_544 ?
+Na1 Na1 Na1 60.0 73_445 49_454 ?
+Na1 Na1 Na1 180.0 25_544 25 ?
+Na1 Na1 Na1 120.0 73 49_454 ?
+Na1 Na1 Na1 120.0 73_445 25 ?
+Na1 Na1 Na1 120.0 25_544 49 ?
+Na1 Na1 Na1 60.0 49 25 ?
+Na1 Na1 Na1 60.0 73 49 ?
+Na1 Na1 Na1 120.0 73_445 49 ?
+Na1 Na1 Na1 60.0 25_544 49_454 ?
+Na1 Na1 Na1 180.0 73 73_445 ?
+Na1 Na1 Na1 180.0 49 49_454 ?
+Na1 Na1 Na1 60.0 25_544 73_445 ?
+Na1 Na1 Na1 120.0 25 49_454 ?
+loop_
+_geom_bond_atom_site_label_1
+_geom_bond_atom_site_label_2
+_geom_bond_distance
+_geom_bond_site_symmetry_2
+_geom_bond_publ_flag
+Cl1 Na1 2.81785(15) 73 ?
+Cl1 Na1 2.81785(15) 25 ?
+Cl1 Na1 2.81785(15) 25_554 ?
+Cl1 Na1 2.81785(15) . ?
+Cl1 Na1 2.81785(14) 1_565 ?
+Cl1 Na1 2.81785(15) 73_455 ?
+Na1 Na1 3.9850(2) 73 ?
+Na1 Na1 3.9850(2) 25 ?
+Na1 Na1 3.9850(2) 49 ?
+Na1 Na1 3.9850(2) 25_544 ?
+Na1 Na1 3.9850(2) 49_454 ?
+Na1 Na1 3.9850(2) 73_445 ?
+loop_
+_exptl_oxdiff_crystal_face_indexfrac_h
+_exptl_oxdiff_crystal_face_indexfrac_k
+_exptl_oxdiff_crystal_face_indexfrac_l
+_exptl_oxdiff_crystal_face_x
+_exptl_oxdiff_crystal_face_y
+_exptl_oxdiff_crystal_face_z
+-0.0000 0.9999 0.0001 -0.0683 0.0204 -0.1038
+1.0000 0.0001 -0.0000 -0.1023 0.0181 0.0709
+0.9999 0.9999 0.0001 -0.1706 0.0385 -0.0328
+1.0000 -0.9998 -0.0001 -0.0340 -0.0023 0.1747
+0.0000 -0.9999 -0.0001 0.0683 -0.0204 0.1038
+-0.0001 -0.0002 1.0001 -0.0265 -0.1228 -0.0067
+0.0001 0.0002 -1.0001 0.0265 0.1228 0.0067
+-4.1240 -6.6264 1.4889 0.8350 -0.3929 0.3852
+-3.4617 7.1439 0.2013 -0.1391 0.0585 -0.9885
+-7.7349 -0.3696 1.7975 0.7689 -0.3684 -0.5226

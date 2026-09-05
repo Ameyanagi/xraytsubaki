@@ -1,0 +1,18 @@
+{
+ "key": "sn_beta",
+ "name": "β-Tin",
+ "formula": "Sn",
+ "sg_number": 141,
+ "sg": "I 41/a m d :2",
+ "category": "metal",
+ "source": "COD",
+ "id": "cod-7040217",
+ "url": "https://www.crystallography.net/cod/7040217.html",
+ "year": "2016",
+ "journal": "Dalton transactions (Cambridge, England : 2003)",
+ "authors": "Allison, M. C.; Avdeev, M.; Schmid, S.; Liu, S.; Söhnel, T; Ling, C. D.",
+ "doi": "10.1039/c6dt01074a",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

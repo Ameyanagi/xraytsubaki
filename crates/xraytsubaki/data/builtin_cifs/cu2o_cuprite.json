@@ -1,0 +1,18 @@
+{
+ "key": "cu2o_cuprite",
+ "name": "Cu₂O cuprite",
+ "formula": "Cu2 O",
+ "sg_number": 224,
+ "sg": "P n -3 m :1",
+ "category": "oxide",
+ "source": "COD",
+ "id": "cod-9007497",
+ "url": "https://www.crystallography.net/cod/9007497.html",
+ "year": "1990",
+ "journal": "Acta Crystallographica, Section A",
+ "authors": "Kirfel, A.; Eichhorn, K.",
+ "doi": "10.1107/S0108767389012596",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

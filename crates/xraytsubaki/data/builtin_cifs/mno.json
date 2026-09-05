@@ -1,0 +1,18 @@
+{
+ "key": "mno",
+ "name": "MnO manganosite",
+ "formula": "Mn O",
+ "sg_number": 225,
+ "sg": "F m -3 m",
+ "category": "oxide",
+ "source": "COD",
+ "id": "cod-1514237",
+ "url": "https://www.crystallography.net/cod/1514237.html",
+ "year": "2007",
+ "journal": "Poverkhnostnye Fizika, Khimiya, Mekhanika",
+ "authors": "Trukhanov, S. V.; Troyanchuk, I. O.; Bobrikov, I. A.; Simkin, V. G.; Balagurov, A. M.",
+ "doi": null,
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

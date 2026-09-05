@@ -1,0 +1,18 @@
+{
+ "key": "pd",
+ "name": "Palladium",
+ "formula": "Pd",
+ "sg_number": 225,
+ "sg": "F m -3 m",
+ "category": "metal",
+ "source": "COD",
+ "id": "cod-1534921",
+ "url": "https://www.crystallography.net/cod/1534921.html",
+ "year": "1993",
+ "journal": "Physical Review, Serie 3. B - Condensed Matter (18,1978-)",
+ "authors": "Haglund, J.; Fernandez Guillermet, F.; Grimvall, G.; Korling, M.",
+ "doi": null,
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

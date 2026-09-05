@@ -53,6 +53,7 @@ pub struct ViewOptions {
     pub show_kwin: bool,
     /// |chi(R)| quadrant: also plot Re[chi(R)] of the active trace.
     pub show_re: bool,
+    pub show_im: bool,
     /// AUTOBK background spline over mu(E) (Background stage).
     pub show_bkg: bool,
     /// Overlay the scaled derivative dμ/dE on the normalized plot (Athena's
@@ -75,6 +76,7 @@ impl Default for ViewOptions {
             show_krange: false,
             show_kwin: false,
             show_re: false,
+            show_im: false,
             show_bkg: false,
             show_deriv: false,
         }
@@ -163,6 +165,7 @@ pub enum SeriesKey {
     Deriv,
     Kwin,
     Re,
+    Im,
     /// k-weighted chi(k) drawn under chi(q).
     ChiKOnQ,
 }
@@ -540,10 +543,11 @@ pub fn build_quadrant_specs(
             ))
         },
     );
-    let chir_title = if view.show_re {
-        "|χ(R)| + Re"
-    } else {
-        "|χ(R)|"
+    let chir_title = match (view.show_re, view.show_im) {
+        (true, true) => "|χ(R)| + Re + Im",
+        (true, false) => "|χ(R)| + Re",
+        (false, true) => "|χ(R)| + Im",
+        _ => "|χ(R)|",
     };
     let (mut chi_r, chir_shift) = build_multi(
         traces,
@@ -629,6 +633,19 @@ pub fn build_quadrant_specs(
             chi_r
                 .series
                 .push(dashed(SeriesKey::Re, r[..n].to_vec(), y, TREND, "Re"));
+        }
+        if view.show_im
+            && let (Some(r), Some(im)) = (active.sp.get_r(), active.sp.get_chir_imag())
+        {
+            let n = r.len().min(im.len());
+            let y = im.iter().take(n).map(|v| v + chir_shift).collect();
+            chi_r.series.push(dashed(
+                SeriesKey::Im,
+                r.iter().take(n).copied().collect(),
+                y,
+                FIT_COLOR,
+                "Im",
+            ));
         }
     }
     let (mut chi_q, chiq_shift) = build_multi(
@@ -748,6 +765,7 @@ pub fn build_fit_k(
     result: &xraytsubaki::prelude::FeffFitResult,
     theme: &Theme,
     show_paths: bool,
+    highlight: Option<&str>,
 ) -> Plot {
     let k = vecs(&result.k);
     let kw = result.kweight;
@@ -781,10 +799,29 @@ pub fn build_fit_k(
                 .into();
         }
     }
+    if let Some(h) = highlight
+        && let Some(path) = result.path_contributions.iter().find(|p| p.label == h)
+    {
+        let y = weight(&path.chi);
+        plot = plot
+            .line(&k, &y)
+            .color(HOVER_COLOR)
+            .line_width(2.2)
+            .label(format!("{h} (hover)"))
+            .into();
+    }
     plot.legend_position(ruviz::core::LegendPosition::UpperRight)
         .xlabel(K_AXIS)
         .ylabel(chik_label(kw))
 }
+
+/// Hovered-path preview trace (amber).
+const HOVER_COLOR: Color = Color {
+    r: 224,
+    g: 179,
+    b: 90,
+    a: 255,
+};
 
 /// Fit trace colour (orange in both themes, distinct from the data trace).
 const FIT_COLOR: Color = Color {
@@ -801,6 +838,7 @@ pub fn build_fit_r(
     theme: &Theme,
     show_paths: bool,
     show_re: bool,
+    show_im: bool,
 ) -> Plot {
     let r = vecs(&result.r);
     let data_mag = fit_data_chir_mag(result);
@@ -838,7 +876,22 @@ pub fn build_fit_r(
             .label("Re fit")
             .into();
     }
-    if show_paths && result.path_contributions.len() > 1 {
+    if show_im {
+        for (values, color, label) in [
+            (&result.data_chir_im, trace_color(theme, 0), "Im data"),
+            (&result.model_chir_im, FIT_COLOR, "Im fit"),
+        ] {
+            let y: Vec<_> = values.iter().take(n).copied().collect();
+            plot = plot
+                .line(&r[..y.len()], &y)
+                .color(color)
+                .line_width(1.2)
+                .line_style(LineStyle::Dashed)
+                .label(label)
+                .into();
+        }
+    }
+    if show_paths && !result.path_contributions.is_empty() {
         // Each path sits on its own baseline below zero so the shells read
         // as a stack rather than a tangle.
         for (i, path) in result.path_contributions.iter().enumerate() {
@@ -855,7 +908,11 @@ pub fn build_fit_r(
     }
     plot.legend_position(ruviz::core::LegendPosition::UpperRight)
         .xlabel(R_AXIS)
-        .ylabel(chir_label(result.kweight))
+        .ylabel(if show_re || show_im {
+            chir_label(result.kweight).replace("|χ(R)|", "χ(R)")
+        } else {
+            chir_label(result.kweight)
+        })
 }
 
 /// q-space view: back-transformed data vs model over the fit's R-window.
@@ -912,6 +969,7 @@ pub fn build_fit_residual_k(result: &xraytsubaki::prelude::FeffFitResult, theme:
     plot.hline_styled(0.0, Color::from_gray(120), 0.8, LineStyle::Dashed)
         .xlabel("")
         .ylabel("")
+        .major_ticks_y(3)
 }
 
 /// Residual strip under the R-space fit: |chi(R)| data - model.
@@ -931,6 +989,7 @@ pub fn build_fit_residual_r(result: &xraytsubaki::prelude::FeffFitResult, theme:
     plot.hline_styled(0.0, Color::from_gray(120), 0.8, LineStyle::Dashed)
         .xlabel("")
         .ylabel("")
+        .major_ticks_y(3)
 }
 
 /// LCF overlay: data, fit, residual (offset below) and the weighted

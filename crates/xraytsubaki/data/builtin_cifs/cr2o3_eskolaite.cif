@@ -1,0 +1,181 @@
+#------------------------------------------------------------------------------
+#$Date: 2017-10-15 03:23:08 +0300 (Sun, 15 Oct 2017) $
+#$Revision: 202022 $
+#$URL: file:///home/coder/svn-repositories/_RELOADED_COD/cod-reloaded/cif/2/10/41/2104122.cif $
+#------------------------------------------------------------------------------
+#
+# This file is available in the Crystallography Open Database (COD),
+# http://www.crystallography.net/. The original data for this entry
+# were provided by IUCr Journals, http://journals.iucr.org/.
+#
+# The file may be used within the scientific community so long as
+# proper attribution is given to the journal article from which the
+# data were obtained.
+#
+data_2104122
+loop_
+_publ_author_name
+'Yang, J.'
+_publ_section_title
+;
+ Structural analysis of perovskite LaCr~1{-~<i>x</i>}Ni~<i>x~</i>O~3~
+ by Rietveld refinement of X-ray powder diffraction data
+;
+_journal_coeditor_code           BP5009
+_journal_issue                   3
+_journal_name_full               'Acta Crystallographica Section B'
+_journal_page_first              281
+_journal_page_last               286
+_journal_paper_doi               10.1107/S0108768108005739
+_journal_volume                  64
+_journal_year                    2008
+_chemical_formula_moiety         'Cr2 O3'
+_chemical_formula_structural     'Cr2 O3'
+_chemical_formula_sum            'Cr2 O3'
+_chemical_formula_weight         151.99
+_chemical_name_common            'Chromium Oxide'
+_space_group_crystal_system      hexagonal
+_space_group_IT_number           167
+_space_group_name_Hall           '-R 3 2"c'
+_space_group_name_H-M_alt        'R -3 c'
+_symmetry_space_group_name_Hall  '-R 3 2"c'
+_symmetry_space_group_name_H-M   'R -3 c :H'
+_cell_angle_alpha                90
+_cell_angle_beta                 90
+_cell_angle_gamma                120
+_cell_formula_units_Z            2
+_cell_length_a                   4.9580(10)
+_cell_length_b                   4.9580(10)
+_cell_length_c                   13.59(3)
+_cell_measurement_temperature    298
+_cell_volume                     289.3(6)
+_computing_cell_refinement       'X'Pert PRO MPD(Philips, 2003)'
+_computing_data_collection       'X'Pert PRO MPD(Philips, 2003)'
+_computing_data_reduction        'X'Pert PRO MPD(Philips, 2003)'
+_computing_molecular_graphics    'Rietica (Hunter, 1997)'
+_computing_structure_refinement  'Rietica (Hunter, 1997)'
+_computing_structure_solution    'Rietica (Hunter, 1997)'
+_diffrn_ambient_temperature      298
+_diffrn_measured_fraction_theta_full 0.996
+_diffrn_measurement_device_type  'Philips X'Pert PRO'
+_diffrn_radiation_monochromator  Graphite
+_diffrn_radiation_source         'Philips high intensity ceramic sealed tube'
+_diffrn_radiation_type           CuK\a
+_diffrn_radiation_wavelength     1.54176
+_diffrn_reflns_limit_h_max       7
+_diffrn_reflns_limit_h_min       -7
+_diffrn_reflns_limit_k_max       7
+_diffrn_reflns_limit_k_min       -7
+_diffrn_reflns_limit_l_max       10
+_diffrn_reflns_limit_l_min       -10
+_diffrn_reflns_theta_full        80
+_exptl_absorpt_correction_type   none
+_exptl_crystal_density_diffrn    5.235
+_exptl_crystal_density_method    'not measured'
+_refine_ls_goodness_of_fit_all   0.0182
+_refine_ls_matrix_type           full
+_refine_ls_number_constraints    0
+_refine_ls_number_parameters     31
+_refine_ls_number_restraints     0
+_refine_ls_shift/su_max          0.0001
+_refine_ls_shift/su_mean         0.0000
+_refine_ls_weighting_details     'w = 1/[\s^2^(F)+0.0001F^2^]'
+_refine_ls_weighting_scheme      sigma
+_cod_data_source_file            bp5009.cif
+_cod_data_source_block           Cr2O3
+_cod_depositor_comments
+;
+The following automatic conversions were performed:
+'_space_group_crystal_system' value 'Hexagonal' changed to 'hexagonal'
+according to '/home/saulius/struct/CIF-dictionaries/cif_core.dic'
+dictionary named 'cif_core.dic' version 2.4.1 from 2010-06-29.
+
+Automatic conversion script
+Id: cif_fix_enum 1527 2010-12-29 10:47:43Z saulius 
+
+The following automatic conversions were performed:
+
+'_space_group_crystal_system' value 'Hexagonal' changed to
+'hexagonal' according to
+/home/saulius/struct/CIF-dictionaries/cif_core.dic dictionary named
+'cif_core.dic' version 2.4.1 from 2010-06-29.
+
+Automatic conversion script
+Id: cif_fix_values 1715 2011-07-08 13:25:40Z adriana 
+;
+_cod_original_sg_symbol_H-M      'R -3 c'
+_cod_database_code               2104122
+loop_
+_symmetry_equiv_pos_as_xyz
+'x, y, z'
+'-y, x-y, z'
+'-x+y, -x, z'
+'y, x, -z+1/2'
+'-x, -x+y, -z+1/2'
+'x-y, -y, -z+1/2'
+'-x, -y, -z'
+'y, -x+y, -z'
+'x-y, x, -z'
+'-y, -x, z-1/2'
+'x, x-y, z-1/2'
+'-x+y, y, z-1/2'
+'x+2/3, y+1/3, z+1/3'
+'-y+2/3, x-y+1/3, z+1/3'
+'-x+y+2/3, -x+1/3, z+1/3'
+'y+2/3, x+1/3, -z+5/6'
+'-x+2/3, -x+y+1/3, -z+5/6'
+'x-y+2/3, -y+1/3, -z+5/6'
+'-x+2/3, -y+1/3, -z+1/3'
+'y+2/3, -x+y+1/3, -z+1/3'
+'x-y+2/3, x+1/3, -z+1/3'
+'-y+2/3, -x+1/3, z-1/6'
+'x+2/3, x-y+1/3, z-1/6'
+'-x+y+2/3, y+1/3, z-1/6'
+'x+1/3, y+2/3, z+2/3'
+'-y+1/3, x-y+2/3, z+2/3'
+'-x+y+1/3, -x+2/3, z+2/3'
+'y+1/3, x+2/3, -z+7/6'
+'-x+1/3, -x+y+2/3, -z+7/6'
+'x-y+1/3, -y+2/3, -z+7/6'
+'-x+1/3, -y+2/3, -z+2/3'
+'y+1/3, -x+y+2/3, -z+2/3'
+'x-y+1/3, x+2/3, -z+2/3'
+'-y+1/3, -x+2/3, z+1/6'
+'x+1/3, x-y+2/3, z+1/6'
+'-x+y+1/3, y+2/3, z+1/6'
+loop_
+_atom_site_type_symbol
+_atom_site_label
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_U_iso_or_equiv
+_atom_site_thermal_displace_type
+_atom_site_occupancy
+Cr Cr 0 0 0.3518(3) 0.6 Uiso 1.0
+O O 0.3194(8) 0 0.25 0.6 Uiso 1.0
+loop_
+_atom_type_symbol
+_atom_type_scat_dispersion_real
+_atom_type_scat_dispersion_imag
+_atom_type_scat_source
+Cr -0.1635 2.4439 'International Tables Vol C Tables 4.2.6.8'
+O 0.0492 0.0322 'International Tables Vol C Tables 4.2.6.8'
+loop_
+_geom_angle_atom_site_label_1
+_geom_angle_atom_site_label_2
+_geom_angle_atom_site_label_3
+_geom_angle
+Cr O Cr 170.30
+loop_
+_geom_bond_atom_site_label_1
+_geom_bond_atom_site_label_2
+_geom_bond_distance
+CR O 2.103(6)
+loop_
+_cod_related_entry_id
+_cod_related_entry_database
+_cod_related_entry_code
+1 ChemSpider 145428
+2 MPOD 1000113
+3 MPOD 1000115

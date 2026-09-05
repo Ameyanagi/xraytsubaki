@@ -5,12 +5,19 @@
 
 mod app;
 mod catalog;
+mod codex_client;
 mod debug_stats;
 mod feffgen;
+mod fit_details;
 mod fitting;
+mod joint_fitting;
 mod params;
 mod plotting;
 mod project;
+mod publication;
+mod settings;
+mod spectrum_interest;
+mod structure;
 mod theme;
 mod widgets;
 
@@ -26,7 +33,7 @@ fn main() {
     #[cfg(feature = "feff10-runner")]
     feff10::worker::init();
 
-    // Optional positional arg: a data file to auto-load on launch. Enables
+    // Optional positional arg: a spectrum, folder or .xtproj to open. Enables
     // "open with", scripted launches, and screenshot testing without driving
     // the native file dialog.
     let initial_open: Option<PathBuf> = std::env::args().nth(1).map(PathBuf::from);

@@ -1,5 +1,6 @@
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
 
+complete_expression = { SOI ~ expression ~ EOI }
 expression = { sum }
 sum = { product ~ (add_op ~ product)* }
 add_op = { "+" | "-" }
@@ -17,6 +18,6 @@ primary = { function_call | constant | identifier | number | "(" ~ expression ~ 
 function_call = { identifier ~ "(" ~ expr_list? ~ ")" }
 expr_list = { expression ~ ("," ~ expression)* }
 
-constant = { "pi" | "e" }
+constant = @{ ("pi" | "e") ~ !(ASCII_ALPHANUMERIC | "_") }
 identifier = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
 number = @{ (ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT*)? | "." ~ ASCII_DIGIT+) ~ (("e" | "E") ~ ("+" | "-")? ~ ASCII_DIGIT+)? }

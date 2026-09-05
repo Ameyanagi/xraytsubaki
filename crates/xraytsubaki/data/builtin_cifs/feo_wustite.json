@@ -1,0 +1,18 @@
+{
+ "key": "feo_wustite",
+ "name": "FeO wüstite",
+ "formula": "Fe O",
+ "sg_number": 225,
+ "sg": "F m -3 m",
+ "category": "oxide",
+ "source": "COD",
+ "id": "cod-9009766",
+ "url": "https://www.crystallography.net/cod/9009766.html",
+ "year": "1996",
+ "journal": "Journal of Solid State Chemistry",
+ "authors": "Fjellvag, H.; Gronvold, F.; Stolen, S.; Hauback, B. C.",
+ "doi": "10.1006/jssc.1996.0206",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

@@ -1,0 +1,225 @@
+#------------------------------------------------------------------------------
+#$Date: 2016-03-22 12:19:30 +0200 (Tue, 22 Mar 2016) $
+#$Revision: 178945 $
+#$URL: file:///home/coder/svn-repositories/_RELOADED_COD/cod-reloaded/cif/4/11/74/4117482.cif $
+#------------------------------------------------------------------------------
+#
+# This file is available in the Crystallography Open Database (COD),
+# http://www.crystallography.net/
+#
+# All data on this site have been placed in the public domain by the
+# contributors.
+#
+data_4117482
+loop_
+_publ_author_name
+'Wojciech Miiller'
+'Maxim Avdeev'
+'Qingdi Zhou'
+'Brendan J. Kennedy'
+'Neeraj Sharma'
+'Ramzi Kutteh'
+'Gordon J. Kearley'
+'Siegber Schmid'
+'Kevin S. Knight'
+'Peter E. R. Blanchard'
+'Chris D. Ling'
+_publ_section_title
+;
+ Giant Magnetoelastic Effect at the Opening of a Spin-Gap in Ba3BiIr2O9
+;
+_journal_name_full               'Journal of the American Chemical Society'
+_journal_page_first              3265
+_journal_page_last               3270
+_journal_paper_doi               10.1021/ja211517h
+_journal_volume                  134
+_journal_year                    2012
+_chemical_formula_sum            V
+_chemical_formula_weight         50.94
+_space_group_IT_number           229
+_symmetry_cell_setting           cubic
+_symmetry_space_group_name_Hall  '-I 4 2 3'
+_symmetry_space_group_name_H-M   'I m -3 m'
+_audit_author_name               'Chris Ling'
+_audit_creation_date             2011-09-01T01:55
+_audit_creation_method           'from EXP file using GSAS2CIF'
+_audit_update_record
+' 2011-09-01T01:55  Initial CIF as created by GSAS2CIF'
+_cell_angle_alpha                90.0
+_cell_angle_beta                 90.0
+_cell_angle_gamma                90.0
+_cell_formula_units_Z            2
+_cell_length_a                   3.02032(11)
+_cell_length_b                   3.02032
+_cell_length_c                   3.02032
+_cell_volume                     27.5524(10)
+_computing_structure_refinement  GSAS
+_diffrn_radiation_probe          neutron
+_exptl_absorpt_correction_T_max  0.31403
+_exptl_absorpt_correction_T_min  0.08586
+_exptl_absorpt_process_details
+;   GSAS Absorption/surface roughness correction: function number 0
+ Debye-Scherrer absorption correction
+Term (= MU.r/wave) =     0.70078    
+Correction is refined.
+;
+_pd_block_id
+2011-09-01T01:55|BA3BIIR2O9_2K_phase2|Chris_Ling||
+_pd_calc_method                  'Rietveld Refinement'
+_pd_meas_2theta_fixed            168.33
+_pd_phase_name                   Vanadium
+_pd_proc_info_datetime           2011-09-01T01:55:29
+_pd_proc_ls_background_function
+;   GSAS Background function number 1 with  7 terms.
+ Shifted Chebyshev function of 1st kind
+      1:    1.33205     2:   0.559527     3:  -0.112872     4:  -4.168950E-02
+      5:  -7.828670E-02 6:  -1.763000E-02 7:  -1.391520E-02
+;
+_pd_proc_ls_prof_R_factor        0.0250
+_pd_proc_ls_prof_wR_expected     0.0133
+_pd_proc_ls_prof_wR_factor       0.0283
+_refine_ls_goodness_of_fit_all   2.15
+_refine_ls_matrix_type           full
+_refine_ls_number_parameters     62
+_refine_ls_number_restraints     0
+_refine_ls_R_Fsqd_factor         0.12226
+_refine_ls_shift/su_max          0.07
+_refine_ls_shift/su_mean         0.01
+_reflns_d_resolution_high        0.663
+_reflns_d_resolution_low         2.583
+_reflns_limit_h_max              8
+_reflns_limit_h_min              0
+_reflns_limit_k_max              15
+_reflns_limit_k_min              0
+_reflns_limit_l_max              22
+_reflns_limit_l_min              -22
+_reflns_number_total             1620
+_cod_data_source_file            ja211517h_si_001_2.cif
+_cod_data_source_block           BA3BIIR2O9_2K_phase_2
+_cod_original_cell_volume        27.5520(30)
+_cod_original_sg_symbol_H-M      'I m 3 m'
+_cod_database_code               4117482
+_cod_database_fobs_code          4117482
+#BEGIN Tags that were not found in dictionaries:
+_gsas_exptl_extinct_corr_t_min   1.00000
+_gsas_exptl_extinct_corr_t_max   1.00000
+#END Tags that were not found in dictionaries
+loop_
+_symmetry_equiv_pos_site_id
+_symmetry_equiv_pos_as_xyz
+1 +x,+y,+z
+2 +z,+x,+y
+3 +y,+z,+x
+4 +x,+y,-z
+5 -z,+x,+y
+6 +y,-z,+x
+7 -z,+x,-y
+8 -y,-z,+x
+9 +y,-z,-x
+10 -x,+y,-z
+11 -z,-x,+y
+12 +x,-y,-z
+13 +y,+x,+z
+14 +z,+y,+x
+15 +x,+z,+y
+16 +y,+x,-z
+17 -z,+y,+x
+18 +x,-z,+y
+19 -z,+y,-x
+20 -x,-z,+y
+21 +x,-z,-y
+22 -y,+x,-z
+23 -z,-y,+x
+24 +y,-x,-z
+-1 -x,-y,-z
+-2 -z,-x,-y
+-3 -y,-z,-x
+-4 -x,-y,+z
+-5 +z,-x,-y
+-6 -y,+z,-x
+-7 +z,-x,+y
+-8 +y,+z,-x
+-9 -y,+z,+x
+-10 +x,-y,+z
+-11 +z,+x,-y
+-12 -x,+y,+z
+-13 -y,-x,-z
+-14 -z,-y,-x
+-15 -x,-z,-y
+-16 -y,-x,+z
+-17 +z,-y,-x
+-18 -x,+z,-y
+-19 +z,-y,+x
+-20 +x,+z,-y
+-21 -x,+z,+y
+-22 +y,-x,+z
+-23 +z,+y,-x
+-24 -y,+x,+z
+101 +x+1/2,+y+1/2,+z+1/2
+102 +z+1/2,+x+1/2,+y+1/2
+103 +y+1/2,+z+1/2,+x+1/2
+104 +x+1/2,+y+1/2,-z+1/2
+105 -z+1/2,+x+1/2,+y+1/2
+106 +y+1/2,-z+1/2,+x+1/2
+107 -z+1/2,+x+1/2,-y+1/2
+108 -y+1/2,-z+1/2,+x+1/2
+109 +y+1/2,-z+1/2,-x+1/2
+110 -x+1/2,+y+1/2,-z+1/2
+111 -z+1/2,-x+1/2,+y+1/2
+112 +x+1/2,-y+1/2,-z+1/2
+113 +y+1/2,+x+1/2,+z+1/2
+114 +z+1/2,+y+1/2,+x+1/2
+115 +x+1/2,+z+1/2,+y+1/2
+116 +y+1/2,+x+1/2,-z+1/2
+117 -z+1/2,+y+1/2,+x+1/2
+118 +x+1/2,-z+1/2,+y+1/2
+119 -z+1/2,+y+1/2,-x+1/2
+120 -x+1/2,-z+1/2,+y+1/2
+121 +x+1/2,-z+1/2,-y+1/2
+122 -y+1/2,+x+1/2,-z+1/2
+123 -z+1/2,-y+1/2,+x+1/2
+124 +y+1/2,-x+1/2,-z+1/2
+-101 -x+1/2,-y+1/2,-z+1/2
+-102 -z+1/2,-x+1/2,-y+1/2
+-103 -y+1/2,-z+1/2,-x+1/2
+-104 -x+1/2,-y+1/2,+z+1/2
+-105 +z+1/2,-x+1/2,-y+1/2
+-106 -y+1/2,+z+1/2,-x+1/2
+-107 +z+1/2,-x+1/2,+y+1/2
+-108 +y+1/2,+z+1/2,-x+1/2
+-109 -y+1/2,+z+1/2,+x+1/2
+-110 +x+1/2,-y+1/2,+z+1/2
+-111 +z+1/2,+x+1/2,-y+1/2
+-112 -x+1/2,+y+1/2,+z+1/2
+-113 -y+1/2,-x+1/2,-z+1/2
+-114 -z+1/2,-y+1/2,-x+1/2
+-115 -x+1/2,-z+1/2,-y+1/2
+-116 -y+1/2,-x+1/2,+z+1/2
+-117 +z+1/2,-y+1/2,-x+1/2
+-118 -x+1/2,+z+1/2,-y+1/2
+-119 +z+1/2,-y+1/2,+x+1/2
+-120 +x+1/2,+z+1/2,-y+1/2
+-121 -x+1/2,+z+1/2,+y+1/2
+-122 +y+1/2,-x+1/2,+z+1/2
+-123 +z+1/2,+y+1/2,-x+1/2
+-124 -y+1/2,+x+1/2,+z+1/2
+loop_
+_atom_site_type_symbol
+_atom_site_label
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_occupancy
+_atom_site_thermal_displace_type
+_atom_site_U_iso_or_equiv
+_atom_site_symmetry_multiplicity
+V V 0.0 0.0 0.0 1.0 Uiso 0.0273(18) 2
+loop_
+_atom_type_symbol
+_atom_type_scat_length_neutron
+_atom_type_scat_source
+_atom_type_number_in_cell
+V -0.0382 International_Tables_Vol_C 2.0
+loop_
+_pd_block_diffractogram_id
+2011-09-01T01:55|BA3BIIR2O9_2K_H_01|Chris_Ling|HRPD

@@ -1,0 +1,102 @@
+#------------------------------------------------------------------------------
+#$Date: 2016-02-21 09:49:01 +0200 (Sun, 21 Feb 2016) $
+#$Revision: 176808 $
+#$URL: file:///home/coder/svn-repositories/_RELOADED_COD/cod-reloaded/cif/1/51/41/1514117.cif $
+#------------------------------------------------------------------------------
+#
+# This file is available in the Crystallography Open Database (COD),
+# http://www.crystallography.net/
+#
+# All data on this site have been placed in the public domain by the
+# contributors.
+#
+data_1514117
+loop_
+_publ_author_name
+'Bolzan, A. A.'
+'Fong, C.'
+'Kennedy, B. J.'
+'Howard, C. J.'
+_publ_section_title
+;
+ Powder neutron diffraction study of pyrolusite, beta-Mn O2
+;
+_journal_coden_ASTM              AJCHAS
+_journal_name_full               'Australian Journal of Chemistry'
+_journal_page_first              939
+_journal_page_last               944
+_journal_paper_doi               10.1071/CH9930939
+_journal_volume                  46
+_journal_year                    1993
+_chemical_formula_structural     'Mn O2'
+_chemical_formula_sum            'Mn O2'
+_chemical_name_mineral           Pyrolusite
+_chemical_name_systematic        'Manganese(IV) Oxide - Beta'
+_space_group_IT_number           136
+_symmetry_Int_Tables_number      136
+_symmetry_space_group_name_Hall  '-P 4n 2n'
+_symmetry_space_group_name_H-M   'P 42/m n m'
+_audit_creation_date             1995/01/10
+_audit_update_record             2005/10/01
+_cell_angle_alpha                90.
+_cell_angle_beta                 90.
+_cell_angle_gamma                90.
+_cell_formula_units_Z            2
+_cell_length_a                   4.4041(1)
+_cell_length_b                   4.4041(1)
+_cell_length_c                   2.8765(1)
+_cell_volume                     55.793(3)
+_refine_ls_R_factor_all          0.017
+_cod_data_source_file            'data_MnO2melanie073716.cif'
+_cod_data_source_block
+/var/www/cod/tmp/uploads/1396025150.02-D290F29E9218B844.cif
+_cod_original_cell_volume        55.79
+_cod_original_formula_sum        'Mn1 O2'
+_cod_database_code               1514117
+loop_
+_symmetry_equiv_pos_site_id
+_symmetry_equiv_pos_as_xyz
+1 '-y+1/2, x+1/2, -z+1/2'
+2 'y+1/2, -x+1/2, -z+1/2'
+3 'y, x, -z'
+4 '-y, -x, -z'
+5 'y+1/2, -x+1/2, z+1/2'
+6 '-y+1/2, x+1/2, z+1/2'
+7 '-y, -x, z'
+8 'y, x, z'
+9 'x+1/2, -y+1/2, -z+1/2'
+10 '-x+1/2, y+1/2, -z+1/2'
+11 'x, y, -z'
+12 '-x, -y, -z'
+13 '-x+1/2, y+1/2, z+1/2'
+14 'x+1/2, -y+1/2, z+1/2'
+15 '-x, -y, z'
+16 'x, y, z'
+loop_
+_atom_site_aniso_label
+_atom_site_aniso_type_symbol
+_atom_site_aniso_U_11
+_atom_site_aniso_U_22
+_atom_site_aniso_U_33
+_atom_site_aniso_U_12
+_atom_site_aniso_U_13
+_atom_site_aniso_U_23
+Mn1 Mn4+ 0.0040(4) 0.0040(4) 0.0011(8) 0.0006(8) 0 0
+O1 O2- 0.0071(2) 0.0071(2) 0.0042(4) -.0030(3) 0 0
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_symmetry_multiplicity
+_atom_site_Wyckoff_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_occupancy
+_atom_site_attached_hydrogens
+Mn1 Mn4+ 2 a 0 0 0 1. 0
+O1 O2- 4 f 0.3046(1) 0.3046(1) 0 1. 0
+loop_
+_atom_type_symbol
+_atom_type_oxidation_number
+Mn4+ 4
+O2- -2

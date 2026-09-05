@@ -1,0 +1,18 @@
+{
+ "key": "tio2_anatase",
+ "name": "TiO₂ anatase",
+ "formula": "O2 Ti",
+ "sg_number": 141,
+ "sg": "I 41/a m d :1",
+ "category": "oxide",
+ "source": "COD",
+ "id": "cod-9015929",
+ "url": "https://www.crystallography.net/cod/9015929.html",
+ "year": "1991",
+ "journal": "Acta Crystallographica, Section B",
+ "authors": "Howard, C. J.; Sabine, T. M.; Dickson, F.",
+ "doi": "10.1107/S010876819100335X",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

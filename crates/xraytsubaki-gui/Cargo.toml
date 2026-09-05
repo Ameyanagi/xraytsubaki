@@ -28,10 +28,12 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "3060e417
 
 # Core crate: pipeline + fitting. Do NOT enable its `plotting` feature here;
 # the GUI builds ruviz Plots itself in src/plotting/.
-xraytsubaki = { path = "../xraytsubaki", default-features = true }
+xraytsubaki = { path = "../xraytsubaki", default-features = true, features = ["amcsd", "materials-project", "cod"] }
 feff10 = { version = "0.2.2", features = ["prebuilt"], optional = true }
 
 anyhow = "1.0"
+base64 = "0.22"
+xraydb = "0.4.1"
 futures = "0.3"
 rayon = { workspace = true }
 lru = "0.18"
@@ -43,6 +45,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [features]
-default = ["refeff-runner"]
+default = ["refeff-runner", "feff10-runner"]
 refeff-runner = ["xraytsubaki/refeff-runner"]
 feff10-runner = ["xraytsubaki/feff10-runner", "dep:feff10"]

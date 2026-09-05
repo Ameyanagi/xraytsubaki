@@ -1,0 +1,18 @@
+{
+ "key": "wo3_monoclinic",
+ "name": "WO₃ (monoclinic)",
+ "formula": "O3 W",
+ "sg_number": 14,
+ "sg": "P 1 21/n 1",
+ "category": "oxide",
+ "source": "COD",
+ "id": "cod-2106382",
+ "url": "https://www.crystallography.net/cod/2106382.html",
+ "year": "1969",
+ "journal": "Acta Crystallographica B (24,1968-38,1982)",
+ "authors": "Loopstra, B.O.; Rietveld, H.M.",
+ "doi": null,
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

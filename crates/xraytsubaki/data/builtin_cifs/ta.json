@@ -1,0 +1,18 @@
+{
+ "key": "ta",
+ "name": "Tantalum",
+ "formula": "Ta",
+ "sg_number": 229,
+ "sg": "I m -3 m",
+ "category": "metal",
+ "source": "COD",
+ "id": "cod-1541266",
+ "url": "https://www.crystallography.net/cod/1541266.html",
+ "year": "1977",
+ "journal": "Scripta Metallurgica",
+ "authors": "Mueller, M. H.",
+ "doi": "10.1016/0036-9748(77)90141-7",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

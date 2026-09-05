@@ -1,0 +1,71 @@
+#------------------------------------------------------------------------------
+#$Date: 2016-02-13 14:50:18 +0200 (Sat, 13 Feb 2016) $
+#$Revision: 176428 $
+#$URL: file:///home/coder/svn-repositories/_RELOADED_COD/cod-reloaded/cif/4/12/45/4124511.cif $
+#------------------------------------------------------------------------------
+#
+# This file is available in the Crystallography Open Database (COD),
+# http://www.crystallography.net/
+#
+# All data on this site have been placed in the public domain by the
+# contributors.
+#
+data_4124511
+loop_
+_publ_author_name
+'Petkov, V.'
+'Trikalitis, P.N.'
+'Bozin, E.S.'
+'Billinge, S.J.L.'
+'Vogt, T.'
+'Kanatzidis, M.G.'
+_publ_section_title
+;
+ Structure of V2 O5 * n(H2 O) xerogel solved by the atomic pair
+ distribution function technique
+;
+_journal_name_full               'Journal of the American Chemical Society'
+_journal_page_first              10157
+_journal_page_last               10162
+_journal_volume                  124
+_journal_year                    2002
+_chemical_formula_sum            'O5 V2'
+_chemical_name_systematic        'V2 O5'
+_space_group_IT_number           59
+_symmetry_space_group_name_Hall  'P 2 2ab -1ab'
+_symmetry_space_group_name_H-M   'P m m n :1'
+_cell_angle_alpha                90
+_cell_angle_beta                 90
+_cell_angle_gamma                90
+_cell_formula_units_Z            2
+_cell_length_a                   11.498
+_cell_length_b                   3.545
+_cell_length_c                   4.345
+_cell_volume                     177.104
+_citation_journal_id_ASTM        JACSAT
+_cod_data_source_file            Petkov_JACSAT_2002_322.cif
+_cod_data_source_block           O5V2
+_cod_original_sg_symbol_Hall     '-P 2ab 2a (x-1/4,y-1/4,z)'
+_cod_database_code               4124511
+loop_
+_symmetry_equiv_pos_as_xyz
+x,y,z
+-x,-y,z
+x+1/2,-y+1/2,-z
+-x+1/2,y+1/2,-z
+-x+1/2,-y+1/2,-z
+x+1/2,y+1/2,-z
+-x,y,z
+x,-y,z
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_occupancy
+_atom_site_U_iso_or_equiv
+O2 O-2 0.3145 0 -0.009 1 0.0
+O3 O-2 0 0 0.017 1 0.0
+O1 O-2 0.1481 0 0.4604 1 0.0
+V1 V+5 0.1484 0 0.1083 1 0.0

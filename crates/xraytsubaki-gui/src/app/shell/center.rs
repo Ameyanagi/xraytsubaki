@@ -99,6 +99,14 @@ impl StudioApp {
         let kw = self.fft_summary().3;
         let chik: SharedString = crate::plotting::chik_label(kw).into();
         let chir: SharedString = crate::plotting::chir_label(kw).into();
+        if let Some(i) = v.thumbnail_focus {
+            return vec![match i {
+                0 => (PLOT_NORM, "normalized μ(E)".into()),
+                1 => (PLOT_CHIK, chik),
+                2 => (PLOT_CHIK, format!("{} · window", chik).into()),
+                _ => (PLOT_CHIR, chir),
+            }];
+        }
         match self.stage {
             Stage::Data | Stage::Normalize => vec![match v.e_quantity {
                 EQuantity::Mu => (PLOT_MU, "μ(E)".into()),
@@ -121,7 +129,7 @@ impl StudioApp {
                 TfView::Q => vec![(PLOT_CHIQ, "χ(q) back-transform".into())],
                 TfView::Both => vec![(PLOT_CHIK, chik), (PLOT_CHIR, chir)],
             },
-            Stage::Fit | Stage::Series => Vec::new(),
+            Stage::Fit | Stage::Series | Stage::Publish => Vec::new(),
         }
     }
 
@@ -442,6 +450,9 @@ impl StudioApp {
             .on_mouse_move(cx.listener(move |this, ev: &gpui::MouseMoveEvent, _w, cx| {
                 this.plot_pointer_move(index, ev.position, cx);
             }))
+            .capture_any_mouse_down(cx.listener(move |this, ev: &gpui::MouseDownEvent, _, cx| {
+                this.capture_handle_press(index, ev, cx);
+            }))
             .child(
                 div()
                     .flex_none()
@@ -475,8 +486,7 @@ impl StudioApp {
         }
     }
 
-    /// Four static thumbnails of the current group, one per downstream
-    /// stage; clicking one jumps to that stage.
+    /// Clicking a thumbnail opens exactly its current-data quantity.
     fn thumbnail_strip(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
         let kw = self.fft_summary().3;
@@ -487,7 +497,7 @@ impl StudioApp {
                 Stage::Transform,
                 format!("{} · window", crate::plotting::chik_label(kw)),
             ),
-            (Stage::Fit, "|χ(R)|".into()),
+            (Stage::Transform, "|χ(R)|".into()),
         ];
         let mut strip = div()
             .h(px(118.))
@@ -498,7 +508,7 @@ impl StudioApp {
             .pt_2()
             .pb_3();
         for (i, (stage, caption)) in captions.into_iter().enumerate() {
-            let active = self.stage == stage;
+            let active = self.stage_view.thumbnail_focus == Some(i);
             let (status, _) = self.stage_summary(stage);
             let dot = if status == StageStatus::Idle {
                 t.text_muted
@@ -520,6 +530,17 @@ impl StudioApp {
                     .hover(|d| d.border_color(t.accent))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
                         this.set_stage(stage, cx);
+                        this.stage_view.scope = PlotScope::Current;
+                        this.stage_view.e_quantity = EQuantity::Norm;
+                        this.stage_view.bkg_view = BkgView::K;
+                        this.stage_view.tf_view = if i == 3 { TfView::R } else { TfView::K };
+                        this.stage_view.show_re = false;
+                        this.view.show_deriv = false;
+                        this.view.show_kwin = i == 2;
+                        this.stage_view_changed(cx);
+                        this.stage_view.thumbnail_focus = Some(i);
+                        this.invalidate_explore_plots(cx);
+                        cx.notify();
                     }))
                     .child(
                         div()

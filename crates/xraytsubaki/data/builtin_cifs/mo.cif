@@ -1,0 +1,238 @@
+#------------------------------------------------------------------------------
+#$Date: 2016-03-21 01:21:50 +0200 (Mon, 21 Mar 2016) $
+#$Revision: 178377 $
+#$URL: file:///home/coder/svn-repositories/_RELOADED_COD/cod-reloaded/cif/4/00/13/4001308.cif $
+#------------------------------------------------------------------------------
+#
+# This file is available in the Crystallography Open Database (COD),
+# http://www.crystallography.net/
+#
+# All data on this site have been placed in the public domain by the
+# contributors.
+#
+data_4001308
+loop_
+_publ_author_name
+'Bernuy-Lopez, Carlos'
+'Allix, Mathieu'
+'Bridges, Craig A.'
+'Claridge, John B.'
+'Rosseinsky, Matthew J.'
+_publ_section_title
+;
+ Sr2MgMoO6-\d:&#x00A0; Structure, Phase Stability, and Cation Site Order
+ Control of Reduction
+;
+_journal_issue                   5
+_journal_name_full               'Chemistry of Materials'
+_journal_page_first              1035
+_journal_paper_doi               10.1021/cm0624116
+_journal_volume                  19
+_journal_year                    2007
+_chemical_formula_sum            Mo
+_chemical_formula_weight         95.94
+_chemical_name_systematic        ' ?'
+_space_group_IT_number           229
+_symmetry_cell_setting           cubic
+_symmetry_space_group_name_Hall  '-I 4 2 3'
+_symmetry_space_group_name_H-M   'I m -3 m'
+_cell_angle_alpha                90.0
+_cell_angle_beta                 90.0
+_cell_angle_gamma                90.0
+_cell_formula_units_Z            2
+_cell_length_a                   3.14683(10)
+_cell_length_b                   3.14683
+_cell_length_c                   3.14683
+_cell_volume                     31.1616(10)
+_pd_block_id                     2006-10-06T09:46|FINAL_phase2|M.J._Rosseinsky||
+_pd_phase_name                   'from S:/Carlos/MoIM3M.cif'
+_cod_data_source_file            cm0624116si20061009_082045.cif
+_cod_data_source_block           FINAL_phase_2
+_cod_depositor_comments
+;
+The following automatic conversions were performed:
+
+'_geom_bond_publ_flag' value 'N' changed to 'n' according to
+/home/saulius/struct/CIF-dictionaries/cif_core.dic dictionary named
+'cif_core.dic' version 2.4.1 from 2010-06-29 (14
+times).
+
+'_geom_angle_publ_flag' value 'N' changed to 'n' according
+to /home/saulius/struct/CIF-dictionaries/cif_core.dic dictionary
+named 'cif_core.dic' version 2.4.1 from 2010-06-29 (28 times).
+
+Automatic conversion script
+Id: cif_fix_values 1715 2011-07-08 13:25:40Z adriana 
+;
+_cod_original_cell_volume        31.1610(30)
+_cod_database_code               4001308
+loop_
+_symmetry_equiv_pos_site_id
+_symmetry_equiv_pos_as_xyz
+1 +x,+y,+z
+2 +z,+x,+y
+3 +y,+z,+x
+4 +x,+y,-z
+5 -z,+x,+y
+6 +y,-z,+x
+7 -z,+x,-y
+8 -y,-z,+x
+9 +y,-z,-x
+10 -x,+y,-z
+11 -z,-x,+y
+12 +x,-y,-z
+13 +y,+x,+z
+14 +z,+y,+x
+15 +x,+z,+y
+16 +y,+x,-z
+17 -z,+y,+x
+18 +x,-z,+y
+19 -z,+y,-x
+20 -x,-z,+y
+21 +x,-z,-y
+22 -y,+x,-z
+23 -z,-y,+x
+24 +y,-x,-z
+-1 -x,-y,-z
+-2 -z,-x,-y
+-3 -y,-z,-x
+-4 -x,-y,+z
+-5 +z,-x,-y
+-6 -y,+z,-x
+-7 +z,-x,+y
+-8 +y,+z,-x
+-9 -y,+z,+x
+-10 +x,-y,+z
+-11 +z,+x,-y
+-12 -x,+y,+z
+-13 -y,-x,-z
+-14 -z,-y,-x
+-15 -x,-z,-y
+-16 -y,-x,+z
+-17 +z,-y,-x
+-18 -x,+z,-y
+-19 +z,-y,+x
+-20 +x,+z,-y
+-21 -x,+z,+y
+-22 +y,-x,+z
+-23 +z,+y,-x
+-24 -y,+x,+z
+101 +x+1/2,+y+1/2,+z+1/2
+102 +z+1/2,+x+1/2,+y+1/2
+103 +y+1/2,+z+1/2,+x+1/2
+104 +x+1/2,+y+1/2,-z+1/2
+105 -z+1/2,+x+1/2,+y+1/2
+106 +y+1/2,-z+1/2,+x+1/2
+107 -z+1/2,+x+1/2,-y+1/2
+108 -y+1/2,-z+1/2,+x+1/2
+109 +y+1/2,-z+1/2,-x+1/2
+110 -x+1/2,+y+1/2,-z+1/2
+111 -z+1/2,-x+1/2,+y+1/2
+112 +x+1/2,-y+1/2,-z+1/2
+113 +y+1/2,+x+1/2,+z+1/2
+114 +z+1/2,+y+1/2,+x+1/2
+115 +x+1/2,+z+1/2,+y+1/2
+116 +y+1/2,+x+1/2,-z+1/2
+117 -z+1/2,+y+1/2,+x+1/2
+118 +x+1/2,-z+1/2,+y+1/2
+119 -z+1/2,+y+1/2,-x+1/2
+120 -x+1/2,-z+1/2,+y+1/2
+121 +x+1/2,-z+1/2,-y+1/2
+122 -y+1/2,+x+1/2,-z+1/2
+123 -z+1/2,-y+1/2,+x+1/2
+124 +y+1/2,-x+1/2,-z+1/2
+-101 -x+1/2,-y+1/2,-z+1/2
+-102 -z+1/2,-x+1/2,-y+1/2
+-103 -y+1/2,-z+1/2,-x+1/2
+-104 -x+1/2,-y+1/2,+z+1/2
+-105 +z+1/2,-x+1/2,-y+1/2
+-106 -y+1/2,+z+1/2,-x+1/2
+-107 +z+1/2,-x+1/2,+y+1/2
+-108 +y+1/2,+z+1/2,-x+1/2
+-109 -y+1/2,+z+1/2,+x+1/2
+-110 +x+1/2,-y+1/2,+z+1/2
+-111 +z+1/2,+x+1/2,-y+1/2
+-112 -x+1/2,+y+1/2,+z+1/2
+-113 -y+1/2,-x+1/2,-z+1/2
+-114 -z+1/2,-y+1/2,-x+1/2
+-115 -x+1/2,-z+1/2,-y+1/2
+-116 -y+1/2,-x+1/2,+z+1/2
+-117 +z+1/2,-y+1/2,-x+1/2
+-118 -x+1/2,+z+1/2,-y+1/2
+-119 +z+1/2,-y+1/2,+x+1/2
+-120 +x+1/2,+z+1/2,-y+1/2
+-121 -x+1/2,+z+1/2,+y+1/2
+-122 +y+1/2,-x+1/2,+z+1/2
+-123 +z+1/2,+y+1/2,-x+1/2
+-124 -y+1/2,+x+1/2,+z+1/2
+loop_
+_atom_site_type_symbol
+_atom_site_label
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_occupancy
+_atom_site_thermal_displace_type
+_atom_site_U_iso_or_equiv
+_atom_site_symmetry_multiplicity
+Mo Mo1 0.0 0.0 0.0 1.0 Uiso 0.0095(17) 2
+loop_
+_atom_type_symbol
+_atom_type_number_in_cell
+Mo 2.0
+loop_
+_geom_angle_atom_site_label_1
+_geom_angle_atom_site_label_2
+_geom_angle_atom_site_label_3
+_geom_angle
+_geom_angle_site_symmetry_1
+_geom_angle_site_symmetry_3
+_geom_angle_publ_flag
+Mo1 Mo1 Mo1 70.5288(25) 101_444 101_445 n
+Mo1 Mo1 Mo1 70.5288(12) 101_444 101_454 n
+Mo1 Mo1 Mo1 109.4712(12) 101_444 101_455 n
+Mo1 Mo1 Mo1 70.5288(12) 101_444 101_544 n
+Mo1 Mo1 Mo1 109.4712(12) 101_444 101_545 n
+Mo1 Mo1 Mo1 109.4712(25) 101_444 101_554 n
+Mo1 Mo1 Mo1 180.0 101_444 101_555 n
+Mo1 Mo1 Mo1 109.4712(12) 101_445 101_454 n
+Mo1 Mo1 Mo1 70.5288(12) 101_445 101_455 n
+Mo1 Mo1 Mo1 109.4712(12) 101_445 101_544 n
+Mo1 Mo1 Mo1 70.5288(12) 101_445 101_545 n
+Mo1 Mo1 Mo1 180.0 101_445 101_554 n
+Mo1 Mo1 Mo1 109.4712(25) 101_445 101_555 n
+Mo1 Mo1 Mo1 70.5288(25) 101_454 101_455 n
+Mo1 Mo1 Mo1 109.4712(25) 101_454 101_544 n
+Mo1 Mo1 Mo1 180.0 101_454 101_545 n
+Mo1 Mo1 Mo1 70.5288(12) 101_454 101_554 n
+Mo1 Mo1 Mo1 109.4712(12) 101_454 101_555 n
+Mo1 Mo1 Mo1 180.0 101_455 101_544 n
+Mo1 Mo1 Mo1 109.4712(25) 101_455 101_545 n
+Mo1 Mo1 Mo1 109.4712(12) 101_455 101_554 n
+Mo1 Mo1 Mo1 70.5288(12) 101_455 101_555 n
+Mo1 Mo1 Mo1 70.5288(25) 101_544 101_545 n
+Mo1 Mo1 Mo1 70.5288(12) 101_544 101_554 n
+Mo1 Mo1 Mo1 109.4712(12) 101_544 101_555 n
+Mo1 Mo1 Mo1 109.4712(12) 101_545 101_554 n
+Mo1 Mo1 Mo1 70.5288(12) 101_545 101_555 n
+Mo1 Mo1 Mo1 70.5288(25) 101_554 101_555 n
+loop_
+_geom_bond_atom_site_label_1
+_geom_bond_atom_site_label_2
+_geom_bond_distance
+_geom_bond_site_symmetry_2
+_geom_bond_publ_flag
+Mo1 Mo1 3.14683(10) 1_455 n
+Mo1 Mo1 3.14683(10) 1_545 n
+Mo1 Mo1 3.14683(10) 1_554 n
+Mo1 Mo1 3.14683(10) 1_556 n
+Mo1 Mo1 3.14683(10) 1_565 n
+Mo1 Mo1 3.14683(10) 1_655 n
+Mo1 Mo1 2.72523(7) 101_444 n
+Mo1 Mo1 2.72523(7) 101_445 n
+Mo1 Mo1 2.72523(7) 101_454 n
+Mo1 Mo1 2.72523(7) 101_455 n
+Mo1 Mo1 2.72523(7) 101_544 n
+Mo1 Mo1 2.72523(7) 101_545 n
+Mo1 Mo1 2.72523(7) 101_554 n
+Mo1 Mo1 2.72523(7) 101_555 n

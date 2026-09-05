@@ -1,0 +1,18 @@
+{
+ "key": "zro2_monoclinic",
+ "name": "m-ZrO₂ baddeleyite",
+ "formula": "O2 Zr",
+ "sg_number": 14,
+ "sg": "P 1 21/c 1",
+ "category": "oxide",
+ "source": "COD",
+ "id": "cod-2108450",
+ "url": "https://www.crystallography.net/cod/2108450.html",
+ "year": "2019",
+ "journal": "Acta Crystallographica Section B",
+ "authors": "Fukui, Hiroshi; Fujimoto, Manato; Akahama, Yuichi; Sano-Furukawa, Asami; Hattori, Takanori",
+ "doi": "10.1107/S2052520619007923",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

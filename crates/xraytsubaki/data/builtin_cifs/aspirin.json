@@ -1,0 +1,18 @@
+{
+ "key": "aspirin",
+ "name": "Aspirin",
+ "formula": "C9H8O4",
+ "sg_number": 14,
+ "sg": "P 1 21/c 1",
+ "category": "molecule",
+ "source": "COD",
+ "id": "cod-7050899",
+ "url": "https://www.crystallography.net/cod/7050899.html",
+ "year": "2002",
+ "journal": "New Journal of Chemistry",
+ "authors": "Chick Wilson",
+ "doi": "10.1039/b203775k",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Wilson (2002), New J. Chem. 26, 1733–1739",
+ "note": "Molecular visualization example. Neutron diffraction, 180 K; hydrogen positions included."
+}

@@ -54,7 +54,7 @@ fn parse_error(expr: &str, reason: impl Into<String>) -> FittingError {
 }
 
 fn parse_expr(expr: &str) -> Result<Expr, FittingError> {
-    let mut pairs = ExprGrammar::parse(Rule::expression, expr)
+    let mut pairs = ExprGrammar::parse(Rule::complete_expression, expr)
         .map_err(|err| parse_error(expr, format!("parse error: {err}")))?;
     let pair = pairs
         .next()
@@ -86,7 +86,7 @@ fn parse_cached(expr: &str) -> Result<Expr, FittingError> {
 
 fn build_expr(source: &str, pair: Pair<Rule>) -> Result<Expr, FittingError> {
     match pair.as_rule() {
-        Rule::expression => {
+        Rule::complete_expression | Rule::expression => {
             let inner = pair
                 .into_inner()
                 .next()
@@ -217,7 +217,7 @@ fn build_left_assoc(
                 return Err(parse_error(
                     source,
                     format!("unsupported binary operator '{other}'"),
-                ))
+                ));
             }
         };
         expr = Expr::Binary {
@@ -401,5 +401,33 @@ mod tests {
     fn test_extract_symbols_excludes_locals_and_constants() {
         let symbols = try_extract_symbols("amp * sqrt(reff) + log(e) + s02").unwrap();
         assert_eq!(symbols, vec!["amp".to_string(), "s02".to_string()]);
+    }
+
+    #[test]
+    fn variable_names_may_begin_with_constant_names() {
+        for name in ["e0", "ei", "energy", "pi_scale"] {
+            assert_eq!(eval_expression_with(name, |_| Ok(7.25)).unwrap(), 7.25);
+            assert_eq!(try_extract_symbols(name).unwrap(), vec![name]);
+        }
+        assert_eq!(
+            eval_expression_with("(e0 + 2) * pi_scale", |_| Ok(3.)).unwrap(),
+            15.
+        );
+        assert!(
+            (eval_expression_with("e + 1", |_| unreachable!()).unwrap() - std::f64::consts::E - 1.)
+                .abs()
+                < 1e-12
+        );
+    }
+
+    #[test]
+    fn expressions_reject_unparsed_suffixes() {
+        for expr in ["1 garbage", "amp +", "e0 ???", "2**3", "(1+2))"] {
+            assert!(eval_expression_with(expr, |_| Ok(1.)).is_err(), "{expr}");
+        }
+        assert_eq!(
+            eval_expression_with(" 1e-3 + 2E+1 ", |_| unreachable!()).unwrap(),
+            20.001
+        );
     }
 }

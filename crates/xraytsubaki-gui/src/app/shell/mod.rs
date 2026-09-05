@@ -6,15 +6,31 @@
 //! private `StudioApp` state without a pub(crate) field explosion; `app.rs`
 //! keeps state and jobs, the shell keeps presentation.
 
+pub(crate) mod assistant;
+pub(crate) mod assistant_actions;
+mod bond_geometry;
 pub mod center;
+mod depth_controls;
 pub mod fit;
+pub(crate) mod fit_preview;
+pub mod fit_workspace;
 pub mod groups_panel;
 pub mod handles;
 pub mod inspector;
+mod joint_browser;
+pub(crate) mod joint_fit;
 pub mod journal;
+mod molecular_geometry;
+pub mod molecule_view;
 pub mod palette;
+pub(crate) mod parameter_actions;
+mod path_diagnostics;
+pub mod path_picker;
+pub(crate) mod publish;
 pub mod series;
 pub mod stage_strip;
+mod structure_depth;
+pub mod structure_view;
 pub mod thumbnails;
 pub mod tools;
 
@@ -34,16 +50,18 @@ pub enum Stage {
     Transform,
     Fit,
     Series,
+    Publish,
 }
 
 impl Stage {
-    pub const ALL: [Stage; 6] = [
+    pub const ALL: [Stage; 7] = [
         Stage::Data,
         Stage::Normalize,
         Stage::Background,
         Stage::Transform,
         Stage::Fit,
         Stage::Series,
+        Stage::Publish,
     ];
 
     pub fn number(self) -> usize {
@@ -58,6 +76,7 @@ impl Stage {
             Stage::Transform => "Transform",
             Stage::Fit => "Fit",
             Stage::Series => "Series",
+            Stage::Publish => "Publish",
         }
     }
 
@@ -126,14 +145,18 @@ pub enum FitView {
 pub struct StageView {
     pub scope: PlotScope,
     pub e_quantity: EQuantity,
+    pub thumbnail_focus: Option<usize>,
     pub bkg_view: BkgView,
     pub tf_view: TfView,
     pub show_bkg: bool,
     pub show_re: bool,
     pub fit_view: FitView,
+    pub fit_step: fit_workspace::FitStep,
+    pub fit_model_tab: usize,
+    pub fit_result_tab: usize,
     pub fit_show_paths: bool,
     pub fit_show_re: bool,
-    pub fit_show_feff: bool,
+    pub fit_show_im: bool,
     pub fit_show_batch: bool,
     pub series_space: crate::app::SeriesSpace,
 }
@@ -143,14 +166,18 @@ impl Default for StageView {
         Self {
             scope: PlotScope::Current,
             e_quantity: EQuantity::Norm,
+            thumbnail_focus: None,
             bkg_view: BkgView::Energy,
             tf_view: TfView::Both,
             show_bkg: true,
             show_re: false,
             fit_view: FitView::Both,
+            fit_step: fit_workspace::FitStep::Structure,
+            fit_model_tab: 0,
+            fit_result_tab: 0,
             fit_show_paths: true,
             fit_show_re: false,
-            fit_show_feff: false,
+            fit_show_im: false,
             fit_show_batch: false,
             series_space: crate::app::SeriesSpace::Energy,
         }
@@ -295,6 +322,7 @@ impl StudioApp {
         self.stage = stage;
         self.set_workspace(stage.workspace(), cx);
         if previous != stage {
+            self.view.show_kwin = stage == Stage::Transform;
             self.stage_view_changed(cx);
         }
     }
@@ -302,7 +330,7 @@ impl StudioApp {
     /// Stage view options feed the explore plot builders; changing them
     /// rebuilds the plots and re-syncs the drag handles.
     pub(crate) fn stage_view_changed(&mut self, cx: &mut Context<Self>) {
-        self.view.show_kwin = self.stage == Stage::Transform;
+        self.stage_view.thumbnail_focus = None;
         self.invalidate_explore_plots(cx);
         self.sync_handles(cx);
         cx.notify();
@@ -312,16 +340,17 @@ impl StudioApp {
     pub(crate) fn shell_root(&mut self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
         let center = match self.stage {
-            Stage::Fit => self.fit_stage_center(cx).into_any_element(),
+            Stage::Fit => self.fit_workspace(cx).into_any_element(),
             Stage::Series => self.series_stage_center(cx).into_any_element(),
+            Stage::Publish => self.publish_panel(cx),
             _ => self.stage_center(cx).into_any_element(),
         };
         let groups = self
             .data_panel_open
             .then(|| self.groups_panel(cx).into_any_element());
-        let inspector = self
-            .context_panel_open
-            .then(|| self.inspector(cx).into_any_element());
+        let inspector = (self.context_panel_open
+            && !matches!(self.stage, Stage::Fit | Stage::Publish))
+        .then(|| self.inspector(cx).into_any_element());
         div()
             .size_full()
             .min_h_0()
@@ -364,6 +393,8 @@ impl StudioApp {
             )
             .child(self.status_bar(cx))
             .children(self.palette_overlay(cx))
+            .children(self.parameter_menu_overlay(cx))
+            .children(self.parameter_context_overlay(cx))
     }
 
     /// Brand · project · actions (open folder / project, theme).
@@ -458,6 +489,9 @@ impl StudioApp {
             }))
             .child(action("save-project", "Save project", |this, cx| {
                 this.save_project(cx)
+            }))
+            .child(action("assistant-window", "Assistant", |this, cx| {
+                this.open_assistant(cx)
             }))
             .child(action("theme-toggle", "Theme", |this, cx| {
                 this.toggle_theme(cx)

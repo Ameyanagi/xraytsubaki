@@ -1,0 +1,18 @@
+{
+ "key": "moo3",
+ "name": "α-MoO₃",
+ "formula": "Mo O3",
+ "sg_number": 62,
+ "sg": "P b n m",
+ "category": "oxide",
+ "source": "COD",
+ "id": "cod-9014987",
+ "url": "https://www.crystallography.net/cod/9014987.html",
+ "year": "2009",
+ "journal": "Powder Diffraction",
+ "authors": "Sitepu, H.",
+ "doi": "10.1154/1.3257906",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

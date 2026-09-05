@@ -1,0 +1,18 @@
+{
+ "key": "nacl_halite",
+ "name": "NaCl halite",
+ "formula": "Cl Na",
+ "sg_number": 225,
+ "sg": "F m -3 m",
+ "category": "other",
+ "source": "COD",
+ "id": "cod-7132177",
+ "url": "https://www.crystallography.net/cod/7132177.html",
+ "year": "2023",
+ "journal": "Chemical communications (Cambridge, England)",
+ "authors": "Mettler, Marie; Dewandre, Adrien; Tumanov, Nikolay; Wouters, Johan; Septavaux, Jean",
+ "doi": "10.1039/d3cc03727d",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

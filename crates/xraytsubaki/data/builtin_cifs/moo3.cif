@@ -1,0 +1,73 @@
+#------------------------------------------------------------------------------
+#$Date: 2024-05-23 12:45:01 +0300 (Thu, 23 May 2024) $
+#$Revision: 292002 $
+#$URL: file:///home/coder/svn-repositories/_RELOADED_COD/cod-reloaded/cif/9/01/49/9014987.cif $
+#------------------------------------------------------------------------------
+#
+# This file is available in the Crystallography Open Database (COD),
+# http://www.crystallography.net/. The original data for this entry
+# were provided the American Mineralogist Crystal Structure Database,
+# http://rruff.geo.arizona.edu/AMS/amcsd.php
+#
+# The file may be used within the scientific community so long as
+# proper attribution is given to the journal article from which the
+# data were obtained.
+#
+data_9014987
+loop_
+_publ_author_name
+'Sitepu, H.'
+_publ_section_title
+;
+ Texture and structural refinement using neutron diffraction data from
+ molybdite (MoO3) and calcite (CaCO3) powders and a Ni-rich Ni50.7Ti49.30 alloy
+ Note: March model
+;
+_journal_name_full               'Powder Diffraction'
+_journal_page_first              315
+_journal_page_last               326
+_journal_paper_doi               10.1154/1.3257906
+_journal_volume                  24
+_journal_year                    2009
+_chemical_compound_source        Synthetic
+_chemical_formula_sum            'Mo O3'
+_chemical_name_mineral           Molybdite
+_space_group_IT_number           62
+_symmetry_space_group_name_Hall  '-P 2c 2ab'
+_symmetry_space_group_name_H-M   'P b n m'
+_cell_angle_alpha                90
+_cell_angle_beta                 90
+_cell_angle_gamma                90
+_cell_length_a                   3.9624
+_cell_length_b                   13.860
+_cell_length_c                   3.6971
+_cell_formula_units_Z            4
+_cell_volume                     203.041
+_database_code_amcsd             0018893
+_exptl_crystal_density_diffrn    4.709
+_cod_database_code               9014987
+loop_
+_space_group_symop_operation_xyz
+x,y,z
+x,y,1/2-z
+-x,-y,1/2+z
+1/2+x,1/2-y,1/2+z
+1/2-x,1/2+y,1/2-z
+1/2-x,1/2+y,z
+1/2+x,1/2-y,-z
+-x,-y,-z
+loop_
+_atom_site_label
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_U_iso_or_equiv
+Mo 0.08503 0.10133 0.25000 0.00600
+O1 0.03480 0.22120 0.25000 0.01300
+O2 0.52110 0.08807 0.25000 0.00900
+O3 0.50190 0.43610 0.25000 0.00700
+loop_
+_cod_related_entry_id
+_cod_related_entry_database
+_cod_related_entry_code
+1 AMCSD 0018893

@@ -1,0 +1,18 @@
+{
+ "key": "nis_millerite",
+ "name": "NiS millerite",
+ "formula": "Ni S",
+ "sg_number": 160,
+ "sg": "R 3 m :H",
+ "category": "sulfide",
+ "source": "COD",
+ "id": "cod-5000114",
+ "url": "https://www.crystallography.net/cod/5000114.html",
+ "year": "1974",
+ "journal": "Canadian Mineralogist",
+ "authors": "Rajamani, V; Prewitt, C T",
+ "doi": null,
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

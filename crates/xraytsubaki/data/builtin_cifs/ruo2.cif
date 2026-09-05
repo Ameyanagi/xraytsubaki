@@ -1,0 +1,136 @@
+#------------------------------------------------------------------------------
+#$Date: 2025-01-08 15:19:01 +0200 (Wed, 08 Jan 2025) $
+#$Revision: 297224 $
+#$URL: file:///home/coder/svn-repositories/_RELOADED_COD/cod-reloaded/cif/1/54/88/1548818.cif $
+#------------------------------------------------------------------------------
+#
+# This file is available in the Crystallography Open Database (COD),
+# http://www.crystallography.net/
+#
+# All data on this site have been placed in the public domain by the
+# contributors.
+#
+data_1548818
+loop_
+_publ_author_name
+'Zhao, Qing'
+'Kulik, Heather J.'
+_publ_section_title
+;
+ Where Does the Density Localize in the Solid State? Divergent Behavior
+ for Hybrids and DFT+U
+;
+_journal_coden_ASTM              JCTCCE
+_journal_issue                   2
+_journal_name_full               'Journal of Chemical Theory and Computation'
+_journal_page_first              670
+_journal_page_last               683
+_journal_paper_doi               10.1021/acs.jctc.7b01061
+_journal_volume                  14
+_journal_year                    2018
+_chemical_formula_structural     'Ru O2'
+_chemical_formula_sum            'O2 Ru'
+_chemical_name_structure_type    Rutile-TiO2
+_chemical_name_systematic        'Ruthenium(IV) oxide'
+_space_group_IT_number           136
+_symmetry_Int_Tables_number      136
+_symmetry_space_group_name_Hall  '-P 4n 2n'
+_symmetry_space_group_name_H-M   'P 42/m n m'
+_audit_creation_date             1986-09-26
+_cell_angle_alpha                90.
+_cell_angle_beta                 90.
+_cell_angle_gamma                90.
+_cell_formula_units_Z            2
+_cell_length_a                   4.4919(8)
+_cell_length_b                   4.4919(8)
+_cell_length_c                   3.1066(7)
+_cell_volume                     62.68(2)
+_exptl_crystal_density_diffrn    7.05
+_refine_ls_R_factor_all          0.071
+_cod_data_source_file            RuO2.cif
+_cod_data_source_block           15071-ICSD
+_cod_original_cell_volume        62.68
+_cod_original_formula_sum        'O2 Ru1'
+_cod_database_code               1548818
+_amcsd_formula_title             RuO2
+loop_
+_symmetry_equiv_pos_site_id
+_space_group_symop_operation_xyz
+1 '-y+1/2, x+1/2, -z+1/2'
+2 'y+1/2, -x+1/2, -z+1/2'
+3 'y, x, -z'
+4 '-y, -x, -z'
+5 'y+1/2, -x+1/2, z+1/2'
+6 '-y+1/2, x+1/2, z+1/2'
+7 '-y, -x, z'
+8 'y, x, z'
+9 'x+1/2, -y+1/2, -z+1/2'
+10 '-x+1/2, y+1/2, -z+1/2'
+11 'x, y, -z'
+12 '-x, -y, -z'
+13 '-x+1/2, y+1/2, z+1/2'
+14 'x+1/2, -y+1/2, z+1/2'
+15 '-x, -y, z'
+16 'x, y, z'
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_symmetry_multiplicity
+_atom_site_Wyckoff_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_B_iso_or_equiv
+_atom_site_occupancy
+_atom_site_attached_hydrogens
+Ru1 Ru4+ 2 a 0 0 0 0.384 1. 0
+O1 O2- 4 f 0.3058(16) 0.3058(16) 0 0.517 1. 0
+loop_
+_atom_type_symbol
+_atom_type_oxidation_number
+Ru4+ 4
+O2- -2
+loop_
+_citation_author_citation_id
+_citation_author_name
+primary 'Boman, Carl-Erik'
+primary 'Danielsen, Jacob'
+primary 'Haaland, Arne'
+primary 'Jerslev, Bodil'
+primary 'Sch\"affer, Claus Erik'
+primary 'Sunde, Erling'
+primary 'S\/orensen, Nils Andreas'
+loop_
+_citation_id
+_citation_journal_full
+_citation_year
+_citation_journal_volume
+_citation_page_first
+_citation_page_last
+_citation_journal_id_ASTM
+_citation_doi
+_citation_title
+_citation_coordinate_linkage
+primary 'Acta Chemica Scandinavica (1-27,1973-42,1988)' 1970 24 116 122 ACSAA4
+10.3891/acta.chem.scand.24-0116
+;
+ Refinement of the Crystal Structure of Ruthenium Dioxide
+;
+yes
+loop_
+_cod_changelog_entry_id
+_cod_changelog_entry_author
+_cod_changelog_entry_date
+_cod_changelog_entry_text
+1 'Vaitkus, Antanas' 2025-01-08T15:17:04+02:00
+;
+ Updated bibliographic information. Added more details to the CITATION data
+ loop.
+;
+loop_
+_cod_related_entry_id
+_cod_related_entry_database
+_cod_related_entry_code
+_cod_related_entry_description
+1 AMCSD 0009414 'Similar (same?) structure from different publication'
+2 Wikidata Q417022 'ruthenium(IV) oxide'

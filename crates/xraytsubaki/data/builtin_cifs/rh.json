@@ -1,0 +1,18 @@
+{
+ "key": "rh",
+ "name": "Rhodium",
+ "formula": "Rh",
+ "sg_number": 225,
+ "sg": "F m -3 m",
+ "category": "metal",
+ "source": "COD",
+ "id": "cod-2100454",
+ "url": "https://www.crystallography.net/cod/2100454.html",
+ "year": "2006",
+ "journal": "Acta Crystallographica Section B",
+ "authors": "E. G. Moshopoulou; R. M. Ibberson; J. L. Sarrao; J. D. Thompson; Z. Fisk",
+ "doi": "10.1107/S0108768106003314",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

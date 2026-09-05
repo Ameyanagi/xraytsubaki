@@ -1,0 +1,248 @@
+{
+  "description": "Measured Cu 150 K and Ni room-temperature metal foils, default GUI processing and fit settings, curated fcc structures, fresh identical 8 angstrom calculations per backend.",
+  "refeff_version": "0.2.0",
+  "feff_rs_feff10_version": "0.2.2",
+  "measurement_source_commit": "d8678dd666fd95839fe9dc71b4dbe8bedec278ff",
+  "measurement_sources": {
+    "Cu": "https://github.com/xraypy/xraylarch/blob/d8678dd666fd95839fe9dc71b4dbe8bedec278ff/examples/xafsdata/cu_150k.xmu",
+    "Ni": "https://github.com/xraypy/xraylarch/blob/d8678dd666fd95839fe9dc71b4dbe8bedec278ff/examples/xafsdata/ni_metal_rt.xdi"
+  },
+  "structures": {
+    "Cu": {
+      "COD": "4105681",
+      "a_angstrom": 3.61538
+    },
+    "Ni": {
+      "COD": "2100637",
+      "a_angstrom": 3.5451
+    }
+  },
+  "acceptance": {
+    "converged": true,
+    "r_factor_below": 0.02,
+    "backend_r_factor_difference_below": 5e-05,
+    "backend_parameter_difference_fraction_of_smaller_stderr_below": 0.05
+  },
+  "results": [
+    {
+      "element": "Cu",
+      "data": "cu_150k.xmu",
+      "backend": "refeff",
+      "cluster_radius_angstrom": 8.0,
+      "cluster_atoms": 177,
+      "generated_paths": 62,
+      "selected_paths": 1,
+      "ranges": {
+        "kmin": 2.0,
+        "kmax": 12.0,
+        "rmin": 1.0,
+        "rmax": 3.0,
+        "kweight": 2.0,
+        "kweights": [
+          1.0,
+          2.0,
+          3.0
+        ],
+        "fitspace": "R",
+        "noise": false
+      },
+      "r_factor": 0.008134662261555708,
+      "solver": {
+        "method": "TrustRegionDogLeg",
+        "converged": true,
+        "termination": "Cost tolerance reached",
+        "iterations": 8,
+        "evaluations": null,
+        "initial_cost": 1.6687508234794903,
+        "final_cost": 0.022002609786078285
+      },
+      "parameters": [
+        {
+          "name": "dr_1",
+          "value": -0.006845196302899237,
+          "stderr": 0.003802763456910428
+        },
+        {
+          "name": "e0",
+          "value": 6.076892695630427,
+          "stderr": 0.5851790731564077
+        },
+        {
+          "name": "s02",
+          "value": 0.8660434497239358,
+          "stderr": 0.06471250764828637
+        },
+        {
+          "name": "ss_1",
+          "value": 0.005131827632970182,
+          "stderr": 0.0006322046269515518
+        }
+      ]
+    },
+    {
+      "element": "Cu",
+      "data": "cu_150k.xmu",
+      "backend": "feffrs",
+      "cluster_radius_angstrom": 8.0,
+      "cluster_atoms": 177,
+      "generated_paths": 62,
+      "selected_paths": 1,
+      "ranges": {
+        "kmin": 2.0,
+        "kmax": 12.0,
+        "rmin": 1.0,
+        "rmax": 3.0,
+        "kweight": 2.0,
+        "kweights": [
+          1.0,
+          2.0,
+          3.0
+        ],
+        "fitspace": "R",
+        "noise": false
+      },
+      "r_factor": 0.008148271886777254,
+      "solver": {
+        "method": "TrustRegionDogLeg",
+        "converged": true,
+        "termination": "Cost tolerance reached",
+        "iterations": 8,
+        "evaluations": null,
+        "initial_cost": 1.668743105821349,
+        "final_cost": 0.02203942105905512
+      },
+      "parameters": [
+        {
+          "name": "dr_1",
+          "value": -0.006852222464081566,
+          "stderr": 0.0038037439286541437
+        },
+        {
+          "name": "e0",
+          "value": 6.075743900187713,
+          "stderr": 0.5852437614156465
+        },
+        {
+          "name": "s02",
+          "value": 0.8659458070960555,
+          "stderr": 0.06475664858926941
+        },
+        {
+          "name": "ss_1",
+          "value": 0.005130954371943458,
+          "stderr": 0.0006326935094461451
+        }
+      ]
+    },
+    {
+      "element": "Ni",
+      "data": "ni_metal_rt.xdi",
+      "backend": "refeff",
+      "cluster_radius_angstrom": 8.0,
+      "cluster_atoms": 201,
+      "generated_paths": 65,
+      "selected_paths": 1,
+      "ranges": {
+        "kmin": 2.0,
+        "kmax": 12.0,
+        "rmin": 1.0,
+        "rmax": 3.0,
+        "kweight": 2.0,
+        "kweights": [
+          1.0,
+          2.0,
+          3.0
+        ],
+        "fitspace": "R",
+        "noise": false
+      },
+      "r_factor": 0.0028718801523413594,
+      "solver": {
+        "method": "TrustRegionDogLeg",
+        "converged": true,
+        "termination": "Cost tolerance reached",
+        "iterations": 9,
+        "evaluations": null,
+        "initial_cost": 4.05881491936764,
+        "final_cost": 0.0065897627637747595
+      },
+      "parameters": [
+        {
+          "name": "dr_1",
+          "value": -0.025857858748706226,
+          "stderr": 0.002632326028962333
+        },
+        {
+          "name": "e0",
+          "value": 7.6470390025395245,
+          "stderr": 0.4035423150248256
+        },
+        {
+          "name": "s02",
+          "value": 0.7929588172622318,
+          "stderr": 0.03537441118853658
+        },
+        {
+          "name": "ss_1",
+          "value": 0.006054179033203687,
+          "stderr": 0.0004054607286262135
+        }
+      ]
+    },
+    {
+      "element": "Ni",
+      "data": "ni_metal_rt.xdi",
+      "backend": "feffrs",
+      "cluster_radius_angstrom": 8.0,
+      "cluster_atoms": 201,
+      "generated_paths": 65,
+      "selected_paths": 1,
+      "ranges": {
+        "kmin": 2.0,
+        "kmax": 12.0,
+        "rmin": 1.0,
+        "rmax": 3.0,
+        "kweight": 2.0,
+        "kweights": [
+          1.0,
+          2.0,
+          3.0
+        ],
+        "fitspace": "R",
+        "noise": false
+      },
+      "r_factor": 0.0028870839582017535,
+      "solver": {
+        "method": "TrustRegionDogLeg",
+        "converged": true,
+        "termination": "Cost tolerance reached",
+        "iterations": 9,
+        "evaluations": null,
+        "initial_cost": 4.0587879118237336,
+        "final_cost": 0.006624649133822201
+      },
+      "parameters": [
+        {
+          "name": "dr_1",
+          "value": -0.025896569064461146,
+          "stderr": 0.002632852156837949
+        },
+        {
+          "name": "e0",
+          "value": 7.640139898412165,
+          "stderr": 0.4033255740232342
+        },
+        {
+          "name": "s02",
+          "value": 0.792896297104804,
+          "stderr": 0.035465897452976874
+        },
+        {
+          "name": "ss_1",
+          "value": 0.006053553854801859,
+          "stderr": 0.0004065246428194847
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+ "key": "cos2_cattierite",
+ "name": "CoS₂ cattierite",
+ "formula": "Co S2",
+ "sg_number": 205,
+ "sg": "P a -3",
+ "category": "sulfide",
+ "source": "COD",
+ "id": "cod-9007682",
+ "url": "https://www.crystallography.net/cod/9007682.html",
+ "year": "1991",
+ "journal": "Acta Crystallographica, Section B",
+ "authors": "Nowack, E.; Schwarzenbach, D.; Hahn, T.",
+ "doi": "10.1107/S0108768191004871",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

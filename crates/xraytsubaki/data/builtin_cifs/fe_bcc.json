@@ -1,0 +1,18 @@
+{
+ "key": "fe_bcc",
+ "name": "α-Iron (bcc)",
+ "formula": "Fe",
+ "sg_number": 229,
+ "sg": "I m -3 m",
+ "category": "metal",
+ "source": "COD",
+ "id": "cod-7204904",
+ "url": "https://www.crystallography.net/cod/7204904.html",
+ "year": "2004",
+ "journal": "J. Mater. Chem.",
+ "authors": "Laura León-Reina; Enrique R. Losilla; María Martínez-Lara; Sebastián Bruque; Miguel A. G. Aranda",
+ "doi": "10.1039/b315257j",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

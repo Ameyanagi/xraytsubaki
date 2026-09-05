@@ -1,0 +1,18 @@
+{
+ "key": "cr2o3_eskolaite",
+ "name": "Cr₂O₃ eskolaite",
+ "formula": "Cr2 O3",
+ "sg_number": 167,
+ "sg": "R -3 c",
+ "category": "oxide",
+ "source": "COD",
+ "id": "cod-2104122",
+ "url": "https://www.crystallography.net/cod/2104122.html",
+ "year": "2008",
+ "journal": "Acta Crystallographica Section B",
+ "authors": "Yang, J.",
+ "doi": "10.1107/S0108768108005739",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427",
+ "note": ""
+}

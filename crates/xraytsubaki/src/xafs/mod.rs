@@ -39,6 +39,7 @@ pub mod normalization;
 #[cfg(not(feature = "ndarray-compat"))]
 pub mod normalization;
 pub mod nshare;
+pub mod structure;
 pub mod tools;
 #[cfg(feature = "ndarray-compat")]
 #[path = "xafsutils_ndarray.rs"]

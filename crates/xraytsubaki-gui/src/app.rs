@@ -32,8 +32,8 @@ use xraytsubaki::prelude::XASSpectrum;
 use rayon::prelude::*;
 
 use xraytsubaki::prelude::FeffFitResult;
-use xraytsubaki::xafs::fitting::template::{apply_template, ParameterTemplate};
-use xraytsubaki::xafs::structure::{rank_paths, select_default, shells_of, PathInfo};
+use xraytsubaki::xafs::fitting::template::ParameterTemplate;
+use xraytsubaki::xafs::structure::{PathInfo, rank_paths, select_default, shells_of};
 
 use crate::catalog::{Catalog, ScanEvent, index_cache_path, load_index, start_scan, write_index};
 use crate::fitting::expr_identifiers;
@@ -760,9 +760,6 @@ pub(crate) struct FitPathRow {
     pub(crate) spec: FitPathSpec,
     pub(crate) meta: Option<PathMeta>,
     pub(crate) fields: Vec<(PathParam, Entity<TextInput>)>,
-    /// Collapsed rows show one metadata line; expanding reveals the
-    /// parameter-expression cells.
-    pub(crate) expanded: bool,
     /// Cumulant / lifetime cells shown.
     pub(crate) more: bool,
 }
@@ -897,14 +894,14 @@ pub struct StudioApp {
     pub(crate) fit_template: ParameterTemplate,
     pub(crate) fit_template_dirty: bool,
     pub(crate) fit_template_notes: Vec<String>,
-    /// Guided Fit flow: which of the four setup steps are expanded.
-    pub(crate) fit_steps_open: [bool; 4],
     fit_vars: Vec<FitVar>,
     fit_range_fields: Vec<(RangeKey, Entity<NumericField>)>,
     fit_ranges: FitRanges,
     /// Completed fits, oldest first (Artemis' history); results of this
     /// session's fits are kept for re-display.
     fit_history: Vec<FitHistoryEntry>,
+    joint: shell::joint_fit::JointState,
+    fit_preview: shell::fit_preview::FitPreviewState,
     fit_history_results: BTreeMap<usize, Arc<FeffFitResult>>,
     fit_history_selected: Option<usize>,
     fit_result: Option<Arc<FeffFitResult>>,
@@ -912,6 +909,7 @@ pub struct StudioApp {
     fit_plots: Option<FitPlots>,
     fit_gen: u64,
     fit_running: bool,
+    fit_error: Option<String>,
     last_fit_duration: Option<Duration>,
     feff_workspace: Option<PathBuf>,
     pub(crate) structure: shell::structure_view::StructureState,
@@ -919,6 +917,7 @@ pub struct StudioApp {
     feff_gen: u64,
     /// Batch-fit rows with scan-parameter and fit-model provenance.
     batch_fit: Option<BatchFitData>,
+    batch_table_scroll: gpui::ScrollHandle,
     /// False is the default full-scan scope; true opts into the overview sample.
     batch_preview: bool,
     batch_running: bool,
@@ -1506,7 +1505,8 @@ mod keybinding_tests {
 }
 
 fn default_data_file() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../xraytsubaki/tests/testfiles/Ru_QAS.dat")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../xraytsubaki/tests/testfiles/xraylarch_d867/xafsdata/cu_150k.xmu")
 }
 
 fn default_for(param: PathParam) -> f64 {
@@ -1537,10 +1537,18 @@ impl StudioApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let initial_project = initial_open
+            .as_ref()
+            .filter(|path| {
+                path.extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("xtproj"))
+            })
+            .cloned();
         let initial_dir = initial_open.as_ref().filter(|p| p.is_dir()).cloned();
-        let path = match initial_dir {
-            Some(_) => default_data_file(),
-            None => initial_open.unwrap_or_else(default_data_file),
+        let path = if initial_dir.is_some() || initial_project.is_some() {
+            default_data_file()
+        } else {
+            initial_open.unwrap_or_else(default_data_file)
         };
         let label: SharedString = path
             .file_name()
@@ -1652,11 +1660,12 @@ impl StudioApp {
             fit_template: ParameterTemplate::default(),
             fit_template_dirty: false,
             fit_template_notes: Vec::new(),
-            fit_steps_open: [true, false, false, false],
             fit_vars: Vec::new(),
             fit_range_fields: Vec::new(),
             fit_ranges: FitRanges::default(),
             fit_history: Vec::new(),
+            joint: Default::default(),
+            fit_preview: Default::default(),
             fit_history_results: BTreeMap::new(),
             fit_history_selected: None,
             fit_result: None,
@@ -1664,11 +1673,13 @@ impl StudioApp {
             fit_plots: None,
             fit_gen: 0,
             fit_running: false,
+            fit_error: None,
             last_fit_duration: None,
             feff_workspace: None,
             feff_running: false,
             feff_gen: 0,
             batch_fit: None,
+            batch_table_scroll: gpui::ScrollHandle::new(),
             batch_preview: false,
             batch_running: false,
             batch_progress: (0, 0),
@@ -1788,6 +1799,17 @@ impl StudioApp {
         app.structure_search(cx);
         if let Ok(file) = std::env::var("XTS_IMPORT_CIF") {
             app.structure_import_cif_path(PathBuf::from(file), cx);
+        }
+        if let Some(path) = initial_project {
+            match crate::project::load(&path) {
+                Ok(project) => app.apply_project(project, cx),
+                Err(error) => {
+                    app.status =
+                        format!("failed to open project {}: {error}", path.display()).into();
+                    app.record_job_error(path.display().to_string(), error);
+                }
+            }
+            return app;
         }
         match process_file(&path, &app.params) {
             Ok(sp) => {
@@ -1965,6 +1987,14 @@ impl StudioApp {
 
     fn fit_model_fingerprint(&self) -> u64 {
         let mut hasher = DefaultHasher::new();
+        if self.joint.config.enabled {
+            serde_json::to_vec(&self.joint.config)
+                .unwrap_or_default()
+                .hash(&mut hasher);
+            for d in &self.joint.config.datasets {
+                self.joint_params(&d.file).fingerprint().hash(&mut hasher);
+            }
+        }
         for row in &self.fit_paths {
             row.spec.file.hash(&mut hasher);
             row.spec.label.hash(&mut hasher);
@@ -1989,6 +2019,7 @@ impl StudioApp {
         self.fit_ranges.kmax.to_bits().hash(&mut hasher);
         self.fit_ranges.rmin.to_bits().hash(&mut hasher);
         self.fit_ranges.rmax.to_bits().hash(&mut hasher);
+        self.fit_ranges.follow_transform.hash(&mut hasher);
         self.fit_ranges.kweight.to_bits().hash(&mut hasher);
         for kw in &self.fit_ranges.kweights {
             kw.to_bits().hash(&mut hasher);
@@ -2002,6 +2033,10 @@ impl StudioApp {
         let Some(provenance) = &self.fit_provenance else {
             return false;
         };
+        if self.joint.result_config.is_some() {
+            return !self.joint.config.enabled
+                || provenance.model_fingerprint != self.fit_model_fingerprint();
+        }
         self.spectrum.is_none()
             || provenance.label != self.spectrum_label
             || provenance.path != self.current_path
@@ -3480,7 +3515,12 @@ impl StudioApp {
     fn rebuild_explore_plots(&mut self, cx: &mut Context<Self>) {
         // Stage-dependent view flags (also correct on a scripted first launch).
         self.view.flat = self.stage_view.e_quantity == shell::EQuantity::Flat;
-        self.view.show_re = self.stage_view.show_re;
+        self.view.show_re = if self.stage == Stage::Fit {
+            self.stage_view.fit_show_re
+        } else {
+            self.stage_view.show_re
+        };
+        self.view.show_im = self.stage == Stage::Fit && self.stage_view.fit_show_im;
         self.view.show_bkg = self.stage_view.show_bkg && self.stage == Stage::Background;
         let (indices, total) = self.compare_indices();
         let mut traces: Vec<QuadTrace> = Vec::new();
@@ -3510,7 +3550,9 @@ impl StudioApp {
                 active: true,
             });
         }
-        if self.stage_view.scope == shell::PlotScope::Current && traces.iter().any(|t| t.active) {
+        if (self.stage == Stage::Fit || self.stage_view.scope == shell::PlotScope::Current)
+            && traces.iter().any(|t| t.active)
+        {
             traces.retain(|t| t.active);
         }
         if total > MAX_OVERLAY && self.stage_view.scope == shell::PlotScope::Marked {
@@ -3594,6 +3636,9 @@ impl StudioApp {
             field.update(cx, |f, cx| f.set_theme(theme, cx));
         }
         for (_, field) in &self.fit_range_fields {
+            field.update(cx, |f, cx| f.set_theme(theme, cx));
+        }
+        for (_, field) in self.joint.fields.values() {
             field.update(cx, |f, cx| f.set_theme(theme, cx));
         }
         for var in &self.fit_vars {
@@ -4298,6 +4343,9 @@ impl StudioApp {
     /// the result is dropped if the selection moved on before it arrived.
     fn update_import_preview(&mut self, cx: &mut Context<Self>) {
         let path = self.current_path.clone();
+        // Metadata must never describe the previously selected file while the
+        // next preview is loading (the structure library follows this hint).
+        self.import_preview = None;
         if path.as_os_str().is_empty() {
             self.import_preview = None;
             self.import_preview_error = "no preview".into();
@@ -4341,10 +4389,10 @@ impl StudioApp {
         cx: &mut Context<Self>,
     ) -> Vec<(RangeKey, Entity<NumericField>)> {
         let specs: [(RangeKey, &str, f64); 5] = [
-            (RangeKey::Kmin, "k min", ranges.kmin),
-            (RangeKey::Kmax, "k max", ranges.kmax),
-            (RangeKey::Rmin, "R min", ranges.rmin),
-            (RangeKey::Rmax, "R max", ranges.rmax),
+            (RangeKey::Kmin, "k min (Å⁻¹)", ranges.kmin),
+            (RangeKey::Kmax, "k max (Å⁻¹)", ranges.kmax),
+            (RangeKey::Rmin, "R min (Å)", ranges.rmin),
+            (RangeKey::Rmax, "R max (Å)", ranges.rmax),
             (RangeKey::Kweight, "k-weight", ranges.kweight),
         ];
         specs
@@ -4526,6 +4574,7 @@ impl StudioApp {
                     }
                     app.refresh_path_infos();
                     app.fit_model_changed(cx);
+                    app.set_fit_step(shell::fit_workspace::FitStep::Paths, cx);
                 })
                 .ok();
             }
@@ -4537,6 +4586,9 @@ impl StudioApp {
     /// the path is selected. Every parameter cell accepts a number or an
     /// expression.
     fn push_fit_path(&mut self, file: PathBuf, cx: &mut Context<Self>) {
+        if self.fit_paths.iter().any(|p| p.spec.file == file) {
+            return;
+        }
         let spec = FitPathSpec::blank(file);
         self.add_path_row(spec, cx);
     }
@@ -4561,22 +4613,22 @@ impl StudioApp {
                 })
             })
             .collect();
-        self.fit_path_infos = rank_paths(&dats);
-    }
-
-    /// Default selection after a FEFF run: single-scattering shells inside
-    /// the fit R range with real amplitude (falls back to the first shell).
-    pub(crate) fn apply_default_selection(&mut self) {
-        let mut sel = select_default(&self.fit_path_infos, self.fit_ranges.rmax);
-        if sel.is_empty() {
-            let shells = shells_of(&self.fit_path_infos);
-            if let Some(first) = shells.first() {
-                sel = first.paths.clone();
+        self.fit_path_infos.clear();
+        for source in self.path_sources() {
+            let ids: Vec<_> = self
+                .fit_paths
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| p.spec.file.parent() == Some(source.as_path()))
+                .map(|(i, _)| i)
+                .collect();
+            let local: Vec<_> = ids.iter().map(|&i| dats[i].clone()).collect();
+            for mut info in rank_paths(&local) {
+                info.index = ids[info.index];
+                self.fit_path_infos.push(info);
             }
         }
-        for (i, row) in self.fit_paths.iter_mut().enumerate() {
-            row.spec.enabled = sel.contains(&i);
-        }
+        self.fit_path_infos.sort_by_key(|p| p.index);
     }
 
     /// Selected paths, as ranked summaries.
@@ -4601,10 +4653,20 @@ impl StudioApp {
     /// Rebuild the variables and every path's parameter cells from the
     /// chosen template and the current selection.
     pub(crate) fn apply_fit_template(&mut self, cx: &mut Context<Self>) {
+        self.apply_fit_template_from(0, cx);
+    }
+
+    fn apply_fit_template_from(&mut self, first_new: usize, cx: &mut Context<Self>) {
         let selected = self.selected_path_infos();
-        let result = apply_template(self.fit_template, &selected);
-        self.fit_vars.clear();
+        let specs: Vec<_> = self.fit_paths.iter().map(|p| p.spec.clone()).collect();
+        let result = crate::fitting::source_template(self.fit_template, &selected, &specs);
+        if first_new == 0 {
+            self.fit_vars.clear();
+        }
         for v in &result.variables {
+            if first_new > 0 && self.fit_vars.iter().any(|old| old.spec.name == v.name) {
+                continue;
+            }
             self.ensure_fit_var(&v.name, v.value, cx);
             if let Some(var) = self.fit_vars.iter_mut().find(|x| x.spec.name == v.name) {
                 var.spec.vary = v.vary;
@@ -4625,6 +4687,9 @@ impl StudioApp {
             }
         }
         for (i, row) in self.fit_paths.iter_mut().enumerate() {
+            if i < first_new {
+                continue;
+            }
             match result.assignments.iter().find(|a| a.index == i) {
                 Some(a) => {
                     row.spec.s02 = a.s02.clone();
@@ -4647,73 +4712,10 @@ impl StudioApp {
             }
         }
         self.fit_template_notes = result.notes;
-        self.fit_template_dirty = false;
-        self.fit_model_changed(cx);
-    }
-
-    /// Guided-flow status of setup step `step` (0 structure, 1 paths,
-    /// 2 parameters, 3 settings): done flag and a one-line summary.
-    pub(crate) fn fit_step_status(&self, step: usize) -> (bool, String) {
-        match step {
-            0 => {
-                if let Some(c) = &self.structure.core_cluster {
-                    let shells = c.shells(0.01).len();
-                    (
-                        true,
-                        format!("{} · {} atoms · {shells} shells", c.structure_title, c.atoms.len()),
-                    )
-                } else if let Some(s) = &self.structure.summary {
-                    (false, format!("{} — generate paths", s.hit.name))
-                } else if self.feff_workspace.is_some() && !self.fit_paths.is_empty() {
-                    (true, format!("{} paths from feff.inp", self.fit_paths.len()))
-                } else {
-                    (false, "choose a structure".into())
-                }
-            }
-            1 => {
-                let total = self.fit_paths.len();
-                if total == 0 {
-                    return (false, "no paths yet".into());
-                }
-                let selected = self.selected_path_infos();
-                let shells: std::collections::BTreeSet<usize> =
-                    selected.iter().filter(|p| p.shell > 0).map(|p| p.shell).collect();
-                (
-                    !selected.is_empty(),
-                    format!(
-                        "{} selected / {total} · {} shell{}",
-                        selected.len(),
-                        shells.len(),
-                        if shells.len() == 1 { "" } else { "s" }
-                    ),
-                )
-            }
-            2 => {
-                let n = self.fit_vars.len();
-                let vary = self.fit_vars.iter().filter(|v| v.spec.vary && v.spec.expr.is_none()).count();
-                let edited = if self.fit_template_dirty { " · edited" } else { "" };
-                (
-                    n > 0,
-                    format!("{n} variables ({vary} guess) · {}{edited}", self.fit_template.label()),
-                )
-            }
-            _ => {
-                let r = &self.fit_ranges;
-                let kws: Vec<String> = r.effective_kweights().iter().map(|k| format!("{k:.0}")).collect();
-                (
-                    true,
-                    format!(
-                        "k {:.1}–{:.1} · R {:.1}–{:.1} · kw {} · {} space",
-                        r.kmin,
-                        r.kmax,
-                        r.rmin,
-                        r.rmax,
-                        kws.join(","),
-                        r.fitspace.label()
-                    ),
-                )
-            }
+        if first_new == 0 {
+            self.fit_template_dirty = false;
         }
+        self.fit_model_changed(cx);
     }
 
     /// Materialize a path spec into a row with editable cells.
@@ -4751,13 +4753,18 @@ impl StudioApp {
             spec,
             meta,
             fields,
-            expanded: false,
             more,
         });
     }
 
     fn run_fit_now(&mut self, cx: &mut Context<Self>) {
-        if self.fit_running {
+        if self.joint.config.enabled {
+            self.run_joint_fit_now(cx);
+            return;
+        }
+        if let Some(reason) = self.fit_blocker() {
+            self.status = reason.into();
+            cx.notify();
             return;
         }
         let Some(sp) = &self.spectrum else {
@@ -4778,12 +4785,15 @@ impl StudioApp {
             params_fingerprint: self.spectrum_fingerprint,
             model_fingerprint: self.fit_model_fingerprint(),
         };
+        self.fit_error = None;
         self.fit_running = true;
         self.status = format!("fitting {} ...", provenance.label).into();
         cx.notify();
         let paths: Vec<FitPathSpec> = self.fit_paths.iter().map(|r| r.spec.clone()).collect();
         let vars: Vec<FitVarSpec> = self.fit_vars.iter().map(|v| v.spec.clone()).collect();
-        let ranges = self.fit_ranges.clone();
+        let ranges = self
+            .fit_ranges
+            .resolved(self.joint_params(&self.spectrum_path).fft_kweight);
         let started = Instant::now();
         let history_inputs = (paths.clone(), vars.clone(), ranges.clone());
         let job = cx
@@ -4799,10 +4809,16 @@ impl StudioApp {
                 app.last_fit_duration = Some(started.elapsed());
                 match result {
                     Ok(result) => {
+                        app.joint.result_config = None;
                         app.fit_provenance = Some(provenance.clone());
                         let stale = app.fit_is_stale();
                         app.status = format!(
-                            "fit done for {}{} · R-factor {:.5} · red. chi² {:.3e}",
+                            "fit {} for {}{} · R-factor {:.5} · red. chi² {:.3e}",
+                            if result.solver_report.as_ref().is_some_and(|r| !r.converged) {
+                                "stopped"
+                            } else {
+                                "done"
+                            },
                             provenance.label,
                             if stale { " (stale)" } else { "" },
                             result.r_factor,
@@ -4811,6 +4827,9 @@ impl StudioApp {
                         .into();
                         let result = Arc::new(result);
                         app.fit_result = Some(result.clone());
+                        if app.stage_view.fit_step == shell::fit_workspace::FitStep::Model {
+                            app.set_fit_step(shell::fit_workspace::FitStep::Results, cx);
+                        }
                         app.record(
                             format!(
                                 "fit {} · R {:.4} · red. χ² {:.3e}",
@@ -4844,6 +4863,7 @@ impl StudioApp {
                         }
                     }
                     Err(e) => {
+                        app.fit_error = Some(e.to_string());
                         app.status = format!("fit failed: {e}").into();
                         app.record_job_error(format!("fit: {}", provenance.label), e.to_string());
                     }
@@ -4877,6 +4897,11 @@ impl StudioApp {
         let Some(entry) = self.fit_history.iter().find(|e| e.id == id).cloned() else {
             return;
         };
+        self.joint.config = entry.joint.clone().unwrap_or_default();
+        self.joint.fields.clear();
+        self.joint.result_config = entry.joint.clone();
+        self.joint.result_index = 0;
+        self.joint.setup = false;
         self.fit_paths.clear();
         self.fit_vars.clear();
         for spec in entry.paths {
@@ -4938,13 +4963,27 @@ impl StudioApp {
         let Some(result) = self.fit_result.clone() else {
             return;
         };
+        let result = if self.joint.result_config.is_some() {
+            Arc::new(crate::joint_fitting::result_view(
+                &result,
+                self.joint.result_index,
+            ))
+        } else {
+            result
+        };
         let v = self.stage_view;
         let highlight = self
             .structure
             .hovered
             .and_then(|i| self.fit_paths.get(i).map(|r| r.spec.label.clone()));
         let mut k_plot = build_fit_k(&result, &self.theme, v.fit_show_paths, highlight.as_deref());
-        let mut r_plot = build_fit_r(&result, &self.theme, v.fit_show_paths, v.fit_show_re);
+        let mut r_plot = build_fit_r(
+            &result,
+            &self.theme,
+            v.fit_show_paths,
+            v.fit_show_re,
+            v.fit_show_im,
+        );
         let q_plot = build_fit_q(&result, &self.theme);
         let k_res = build_fit_residual_k(&result, &self.theme);
         let r_res = build_fit_residual_r(&result, &self.theme);
@@ -5009,12 +5048,20 @@ impl StudioApp {
             return;
         }
         self.card_px.insert(key, size);
-        if key >= shell::handles::PLOT_FIT_K {
+        if (shell::fit_preview::PREVIEW_K..=shell::fit_preview::PREVIEW_Q).contains(&key) {
+            self.rebuild_fit_preview_plots(cx, false);
+        } else if key >= shell::handles::PLOT_FIT_K {
             self.rebuild_fit_plots(cx);
         } else {
             self.explore_plots_dirty = true;
-            self.invalidate_explore_plots(cx);
+            if self.stage == Stage::Fit && self.fit_plots.is_none() {
+                self.rebuild_explore_plots(cx);
+                self.explore_plots_dirty = false;
+            } else {
+                self.invalidate_explore_plots(cx);
+            }
         }
+        cx.notify();
     }
 
     /// Invisible full-size element that measures its container and feeds
@@ -5090,6 +5137,11 @@ impl StudioApp {
     /// Row/error events stream into retained state so cancellation is partial.
     fn run_batch_fit(&mut self, cx: &mut Context<Self>) {
         if self.batch_running {
+            return;
+        }
+        if let Some(reason) = self.batch_blocker() {
+            self.status = reason.into();
+            cx.notify();
             return;
         }
         let Some(scan_ix) = self.active_scan else {
@@ -5193,7 +5245,8 @@ impl StudioApp {
                         let chi = sp
                             .get_chi()
                             .ok_or_else(|| "processed spectrum has no chi(k)".to_string())?;
-                        let result = run_fit(k, chi, &paths, &vars, &ranges)?;
+                        let frame_ranges = ranges.resolved(frame_params.fft_kweight);
+                        let result = run_fit(k, chi, &paths, &vars, &frame_ranges)?;
                         Ok(BatchFitRow::from_result(*frame, *ix, &result))
                     })();
                     if job_cancel.load(Ordering::Relaxed)
@@ -5752,6 +5805,9 @@ impl StudioApp {
     /// Read the crystal form and generate a feff.inp workspace (Atoms-lite).
     /// Create a template feff.inp workspace and open it in the system editor.
     pub(crate) fn new_feff_inp(&mut self, cx: &mut Context<Self>) {
+        if self.feff_running {
+            return;
+        }
         match crate::feffgen::new_workspace() {
             Ok(dir) => {
                 let inp = dir.join("feff.inp");
@@ -5765,6 +5821,9 @@ impl StudioApp {
                 )
                 .into();
                 self.feff_workspace = Some(dir);
+                self.structure.summary = None;
+                self.structure.preview_cluster = None;
+                self.set_fit_step(shell::fit_workspace::FitStep::Calculate, cx);
             }
             Err(e) => {
                 self.status = format!("failed to create feff workspace: {e}").into();
@@ -5775,6 +5834,9 @@ impl StudioApp {
     }
 
     pub(crate) fn choose_feff_inp(&mut self, cx: &mut Context<Self>) {
+        if self.feff_running {
+            return;
+        }
         let rx = cx.prompt_for_paths(PathPromptOptions {
             files: true,
             directories: false,
@@ -5790,6 +5852,9 @@ impl StudioApp {
                 this.update(cx, |app, cx| {
                     app.status = format!("FEFF workspace: {}", dir.display()).into();
                     app.feff_workspace = Some(dir);
+                    app.structure.summary = None;
+                    app.structure.preview_cluster = None;
+                    app.set_fit_step(shell::fit_workspace::FitStep::Calculate, cx);
                     cx.notify();
                 })
                 .ok();
@@ -5803,19 +5868,46 @@ impl StudioApp {
         if self.feff_running {
             return;
         }
-        let Some(workspace) = self.feff_workspace.clone() else {
+        let Some(mut workspace) = self.feff_workspace.clone() else {
             self.status = "no FEFF workspace — New feff.inp... or Choose feff.inp...".into();
             cx.notify();
             return;
         };
+        if self
+            .fit_paths
+            .iter()
+            .any(|p| p.spec.file.parent() == Some(workspace.as_path()))
+        {
+            let snapshot = std::fs::read_to_string(workspace.join("feff.inp"))
+                .map_err(|e| e.to_string())
+                .and_then(|input| crate::feffgen::new_workspace_with(&input));
+            match snapshot {
+                Ok(dir) => {
+                    workspace = dir;
+                    self.feff_workspace = Some(workspace.clone());
+                }
+                Err(e) => {
+                    self.status = format!("Could not copy calculation input: {e}").into();
+                    cx.notify();
+                    return;
+                }
+            }
+        }
         self.feff_gen += 1;
         let generation = self.feff_gen;
         self.feff_running = true;
-        self.status = "running FEFF10 ...".into();
+        self.status = "Calculating FEFF paths…".into();
         cx.notify();
-        let job = cx
-            .background_executor()
-            .spawn(async move { crate::feffgen::run_feff10_subprocess(&workspace) });
+        let mode = self.structure.backend;
+        let job = cx.background_executor().spawn(async move {
+            let paths = crate::feffgen::run_backend(&workspace, mode)?;
+            std::fs::write(
+                workspace.join("engine.txt"),
+                crate::feffgen::backend_name(mode),
+            )
+            .map_err(|e| e.to_string())?;
+            Ok::<_, String>(paths)
+        });
         cx.spawn(async move |this, cx| {
             let result = job.await;
             this.update(cx, |app, cx| {
@@ -5832,23 +5924,63 @@ impl StudioApp {
                             ra.total_cmp(&rb)
                         });
                         let n = paths.len();
+                        let first_new = app.fit_paths.len();
+                        let source = paths
+                            .first()
+                            .and_then(|p| p.parent().map(|p| p.to_path_buf()));
                         for file in paths {
                             app.push_fit_path(file, cx);
                         }
                         app.refresh_path_infos();
-                        app.apply_default_selection();
-                        app.fit_template_dirty = false;
-                        app.apply_fit_template(cx);
-                        app.fit_steps_open = [false, true, false, false];
+                        let new_infos: Vec<_> = app
+                            .fit_path_infos
+                            .iter()
+                            .filter(|p| p.index >= first_new)
+                            .cloned()
+                            .collect();
+                        let mut selected = select_default(&new_infos, app.fit_ranges.rmax);
+                        if selected.is_empty() {
+                            if let Some(shell) = shells_of(&new_infos).first() {
+                                selected = shell.paths.clone();
+                            }
+                        }
+                        for i in selected {
+                            app.fit_paths[i].spec.enabled = true;
+                        }
+                        if app.fit_paths.len() > first_new {
+                            app.apply_fit_template_from(first_new, cx);
+                        } else {
+                            app.fit_model_changed(cx);
+                        }
+                        app.structure.source_filter = source.clone();
+                        app.structure.selected = app
+                            .fit_paths
+                            .iter()
+                            .position(|p| p.spec.file.parent() == source.as_deref());
+                        app.structure.multi.clear();
+                        app.structure.ms_open.clear();
+                        app.structure.path_leg = None;
+                        app.structure.paths.clear();
+                        app.structure
+                            .path_filter
+                            .update(cx, |f, cx| f.set_text("", cx));
+                        app.refresh_structure(cx);
+                        if matches!(
+                            app.stage_view.fit_step,
+                            shell::fit_workspace::FitStep::Calculate
+                                | shell::fit_workspace::FitStep::Structure
+                        ) {
+                            app.set_fit_step(shell::fit_workspace::FitStep::Paths, cx);
+                        }
                         let selected = app.fit_paths.iter().filter(|r| r.spec.enabled).count();
                         app.status = format!(
-                            "FEFF10 done — {n} paths, {selected} selected ({})",
+                            "Path calculation complete · {n} paths, {selected} selected ({})",
                             app.fit_template.label()
                         )
                         .into();
                     }
                     Err(e) => {
-                        app.status = format!("FEFF10 failed: {e}").into();
+                        app.status = format!("Path calculation failed: {e}").into();
                         app.record_job_error("FEFF10", e.to_string());
                     }
                 }
@@ -5877,6 +6009,11 @@ impl StudioApp {
         ProjectFile {
             version: PROJECT_VERSION,
             source_dir: self.source_dir.clone(),
+            spectrum_file: self
+                .spectrum
+                .as_ref()
+                .filter(|_| !self.spectrum_path.as_os_str().is_empty())
+                .map(|_| self.spectrum_path.clone()),
             params: self.params.clone(),
             overrides,
             fit_paths: self.fit_paths.iter().map(|r| r.spec.clone()).collect(),
@@ -5885,6 +6022,7 @@ impl StudioApp {
             feff_workspace: self.feff_workspace.clone(),
             derived: self.derived.clone(),
             fit_history: self.fit_history.clone(),
+            joint: self.joint.config.clone(),
         }
     }
 
@@ -5942,6 +6080,13 @@ impl StudioApp {
     }
 
     fn apply_project(&mut self, project: ProjectFile, cx: &mut Context<Self>) {
+        self.feff_gen += 1;
+        self.feff_running = false;
+        self.fit_error = None;
+        self.structure.source_filter = None;
+        self.structure.selected = None;
+        self.structure.summary = None;
+        self.structure.preview_cluster = None;
         self.params = project.params;
 
         // Fit model: rebuild rows, variables, ranges.
@@ -5985,6 +6130,10 @@ impl StudioApp {
         }
         self.fit_ranges = project.fit_ranges;
         self.fit_history = project.fit_history;
+        self.joint = shell::joint_fit::JointState {
+            config: project.joint,
+            ..Default::default()
+        };
         self.fit_history_results.clear();
         self.sync_range_fields(cx);
         self.feff_workspace = project.feff_workspace;
@@ -5999,6 +6148,18 @@ impl StudioApp {
         } else {
             self.reset_catalog_state(cx);
             self.source_dir = None;
+            if let Some(path) = project.spectrum_file {
+                let label = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                self.current_path = path.clone();
+                self.load_spectrum(NO_ENTRY, path, label.into(), cx);
+            }
+        }
+        if !self.fit_paths.is_empty() {
+            self.set_fit_step(shell::fit_workspace::FitStep::Model, cx);
         }
         self.sync_param_fields(cx);
         self.status = "project loaded".into();
@@ -6148,16 +6309,21 @@ impl StudioApp {
                     batch.rows.len(),
                     batch.varying_names.clone(),
                     format!(
-                        "Batch results · {scope} · {} fitted / {} · {} problems · {state}",
+                        "{scope} · {} / {} complete · {} stopped · {} errors · {state}",
                         batch.rows.len(),
                         batch.total,
+                        batch
+                            .rows
+                            .iter()
+                            .filter(|row| row.solver_report.as_ref().is_some_and(|r| !r.converged))
+                            .count(),
                         batch.problems.len()
                     )
                     .into(),
                 )
             })
             .unwrap_or_else(|| (0, Vec::new(), "Batch results".into()));
-        let table_width = px(430. + names.len() as f32 * 104.);
+        let table_width = px(526. + names.len() as f32 * 104.);
         let header_names = names.clone();
         let header = {
             let mut row = div()
@@ -6173,6 +6339,7 @@ impl StudioApp {
                 .text_color(t.text_muted)
                 .child(div().w(px(54.)).child("frame"))
                 .child(div().w(px(176.)).child("file"))
+                .child(div().w(px(96.)).child("optimizer"))
                 .child(div().w(px(88.)).child("R-factor"))
                 .child(div().w(px(112.)).child("red. chi²"));
             for name in header_names {
@@ -6180,6 +6347,7 @@ impl StudioApp {
             }
             row
         };
+        let has_parameters = !names.is_empty();
         let row_names = names;
         let rows = uniform_list("batch-results", count, move |range, _window, app| {
             let mut rendered = Vec::with_capacity(range.len());
@@ -6235,6 +6403,22 @@ impl StudioApp {
                             .overflow_hidden()
                             .child(SharedString::from(label)),
                     )
+                    .child(
+                        div()
+                            .w(px(96.))
+                            .text_color(
+                                if row.solver_report.as_ref().is_some_and(|r| !r.converged) {
+                                    t.warn
+                                } else {
+                                    t.text_muted
+                                },
+                            )
+                            .child(match row.solver_report.as_ref() {
+                                Some(r) if r.converged => "converged",
+                                Some(_) => "stopped",
+                                None => "unknown",
+                            }),
+                    )
                     .child(div().w(px(88.)).child(format!("{:.5}", row.r_factor)))
                     .child(
                         div()
@@ -6257,7 +6441,11 @@ impl StudioApp {
         div()
             .flex_1()
             .min_h(px(120.))
-            .max_h(px(260.))
+            .when(
+                self.stage_view.fit_step != shell::fit_workspace::FitStep::Results
+                    || self.stage_view.fit_result_tab != 2,
+                |d| d.max_h(px(260.)),
+            )
             .min_w_0()
             .m_1()
             .flex()
@@ -6276,6 +6464,28 @@ impl StudioApp {
                     .text_xs()
                     .text_color(t.text_muted)
                     .child(div().flex_1().child(summary))
+                    .when(has_parameters, |row| {
+                        row.child(shell::button(&t, "batch-cols-left", "←", false).on_click(
+                            cx.listener(|this, _, _, cx| {
+                                let handle = &this.batch_table_scroll;
+                                let mut offset = handle.offset();
+                                offset.x += px(240.);
+                                handle.set_offset(offset);
+                                cx.notify();
+                            }),
+                        ))
+                        .child(
+                            shell::button(&t, "batch-cols-right", "Columns →", false).on_click(
+                                cx.listener(|this, _, _, cx| {
+                                    let handle = &this.batch_table_scroll;
+                                    let mut offset = handle.offset();
+                                    offset.x -= px(240.);
+                                    handle.set_offset(offset);
+                                    cx.notify();
+                                }),
+                            ),
+                        )
+                    })
                     .when(stale, |row| {
                         row.child(
                             div()
@@ -6291,13 +6501,15 @@ impl StudioApp {
             .child(
                 div()
                     .id("batch-results-horizontal")
+                    .track_scroll(&self.batch_table_scroll)
                     .flex_1()
                     .min_h_0()
                     .min_w_0()
                     .overflow_x_scroll()
                     .child(
                         div()
-                            .min_w(table_width)
+                            .w(table_width)
+                            .flex_none()
                             .h_full()
                             .min_h_0()
                             .flex()
@@ -6475,6 +6687,69 @@ impl StudioApp {
             // The preview stays compact but shows enough real rows to verify
             // delimiter/header detection and the role assignments at a glance.
             if let Some(preview) = &self.import_preview {
+                if let Some(xdi) = &preview.xdi {
+                    let sample = xdi.get("sample.name").unwrap_or("XAS spectrum");
+                    let element = xdi.get("element.symbol").unwrap_or("?");
+                    let edge = xdi.get("element.edge").unwrap_or("?");
+                    sections =
+                        sections.child(div().px_3().pb_1().text_xs().text_color(t.text).child(
+                            format!("XDI {} · {sample} · {element} {edge} edge", xdi.version),
+                        ));
+                    if let Some(axis) = xdi.columns.get(preview.resolved.energy_col) {
+                        sections = sections.child(
+                            div()
+                                .px_3()
+                                .pb_1()
+                                .text_xs()
+                                .text_color(t.text_muted)
+                                .child(format!(
+                                    "{} ({}) → energy in eV",
+                                    axis.label,
+                                    axis.units.as_deref().unwrap_or("units missing")
+                                )),
+                        );
+                    }
+                    for warning in &xdi.warnings {
+                        sections = sections.child(
+                            div()
+                                .px_3()
+                                .pb_1()
+                                .text_xs()
+                                .text_color(t.warn)
+                                .child(warning.clone()),
+                        );
+                    }
+                    if open {
+                        for key in [
+                            "sample.prep",
+                            "sample.temperature",
+                            "facility.name",
+                            "beamline.name",
+                            "scan.start_time",
+                        ] {
+                            if let Some(value) = xdi.get(key) {
+                                sections = sections.child(
+                                    div()
+                                        .px_3()
+                                        .pb_1()
+                                        .text_xs()
+                                        .text_color(t.text_muted)
+                                        .child(format!("{key}: {value}")),
+                                );
+                            }
+                        }
+                        for comment in &xdi.comments {
+                            sections = sections.child(
+                                div()
+                                    .px_3()
+                                    .pb_1()
+                                    .text_xs()
+                                    .text_color(t.text_muted)
+                                    .child(comment.clone()),
+                            );
+                        }
+                    }
+                }
                 let table_width = px(preview.column_count as f32 * IMPORT_COL_W);
                 let header_status = if preview.names.is_some() {
                     "header names found"
@@ -6500,29 +6775,51 @@ impl StudioApp {
                 if open {
                     let mut header = div().flex();
                     for column in 0..preview.column_count {
-                        let name = preview
+                        let mut name = preview
                             .names
                             .as_ref()
                             .and_then(|names| names.get(column))
                             .cloned()
                             .unwrap_or_else(|| format!("col {column}"));
+                        if let Some(unit) = preview
+                            .xdi
+                            .as_ref()
+                            .and_then(|xdi| xdi.columns.get(column))
+                            .and_then(|c| c.units.as_ref())
+                        {
+                            name.push_str(&format!(" ({unit})"));
+                        }
                         let mut roles = Vec::new();
                         if preview.resolved.energy_col == column {
                             roles.push("E");
                         }
-                        if preview.resolved.i0_col == column {
+                        if matches!(
+                            preview.resolved.mode,
+                            DetectionMode::Transmission | DetectionMode::Fluorescence
+                        ) && preview.resolved.i0_col == column
+                        {
                             roles.push("I0");
                         }
-                        if preview.resolved.it_col == column {
+                        if matches!(
+                            preview.resolved.mode,
+                            DetectionMode::Transmission | DetectionMode::Reference
+                        ) && preview.resolved.it_col == column
+                        {
                             roles.push("It");
                         }
-                        if preview.resolved.ir_col == column {
+                        if preview.resolved.mode == DetectionMode::Reference
+                            && preview.resolved.ir_col == column
+                        {
                             roles.push("Ir");
                         }
-                        if preview.resolved.fluor_cols.contains(&column) {
+                        if preview.resolved.mode == DetectionMode::Fluorescence
+                            && preview.resolved.fluor_cols.contains(&column)
+                        {
                             roles.push("ROI");
                         }
-                        if preview.resolved.mu_col == Some(column) {
+                        if preview.resolved.mode == DetectionMode::MuColumn
+                            && preview.resolved.mu_col == Some(column)
+                        {
                             roles.push("mu");
                         }
                         let assigned = !roles.is_empty();

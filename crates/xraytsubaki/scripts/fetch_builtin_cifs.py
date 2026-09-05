@@ -93,6 +93,21 @@ def main():
                 "citation": "Gražulis et al. (2012) Nucleic Acids Res. 40, D420–D427", "note": note}
         json.dump(meta, open(meta_path, "w"), indent=1, ensure_ascii=False)
         catalog.append(meta); print(f"{key}: {cid} ({r.get('sg')}, {r.get('year')})")
+    # Keep the neutron-diffraction molecule examples pinned: their complete H
+    # positions are intentional, so a newest-formula-match query is unsuitable.
+    for key in ("urea", "aspirin"):
+        with open(os.path.join(OUT, key + ".json"), encoding="utf-8") as f:
+            meta = json.load(f)
+        dest = os.path.join(OUT, key + ".cif")
+        if force or not os.path.exists(dest):
+            cid = meta["id"].removeprefix("cod-")
+            cif = get(f"{BASE}/{cid}.cif")
+            if "_atom_site_fract_x" not in cif:
+                raise ValueError(f"{key}: pinned COD entry has no coordinates")
+            with open(dest, "w", encoding="utf-8") as f:
+                f.write(cif)
+        catalog.append(meta)
+        print(f"{key}: pinned {meta['id']}")
     json.dump(catalog, open(os.path.join(OUT, "catalog.json"), "w"), indent=1, ensure_ascii=False)
     print("catalog entries:", len(catalog))
 if __name__ == "__main__":

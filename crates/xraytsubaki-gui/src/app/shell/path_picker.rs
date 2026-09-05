@@ -6,7 +6,7 @@
 use gpui::{
     ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, div, prelude::*, px,
 };
-use xraytsubaki::xafs::structure::{select_by, shells_of, PathInfo, ShellInfo};
+use xraytsubaki::xafs::structure::{ShellInfo, select_by, shells_of};
 
 use super::{MONO, button, chip, section_label};
 use crate::app::StudioApp;
@@ -52,27 +52,44 @@ impl PathPreset {
 }
 
 impl StudioApp {
-    /// Apply a preset to the selection.
+    fn path_in_visible_source(&self, i: usize) -> bool {
+        self.structure.source_filter.as_ref().is_none_or(|source| {
+            self.fit_paths
+                .get(i)
+                .is_some_and(|p| p.spec.file.parent() == Some(source.as_path()))
+        })
+    }
+    /// Apply a preset to the visible calculation, preserving other sources.
     pub(crate) fn apply_path_preset(&mut self, preset: PathPreset, cx: &mut Context<Self>) {
-        let infos = &self.fit_path_infos;
+        let infos: Vec<_> = self
+            .fit_path_infos
+            .iter()
+            .filter(|p| self.path_in_visible_source(p.index))
+            .cloned()
+            .collect();
         let selected: Vec<usize> = match preset {
-            PathPreset::FirstShell => shells_of(infos)
+            PathPreset::FirstShell => shells_of(&infos)
                 .first()
                 .map(|s| s.paths.clone())
                 .unwrap_or_default(),
-            PathPreset::ToFitRmax => select_by(infos, self.fit_ranges.rmax + 0.3, 0.0, true),
-            PathPreset::Important => select_by(infos, f64::MAX, 10.0, false),
-            PathPreset::All => (0..self.fit_paths.len()).collect(),
+            PathPreset::ToFitRmax => select_by(&infos, self.fit_ranges.rmax + 0.3, 0.0, true),
+            PathPreset::Important => select_by(&infos, f64::MAX, 10.0, false),
+            PathPreset::All => infos.iter().map(|p| p.index).collect(),
             PathPreset::None => Vec::new(),
         };
-        for (i, row) in self.fit_paths.iter_mut().enumerate() {
-            row.spec.enabled = selected.contains(&i);
+        for p in &infos {
+            self.fit_paths[p.index].spec.enabled = selected.contains(&p.index);
         }
         self.paths_selection_changed(cx);
     }
 
     /// Toggle one path or a whole shell.
-    pub(crate) fn set_paths_selected(&mut self, indices: &[usize], on: bool, cx: &mut Context<Self>) {
+    pub(crate) fn set_paths_selected(
+        &mut self,
+        indices: &[usize],
+        on: bool,
+        cx: &mut Context<Self>,
+    ) {
         for &i in indices {
             if let Some(row) = self.fit_paths.get_mut(i) {
                 row.spec.enabled = on;
@@ -87,10 +104,11 @@ impl StudioApp {
         self.fit_path_infos
             .iter()
             .filter(|p| {
-                f.is_empty()
-                    || p.label.to_ascii_lowercase().contains(&f)
-                    || p.filename.contains(&f)
-                    || format!("{}", p.index + 1) == f
+                self.path_in_visible_source(p.index)
+                    && (f.is_empty()
+                        || p.label.to_ascii_lowercase().contains(&f)
+                        || p.filename.contains(&f)
+                        || format!("{}", p.index + 1) == f)
             })
             .map(|p| p.index)
             .collect()
@@ -98,12 +116,21 @@ impl StudioApp {
 
     /// The picker element. `docked` = the wide table beside the 3D view;
     /// otherwise the compact inspector version.
-    pub(crate) fn path_picker(&self, docked: bool, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    pub(crate) fn path_picker(
+        &self,
+        docked: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
         let t = self.theme;
         let filter_text = self.structure.path_filter.read(cx).text();
         let visible = self.picker_visible(&filter_text);
-        let infos = &self.fit_path_infos;
-        let shells: Vec<ShellInfo> = shells_of(infos);
+        let infos: Vec<_> = self
+            .fit_path_infos
+            .iter()
+            .filter(|p| self.path_in_visible_source(p.index))
+            .cloned()
+            .collect();
+        let shells: Vec<ShellInfo> = shells_of(&infos);
         let n_sel = self.fit_paths.iter().filter(|r| r.spec.enabled).count();
 
         // ---- presets + filter ----
@@ -115,11 +142,9 @@ impl StudioApp {
             .items_center()
             .gap_1();
         for preset in PathPreset::ALL {
-            presets = presets.child(
-                chip(&t, preset.id(), preset.label(), false).on_click(cx.listener(
-                    move |this, _: &ClickEvent, _w, cx| this.apply_path_preset(preset, cx),
-                )),
-            );
+            presets = presets.child(chip(&t, preset.id(), preset.label(), false).on_click(
+                cx.listener(move |this, _: &ClickEvent, _w, cx| this.apply_path_preset(preset, cx)),
+            ));
         }
         presets = presets.child(
             div()
@@ -136,11 +161,13 @@ impl StudioApp {
                         move |this, _: &ClickEvent, _w, cx| this.set_paths_selected(&sel, true, cx),
                     )),
                 )
-                .child(button(&t, "pp-disable-sel", "deselect", false).on_click(
-                    cx.listener(move |this, _: &ClickEvent, _w, cx| {
-                        this.set_paths_selected(&sel2, false, cx)
-                    }),
-                ));
+                .child(
+                    button(&t, "pp-disable-sel", "deselect", false).on_click(cx.listener(
+                        move |this, _: &ClickEvent, _w, cx| {
+                            this.set_paths_selected(&sel2, false, cx)
+                        },
+                    )),
+                );
         }
 
         let header = div()
@@ -179,7 +206,7 @@ impl StudioApp {
             );
         }
 
-        let mut placed: Vec<bool> = vec![false; infos.len()];
+        let mut placed: Vec<bool> = vec![false; self.fit_paths.len()];
         for shell in &shells {
             // SS rows of this shell.
             let ss: Vec<usize> = shell
@@ -320,7 +347,9 @@ impl StudioApp {
         }
         // Paths that belong to no shell (no geometry, or MS legs outside any
         // SS shell).
-        let rest: Vec<usize> = (0..infos.len())
+        let rest: Vec<usize> = infos
+            .iter()
+            .map(|p| p.index)
             .filter(|&i| !placed[i] && visible.contains(&i))
             .collect();
         if !rest.is_empty() {
@@ -355,23 +384,84 @@ impl StudioApp {
                     .child(section_label(&t, "paths"))
                     .child(div().text_size(px(10.5)).text_color(t.text_muted).child(
                         SharedString::from(format!(
-                            "{n_sel} selected of {} · click a row to focus it in 3D · ⌘/⇧ multi-select",
-                            infos.len()
+                            "{n_sel} selected across {} sources · click a row to inspect",
+                            self.path_sources().len()
                         )),
                     )),
             );
         }
-        col.child(presets).child(header).child(list).flex_1()
+        let mut sources = div()
+            .id("path-source-list")
+            .max_h(px(104.))
+            .overflow_y_scroll()
+            .px_2()
+            .py_1()
+            .flex()
+            .flex_col()
+            .gap_1();
+        for (n, source) in self.path_sources().into_iter().enumerate() {
+            let count = self
+                .fit_paths
+                .iter()
+                .filter(|p| p.spec.file.parent() == Some(source.as_path()) && p.spec.enabled)
+                .count();
+            let label = format!(
+                "{} · {} · {count} selected",
+                n + 1,
+                self.source_label(&source)
+            );
+            let active = self.structure.source_filter.as_ref() == Some(&source);
+            sources = sources.child(
+                div()
+                    .id(("path-source", n))
+                    .px_2()
+                    .py_1()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(if active { t.accent } else { t.border })
+                    .text_size(px(11.))
+                    .text_ellipsis()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .cursor_pointer()
+                    .child(label)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.structure.source_filter = Some(source.clone());
+                        this.structure.selected = this
+                            .fit_paths
+                            .iter()
+                            .position(|p| p.spec.file.parent() == Some(source.as_path()));
+                        this.structure.multi.clear();
+                        this.structure.ms_open.clear();
+                        this.structure.path_leg = None;
+                        this.structure.pick = None;
+                        this.rebuild_structure_plot(cx);
+                        cx.notify();
+                    })),
+            );
+        }
+        col.child(sources)
+            .child(
+                button(&t, "another-path-source", "+ Add another structure", false).on_click(
+                    cx.listener(|this, _, _, cx| {
+                        this.set_fit_step(super::fit_workspace::FitStep::Structure, cx);
+                    }),
+                ),
+            )
+            .child(presets)
+            .child(header)
+            .child(list)
+            .flex_1()
     }
 
-    fn picker_checkbox(
+    fn picker_checkbox<F: Fn(&mut Self, &mut Context<Self>) + 'static>(
         &self,
         id: (&'static str, usize),
         on: bool,
         partial: bool,
-        f: impl Fn(&mut Self, &mut Context<Self>) + 'static,
+        f: F,
         cx: &mut Context<Self>,
-    ) -> impl IntoElement + use<> {
+    ) -> impl IntoElement + use<F> {
         let t = self.theme;
         div()
             .id(id)
@@ -405,7 +495,12 @@ impl StudioApp {
             )
     }
 
-    fn picker_row(&self, i: usize, docked: bool, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    fn picker_row(
+        &self,
+        i: usize,
+        docked: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
         let t = self.theme;
         let info = &self.fit_path_infos[i];
         let enabled = self.fit_paths.get(i).is_some_and(|r| r.spec.enabled);
@@ -461,13 +556,11 @@ impl StudioApp {
                     .flex()
                     .items_center()
                     .gap_1()
-                    .child(
-                        div()
-                            .w(px(bar_w))
-                            .h(px(6.))
-                            .rounded_sm()
-                            .bg(if enabled { t.accent } else { t.border }),
-                    )
+                    .child(div().w(px(bar_w)).h(px(6.)).rounded_sm().bg(if enabled {
+                        t.accent
+                    } else {
+                        t.border
+                    }))
                     .child(
                         div()
                             .text_size(px(10.))

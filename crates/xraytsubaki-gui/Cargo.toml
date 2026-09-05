@@ -32,6 +32,7 @@ xraytsubaki = { path = "../xraytsubaki", default-features = true, features = ["a
 feff10 = { version = "0.2.2", features = ["prebuilt"], optional = true }
 
 anyhow = "1.0"
+xraydb = "0.4.1"
 futures = "0.3"
 rayon = { workspace = true }
 lru = "0.18"
@@ -43,6 +44,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [features]
-default = ["refeff-runner"]
+default = ["refeff-runner", "feff10-runner"]
 refeff-runner = ["xraytsubaki/refeff-runner"]
 feff10-runner = ["xraytsubaki/feff10-runner", "dep:feff10"]

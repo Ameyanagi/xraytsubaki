@@ -6,16 +6,26 @@
 //! private `StudioApp` state without a pub(crate) field explosion; `app.rs`
 //! keeps state and jobs, the shell keeps presentation.
 
+mod bond_geometry;
 pub mod center;
+mod depth_controls;
 pub mod fit;
+pub(crate) mod fit_preview;
+pub mod fit_workspace;
 pub mod groups_panel;
 pub mod handles;
 pub mod inspector;
+mod joint_browser;
+pub(crate) mod joint_fit;
 pub mod journal;
+mod molecular_geometry;
+pub mod molecule_view;
 pub mod palette;
+mod path_diagnostics;
 pub mod path_picker;
 pub mod series;
 pub mod stage_strip;
+mod structure_depth;
 pub mod structure_view;
 pub mod thumbnails;
 pub mod tools;
@@ -133,11 +143,13 @@ pub struct StageView {
     pub show_bkg: bool,
     pub show_re: bool,
     pub fit_view: FitView,
+    pub fit_step: fit_workspace::FitStep,
+    pub fit_model_tab: usize,
+    pub fit_result_tab: usize,
     pub fit_show_paths: bool,
     pub fit_show_re: bool,
+    pub fit_show_im: bool,
     pub fit_show_batch: bool,
-    /// Show the per-path parameter cells under the picker.
-    pub fit_show_cells: bool,
     pub series_space: crate::app::SeriesSpace,
 }
 
@@ -151,10 +163,13 @@ impl Default for StageView {
             show_bkg: true,
             show_re: false,
             fit_view: FitView::Both,
+            fit_step: fit_workspace::FitStep::Structure,
+            fit_model_tab: 0,
+            fit_result_tab: 0,
             fit_show_paths: true,
             fit_show_re: false,
+            fit_show_im: false,
             fit_show_batch: false,
-            fit_show_cells: false,
             series_space: crate::app::SeriesSpace::Energy,
         }
     }
@@ -315,15 +330,14 @@ impl StudioApp {
     pub(crate) fn shell_root(&mut self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
         let center = match self.stage {
-            Stage::Fit => self.fit_stage_center(cx).into_any_element(),
+            Stage::Fit => self.fit_workspace(cx).into_any_element(),
             Stage::Series => self.series_stage_center(cx).into_any_element(),
             _ => self.stage_center(cx).into_any_element(),
         };
         let groups = self
             .data_panel_open
             .then(|| self.groups_panel(cx).into_any_element());
-        let inspector = self
-            .context_panel_open
+        let inspector = (self.context_panel_open && self.stage != Stage::Fit)
             .then(|| self.inspector(cx).into_any_element());
         div()
             .size_full()

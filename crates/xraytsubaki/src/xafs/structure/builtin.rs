@@ -1,5 +1,5 @@
 //! Built-in library of common EXAFS standards (metals, oxides, sulfides,
-//! halides), bundled as CIF text so the app works offline. The entries
+//! halides) and molecular visualization examples, bundled as CIF text so the app works offline. The entries
 //! come from the Crystallography Open Database (CC0); see
 //! `data/builtin_cifs/catalog.json` and `scripts/fetch_builtin_cifs.py`
 //! for provenance and `scripts/build_builtin_library.py` for the blob.
@@ -10,7 +10,9 @@ use std::sync::OnceLock;
 use serde::{Deserialize, Serialize};
 
 use super::cif::structure_from_cif;
-use super::db::{formula_matches, hit_from_structure, StructureHit, StructureQuery, StructureSource};
+use super::db::{
+    formula_matches, hit_from_structure, StructureHit, StructureQuery, StructureSource,
+};
 use super::model::Structure;
 use super::StructureError;
 
@@ -29,7 +31,7 @@ pub struct BuiltinEntry {
     pub sg_number: u16,
     #[serde(default)]
     pub sg: Option<String>,
-    /// `metal` / `oxide` / `sulfide` / `other`.
+    /// `metal` / `oxide` / `sulfide` / `molecule` / `other`.
     pub category: String,
     pub source: String,
     /// Source record id (`cod-4105040`).
@@ -92,7 +94,8 @@ impl BuiltinLibrary {
                     extra: Default::default(),
                 };
                 hit.extra.insert("category".into(), e.category.clone());
-                hit.extra.insert("origin".into(), format!("{} {}", e.source, e.id));
+                hit.extra
+                    .insert("origin".into(), format!("{} {}", e.source, e.id));
                 if let Some(u) = &e.url {
                     hit.extra.insert("url".into(), u.clone());
                 }
@@ -137,7 +140,11 @@ impl BuiltinLibrary {
 fn elements_of(formula: &str) -> Vec<String> {
     formula
         .split_whitespace()
-        .map(|tok| tok.chars().take_while(|c| c.is_ascii_alphabetic()).collect::<String>())
+        .map(|tok| {
+            tok.chars()
+                .take_while(|c| c.is_ascii_alphabetic())
+                .collect::<String>()
+        })
         .filter(|s| !s.is_empty())
         .collect()
 }
@@ -200,14 +207,18 @@ fn name_matches(hit: &StructureHit, text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::xafs::structure::cluster::{absorber_sites, build_cluster, AbsorberSelection, ClusterOptions};
+    use crate::xafs::structure::cluster::{
+        absorber_sites, build_cluster, AbsorberSelection, ClusterOptions,
+    };
 
     #[test]
     fn library_decodes_and_every_entry_expands_and_clusters() {
         let lib = BuiltinLibrary::get().expect("bundled library");
         assert!(lib.len() >= 40, "only {} entries", lib.len());
         for e in lib.entries() {
-            let s = lib.structure(&e.key).unwrap_or_else(|err| panic!("{}: {err}", e.key));
+            let s = lib
+                .structure(&e.key)
+                .unwrap_or_else(|err| panic!("{}: {err}", e.key));
             assert!(!s.sites.is_empty(), "{} has no sites", e.key);
             assert_eq!(
                 s.space_group.number,
@@ -229,7 +240,12 @@ mod tests {
                 },
             )
             .unwrap_or_else(|err| panic!("{}: cluster {err}", e.key));
-            assert!(cluster.atoms.len() > 10, "{}: only {} atoms", e.key, cluster.atoms.len());
+            assert!(
+                cluster.atoms.len() > 10,
+                "{}: only {} atoms",
+                e.key,
+                cluster.atoms.len()
+            );
             assert!(cluster.shells(0.01).len() >= 2, "{}: too few shells", e.key);
         }
     }

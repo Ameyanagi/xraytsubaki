@@ -956,9 +956,25 @@ impl Default for FitWarning {
     }
 }
 
+/// Numerical termination information. Convergence does not establish that the
+/// selected paths provide a scientifically adequate model of the data.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FitSolverReport {
+    pub method: FeffFitSolverMethod,
+    pub converged: bool,
+    pub termination: String,
+    pub iterations: Option<usize>,
+    pub evaluations: Option<usize>,
+    /// Half the sum of squared residuals in the selected, weighted fit space.
+    pub initial_cost: f64,
+    pub final_cost: f64,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct FeffFitResult {
+    /// Absent in results saved before optimizer diagnostics were recorded.
+    pub solver_report: Option<FitSolverReport>,
     pub variables: FitVariables,
     /// Ordering of varying parameters used for covariance/correlation matrix rows and columns.
     pub varying_names: Vec<String>,
@@ -1007,6 +1023,7 @@ pub struct FeffFitResult {
 impl Default for FeffFitResult {
     fn default() -> Self {
         Self {
+            solver_report: None,
             variables: FitVariables::default(),
             varying_names: Vec::new(),
             n_vary: 0,

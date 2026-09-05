@@ -12,6 +12,8 @@ use apex_solver::linalg::{JacobianMode as ApexJacobianMode, LinearSolverType};
 use apex_solver::manifold::ManifoldType;
 #[cfg(feature = "trust-region")]
 use apex_solver::optimizer::dog_leg::{DogLeg, DogLegConfig};
+#[cfg(feature = "trust-region")]
+use apex_solver::optimizer::OptimizationStatus;
 use levenberg_marquardt::{LeastSquaresProblem, LevenbergMarquardt};
 use nalgebra::{DMatrix, DVector, Dyn, Owned};
 #[cfg(feature = "trust-region")]
@@ -28,8 +30,8 @@ use super::transform::{
 use super::types::FeffFitJacobianMode;
 use super::types::{
     DatasetResult, FeffBatchExecutionStrategy, FeffBatchOptions, FeffFitDataset, FeffFitOptions,
-    FeffFitResult, FeffFitSolverMethod, FitVariables, KweightResult, PathContribution,
-    PathParamSpec,
+    FeffFitResult, FeffFitSolverMethod, FitSolverReport, FitVariables, KweightResult,
+    PathContribution, PathParamSpec,
 };
 use super::variables::try_extract_symbols;
 
@@ -76,7 +78,7 @@ pub fn feffit_joint_with_options(
     }
 
     let problem = FeffFitMultiProblem::new(datasets.to_vec(), variables.clone(), varying_names)?;
-    let solved = solve_fit_problem(problem, options)?;
+    let (solved, solver_report) = solve_fit_problem(problem, options)?;
     let residual = solved.current_residual()?;
 
     let mut solved_variables = solved.variables.clone();
@@ -249,6 +251,7 @@ pub fn feffit_joint_with_options(
     };
 
     let mut out = FeffFitResult {
+        solver_report: Some(solver_report),
         variables: solved_variables,
         varying_names: solved.variable_names.clone(),
         n_vary,
@@ -269,14 +272,39 @@ pub fn feffit_joint_with_options(
 fn solve_fit_problem(
     problem: FeffFitMultiProblem,
     options: &FeffFitOptions,
-) -> Result<FeffFitMultiProblem, FittingError> {
-    match options.solver_method {
-        FeffFitSolverMethod::LevenbergMarquardt => {
-            let (solved, _report) = LevenbergMarquardt::new().minimize(problem);
-            Ok(solved)
-        }
-        FeffFitSolverMethod::TrustRegionDogLeg => solve_fit_problem_apex(problem, options),
+) -> Result<(FeffFitMultiProblem, FitSolverReport), FittingError> {
+    let initial_cost = problem.current_residual()?.norm_squared() * 0.5;
+    if !initial_cost.is_finite() {
+        return Err(FittingError::SolverFailed {
+            reason: "initial fit objective contains non-finite values".to_string(),
+        });
     }
+    let (solved, mut report) = match options.solver_method {
+        FeffFitSolverMethod::LevenbergMarquardt => {
+            let (solved, report) = LevenbergMarquardt::new().minimize(problem);
+            let diagnostics = FitSolverReport {
+                method: options.solver_method,
+                converged: report.termination.was_successful(),
+                termination: format!("{:?}", report.termination),
+                iterations: None,
+                evaluations: Some(report.number_of_evaluations),
+                initial_cost,
+                final_cost: 0.0,
+            };
+            (solved, diagnostics)
+        }
+        FeffFitSolverMethod::TrustRegionDogLeg => solve_fit_problem_apex(problem, options)?,
+    };
+    // Evaluate the returned physical parameters so the report matches the model
+    // shown to the caller, including bounds and expression constraints.
+    report.initial_cost = initial_cost;
+    report.final_cost = solved.current_residual()?.norm_squared() * 0.5;
+    if !report.final_cost.is_finite() {
+        return Err(FittingError::SolverFailed {
+            reason: "fit objective contains non-finite values".to_string(),
+        });
+    }
+    Ok((solved, report))
 }
 
 /// Residual of one dataset in its fit space; `model = None` gives the transformed data alone.
@@ -589,6 +617,39 @@ impl FeffFitMultiProblem {
     }
 }
 
+fn bounded_difference_step(
+    variable: Option<&super::types::FitVariable>,
+    value: f64,
+    step: f64,
+) -> Option<f64> {
+    let lower = variable
+        .and_then(|var| var.min)
+        .unwrap_or(f64::NEG_INFINITY);
+    let upper = variable.and_then(|var| var.max).unwrap_or(f64::INFINITY);
+    if lower > upper {
+        return None;
+    }
+
+    let forward_room = upper - value;
+    if forward_room >= step {
+        return Some(step);
+    }
+
+    let backward_room = value - lower;
+    if backward_room >= step {
+        return Some(-step);
+    }
+
+    if forward_room > 0.0 {
+        return Some(forward_room);
+    }
+    if backward_room > 0.0 {
+        return Some(-backward_room);
+    }
+
+    None
+}
+
 #[cfg(feature = "trust-region")]
 #[derive(Clone)]
 struct FeffSpectrumFactor {
@@ -634,37 +695,6 @@ impl FeffSpectrumFactor {
             })
             .collect()
     }
-
-    fn bounded_difference_step(&self, column: usize, value: f64, step: f64) -> Option<f64> {
-        let name = self.variable_names.get(column)?;
-        let variable = self.variables.vars.get(name);
-        let lower = variable
-            .and_then(|var| var.min)
-            .unwrap_or(f64::NEG_INFINITY);
-        let upper = variable.and_then(|var| var.max).unwrap_or(f64::INFINITY);
-        if lower > upper {
-            return None;
-        }
-
-        let forward_room = upper - value;
-        if forward_room >= step {
-            return Some(step);
-        }
-
-        let backward_room = value - lower;
-        if backward_room >= step {
-            return Some(-step);
-        }
-
-        if forward_room > 0.0 {
-            return Some(forward_room);
-        }
-        if backward_room > 0.0 {
-            return Some(-backward_room);
-        }
-
-        None
-    }
 }
 
 #[cfg(feature = "trust-region")]
@@ -694,7 +724,11 @@ impl ApexFactor for FeffSpectrumFactor {
             if !step.is_finite() {
                 return (residual, None);
             }
-            let Some(step) = self.bounded_difference_step(column, values[column], step) else {
+            let Some(step) = bounded_difference_step(
+                self.variables.get(&self.variable_names[column]),
+                values[column],
+                step,
+            ) else {
                 continue;
             };
 
@@ -734,7 +768,7 @@ fn apex_jacobian_mode(options: &FeffFitOptions, dataset_count: usize) -> ApexJac
 fn solve_fit_problem_apex(
     mut problem: FeffFitMultiProblem,
     options: &FeffFitOptions,
-) -> Result<FeffFitMultiProblem, FittingError> {
+) -> Result<(FeffFitMultiProblem, FitSolverReport), FittingError> {
     let jacobian_mode = apex_jacobian_mode(options, problem.datasets.len());
     let mut apex_problem = ApexProblem::new(jacobian_mode);
     let mut initial_values = HashMap::<String, (ManifoldType, ApexDVector<f64>)>::new();
@@ -829,14 +863,30 @@ fn solve_fit_problem_apex(
     problem
         .variables
         .apply_parameter_vector(&problem.variable_names, &solved_params)?;
-    Ok(problem)
+    let report = FitSolverReport {
+        method: options.solver_method,
+        converged: matches!(
+            result.status,
+            OptimizationStatus::Converged
+                | OptimizationStatus::CostToleranceReached
+                | OptimizationStatus::ParameterToleranceReached
+                | OptimizationStatus::GradientToleranceReached
+                | OptimizationStatus::MinCostThresholdReached
+        ),
+        termination: result.status.to_string(),
+        iterations: Some(result.iterations),
+        evaluations: None,
+        initial_cost: result.initial_cost,
+        final_cost: result.final_cost,
+    };
+    Ok((problem, report))
 }
 
 #[cfg(not(feature = "trust-region"))]
 fn solve_fit_problem_apex(
     _problem: FeffFitMultiProblem,
     _options: &FeffFitOptions,
-) -> Result<FeffFitMultiProblem, FittingError> {
+) -> Result<(FeffFitMultiProblem, FitSolverReport), FittingError> {
     Err(FittingError::SolverFailed {
         reason: "trust-region DogLeg solver requires the trust-region feature".to_string(),
     })
@@ -879,6 +929,11 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for FeffFitMultiProblem {
             if !step.is_finite() {
                 return None;
             }
+            let Some(step) =
+                bounded_difference_step(self.variables.get(&self.variable_names[i]), x[i], step)
+            else {
+                continue;
+            };
             let mut xt = x.clone();
             xt[i] += step;
             let fx1 = self.residual_for_parameter_vector(&xt);
@@ -900,6 +955,37 @@ mod tests {
         FeffFlavor, FitVariable, PathParamSpec,
     };
     use crate::xafs::tests::TOP_DIR;
+
+    #[test]
+    fn covariance_jacobian_remains_valid_at_upper_bound() {
+        let mut path = feffpath(
+            format!("{TOP_DIR}/tests/testfiles/feffcu01.dat"),
+            FeffFlavor::Feff85L,
+        )
+        .unwrap();
+        path.s02 = PathParamSpec::Expression("amp".into());
+        let k = DVector::from_iterator(280, (0..280).map(|i| 0.05 * (i as f64 + 1.0)));
+        let mut variables = FitVariables::new();
+        variables.insert(
+            "amp",
+            FitVariable::new(1.0, true).with_bounds(Some(0.0), Some(1.0)),
+        );
+        let dataset = FeffFitDataset {
+            chi: ff2chi(&[path.clone()], &variables, &k).unwrap().chi,
+            k,
+            paths: vec![path],
+            ..Default::default()
+        };
+        let problem =
+            FeffFitMultiProblem::new(vec![dataset], variables, vec!["amp".into()]).unwrap();
+        let bounded_jacobian = problem.jacobian().unwrap();
+        let mut unbounded = problem.clone();
+        unbounded.variables.vars.get_mut("amp").unwrap().max = None;
+        let reference = unbounded.jacobian().unwrap();
+        assert!(reference.norm() > 0.0);
+        assert!((&bounded_jacobian - &reference).norm() / reference.norm() < 1e-5);
+        assert!(problem.approx_covariance().is_some());
+    }
 
     #[cfg(feature = "trust-region")]
     #[test]

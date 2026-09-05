@@ -13,7 +13,7 @@ use std::sync::Arc;
 use futures::channel::mpsc;
 
 /// File extensions treated as spectrum data files during a scan.
-pub const SPECTRUM_EXTENSIONS: &[&str] = &["dat", "txt", "xmu", "chi"];
+pub const SPECTRUM_EXTENSIONS: &[&str] = &["dat", "txt", "xmu", "chi", "xdi"];
 
 const BATCH_SIZE: usize = 2048;
 
@@ -527,6 +527,30 @@ mod tests {
             catalog.scan_spans(),
             vec![(0, total + 1, "scan_01".to_string())]
         );
+    }
+
+    #[test]
+    fn folder_scan_discovers_xdi_case_insensitively() {
+        let root = std::env::temp_dir().join(format!("xts-xdi-catalog-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        for name in ["cu.xdi", "ni.XDI", "notes.md"] {
+            std::fs::write(root.join(name), "").unwrap();
+        }
+        let mut scan = start_scan(root.clone());
+        let mut names = Vec::new();
+        futures::executor::block_on(async {
+            while let Some(event) = scan.next().await {
+                match event {
+                    ScanEvent::Batch(files) => {
+                        names.extend(files.into_iter().map(|f| f.name.to_string()))
+                    }
+                    ScanEvent::Done { total } => assert_eq!(total, 2),
+                    ScanEvent::Error(e) => panic!("{e}"),
+                }
+            }
+        });
+        assert_eq!(names, ["cu.xdi", "ni.XDI"]);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     fn sample_catalog() -> Catalog {

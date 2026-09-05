@@ -8,11 +8,12 @@ pub use crate::xafs::fitting::{
     DatasetResult, FeffBatchExecutionStrategy, FeffBatchOptions, FeffDat, FeffExecutionMode,
     FeffFit, FeffFitDataset, FeffFitJacobianMode, FeffFitOptions, FeffFitResult,
     FeffFitSolverMethod, FeffFitTransform, FeffFlavor, FeffModuleCommand, FeffPathModel,
-    FeffResolvedCommands, FeffRunRequest, FeffRunResult, FitSpace, FitVariable, FitVariables,
-    FitWarning, KweightResult, NoiseEstimate, Param, PathContribution, PathParamSpec,
+    FeffResolvedCommands, FeffRunRequest, FeffRunResult, FitSolverReport, FitSpace, FitVariable,
+    FitVariables, FitWarning, KweightResult, NoiseEstimate, Param, PathContribution, PathParamSpec,
 };
 pub use crate::xafs::io;
 pub use crate::xafs::io::athena::{AthenaGroup, AthenaParams, AthenaProject, AthenaValue};
+pub use crate::xafs::io::xdi::{XdiColumn, XdiError, XdiFile, XdiHeader, XdiSignal};
 pub use crate::xafs::lmutils::LMParameters;
 // pub use crate::xafs::mathutils;
 pub use crate::xafs::normalization::{Normalization, NormalizationMethod};
@@ -28,16 +29,21 @@ pub use crate::xafs::analysis::{
     PcaConfig, PcaFit, PcaModel,
 };
 pub use crate::xafs::errors::AnalysisError;
+pub use crate::xafs::fitting::template::{
+    apply_template, ParameterTemplate, PathAssignment, TemplateResult, TemplateVariable,
+};
 pub use crate::xafs::structure::{
     absorber_sites, build_cluster, read_cif, structure_from_cif, write_feff_inp, AbsorberSelection,
     Cluster, ClusterAtom, ClusterOptions, Edge, Element, FeffInputOptions, FeffInputStyle, Lattice,
     PathGeometry, PathLeg, Site, Species, Structure, StructureError, StructureHit, StructureQuery,
     StructureSource,
 };
+pub use crate::xafs::structure::{
+    rank_paths, select_by, select_default, shells_of, BuiltinLibrary, PathInfo, ShellInfo, Xyz,
+    XyzAbsorber,
+};
 pub use crate::xafs::tools::{
     difference, merge_spectra, DiffSpace, EdgeFeature, MergeConfig, MergeGrid, MergeWeight,
     RebinConfig, RebinMethod, RebinOutput,
 };
 pub use crate::xafs::xafsutils::ConvolveForm;
-pub use crate::xafs::fitting::template::{apply_template, ParameterTemplate, PathAssignment, TemplateResult, TemplateVariable};
-pub use crate::xafs::structure::{rank_paths, select_by, select_default, shells_of, BuiltinLibrary, PathInfo, ShellInfo, Xyz, XyzAbsorber};

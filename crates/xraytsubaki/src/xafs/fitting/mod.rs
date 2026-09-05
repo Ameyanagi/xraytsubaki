@@ -15,14 +15,16 @@ use nalgebra::DVector;
 pub use builder::FeffFit;
 pub use errors::FittingError;
 pub use path_model::FF2ChiOutput;
-pub use template::{apply_template, ParameterTemplate, PathAssignment, TemplateResult, TemplateVariable};
+pub use template::{
+    apply_template, ParameterTemplate, PathAssignment, TemplateResult, TemplateVariable,
+};
 pub use transform::{estimate_noise, NoiseEstimate};
 pub use types::{
     DatasetResult, FeffBatchExecutionStrategy, FeffBatchOptions, FeffDat, FeffExecutionMode,
     FeffFitDataset, FeffFitJacobianMode, FeffFitOptions, FeffFitResult, FeffFitSolverMethod,
     FeffFitTransform, FeffFlavor, FeffModuleCommand, FeffPathModel, FeffResolvedCommands,
-    FeffRunRequest, FeffRunResult, FitSpace, FitVariable, FitVariables, FitWarning, KweightResult,
-    Param, PathContribution, PathParamSpec,
+    FeffRunRequest, FeffRunResult, FitSolverReport, FitSpace, FitVariable, FitVariables,
+    FitWarning, KweightResult, Param, PathContribution, PathParamSpec,
 };
 
 use crate::xafs::{Result, XAFSError};

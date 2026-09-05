@@ -28,6 +28,8 @@ pub struct ProjectFile {
     pub version: u32,
     /// Root folder of the catalog (re-scanned on open).
     pub source_dir: Option<PathBuf>,
+    /// Standalone spectra also need a source when there is no catalog.
+    pub spectrum_file: Option<PathBuf>,
     pub params: PipelineParams,
     /// Per-spectrum parameter overrides (empty in pre-override projects).
     pub overrides: Vec<ParamOverride>,
@@ -38,6 +40,7 @@ pub struct ProjectFile {
     pub derived: Vec<DerivedSpectrum>,
     /// Completed fits (model snapshot + statistics), oldest first.
     pub fit_history: Vec<FitHistoryEntry>,
+    pub joint: crate::joint_fitting::JointConfig,
 }
 
 pub const PROJECT_VERSION: u32 = 1;
@@ -61,6 +64,7 @@ mod tests {
         let project = ProjectFile {
             version: PROJECT_VERSION,
             source_dir: Some(PathBuf::from("/tmp/xts-operando")),
+            spectrum_file: Some(PathBuf::from("/tmp/ru-standard.dat")),
             params: PipelineParams {
                 rbkg: Some(1.2),
                 fft_kweight: Some(3.0),
@@ -85,10 +89,18 @@ mod tests {
                 max: Some(1.5),
                 expr: None,
             }],
-            fit_ranges: FitRanges::default(),
+            fit_ranges: FitRanges {
+                kmin: 3.1,
+                kmax: 13.2,
+                rmin: 1.7,
+                rmax: 3.8,
+                kweights: vec![2., 3.],
+                ..Default::default()
+            },
             feff_workspace: None,
             derived: Vec::new(),
             fit_history: Vec::new(),
+            joint: Default::default(),
         };
         let path = std::env::temp_dir().join("xts-test.xtproj");
         save(&path, &project).unwrap();
@@ -102,12 +114,15 @@ mod tests {
         assert_eq!(loaded.fit_vars[0].min, Some(0.0));
         assert_eq!(loaded.fit_vars[0].max, Some(1.5));
         assert_eq!(loaded.source_dir, project.source_dir);
+        assert_eq!(loaded.spectrum_file, project.spectrum_file);
+        assert!(loaded.fit_ranges == project.fit_ranges);
     }
 
     #[test]
     fn pre_override_projects_load_with_empty_overrides() {
         let project: ProjectFile = serde_json::from_str(r#"{"version":1}"#).unwrap();
         assert!(project.overrides.is_empty());
+        assert!(project.spectrum_file.is_none());
     }
 
     #[test]

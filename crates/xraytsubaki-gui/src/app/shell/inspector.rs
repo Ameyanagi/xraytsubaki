@@ -18,7 +18,7 @@ impl StudioApp {
             Stage::Background => self.background_inspector(cx).into_any_element(),
             Stage::Transform => self.transform_inspector(cx).into_any_element(),
             Stage::Series => self.series_inspector(cx).into_any_element(),
-            Stage::Fit => self.fit_inspector(cx).into_any_element(),
+            Stage::Fit => div().into_any_element(),
         };
         div()
             .w(px(312.))
@@ -48,9 +48,6 @@ impl StudioApp {
     }
 
     fn inspector_header(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        if self.stage == Stage::Fit {
-            return self.fit_inspector_header(cx).into_any_element();
-        }
         if self.stage == Stage::Series {
             return self.series_inspector_header(cx).into_any_element();
         }

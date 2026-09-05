@@ -632,9 +632,9 @@ impl StructureSourceKind {
 
     pub fn label(self) -> &'static str {
         match self {
-            StructureSourceKind::Builtin => "Built-in",
-            StructureSourceKind::LocalCif => "CIF",
-            StructureSourceKind::MaterialsProject => "MP",
+            StructureSourceKind::Builtin => "Curated",
+            StructureSourceKind::LocalCif => "CIF folder",
+            StructureSourceKind::MaterialsProject => "Materials Project",
             StructureSourceKind::Amcsd => "AMCSD",
             StructureSourceKind::Cod => "COD",
         }
@@ -674,6 +674,15 @@ impl StructureHit {
             core: Some(hit),
         }
     }
+}
+
+pub fn matches_category(hit: &StructureHit, category: Option<&str>) -> bool {
+    category.is_none_or(|category| {
+        hit.core
+            .as_ref()
+            .and_then(|h| h.extra.get("category"))
+            .is_some_and(|c| c == category)
+    })
 }
 
 /// One crystallographic site, as listed in the panel.
@@ -765,8 +774,7 @@ impl StructureSummary {
         let mut structure = core::Structure::new(
             &title,
             // A unit cube is always a valid lattice.
-            core::Lattice::from_parameters(1.0, 1.0, 1.0, 90.0, 90.0, 90.0)
-                .expect("unit lattice"),
+            core::Lattice::from_parameters(1.0, 1.0, 1.0, 90.0, 90.0, 90.0).expect("unit lattice"),
             Vec::new(),
         );
         structure.source = "xyz".into();
@@ -971,7 +979,13 @@ pub fn import_xyz(path: &Path) -> Result<StructureSummary, String> {
     }
     let formula = counts
         .iter()
-        .map(|(s, n)| if *n == 1 { s.clone() } else { format!("{s}{n}") })
+        .map(|(s, n)| {
+            if *n == 1 {
+                s.clone()
+            } else {
+                format!("{s}{n}")
+            }
+        })
         .collect::<Vec<_>>()
         .join("");
     let hit = StructureHit {
@@ -1166,7 +1180,17 @@ mod tests {
         // hcp: two Ru sites in the conventional cell.
         assert_eq!(s.sites.iter().map(|x| x.multiplicity).sum::<usize>(), 2);
         assert_eq!(s.elements(), vec![("Ru".to_string(), 44)]);
-        assert!(p.search("").unwrap().len() >= 40);
+        let all = p.search("").unwrap();
+        assert!(all.len() >= 40);
+        assert!(all.iter().all(|h| matches_category(h, None)));
+        assert!(matches_category(&hit, Some("metal")));
+        assert!(!matches_category(&hit, Some("oxide")));
+        for category in ["metal", "oxide", "sulfide", "other"] {
+            assert!(
+                all.iter().any(|h| matches_category(h, Some(category))),
+                "{category}"
+            );
+        }
         assert_eq!(p.search("RuO2").unwrap()[0].id, "ruo2");
         let cfg = SourceConfig::default();
         assert!(provider_for(StructureSourceKind::Amcsd, &cfg).is_err());
@@ -1202,7 +1226,8 @@ mod tests {
         let nacl = p.search("nacl").unwrap().remove(0);
         let s = p.fetch(&nacl).unwrap();
         assert_eq!(s.elements().len(), 2);
-        assert_eq!(s.formula(), "NaCl");
+        // Formula summaries use alphabetical Hill order when carbon is absent.
+        assert_eq!(s.formula(), "ClNa");
     }
 
     #[test]

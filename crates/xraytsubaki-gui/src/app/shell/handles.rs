@@ -21,6 +21,7 @@ use ruviz_gpui::RuvizPlot;
 
 use super::Stage;
 use super::center::{PLOT_CHIK, PLOT_CHIR, PLOT_MU, PLOT_NORM};
+use super::fit_preview::{PREVIEW_K, PREVIEW_Q, PREVIEW_R};
 use crate::app::{ParamKey, StudioApp};
 
 /// Virtual plot indices for the Fit stage plots (not quadrants).
@@ -142,9 +143,13 @@ impl StudioApp {
     /// Handles the stage exposes on a given plot, with their current data x.
     fn handle_specs(&self, plot: usize) -> (Vec<(HandleKey, f64)>, Vec<Span>) {
         if self.stage == Stage::Fit {
-            let r = &self.fit_ranges;
+            let r = self
+                .joint_plotted_dataset_id()
+                .and_then(|id| self.joint.config.datasets.iter().find(|d| d.id == id))
+                .and_then(|d| d.ranges.as_ref())
+                .unwrap_or(&self.fit_ranges);
             return match plot {
-                PLOT_FIT_K => (
+                PLOT_FIT_K | PREVIEW_K | PREVIEW_Q => (
                     vec![(HandleKey::FitKmin, r.kmin), (HandleKey::FitKmax, r.kmax)],
                     vec![Span {
                         lo: Some(HandleKey::FitKmin),
@@ -153,7 +158,7 @@ impl StudioApp {
                         accent: true,
                     }],
                 ),
-                PLOT_FIT_R => (
+                PLOT_FIT_R | PREVIEW_R => (
                     vec![(HandleKey::FitRmin, r.rmin), (HandleKey::FitRmax, r.rmax)],
                     vec![Span {
                         lo: Some(HandleKey::FitRmin),
@@ -309,6 +314,9 @@ impl StudioApp {
     /// The interactive plot behind a handle plot index.
     pub(crate) fn plot_entity(&self, plot: usize) -> Option<Entity<RuvizPlot>> {
         match plot {
+            PREVIEW_K => self.fit_preview.k.clone(),
+            PREVIEW_R => self.fit_preview.r.clone(),
+            PREVIEW_Q => self.fit_preview.q.clone(),
             PLOT_FIT_K => self.fit_plots.as_ref().map(|p| p.k.clone()),
             PLOT_FIT_R => self.fit_plots.as_ref().map(|p| p.r.clone()),
             _ => self.quadrants.get(plot).map(|(_, e)| e.clone()),
@@ -594,7 +602,18 @@ impl StudioApp {
         };
         let Some(param) = key.param() else {
             // Fit ranges: model state, not pipeline params.
-            let r = &mut self.fit_ranges;
+            let id = self.joint_plotted_dataset_id();
+            let r = if let Some(d) = self
+                .joint
+                .config
+                .datasets
+                .iter_mut()
+                .find(|d| Some(d.id) == id)
+            {
+                d.ranges.get_or_insert_with(|| self.fit_ranges.clone())
+            } else {
+                &mut self.fit_ranges
+            };
             let slot = match key {
                 HandleKey::FitKmin => &mut r.kmin,
                 HandleKey::FitKmax => &mut r.kmax,
@@ -626,6 +645,35 @@ impl StudioApp {
     /// Absolute x-range a handle may take: the spectrum's energy range for
     /// energy handles, `0..k_max` / `0..R_max` for the k- and R-space ones.
     fn handle_domain(&self, key: HandleKey) -> Option<(f64, f64)> {
+        if self.stage_view.fit_step == super::fit_workspace::FitStep::Model
+            && let Some(data) = &self.fit_preview.data
+        {
+            match key {
+                HandleKey::FitKmin | HandleKey::FitKmax => {
+                    return data.input.0.iter().next_back().map(|v| (0., *v));
+                }
+                HandleKey::FitRmin | HandleKey::FitRmax => {
+                    return data.arrays.r_space.r.iter().next_back().map(|v| (0., *v));
+                }
+                _ => (),
+            }
+        }
+        if self.joint_plotted_dataset_id().is_some()
+            && let Some(d) = self
+                .fit_result
+                .as_ref()
+                .and_then(|r| r.datasets.get(self.joint.result_index))
+        {
+            match key {
+                HandleKey::FitKmin | HandleKey::FitKmax => {
+                    return d.k.iter().next_back().map(|v| (0., *v));
+                }
+                HandleKey::FitRmin | HandleKey::FitRmax => {
+                    return d.r.iter().next_back().map(|v| (0., *v));
+                }
+                _ => (),
+            }
+        }
         let sp = self.spectrum.as_ref()?;
         let last = |v: &nalgebra::DVector<f64>| v.iter().next_back().copied();
         match key {

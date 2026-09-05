@@ -73,12 +73,13 @@ fn workspace_dir() -> Result<PathBuf, String> {
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|e| e.to_string())?
-        .as_secs();
+        .as_nanos();
     let dir = PathBuf::from(home)
         .join(".xraytsubaki")
         .join("feff")
         .join(format!("ws-{stamp}"));
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(dir.parent().expect("workspace parent")).map_err(|e| e.to_string())?;
+    std::fs::create_dir(&dir).map_err(|e| e.to_string())?;
     Ok(dir)
 }
 
@@ -141,6 +142,7 @@ pub fn new_workspace() -> Result<PathBuf, String> {
 ///
 /// ReFEFF runs in-process; FEFFRS uses its embedded worker pipeline. Neither
 /// route requires a separately installed command-line executable.
+#[cfg(test)]
 pub fn run_feff10_subprocess(workspace: &Path) -> Result<Vec<PathBuf>, String> {
     run_feff10(workspace)
 }
@@ -149,8 +151,13 @@ pub fn run_feff10_subprocess(workspace: &Path) -> Result<Vec<PathBuf>, String> {
 /// `workspace/feff.inp`; returns the generated feffNNNN.dat files. A build
 /// containing both backends defaults to ReFEFF and accepts
 /// `XTS_FEFF_BACKEND=feffrs` as a runtime override.
+#[cfg(test)]
 pub fn run_feff10(workspace: &Path) -> Result<Vec<PathBuf>, String> {
     let mode = selected_feff_mode()?;
+    run_backend(workspace, mode)
+}
+
+pub fn run_backend(workspace: &Path, mode: FeffExecutionMode) -> Result<Vec<PathBuf>, String> {
     let request = FeffRunRequest {
         executable_path: PathBuf::new(),
         workspace_dir: workspace.to_path_buf(),
@@ -165,7 +172,15 @@ pub fn run_feff10(workspace: &Path) -> Result<Vec<PathBuf>, String> {
         .map_err(|e| e.to_string())
 }
 
-fn selected_feff_mode() -> Result<FeffExecutionMode, String> {
+pub fn backend_name(mode: FeffExecutionMode) -> &'static str {
+    match mode {
+        FeffExecutionMode::RefeffPipeline => "ReFEFF",
+        FeffExecutionMode::Feff10Pipeline => "FEFF-RS / FEFF10",
+        _ => "No calculation engine available",
+    }
+}
+
+pub(crate) fn selected_feff_mode() -> Result<FeffExecutionMode, String> {
     #[cfg(all(feature = "refeff-runner", feature = "feff10-runner"))]
     {
         return match std::env::var("XTS_FEFF_BACKEND")

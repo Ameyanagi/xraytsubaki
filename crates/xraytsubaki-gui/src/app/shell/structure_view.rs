@@ -1,34 +1,37 @@
 //! Fit stage · structure database, cluster / path visualizer, path selection.
 //!
-//! The 3D view (ruviz-gpui `RuvizPlot3D`) shows the FEFF cluster: atoms as
-//! CPK-coloured markers sized by covalent radius, the absorber at the
-//! origin, shells by distance, and the selected path as a closed polyline.
+//! A native molecular canvas shows shaded CPK atoms, periodic crystal
+//! context, the FEFF cluster, and directed scattering legs at a stable scale.
+//! The coordination histogram uses ruviz.
 //! Atoms come from the workspace `feff.inp`, legs from every path's
 //! `feffNNNN.dat` (see [`crate::structure`]). The structure panel talks to
 //! [`crate::structure::StructureProvider`] — the seam the core crate's
 //! `xafs::structure` sources plug into.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use super::molecule_view::{
+    AtomStyle, CrystalContext, MoleculeScene, PolyAtoms, PolyhedronOptions, ViewCamera,
+    crystal_context,
+};
 use gpui::{
     ClickEvent, Context, Entity, IntoElement, ParentElement, SharedString, Styled, div, prelude::*,
     px,
 };
-use ruviz::core::{Camera3D, CameraView3D, PickHit3D, PickPrimitive3D, Point3D};
 use ruviz::render::Color as PlotColor;
-use ruviz_gpui::{Plot3DEvent, RuvizPlot, RuvizPlot3D, plot_builder, plot3d_builder};
+use ruviz_gpui::{RuvizPlot, plot_builder};
 
+use super::fit_workspace::FitStep;
 use super::{MONO, button, chip, section_label, segment, segmented};
 use crate::app::StudioApp;
 use crate::settings::{UserSettings, default_amcsd_path};
 use crate::structure::{
     Cluster, PathGeometry, SourceConfig, StructureHit, StructureSourceKind, StructureSummary,
-    covalent_radius, cpk_color, import_cif, load_cluster, load_path_geometry, normalise_importance,
-    provider_for,
+    cpk_color, import_cif, load_cluster, load_path_geometry, normalise_importance, provider_for,
 };
 use crate::theme::Theme;
 use crate::widgets::text_input::{InputEvent, InputStyle, TextInput};
@@ -59,25 +62,6 @@ impl CameraPreset {
             CameraPreset::DownB => "↓b",
         }
     }
-    fn view(self) -> CameraView3D {
-        match self {
-            CameraPreset::Isometric => CameraView3D::Isometric,
-            CameraPreset::DownC => CameraView3D::Top,
-            CameraPreset::DownA => CameraView3D::Left,
-            CameraPreset::DownB => CameraView3D::Front,
-        }
-    }
-}
-
-/// A 3D polyline: x, y, z, colour, width, legend label.
-type LineSpec = (Vec<f64>, Vec<f64>, Vec<f64>, PlotColor, f32, Option<String>);
-
-/// What a 3D series maps back to, for picking.
-enum SeriesTarget {
-    /// Scatter series: point index → cluster atom index.
-    Atoms(Vec<usize>),
-    /// Line series (bonds, path polyline): no pick target.
-    Decor,
 }
 
 /// Info card for the picked atom.
@@ -109,8 +93,13 @@ impl Default for PathFilters {
 
 /// Everything the structure feature keeps on the app.
 pub(crate) struct StructureState {
+    pub diagnostics: super::path_diagnostics::PathDiagnostics,
+    pub filter_to_spectrum: bool,
     // ---- cluster + paths ----
     pub cluster: Option<Cluster>,
+    /// Candidate preview is separate from the calculated model.
+    pub preview_cluster: Option<Cluster>,
+    pub category: Option<&'static str>,
     cluster_workspace: Option<PathBuf>,
     /// Parallel to `StudioApp::fit_paths`.
     pub paths: Vec<Option<PathGeometry>>,
@@ -121,11 +110,31 @@ pub(crate) struct StructureState {
     pub max_reff_input: Entity<TextInput>,
     // ---- 3D view ----
     pub show: bool,
-    pub plot3d: Option<Entity<RuvizPlot3D>>,
-    series_map: Vec<SeriesTarget>,
+    pub scene: Option<Arc<MoleculeScene>>,
+    pub depth: super::depth_controls::DepthControls,
+    pub camera: ViewCamera,
+    pub drag: Option<(gpui::Point<gpui::Pixels>, gpui::Point<gpui::Pixels>, bool)>,
+    pub view_bounds: Option<gpui::Bounds<gpui::Pixels>>,
+    pub atom_style: AtomStyle,
+    pub bond_mode: super::bond_geometry::BondMode,
+    pub highlight_absorber: bool,
+    pub absorber_label: bool,
+    pub shading: bool,
+    pub crystal_visible: bool,
+    pub molecule_only: bool,
+    pub show_hydrogens: bool,
+    pub atom_labels: bool,
+    pub poly_options: PolyhedronOptions,
+    pub poly_cutoff_input: Entity<TextInput>,
+    pub preview_context: Option<CrystalContext>,
+    pub preview_radius: f64,
+    pub source_clusters: BTreeMap<PathBuf, Cluster>,
+    pub source_contexts: BTreeMap<PathBuf, CrystalContext>,
+    pub source_filter: Option<PathBuf>,
+    pub path_leg: Option<usize>,
     pub hist: Option<Entity<RuvizPlot>>,
+    pub show_shell_hist: bool,
     pub color_by_shell: bool,
-    pub show_bonds: bool,
     pub pick: Option<AtomPick>,
     pub plot_error: Option<String>,
     // ---- structure panel ----
@@ -139,6 +148,7 @@ pub(crate) struct StructureState {
     /// `summary.sites`); `None` = every site of the element.
     pub absorber_site: Option<usize>,
     pub edge: String,
+    pub backend: xraytsubaki::prelude::FeffExecutionMode,
     pub radius: Entity<TextInput>,
     pub mp_key: Entity<TextInput>,
     pub mp_key_editing: bool,
@@ -174,8 +184,38 @@ impl StructureState {
             }
         })
         .detach();
-        let radius = cx.new(|cx| TextInput::new("rmax", "6.0", theme, cx).with_style(mono));
+        let radius = cx.new(|cx| TextInput::new("rmax", "8.0", theme, cx).with_style(mono));
+        cx.subscribe(&radius, |this: &mut StudioApp, _f, event, cx| {
+            if let InputEvent::Committed(_) = event {
+                this.preview_structure(cx);
+            }
+        })
+        .detach();
         let max_reff_input = cx.new(|cx| TextInput::new("max R", "", theme, cx).with_style(mono));
+        let poly_cutoff_input = cx.new(|cx| TextInput::new("auto", "", theme, cx).with_style(mono));
+        cx.subscribe(&poly_cutoff_input, |this: &mut StudioApp, _, event, cx| {
+            if let InputEvent::Committed(text) = event {
+                let text = text.trim();
+                if text.is_empty() || text.eq_ignore_ascii_case("auto") {
+                    this.structure.poly_options.cutoff = None;
+                } else if let Some(value) = text
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|value| value.is_finite() && (0.5..=6.0).contains(value))
+                {
+                    this.structure.poly_options.cutoff = Some(value);
+                } else {
+                    this.structure.plot_error =
+                        Some("Polyhedron bond limit must be auto or 0.5–6 Å.".into());
+                    cx.notify();
+                    return;
+                }
+                this.structure.plot_error = None;
+                this.rebuild_structure_plot(cx);
+                cx.notify();
+            }
+        })
+        .detach();
         cx.subscribe(&max_reff_input, |this: &mut StudioApp, _f, event, cx| {
             if let InputEvent::Committed(text) = event {
                 this.structure.filters.max_reff = text.trim().parse().ok();
@@ -204,6 +244,10 @@ impl StructureState {
         });
         Self {
             cluster: None,
+            preview_cluster: None,
+            category: None,
+            filter_to_spectrum: true,
+            diagnostics: Default::default(),
             cluster_workspace: None,
             paths: Vec::new(),
             selected: None,
@@ -212,11 +256,31 @@ impl StructureState {
             filters: PathFilters::default(),
             max_reff_input,
             show: false,
-            plot3d: None,
-            series_map: Vec::new(),
+            scene: None,
+            depth: Default::default(),
+            camera: ViewCamera::default(),
+            drag: None,
+            view_bounds: None,
+            atom_style: AtomStyle::BallStick,
+            bond_mode: Default::default(),
+            highlight_absorber: true,
+            absorber_label: false,
+            shading: true,
+            crystal_visible: true,
+            molecule_only: false,
+            show_hydrogens: true,
+            atom_labels: false,
+            poly_options: PolyhedronOptions::default(),
+            poly_cutoff_input,
+            preview_context: None,
+            preview_radius: 8.,
+            source_clusters: BTreeMap::new(),
+            source_contexts: BTreeMap::new(),
+            source_filter: None,
+            path_leg: None,
             hist: None,
+            show_shell_hist: false,
             color_by_shell: false,
-            show_bonds: false,
             pick: None,
             plot_error: None,
             source: StructureSourceKind::Builtin,
@@ -227,6 +291,7 @@ impl StructureState {
             absorber: None,
             absorber_site: None,
             edge: "K".to_string(),
+            backend: crate::feffgen::selected_feff_mode().unwrap_or_default(),
             radius,
             mp_key,
             mp_key_editing: false,
@@ -265,50 +330,12 @@ impl StructureState {
     }
 }
 
-/// Shell colour ramp: near shells warm, far shells cool.
-fn shell_color(shell: usize, n_shells: usize) -> PlotColor {
-    let t = if n_shells <= 1 {
-        0.0
-    } else {
-        shell as f64 / (n_shells - 1) as f64
-    };
-    // amber → teal → violet
-    let (r, g, b) = if t < 0.5 {
-        let u = t * 2.0;
-        (
-            (232.0 + (25.0 - 232.0) * u) as u8,
-            (160.0 + (158.0 - 160.0) * u) as u8,
-            (60.0 + (112.0 - 60.0) * u) as u8,
-        )
-    } else {
-        let u = (t - 0.5) * 2.0;
-        (
-            (25.0 + (144.0 - 25.0) * u) as u8,
-            (158.0 + (133.0 - 158.0) * u) as u8,
-            (112.0 + (233.0 - 112.0) * u) as u8,
-        )
-    };
-    PlotColor::from_rgb(r, g, b)
-}
-
-fn rgb(hex: u32) -> PlotColor {
-    PlotColor::from_rgb(
-        ((hex >> 16) & 0xff) as u8,
-        ((hex >> 8) & 0xff) as u8,
-        (hex & 0xff) as u8,
-    )
-}
-
 fn theme_rgb(c: gpui::Rgba) -> PlotColor {
     PlotColor::from_rgb(
         (c.r * 255.0) as u8,
         (c.g * 255.0) as u8,
         (c.b * 255.0) as u8,
     )
-}
-
-fn marker_px(z: u32) -> f32 {
-    5.0 + covalent_radius(z) * 5.0
 }
 
 impl StudioApp {
@@ -334,6 +361,41 @@ impl StudioApp {
             changed = true;
         }
         let files: Vec<PathBuf> = self.fit_paths.iter().map(|r| r.spec.file.clone()).collect();
+        let mut sources = self.path_sources();
+        if let Some(ws) = &self.feff_workspace {
+            if !sources.contains(ws) {
+                sources.push(ws.clone());
+            }
+        }
+        for source in sources {
+            if !self.structure.source_clusters.contains_key(&source) {
+                if let Some(cluster) = load_cluster(&source) {
+                    self.structure
+                        .source_clusters
+                        .insert(source.clone(), cluster);
+                }
+                if let Ok(json) = std::fs::read(source.join("crystal.json")) {
+                    if let Ok((s, c)) =
+                        serde_json::from_slice::<(core::Structure, core::Cluster)>(&json)
+                    {
+                        self.structure
+                            .source_contexts
+                            .insert(source.clone(), crystal_context(&s, &c));
+                    }
+                }
+                changed = true;
+            }
+        }
+        if self
+            .structure
+            .source_filter
+            .as_ref()
+            .is_none_or(|s| !files.iter().any(|f| f.parent() == Some(s.as_path())))
+        {
+            self.structure.source_filter = files
+                .first()
+                .and_then(|f| f.parent().map(|p| p.to_path_buf()));
+        }
         let same = self.structure.paths.len() == files.len()
             && self
                 .structure
@@ -345,9 +407,29 @@ impl StudioApp {
             let core_cluster = self.structure.core_cluster.clone();
             let mut paths: Vec<Option<PathGeometry>> = files
                 .iter()
-                .map(|f| load_path_geometry(f, core_cluster.as_deref()))
+                .map(|f| {
+                    load_path_geometry(
+                        f,
+                        core_cluster.as_deref().filter(|_| {
+                            f.parent() == self.structure.core_cluster_workspace.as_deref()
+                        }),
+                    )
+                })
                 .collect();
             normalise_importance(&mut paths);
+            for source in self.path_sources() {
+                if !self.structure.source_clusters.contains_key(&source) {
+                    let local: Vec<_> = paths
+                        .iter()
+                        .zip(&files)
+                        .filter(|(_, f)| f.parent() == Some(source.as_path()))
+                        .map(|(p, _)| p.clone())
+                        .collect();
+                    if let Some(cluster) = cluster_from_paths(&local) {
+                        self.structure.source_clusters.insert(source, cluster);
+                    }
+                }
+            }
             // A cluster may be missing (paths added by file): synthesise one
             // from the union of path legs so the view still works.
             if self.structure.cluster.is_none() {
@@ -364,28 +446,6 @@ impl StudioApp {
         if changed {
             self.rebuild_structure_plot(cx);
         }
-    }
-
-    /// Indices of `fit_paths` that pass the filters, in table order.
-    pub(crate) fn structure_filtered_paths(&self) -> Vec<usize> {
-        let f = &self.structure.filters;
-        (0..self.fit_paths.len())
-            .filter(|&i| {
-                let Some(Some(p)) = self.structure.paths.get(i) else {
-                    return true;
-                };
-                if f.single_scattering && !p.is_single_scattering() {
-                    return false;
-                }
-                if f.max_legs.is_some_and(|m| p.nleg > m) {
-                    return false;
-                }
-                if f.max_reff.is_some_and(|m| p.reff > m) {
-                    return false;
-                }
-                p.importance >= f.min_importance
-            })
-            .collect()
     }
 
     pub(crate) fn select_structure_path(
@@ -409,6 +469,8 @@ impl StudioApp {
             self.structure.multi.insert(i);
         }
         self.structure.selected = Some(i);
+        self.structure.path_leg = None;
+        self.structure.pick = None;
         self.rebuild_structure_plot(cx);
         cx.notify();
     }
@@ -432,221 +494,66 @@ impl StudioApp {
     // ---- 3D plot ---------------------------------------------------------
 
     pub(crate) fn rebuild_structure_plot(&mut self, cx: &mut Context<Self>) {
-        let Some(cluster) = self.structure.cluster.clone() else {
-            self.structure.plot3d = None;
+        let Some(cluster) = self.displayed_cluster() else {
+            self.structure.scene = None;
             self.structure.hist = None;
-            self.structure.series_map.clear();
             return;
         };
-        let theme = self.theme;
-        let n_shells = cluster.shells.len().max(1);
-        let selected = self
+        let path = self
             .structure
             .selected
-            .and_then(|i| self.structure.paths.get(i).cloned().flatten());
-        let highlight_atoms: BTreeSet<usize> = selected
-            .as_ref()
-            .map(|p| p.atom_indices(&cluster).into_iter().flatten().collect())
-            .unwrap_or_default();
-
-        // Group atoms into series: by element (CPK) or by shell (ramp).
-        struct Group {
-            label: String,
-            color: PlotColor,
-            size: f32,
-            atoms: Vec<usize>,
-        }
-        let mut groups: Vec<Group> = Vec::new();
-        for (i, a) in cluster.atoms.iter().enumerate() {
-            if a.ipot == 0 || highlight_atoms.contains(&i) {
-                continue;
-            }
-            let (key, color, size) = if self.structure.color_by_shell {
-                (
-                    format!("shell {} · {:.2} Å", a.shell, cluster.shells[a.shell].0),
-                    shell_color(a.shell, n_shells),
-                    marker_px(a.z) * 0.9,
-                )
-            } else {
-                (a.symbol.clone(), rgb(cpk_color(a.z)), marker_px(a.z))
-            };
-            match groups.iter_mut().find(|g| g.label == key) {
-                Some(g) => g.atoms.push(i),
-                None => groups.push(Group {
-                    label: key,
-                    color,
-                    size,
-                    atoms: vec![i],
-                }),
-            }
-        }
-        let mut series_map: Vec<SeriesTarget> = Vec::new();
-        let xyz = |ids: &[usize]| -> (Vec<f64>, Vec<f64>, Vec<f64>) {
-            let mut x = Vec::with_capacity(ids.len());
-            let mut y = Vec::with_capacity(ids.len());
-            let mut z = Vec::with_capacity(ids.len());
-            for &i in ids {
-                let p = cluster.atoms[i].pos;
-                x.push(p[0]);
-                y.push(p[1]);
-                z.push(p[2]);
-            }
-            (x, y, z)
-        };
-
-        // Absorber first so it is always series 0.
-        let absorber_ids: Vec<usize> = cluster
-            .atoms
-            .iter()
-            .enumerate()
-            .filter(|(_, a)| a.ipot == 0)
-            .map(|(i, _)| i)
-            .collect();
-        let (ax, ay, az) = xyz(&absorber_ids);
-        let absorber_label = cluster
-            .absorber()
-            .map(|a| format!("{} (absorber)", a.symbol))
-            .unwrap_or_else(|| "absorber".into());
-        let mut sb = ruviz::scatter3d(&ax, &ay, &az)
-            .color(theme_rgb(theme.accent))
-            .marker_size(
-                cluster
-                    .absorber()
-                    .map(|a| marker_px(a.z) * 1.5)
-                    .unwrap_or(10.0),
-            )
-            .label(absorber_label)
-            .theme(theme.plot_theme())
-            .xlabel("x (Å)")
-            .ylabel("y (Å)")
-            .zlabel("z (Å)");
-        series_map.push(SeriesTarget::Atoms(absorber_ids));
-
-        for g in &groups {
-            let (x, y, z) = xyz(&g.atoms);
-            sb = sb
-                .scatter3d(&x, &y, &z)
-                .color(g.color)
-                .marker_size(g.size)
-                .label(g.label.clone());
-            series_map.push(SeriesTarget::Atoms(g.atoms.clone()));
-        }
-        if !highlight_atoms.is_empty() {
-            let ids: Vec<usize> = highlight_atoms.iter().copied().collect();
-            let (x, y, z) = xyz(&ids);
-            let size = ids
-                .iter()
-                .map(|&i| marker_px(cluster.atoms[i].z))
-                .fold(0.0_f32, f32::max)
-                * 1.6;
-            sb = sb
-                .scatter3d(&x, &y, &z)
-                .color(theme_rgb(theme.warn))
-                .marker_size(size)
-                .label("selected path");
-            series_map.push(SeriesTarget::Atoms(ids));
-        }
-
-        // Lines: bonds (first shell only, optional) then the path polyline.
-        let mut lines: Vec<LineSpec> = Vec::new();
-        if self.structure.show_bonds {
-            let cutoff = cluster.shells.get(1).map(|s| s.0 * 1.15).unwrap_or(0.0);
-            let mut count = 0usize;
-            'outer: for (i, a) in cluster.atoms.iter().enumerate() {
-                for b in cluster.atoms.iter().skip(i + 1) {
-                    let d = ((a.pos[0] - b.pos[0]).powi(2)
-                        + (a.pos[1] - b.pos[1]).powi(2)
-                        + (a.pos[2] - b.pos[2]).powi(2))
-                    .sqrt();
-                    if d > 0.5 && d <= cutoff {
-                        lines.push((
-                            vec![a.pos[0], b.pos[0]],
-                            vec![a.pos[1], b.pos[1]],
-                            vec![a.pos[2], b.pos[2]],
-                            theme_rgb(theme.text_muted),
-                            1.0,
-                            None,
-                        ));
-                        count += 1;
-                        if count >= 240 {
-                            break 'outer;
-                        }
-                    }
-                }
-            }
-        }
-        if let Some(p) = &selected {
-            let pts = p.polyline();
-            lines.push((
-                pts.iter().map(|q| q[0]).collect(),
-                pts.iter().map(|q| q[1]).collect(),
-                pts.iter().map(|q| q[2]).collect(),
-                theme_rgb(theme.warn),
-                3.0,
-                Some(format!("{} · {:.3} Å", p.label(), p.reff)),
-            ));
-        }
-
-        let plot = if lines.is_empty() {
-            sb
+            .filter(|_| !self.viewing_candidate())
+            .and_then(|i| self.structure.paths.get(i))
+            .and_then(|p| p.as_ref());
+        let context = if self.viewing_candidate() {
+            self.structure.preview_context.as_ref()
         } else {
-            let mut lb = {
-                let (x, y, z, c, w, label) = lines.remove(0);
-                let b = sb.line3d(&x, &y, &z).color(c).line_width(w);
-                let b = match label {
-                    Some(l) => b.label(l),
-                    None => b,
-                };
-                series_map.push(SeriesTarget::Decor);
-                b
-            };
-            for (x, y, z, c, w, label) in lines {
-                lb = lb.line3d(&x, &y, &z).color(c).line_width(w);
-                if let Some(l) = label {
-                    lb = lb.label(l);
-                }
-                series_map.push(SeriesTarget::Decor);
-            }
-            // Return to a scatter builder type by appending an empty absorber
-            // marker series is not possible; keep the line builder instead.
-            self.structure.series_map = series_map;
-            self.install_structure_plot(lb, cx);
-            self.rebuild_structure_hist(&cluster, cx);
-            return;
+            self.displayed_source()
+                .and_then(|s| self.structure.source_contexts.get(&s))
         };
-        self.structure.series_map = series_map;
-        self.install_structure_plot(plot, cx);
-        self.rebuild_structure_hist(&cluster, cx);
-    }
-
-    fn install_structure_plot<P>(&mut self, plot: P, cx: &mut Context<Self>)
-    where
-        P: ruviz::core::TryIntoPlot3DSession + 'static,
-    {
-        match &self.structure.plot3d {
-            Some(entity) => {
-                let res = entity.update(cx, |p, cx| p.set_plot_keep_view(plot, cx));
-                if let Err(e) = res {
-                    self.structure.plot_error = Some(e.to_string());
-                }
-            }
-            None => {
-                let entity = plot3d_builder(plot).interactive().fill().build(cx);
-                cx.subscribe(
-                    &entity,
-                    |this: &mut Self, _e, event: &Plot3DEvent, cx| match event {
-                        Plot3DEvent::Pick(hit) => this.structure_pick(*hit, cx),
-                        Plot3DEvent::Error(err) => {
-                            this.structure.plot_error = Some(err.to_string());
-                            cx.notify();
-                        }
-                        Plot3DEvent::CameraChanged(_) => {}
-                    },
-                )
-                .detach();
-                self.structure.plot3d = Some(entity);
-            }
+        let radius = if self.viewing_candidate() {
+            self.structure.preview_radius
+        } else {
+            self.displayed_source()
+                .and_then(|s| self.structure.source_contexts.get(&s))
+                .map(|c| c.radius)
+                .unwrap_or_else(|| cluster.atoms.iter().map(|a| a.dist).fold(0., f64::max))
+        };
+        let mut scene = if self.structure.molecule_only
+            && let Some(Ok(molecule)) = context.and_then(|c| c.molecule.as_ref())
+        {
+            MoleculeScene::molecule(
+                molecule,
+                &cluster,
+                radius,
+                self.structure.show_hydrogens,
+                self.structure.atom_style,
+            )
+        } else {
+            MoleculeScene::new(
+                &cluster,
+                context.filter(|_| self.structure.crystal_visible),
+                radius,
+                self.structure.atom_style,
+                path,
+                self.structure.pick.as_ref().map(|p| p.atom),
+                self.structure.poly_options,
+            )
+        };
+        if self.structure.molecule_only
+            && let Some(Err(error)) = context.and_then(|c| c.molecule.as_ref())
+        {
+            scene.message = Some(error.clone());
         }
+        scene.labels = self.structure.atom_labels;
+        if matches!(
+            self.structure.atom_style,
+            AtomStyle::BallStick | AtomStyle::Wireframe
+        ) {
+            scene.apply_bond_mode(self.structure.bond_mode);
+        }
+        self.structure.scene = Some(Arc::new(scene));
+        self.rebuild_structure_hist(&cluster, cx);
     }
 
     fn rebuild_structure_hist(&mut self, cluster: &Cluster, cx: &mut Context<Self>) {
@@ -686,37 +593,16 @@ impl StudioApp {
         }
     }
 
-    fn structure_pick(&mut self, hit: PickHit3D, cx: &mut Context<Self>) {
-        if hit.primitive != PickPrimitive3D::Point {
-            return;
-        }
-        let Some(SeriesTarget::Atoms(ids)) =
-            self.structure.series_map.get(hit.series_index as usize)
-        else {
-            return;
-        };
-        let Some(&atom) = ids.get(hit.primitive_index as usize) else {
-            return;
-        };
-        self.structure.pick = Some(AtomPick { atom });
-        cx.notify();
-    }
-
     pub(crate) fn set_structure_camera(&mut self, preset: CameraPreset, cx: &mut Context<Self>) {
-        if let Some(p) = &self.structure.plot3d {
-            let _ = p.update(cx, |p, cx| {
-                p.set_camera(
-                    Camera3D::default()
-                        .camera_view(preset.view())
-                        .look_at(Point3D {
-                            x: 0.0,
-                            y: 0.0,
-                            z: 0.0,
-                        }),
-                    cx,
-                )
-            });
-        }
+        let (az, el) = match preset {
+            CameraPreset::Isometric => (-0.6, 0.45),
+            CameraPreset::DownC => (0., std::f64::consts::FRAC_PI_2),
+            CameraPreset::DownA => (std::f64::consts::FRAC_PI_2, 0.),
+            CameraPreset::DownB => (0., 0.),
+        };
+        self.structure.camera.az = az;
+        self.structure.camera.el = el;
+        cx.notify();
     }
 
     // ---- structure panel actions -------------------------------------------
@@ -878,6 +764,16 @@ impl StudioApp {
     /// Apply a fetched/imported structure to the panel.
     fn structure_set_summary(&mut self, summary: StructureSummary, cx: &mut Context<Self>) {
         let el = summary.elements();
+        if let Some(interest) = self.spectrum_interest()
+            && el.iter().any(|(s, _)| s == &interest.element)
+        {
+            self.structure.absorber = Some(interest.element);
+            if let Some(edge) = interest.edge.filter(|e| {
+                ["K", "L1", "L2", "L3", "M1", "M2", "M3", "M4", "M5"].contains(&e.as_str())
+            }) {
+                self.structure.edge = edge;
+            }
+        }
         if !self
             .structure
             .absorber
@@ -890,8 +786,15 @@ impl StudioApp {
         for w in &summary.structure.warnings {
             self.record_job_error(format!("structure {}", summary.hit.formula), w.clone());
         }
+        self.structure.molecule_only =
+            crate::structure::matches_category(&summary.hit, Some("molecule"));
+        if self.structure.molecule_only {
+            self.structure.atom_style = AtomStyle::BallStick;
+        }
+        self.structure.poly_options.ligand = None;
         self.structure.summary = Some(summary);
         self.structure.search_error = None;
+        self.preview_structure(cx);
         cx.notify();
     }
 
@@ -1155,39 +1058,36 @@ impl StudioApp {
     }
 
     /// Build the cluster and feff.inp for the chosen structure, then run FEFF.
-    pub(crate) fn structure_generate_paths(&mut self, cx: &mut Context<Self>) {
-        let Some(summary) = self.structure.summary.clone() else {
-            self.status = "choose a structure first".into();
-            cx.notify();
-            return;
-        };
-        let Some(absorber) = self.structure.absorber.clone() else {
-            self.status = "choose the absorbing element".into();
-            cx.notify();
-            return;
-        };
-        let radius: f64 = self
+    fn build_candidate_cluster(&self, cx: &gpui::App) -> Result<(core::Cluster, f64), String> {
+        let summary = self
+            .structure
+            .summary
+            .as_ref()
+            .ok_or("Choose a structure first.")?;
+        let absorber = self
+            .structure
+            .absorber
+            .as_ref()
+            .ok_or("Choose an absorbing element.")?;
+        let radius = self
             .structure
             .radius
             .read(cx)
             .text()
             .trim()
-            .parse()
-            .unwrap_or(6.0);
-        let radius = radius.clamp(2.0, 12.0);
+            .parse::<f64>()
+            .map_err(|_| "Enter a cluster radius from 2 to 12 Å.")?;
+        if !radius.is_finite() || !(2.0..=12.0).contains(&radius) {
+            return Err("Enter a cluster radius from 2 to 12 Å.".into());
+        }
         let selection = match self
             .structure
             .absorber_site
             .and_then(|i| summary.sites.get(i))
-            .filter(|s| s.symbol == absorber)
+            .filter(|s| s.symbol == *absorber)
         {
             Some(site) => core::AbsorberSelection::SiteIndex(site.site_index),
             None => core::AbsorberSelection::Element(absorber.clone()),
-        };
-        let Some(edge) = core::Edge::parse(&self.structure.edge) else {
-            self.status = format!("unknown edge {}", self.structure.edge).into();
-            cx.notify();
-            return;
         };
         let built = match &summary.xyz {
             Some(xyz) => {
@@ -1195,7 +1095,7 @@ impl StudioApp {
                     .structure
                     .absorber_site
                     .and_then(|i| summary.sites.get(i))
-                    .filter(|s| s.symbol == absorber)
+                    .filter(|s| s.symbol == *absorber)
                 {
                     Some(site) => core::XyzAbsorber::Index(site.site_index),
                     None => core::XyzAbsorber::CentralOf(absorber.clone()),
@@ -1211,14 +1111,104 @@ impl StudioApp {
                 },
             ),
         };
-        let cluster = match built {
-            Ok(c) => c,
+        built.map(|c| (c, radius)).map_err(|e| e.to_string())
+    }
+
+    pub(crate) fn preview_structure(&mut self, cx: &mut Context<Self>) {
+        self.structure.pick = None;
+        match self.build_candidate_cluster(cx) {
+            Ok((cluster, radius)) => {
+                self.structure.preview_radius = radius;
+                self.structure.preview_context = self
+                    .structure
+                    .summary
+                    .as_ref()
+                    .filter(|s| s.xyz.is_none())
+                    .map(|s| crystal_context(&s.structure, &cluster));
+                self.structure.preview_cluster = Some(Cluster::from_core(&cluster));
+                self.structure.search_error = None;
+            }
             Err(e) => {
-                self.status = format!("cluster failed: {e}").into();
-                self.record_job_error("cluster", e.to_string());
+                self.structure.preview_cluster = None;
+                self.structure.preview_context = None;
+                self.structure.search_error = Some(e);
+            }
+        }
+        self.rebuild_structure_plot(cx);
+        cx.notify();
+    }
+
+    fn viewing_candidate(&self) -> bool {
+        matches!(
+            self.stage_view.fit_step,
+            FitStep::Structure | FitStep::Calculate
+        ) && self.structure.summary.is_some()
+    }
+    fn displayed_cluster(&self) -> Option<Cluster> {
+        if self.viewing_candidate() {
+            self.structure.preview_cluster.clone()
+        } else {
+            self.displayed_source()
+                .and_then(|s| self.structure.source_clusters.get(&s).cloned())
+                .or_else(|| self.structure.cluster.clone())
+        }
+    }
+
+    pub(crate) fn displayed_source(&self) -> Option<PathBuf> {
+        self.structure
+            .selected
+            .and_then(|i| self.fit_paths.get(i))
+            .and_then(|p| p.spec.file.parent().map(|p| p.to_path_buf()))
+            .or_else(|| self.structure.source_filter.clone())
+            .or_else(|| self.feff_workspace.clone())
+    }
+    pub(crate) fn path_sources(&self) -> Vec<PathBuf> {
+        let mut sources = Vec::new();
+        for p in &self.fit_paths {
+            if let Some(parent) = p.spec.file.parent() {
+                let parent = parent.to_path_buf();
+                if !sources.contains(&parent) {
+                    sources.push(parent);
+                }
+            }
+        }
+        sources
+    }
+    pub(crate) fn source_label(&self, source: &std::path::Path) -> String {
+        self.structure
+            .source_clusters
+            .get(source)
+            .map(|c| c.title.lines().next().unwrap_or("Structure").to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| {
+                source
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string()
+            })
+    }
+
+    pub(crate) fn structure_generate_paths(&mut self, cx: &mut Context<Self>) {
+        if self.feff_running {
+            return;
+        }
+        let built = self.build_candidate_cluster(cx);
+        let (cluster, radius) = match built {
+            Ok(value) => value,
+            Err(e) => {
+                self.structure.search_error = Some(e.clone());
+                self.status = e.into();
                 cx.notify();
                 return;
             }
+        };
+        let summary = self.structure.summary.clone().expect("validated structure");
+        let absorber = self.structure.absorber.clone().expect("validated absorber");
+        let Some(edge) = core::Edge::parse(&self.structure.edge) else {
+            self.status = format!("unknown edge {}", self.structure.edge).into();
+            cx.notify();
+            return;
         };
         for w in &cluster.warnings {
             self.record_job_error("cluster", w.clone());
@@ -1236,10 +1226,16 @@ impl StudioApp {
         let inp = core::write_feff_inp(&cluster, &opts);
         match crate::feffgen::new_workspace_with(&inp) {
             Ok(dir) => {
+                if summary.xyz.is_none() {
+                    if let Ok(json) = serde_json::to_vec(&(&*summary.structure, &cluster)) {
+                        if let Err(e) = std::fs::write(dir.join("crystal.json"), json) {
+                            self.record_job_error("save crystal context", e.to_string());
+                        }
+                    }
+                }
                 self.structure.core_cluster = Some(Arc::new(cluster));
                 self.structure.core_cluster_workspace = Some(dir.clone());
                 self.feff_workspace = Some(dir);
-                self.fit_paths.clear();
                 self.refresh_structure(cx);
                 self.run_feff10_now(cx);
             }
@@ -1253,6 +1249,15 @@ impl StudioApp {
 
     /// One-line summary of the generated cluster for the panel.
     pub(crate) fn structure_cluster_summary(&self) -> Option<String> {
+        if self.viewing_candidate() {
+            let c = self.structure.preview_cluster.as_ref()?;
+            return Some(format!(
+                "Preview: {} atoms · {} shells · {:.1} Å cutoff",
+                c.atoms.len(),
+                c.shells.len().saturating_sub(1),
+                self.structure.preview_radius
+            ));
+        }
         let c = self.structure.core_cluster.as_ref()?;
         let shells = c.shells(0.01);
         let nearest = shells
@@ -1281,11 +1286,14 @@ impl StudioApp {
     // ---- center: 3D view + docked table -------------------------------------
 
     pub(crate) fn structure_center(&mut self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        if self.stage_view.fit_step == FitStep::Paths && self.structure.diagnostics.open {
+            return self.path_diagnostics_center(cx);
+        }
         let t = self.theme;
-        if self.structure.plot3d.is_none() && self.structure.cluster.is_some() {
+        if self.structure.scene.is_none() && self.structure.cluster.is_some() {
             self.rebuild_structure_plot(cx);
         }
-        let cluster = self.structure.cluster.clone();
+        let cluster = self.displayed_cluster();
         let toolbar = self.structure_toolbar(cx);
         let mut left = div()
             .flex_1()
@@ -1294,9 +1302,12 @@ impl StudioApp {
             .flex()
             .flex_col()
             .gap_2()
+            .when(self.stage_view.fit_step == FitStep::Paths, |d| {
+                d.child(self.path_view_tabs(cx))
+            })
             .child(toolbar);
-        match (&cluster, &self.structure.plot3d) {
-            (Some(cluster), Some(plot)) => {
+        match (&cluster, &self.structure.scene) {
+            (Some(cluster), Some(_scene)) => {
                 left = left.child(
                     div()
                         .flex_1()
@@ -1307,11 +1318,13 @@ impl StudioApp {
                         .border_color(t.border)
                         .bg(t.raised)
                         .overflow_hidden()
-                        .child(div().size_full().child(plot.clone()))
+                        .child(self.molecule_canvas(cx))
                         .child(self.structure_legend(cluster))
                         .children(self.structure_pick_card(cluster)),
                 );
-                if let Some(hist) = &self.structure.hist {
+                if self.structure.show_shell_hist
+                    && let Some(hist) = &self.structure.hist
+                {
                     left = left.child(
                         div()
                             .h(px(150.))
@@ -1344,7 +1357,10 @@ impl StudioApp {
                         .text_color(t.text_muted)
                         .child(match &self.structure.plot_error {
                             Some(e) => format!("3D view unavailable: {e}"),
-                            None => "No cluster yet — choose a structure and Generate paths, or Run FEFF on a feff.inp".to_string(),
+                            None => {
+                                "Select a reference material to preview its atomic structure here."
+                                    .to_string()
+                            }
                         }),
                 );
             }
@@ -1359,20 +1375,33 @@ impl StudioApp {
             .pt_2()
             .pb_3()
             .child(left)
-            .child(
-                div()
-                    .w(px(360.))
-                    .flex_none()
-                    .min_h_0()
-                    .flex()
-                    .flex_col()
-                    .rounded_lg()
-                    .border_1()
-                    .border_color(t.border)
-                    .bg(t.surface)
-                    .overflow_hidden()
-                    .child(self.structure_paths_table(true, cx)),
-            )
+            .when(self.stage_view.fit_step == FitStep::Paths, |d| {
+                d.child(
+                    div()
+                        .w(px(430.))
+                        .flex_none()
+                        .min_h_0()
+                        .flex()
+                        .flex_col()
+                        .rounded_lg()
+                        .border_1()
+                        .border_color(t.border)
+                        .bg(t.surface)
+                        .overflow_hidden()
+                        .child(if self.structure.depth.open {
+                            div()
+                                .id("path-depth-scroll")
+                                .flex_1()
+                                .min_h_0()
+                                .overflow_y_scroll()
+                                .child(self.structure_depth_panel(cx))
+                                .into_any_element()
+                        } else {
+                            self.structure_paths_table(true, cx).into_any_element()
+                        }),
+                )
+            })
+            .into_any_element()
     }
 
     fn structure_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -1391,57 +1420,436 @@ impl StudioApp {
                 })),
             );
         }
-        div()
-            .flex_none()
-            .flex()
-            .items_center()
-            .gap_2()
-            .child(
-                div()
-                    .text_size(px(11.))
-                    .text_color(t.text_muted)
-                    .child("view"),
-            )
-            .child(presets)
-            .child(
-                button(&t, "cam-reset", "reset", false).on_click(cx.listener(
-                    |this, _: &ClickEvent, _w, cx| {
-                        if let Some(p) = &this.structure.plot3d {
-                            let _ = p.update(cx, |p, cx| p.reset_view(cx));
+        let mut styles = div().flex().flex_wrap().items_center().gap_1();
+        for (i, style) in AtomStyle::ALL.into_iter().enumerate() {
+            if self.structure.molecule_only && style == AtomStyle::Polyhedra {
+                continue;
+            }
+            styles = styles.child(
+                chip(
+                    &t,
+                    SharedString::from(format!("atom-style-{i}")),
+                    style.label(),
+                    self.structure.atom_style == style,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.structure.atom_style = style;
+                    this.rebuild_structure_plot(cx);
+                    cx.notify();
+                })),
+            );
+        }
+        let has_context = if self.viewing_candidate() {
+            self.structure.preview_context.is_some()
+        } else {
+            self.displayed_source()
+                .is_some_and(|s| self.structure.source_contexts.contains_key(&s))
+        };
+        let mut modes = div().flex().flex_wrap().items_center().gap_1();
+        if has_context {
+            for (i, label) in ["Crystal + cluster", "Cluster only", "Complete molecule"]
+                .into_iter()
+                .enumerate()
+            {
+                modes = modes.child(
+                    chip(
+                        &t,
+                        SharedString::from(format!("context-{i}")),
+                        label,
+                        if i == 2 {
+                            self.structure.molecule_only
+                        } else {
+                            !self.structure.molecule_only
+                                && self.structure.crystal_visible == (i == 0)
+                        },
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.structure.crystal_visible = i == 0;
+                        this.structure.molecule_only = i == 2;
+                        if i == 2 && this.structure.atom_style == AtomStyle::Polyhedra {
+                            this.structure.atom_style = AtomStyle::BallStick;
                         }
-                    },
-                )),
+                        this.structure.camera.zoom = 1.;
+                        this.rebuild_structure_plot(cx);
+                        cx.notify();
+                    })),
+                );
+            }
+        }
+        if self.stage_view.fit_step == FitStep::Structure && self.structure.summary.is_some() {
+            modes = modes
+                .child(div().ml_2().text_size(px(11.)).child("Cluster radius"))
+                .child(div().w(px(56.)).child(self.structure.radius.clone()))
+                .child("Å");
+        }
+        styles = styles.child(
+            chip(&t, "atom-shading", "Shading", self.structure.shading).on_click(cx.listener(
+                |this, _, _, cx| {
+                    this.structure.shading = !this.structure.shading;
+                    cx.notify();
+                },
+            )),
+        );
+        styles = styles.child(
+            chip(&t, "atom-labels", "Labels", self.structure.atom_labels).on_click(cx.listener(
+                |this, _, _, cx| {
+                    this.structure.atom_labels = !this.structure.atom_labels;
+                    this.rebuild_structure_plot(cx);
+                    cx.notify();
+                },
+            )),
+        );
+        styles = styles.child(
+            chip(
+                &t,
+                "slice-depth-controls",
+                "Slice & depth",
+                self.structure.depth.open || self.structure.depth.options.active(),
             )
-            .child(div().w(px(1.)).h(px(18.)).bg(t.border))
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.structure.depth.open = !this.structure.depth.open;
+                cx.notify();
+            })),
+        );
+        if self.structure.molecule_only {
+            styles = styles.child(
+                chip(
+                    &t,
+                    "view-hydrogens",
+                    "Hydrogens",
+                    self.structure.show_hydrogens,
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.structure.show_hydrogens = !this.structure.show_hydrogens;
+                    this.rebuild_structure_plot(cx);
+                    cx.notify();
+                })),
+            );
+        }
+        let mut poly_controls = div().flex().flex_col().gap_1();
+        let mut display_controls = div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap_1()
+            .text_size(px(11.))
             .child(
                 chip(
                     &t,
-                    "st-shells",
-                    "colour by shell",
-                    self.structure.color_by_shell,
+                    "highlight-absorber",
+                    "Highlight absorber",
+                    self.structure.highlight_absorber,
                 )
-                .on_click(cx.listener(|this, _: &ClickEvent, _w, cx| {
-                    this.structure.color_by_shell = !this.structure.color_by_shell;
-                    this.rebuild_structure_plot(cx);
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.structure.highlight_absorber = !this.structure.highlight_absorber;
+                    this.structure.absorber_label = false;
                     cx.notify();
                 })),
             )
             .child(
-                chip(&t, "st-bonds", "bonds", self.structure.show_bonds).on_click(cx.listener(
-                    |this, _: &ClickEvent, _w, cx| {
-                        this.structure.show_bonds = !this.structure.show_bonds;
+                button(&t, "find-absorber", "Find absorber", false)
+                    .on_click(cx.listener(|this, _, _, cx| this.find_structure_absorber(cx))),
+            );
+        if matches!(
+            self.structure.atom_style,
+            AtomStyle::BallStick | AtomStyle::Wireframe
+        ) {
+            use super::bond_geometry::BondMode;
+            display_controls = display_controls.child(div().ml_2().child("Bonds"));
+            for mode in [
+                BondMode::Auto,
+                BondMode::Absorber,
+                BondMode::AllContacts,
+                BondMode::None,
+            ] {
+                display_controls = display_controls.child(
+                    chip(
+                        &t,
+                        SharedString::from(format!("bond-mode-{}", mode.label())),
+                        mode.label(),
+                        self.structure.bond_mode == mode,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.structure.bond_mode = mode;
                         this.rebuild_structure_plot(cx);
                         cx.notify();
-                    },
-                )),
-            )
-            .child(div().flex_1())
+                    })),
+                );
+            }
+        }
+        let mut opacity_controls = div().flex().items_center().gap_1().child(format!(
+            "Opacity {:.0}%",
+            self.structure.depth.options.opacity * 100.
+        ));
+        for percent in [100, 75, 50, 25] {
+            let value = percent as f64 / 100.;
+            opacity_controls = opacity_controls.child(
+                chip(
+                    &t,
+                    ("structure-opacity", percent as usize),
+                    format!("{percent}%"),
+                    (self.structure.depth.options.opacity - value).abs() < 0.005,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.structure.depth.options.opacity = value;
+                    cx.notify();
+                })),
+            );
+        }
+        display_controls = display_controls.child(opacity_controls);
+        if self.structure.atom_style == AtomStyle::Polyhedra && !self.structure.molecule_only {
+            let mut row = div().flex().flex_wrap().items_center().gap_1();
+            for (network, label) in [(true, "Repeat by element"), (false, "Selected center")] {
+                row = row.child(
+                    chip(
+                        &t,
+                        SharedString::from(format!("poly-network-{network}")),
+                        label,
+                        self.structure.poly_options.network == network,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.structure.poly_options.network = network;
+                        this.rebuild_structure_plot(cx);
+                        cx.notify();
+                    })),
+                );
+            }
+            for (value, label) in [(0.35, "35%"), (0.65, "65%"), (0.9, "90%"), (1.0, "Solid")] {
+                row = row.child(
+                    chip(
+                        &t,
+                        SharedString::from(format!("poly-alpha-{label}")),
+                        label,
+                        self.structure.poly_options.opacity == value,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.structure.poly_options.opacity = value;
+                        this.rebuild_structure_plot(cx);
+                        cx.notify();
+                    })),
+                );
+            }
+            row = row.child(
+                chip(&t, "poly-edges", "Edges", self.structure.poly_options.edges).on_click(
+                    cx.listener(|this, _, _, cx| {
+                        this.structure.poly_options.edges = !this.structure.poly_options.edges;
+                        this.rebuild_structure_plot(cx);
+                        cx.notify();
+                    }),
+                ),
+            );
+            for (mode, label) in [
+                (PolyAtoms::Centers, "Centers"),
+                (PolyAtoms::All, "All atoms"),
+                (PolyAtoms::None, "No atoms"),
+            ] {
+                row = row.child(
+                    chip(
+                        &t,
+                        SharedString::from(format!("poly-atoms-{label}")),
+                        label,
+                        self.structure.poly_options.atoms == mode,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.structure.poly_options.atoms = mode;
+                        this.rebuild_structure_plot(cx);
+                        cx.notify();
+                    })),
+                );
+            }
+            let mut neighbors = div()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap_1()
+                .text_size(px(11.))
+                .child("Neighbours");
+            let mut elements = vec![(None, "Auto".to_string())];
+            if let Some(cluster) = self.displayed_cluster() {
+                elements.extend(
+                    cluster
+                        .element_counts()
+                        .into_iter()
+                        .map(|(symbol, z, _)| (Some(z), symbol.to_string())),
+                );
+            }
+            for (element, label) in elements {
+                neighbors = neighbors.child(
+                    chip(
+                        &t,
+                        SharedString::from(format!("poly-ligand-{label}")),
+                        label,
+                        self.structure.poly_options.ligand == element,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.structure.poly_options.ligand = element;
+                        this.rebuild_structure_plot(cx);
+                        cx.notify();
+                    })),
+                );
+            }
+            neighbors = neighbors
+                .child(div().ml_2().child("Bond limit"))
+                .child(
+                    div()
+                        .w(px(52.))
+                        .child(self.structure.poly_cutoff_input.clone()),
+                )
+                .child("Å");
+            neighbors = neighbors.child(div().ml_2().child("Faces"));
+            for (color, label) in [(Some(0x70a9ee), "Blue"), (None, "Element")] {
+                neighbors = neighbors.child(
+                    chip(
+                        &t,
+                        SharedString::from(format!("poly-color-{label}")),
+                        label,
+                        self.structure.poly_options.color == color,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.structure.poly_options.color = color;
+                        this.rebuild_structure_plot(cx);
+                        cx.notify();
+                    })),
+                );
+            }
+            poly_controls = poly_controls.child(row).child(neighbors);
+        }
+        let mut route = div().flex().items_center().flex_wrap().gap_1();
+        if !self.viewing_candidate()
+            && let Some(p) = self
+                .structure
+                .selected
+                .and_then(|i| self.structure.paths.get(i))
+                .and_then(|p| p.as_ref())
+        {
+            route = route.child(
+                chip(
+                    &t,
+                    "all-path-legs",
+                    "All legs",
+                    self.structure.path_leg.is_none(),
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.structure.path_leg = None;
+                    cx.notify();
+                })),
+            );
+            for (i, pair) in p.polyline().windows(2).enumerate() {
+                let label = format!("{} → {}", i + 1, if i + 1 == p.nleg { 1 } else { i + 2 });
+                let _ = pair;
+                route = route.child(
+                    chip(
+                        &t,
+                        SharedString::from(format!("path-leg-{i}")),
+                        label,
+                        self.structure.path_leg == Some(i),
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.structure.path_leg = Some(i);
+                        cx.notify();
+                    })),
+                );
+            }
+            route = route.child(button(&t, "focus-path", "Focus path", false).on_click(
+                cx.listener(|this, _, _, cx| {
+                    if let Some(scene) = &this.structure.scene {
+                        let radius = scene
+                            .route
+                            .iter()
+                            .map(|p| p.iter().map(|v| v * v).sum::<f64>().sqrt())
+                            .fold(1., f64::max);
+                        this.structure.camera.zoom = (scene.extent / radius * 0.85).clamp(0.25, 5.);
+                        cx.notify();
+                    }
+                }),
+            ));
+        }
+        div()
+            .flex_none()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(modes)
+            .child(styles)
+            .child(display_controls)
+            .child(poly_controls)
+            .child(route)
             .child(
                 div()
-                    .text_size(px(11.))
-                    .text_color(t.text_muted)
-                    .whitespace_nowrap()
-                    .child("drag to orbit · wheel to zoom · click an atom"),
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .flex_wrap()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_size(px(11.))
+                            .text_color(t.text_muted)
+                            .child("View"),
+                    )
+                    .child(presets)
+                    .child(button(&t, "cam-zoom-out", "−", false).on_click(cx.listener(
+                        |this, _: &ClickEvent, _, cx| {
+                            this.structure.camera.zoom_by(-1.2_f64.ln());
+                            cx.notify();
+                        },
+                    )))
+                    .child(
+                        div()
+                            .text_size(px(11.))
+                            .text_color(t.text_muted)
+                            .child(format!("{:.0}%", self.structure.camera.zoom * 100.)),
+                    )
+                    .child(button(&t, "cam-zoom-in", "+", false).on_click(cx.listener(
+                        |this, _: &ClickEvent, _, cx| {
+                            this.structure.camera.zoom_by(1.2_f64.ln());
+                            cx.notify();
+                        },
+                    )))
+                    .child(
+                        button(&t, "cam-reset", "reset", false).on_click(cx.listener(
+                            |this, _: &ClickEvent, _w, cx| {
+                                this.structure.camera = ViewCamera::default();
+                                cx.notify();
+                            },
+                        )),
+                    )
+                    .child(div().w(px(1.)).h(px(18.)).bg(t.border))
+                    .child(
+                        chip(
+                            &t,
+                            "st-histogram",
+                            "Shell counts",
+                            self.structure.show_shell_hist,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.structure.show_shell_hist = !this.structure.show_shell_hist;
+                            cx.notify();
+                        })),
+                    )
+                    .child(
+                        chip(
+                            &t,
+                            "st-shells",
+                            "colour by shell",
+                            self.structure.color_by_shell,
+                        )
+                        .on_click(cx.listener(
+                            |this, _: &ClickEvent, _w, cx| {
+                                this.structure.color_by_shell = !this.structure.color_by_shell;
+                                this.rebuild_structure_plot(cx);
+                                cx.notify();
+                            },
+                        )),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .text_size(px(11.))
+                            .text_color(t.text_muted)
+                            .whitespace_nowrap()
+                            .child("Drag rotates · wheel zooms · click inspects"),
+                    ),
             )
     }
 
@@ -1456,9 +1864,23 @@ impl StudioApp {
             .gap_0p5()
             .text_size(px(11.))
             .text_color(t.text_muted);
-        for (symbol, z, n) in cluster.element_counts() {
+        let mut elements = BTreeMap::new();
+        if self.structure.molecule_only
+            && let Some(scene) = &self.structure.scene
+        {
+            for atom in &scene.atoms {
+                *elements.entry(atom.z).or_insert(0usize) += 1;
+            }
+        } else {
+            for (_, z, n) in cluster.element_counts() {
+                elements.insert(z, n);
+            }
+        }
+        let mut swatches = div().flex().flex_wrap().gap_3();
+        for (z, n) in elements {
+            let symbol = crate::structure::element_symbol(z);
             let c = cpk_color(z);
-            legend = legend.child(
+            swatches = swatches.child(
                 div()
                     .flex()
                     .items_center()
@@ -1475,11 +1897,137 @@ impl StudioApp {
                     .child(SharedString::from(format!("{symbol} × {n}"))),
             );
         }
+        legend = legend.child(swatches);
+        if let Some(frame) = self.structure_depth_frame() {
+            use super::structure_depth::{FadeMode, SliceMode};
+            if frame.options.slice != SliceMode::Off {
+                let [lo, hi] = frame.limits();
+                let counts = self
+                    .structure
+                    .scene
+                    .as_ref()
+                    .map(|s| {
+                        let atoms: Vec<_> = s.atoms.iter().filter(|a| !a.faded).collect();
+                        (
+                            atoms.iter().filter(|a| frame.contains(a.pos)).count(),
+                            atoms.len(),
+                        )
+                    })
+                    .unwrap_or_default();
+                legend = legend.child(div().text_color(t.accent).child(format!(
+                    "{} · {} {} · retains {} / {} atom centers",
+                    if frame.options.slice == SliceMode::Slab {
+                        "Slab"
+                    } else {
+                        "Cutaway"
+                    },
+                    frame.options.axis.label(),
+                    if lo.is_finite() {
+                        format!("{lo:.1} to {hi:.1} Å")
+                    } else {
+                        format!("≤ {hi:.1} Å")
+                    },
+                    counts.0,
+                    counts.1
+                )));
+                if counts.0 == 0 {
+                    legend =
+                        legend.child(div().text_color(t.warn).child(
+                            "No atom centers in slice · move Position or use Through center.",
+                        ));
+                }
+            }
+            if frame.options.fade != FadeMode::Off || frame.options.opacity < 0.999 {
+                legend = legend.child(format!(
+                    "Opacity {:.0}% · {}",
+                    frame.options.opacity * 100.,
+                    match frame.options.fade {
+                        FadeMode::Off => "uniform transparency",
+                        FadeMode::Depth => "far → near: faint → clear",
+                        FadeMode::Center => "clear around selected center",
+                    }
+                ));
+            }
+        }
+        let context = if self.viewing_candidate() {
+            self.structure.preview_context.as_ref()
+        } else {
+            self.displayed_source()
+                .and_then(|s| self.structure.source_contexts.get(&s))
+        };
+        if self.structure.crystal_visible
+            && !self.structure.molecule_only
+            && let Some(context) = context
+        {
+            legend = legend.child(format!(
+                "{} × {} × {} unit cells · faded atoms outside cluster",
+                context.cells[0], context.cells[1], context.cells[2]
+            ));
+            if context.truncated {
+                legend = legend.child("Context limited to 12,000 atoms; FEFF cluster is complete.");
+            }
+        }
+        if let Some(scene) = &self.structure.scene {
+            if self.structure.highlight_absorber {
+                legend = legend.child(div().text_color(gpui::rgb(0x67e8f9)).child("● Absorber"));
+            }
+            if matches!(
+                self.structure.atom_style,
+                AtomStyle::BallStick | AtomStyle::Wireframe
+            ) {
+                legend = legend.child(format!(
+                    "{} · {} displayed bonds",
+                    self.structure.bond_mode.label(),
+                    scene.bonds.len()
+                ));
+            }
+            if self.structure.highlight_absorber
+                && let Some(absorber) = scene.atoms.iter().find(|a| a.absorber)
+                && let Some(frame) = self.structure_depth_frame()
+                && !frame.contains(absorber.pos)
+            {
+                legend = legend.child(
+                    div()
+                        .text_color(gpui::rgb(0x67e8f9))
+                        .child("Absorber is outside the slice · use Find absorber."),
+                );
+            }
+            if self.structure.atom_style == AtomStyle::Polyhedra {
+                let z = cluster
+                    .atoms
+                    .get(self.structure.pick.as_ref().map(|p| p.atom).unwrap_or(0))
+                    .map(|a| a.z)
+                    .unwrap_or(0);
+                legend = legend.child(format!(
+                    "{} {} coordination polyhedra · click an atom to change center",
+                    scene.poly_count,
+                    crate::structure::element_symbol(z)
+                ));
+            }
+            if self.structure.molecule_only && scene.message.is_none() {
+                legend = legend
+                    .child(format!(
+                        "Complete molecule · {} displayed atoms · {} bonds",
+                        scene.atoms.len(),
+                        scene.bonds.len()
+                    ))
+                    .child("Hydrogen display does not change the FEFF cluster.");
+            }
+            if let Some(message) = &scene.message {
+                legend = legend.child(
+                    div()
+                        .max_w(px(380.))
+                        .text_color(t.warn)
+                        .child(message.clone()),
+                );
+            }
+        }
         legend.child(div().mt_1().child(SharedString::from(format!(
-            "{} atoms · {} shells · rmax {:.1} Å",
+            "FEFF cluster · {} atoms · {} shells · {} {:.1} Å",
             cluster.atoms.len(),
             cluster.shells.len().saturating_sub(1),
-            cluster.atoms.iter().map(|a| a.dist).fold(0.0_f64, f64::max)
+            if context.is_some() { "cutoff" } else { "outermost atom" },
+            self.structure.scene.as_ref().map(|s|s.radius).unwrap_or(0.)
         ))))
     }
 
@@ -1493,6 +2041,7 @@ impl StudioApp {
             .iter()
             .enumerate()
             .filter_map(|(i, p)| p.as_ref().map(|p| (i, p)))
+            .filter(|_| !self.viewing_candidate())
             .filter(|(_, p)| {
                 p.atom_indices(cluster)
                     .iter()
@@ -1567,9 +2116,21 @@ impl StudioApp {
 
     // ---- inspector: structure panel ------------------------------------------
 
-    pub(crate) fn structure_panel(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    fn spectrum_interest(&self) -> Option<crate::spectrum_interest::SpectrumInterest> {
+        let header = self.import_preview.as_ref().and_then(|p| p.xdi.as_ref());
+        let e0 = (self.spectrum_path == self.current_path)
+            .then(|| self.spectrum.as_ref().and_then(|s| s.get_e0()))
+            .flatten();
+        crate::spectrum_interest::SpectrumInterest::infer(header, e0)
+    }
+
+    pub(crate) fn structure_library_panel(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
         let t = self.theme;
         let st = &self.structure;
+        let interest = self.spectrum_interest();
         let label_w = px(64.);
         let row_label = |text: &'static str| {
             div()
@@ -1618,7 +2179,82 @@ impl StudioApp {
 
         // Per-source configuration.
         match st.source {
-            StructureSourceKind::Builtin => {}
+            StructureSourceKind::Builtin => {
+                panel = panel.child(
+                    div()
+                        .text_size(px(11.))
+                        .text_color(t.text_muted)
+                        .child("Curated reference structures · available offline"),
+                );
+                if let Some(hint) = &interest {
+                    panel = panel
+                        .child(
+                            div()
+                                .text_size(px(11.))
+                                .text_color(t.text_muted)
+                                .child(hint.label()),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .flex_wrap()
+                                .gap_1()
+                                .child(
+                                    chip(
+                                        &t,
+                                        "library-interest",
+                                        format!("Contains {}", hint.element),
+                                        st.filter_to_spectrum,
+                                    )
+                                    .on_click(cx.listener(
+                                        |this, _, _, cx| {
+                                            this.structure.filter_to_spectrum = true;
+                                            cx.notify();
+                                        },
+                                    )),
+                                )
+                                .child(
+                                    chip(
+                                        &t,
+                                        "library-all-elements",
+                                        "All materials",
+                                        !st.filter_to_spectrum,
+                                    )
+                                    .on_click(cx.listener(
+                                        |this, _, _, cx| {
+                                            this.structure.filter_to_spectrum = false;
+                                            cx.notify();
+                                        },
+                                    )),
+                                ),
+                        );
+                }
+                let mut categories = div().flex().flex_wrap().gap_1();
+                for (category, label) in [
+                    (None, "All types"),
+                    (Some("metal"), "Metals"),
+                    (Some("oxide"), "Oxides"),
+                    (Some("sulfide"), "Sulfides"),
+                    (Some("molecule"), "Molecules"),
+                    (Some("other"), "Other"),
+                ] {
+                    categories = categories.child(
+                        chip(
+                            &t,
+                            SharedString::from(format!("catalog-{label}")),
+                            label,
+                            st.category == category,
+                        )
+                        .on_click(cx.listener(
+                            move |this, _: &ClickEvent, _w, cx| {
+                                this.structure.category = category;
+                                cx.notify();
+                            },
+                        )),
+                    );
+                }
+                panel = panel.child(categories);
+            }
             StructureSourceKind::LocalCif => {
                 let folder = st
                     .settings
@@ -1767,9 +2403,11 @@ impl StudioApp {
                         cx.listener(|this, _: &ClickEvent, _w, cx| this.structure_search(cx)),
                     ),
                 )
-                .child(button(&t, "st-import", "Import CIF / XYZ…", false).on_click(
-                    cx.listener(|this, _: &ClickEvent, _w, cx| this.structure_import_cif(cx)),
-                )),
+                .child(
+                    button(&t, "st-import", "Import CIF / XYZ…", false).on_click(
+                        cx.listener(|this, _: &ClickEvent, _w, cx| this.structure_import_cif(cx)),
+                    ),
+                ),
         );
         if let Some(err) = &st.search_error {
             panel = panel.child(
@@ -1779,17 +2417,36 @@ impl StudioApp {
                     .child(SharedString::from(err.clone())),
             );
         }
+        if st.hits.is_empty() && !busy && st.search_error.is_none() {
+            panel = panel.child(
+                div()
+                    .py_3()
+                    .text_color(t.text_muted)
+                    .child("No structures found. Try an element, formula, or mineral name."),
+            );
+        }
         if !st.hits.is_empty() {
             let mut list = div()
                 .id("st-hits")
-                .max_h(px(168.))
+                .max_h(px(520.))
                 .overflow_y_scroll()
                 .rounded_md()
                 .border_1()
                 .border_color(t.border)
                 .flex()
                 .flex_col();
+            let mut shown = 0;
             for (i, hit) in st.hits.iter().enumerate() {
+                if st.source == StructureSourceKind::Builtin
+                    && (!crate::structure::matches_category(hit, st.category)
+                        || (st.filter_to_spectrum
+                            && interest.as_ref().is_some_and(|hint| {
+                                !crate::spectrum_interest::contains_element(hit, &hint.element)
+                            })))
+                {
+                    continue;
+                }
+                shown += 1;
                 let chosen = st
                     .summary
                     .as_ref()
@@ -1797,14 +2454,18 @@ impl StudioApp {
                 list = list.child(
                     div()
                         .id(("st-hit", i))
-                        .h(px(26.))
+                        .h(px(46.))
+                        .border_b_1()
+                        .border_color(t.border)
                         .flex_none()
                         .px_2()
                         .flex()
                         .items_center()
                         .gap_2()
                         .cursor_pointer()
-                        .when(chosen, |d| d.bg(t.raised))
+                        .when(chosen, |d| {
+                            d.bg(t.raised).border_l_2().border_color(t.accent)
+                        })
                         .hover(|d| d.bg(t.raised))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
                             this.structure_choose(i, cx)
@@ -1848,17 +2509,86 @@ impl StudioApp {
                         ),
                 );
             }
-            let count = format!(
-                "{} result{}",
-                st.hits.len(),
-                if st.hits.len() == 1 { "" } else { "s" }
-            );
+            let count = format!("{} result{}", shown, if shown == 1 { "" } else { "s" });
+            if shown == 0 {
+                panel = panel.child(div().py_2().text_color(t.text_muted).child("No matches for these filters. Choose All materials or All types, or import your own CIF / XYZ."));
+            }
             panel = panel.child(list).child(
                 div()
                     .text_size(px(10.5))
                     .text_color(t.text_muted)
                     .child(SharedString::from(count)),
             );
+        }
+        panel
+    }
+
+    pub(crate) fn structure_panel(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        if self.stage_view.fit_step == FitStep::Structure {
+            self.structure_library_panel(cx).into_any_element()
+        } else {
+            self.structure_calculation_panel(cx).into_any_element()
+        }
+    }
+
+    fn structure_calculation_panel(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let t = self.theme;
+        let st = &self.structure;
+        let row_label = |text: &'static str| {
+            div()
+                .w(px(64.))
+                .flex_none()
+                .text_size(px(12.))
+                .text_color(t.text_muted)
+                .child(text)
+        };
+        let mut panel = div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .px_3()
+            .child(section_label(&t, crate::feffgen::backend_name(st.backend)))
+            .child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(t.text_muted)
+                    .child("Runs locally. Generated paths are grouped into shells for selection."),
+            );
+        let mut engines = div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap_1()
+            .child(row_label("engine"));
+        let available = [
+            #[cfg(feature = "refeff-runner")]
+            xraytsubaki::prelude::FeffExecutionMode::RefeffPipeline,
+            #[cfg(feature = "feff10-runner")]
+            xraytsubaki::prelude::FeffExecutionMode::Feff10Pipeline,
+        ];
+        for (i, mode) in available.into_iter().enumerate() {
+            engines = engines.child(
+                chip(
+                    &t,
+                    SharedString::from(format!("feff-engine-{i}")),
+                    crate::feffgen::backend_name(mode),
+                    st.backend == mode,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if !this.feff_running {
+                        this.structure.backend = mode;
+                        cx.notify();
+                    }
+                })),
+            );
+        }
+        panel = panel.child(engines);
+        if !self.fit_paths.is_empty() {
+            panel=panel.child(div().text_size(px(11.)).text_color(t.text_muted)
+            .child(format!("New calculations add a source. {} existing paths and their parameter edits are kept.",self.fit_paths.len())));
+        }
+        if let Some(error) = &st.search_error {
+            panel = panel.child(div().text_color(t.warn).child(error.clone()));
         }
         if let Some(s) = &st.summary {
             let l = s.lattice;
@@ -1952,6 +2682,7 @@ impl StudioApp {
                         move |this, _: &ClickEvent, _w, cx| {
                             this.structure.absorber = Some(sym2.clone());
                             this.structure.absorber_site = None;
+                            this.preview_structure(cx);
                             cx.notify();
                         },
                     )),
@@ -1973,12 +2704,12 @@ impl StudioApp {
                         .gap_1()
                         .child(row_label("site"));
                     site_row = site_row.child(
-                        chip(&t, "abs-site-all", "all sites", st.absorber_site.is_none()).on_click(
-                            cx.listener(|this, _: &ClickEvent, _w, cx| {
+                        chip(&t, "abs-site-all", "first site", st.absorber_site.is_none())
+                            .on_click(cx.listener(|this, _: &ClickEvent, _w, cx| {
                                 this.structure.absorber_site = None;
+                                this.preview_structure(cx);
                                 cx.notify();
-                            }),
-                        ),
+                            })),
                     );
                     for (i, site) in indexed {
                         site_row = site_row.child(
@@ -1991,6 +2722,7 @@ impl StudioApp {
                             .on_click(cx.listener(
                                 move |this, _: &ClickEvent, _w, cx| {
                                     this.structure.absorber_site = Some(i);
+                                    this.preview_structure(cx);
                                     cx.notify();
                                 },
                             )),
@@ -2026,23 +2758,15 @@ impl StudioApp {
                             .text_ellipsis()
                             .text_size(px(11.))
                             .text_color(t.text_muted)
-                            .child("Å radius (RMAX)"),
-                    )
-                    .child(
-                        button(
-                            &t,
-                            "st-generate",
-                            if self.feff_running {
-                                "running FEFF…"
-                            } else {
-                                "Generate paths"
-                            },
-                            !self.feff_running,
-                        )
-                        .on_click(cx.listener(
-                            |this, _: &ClickEvent, _w, cx| this.structure_generate_paths(cx),
-                        )),
+                            .child("Å radius · 2–12 Å"),
                     ),
+            );
+        }
+        if st.summary.is_none() {
+            panel = panel.child(
+                div()
+                    .text_color(t.text_muted)
+                    .child("Choose a structure in step 1, or open a custom feff.inp below."),
             );
         }
         if let Some(summary) = self.structure_cluster_summary() {
@@ -2109,15 +2833,6 @@ fn cluster_from_paths(paths: &[Option<PathGeometry>]) -> Option<Cluster> {
     text.push_str("END\n");
     let c = crate::structure::parse_feff_inp(&text);
     (!c.is_empty()).then_some(c)
-}
-
-fn mono(t: &Theme, text: String, w: f32) -> gpui::Div {
-    div()
-        .w(px(w))
-        .font_family(MONO)
-        .text_size(px(11.))
-        .text_color(t.text_muted)
-        .child(SharedString::from(text))
 }
 
 fn mono_line(t: &Theme, text: String) -> gpui::Div {

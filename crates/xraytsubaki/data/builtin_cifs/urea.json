@@ -1,0 +1,18 @@
+{
+ "key": "urea",
+ "name": "Urea",
+ "formula": "CH4N2O",
+ "sg_number": 113,
+ "sg": "P -4 21 m",
+ "category": "molecule",
+ "source": "COD",
+ "id": "cod-9017316",
+ "url": "https://www.crystallography.net/cod/9017316.html",
+ "year": "1984",
+ "journal": "Acta Crystallographica, Section B",
+ "authors": "Swaminathan, S.; Craven, B. M.",
+ "doi": "",
+ "license": "CC0 1.0 (Crystallography Open Database)",
+ "citation": "Swaminathan & Craven (1984), Acta Cryst. B40, 300–306",
+ "note": "Molecular visualization example. Neutron diffraction, 123 K; hydrogen positions included."
+}

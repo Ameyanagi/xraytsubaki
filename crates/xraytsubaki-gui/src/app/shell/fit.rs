@@ -19,74 +19,25 @@ use xraytsubaki::xafs::fitting::template::ParameterTemplate;
 const CORRELATION_WARN: f64 = 0.9;
 
 impl StudioApp {
-    /// "Editing <group>" · ▶ Fit · Batch fit…
-    pub(crate) fn fit_inspector_header(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let t = self.theme;
-        let label = self.current_group_label();
-        let can_fit = self.fit_paths.iter().any(|p| p.spec.enabled) && !self.fit_running;
-        let fit_label: SharedString = if self.fit_running {
-            "fitting…".into()
-        } else {
-            "▶ Fit".into()
-        };
-        div()
-            .flex_none()
-            .px_3()
-            .py_2()
-            .flex()
-            .items_center()
-            .gap_2()
-            .border_b_1()
-            .border_color(t.border)
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .text_size(px(11.5))
-                    .text_color(t.text_muted)
-                    .child(
-                        div().flex().gap_1().child("Fitting").child(
-                            div()
-                                .text_color(t.text)
-                                .font_weight(gpui::FontWeight::MEDIUM)
-                                .child(label),
-                        ),
-                    ),
-            )
-            .child(
-                button(&t, "run-fit", fit_label, can_fit)
-                    .when(!can_fit, |d| d.text_color(t.text_muted))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
-                        if can_fit {
-                            this.run_fit_now(cx);
-                        }
-                    })),
-            )
-            .child(
-                button(&t, "batch-fit-toggle", "Batch fit…", false).on_click(cx.listener(
-                    |this, _: &ClickEvent, _w, cx| {
-                        this.stage_view.fit_show_batch = !this.stage_view.fit_show_batch;
-                        cx.notify();
-                    },
-                )),
-            )
-    }
-
     pub(crate) fn fit_stage_center(&mut self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        if self.stage_view.fit_step == super::fit_workspace::FitStep::Model {
+            return self.fit_preview_panel(cx);
+        }
         let t = self.theme;
+        if self.fit_plots.is_none() && (self.explore_plots_dirty || self.quadrants.is_empty()) {
+            self.rebuild_explore_plots(cx);
+            self.explore_plots_dirty = false;
+        }
         let mut column = div()
             .flex_1()
             .min_h_0()
             .min_w_0()
             .flex()
             .flex_col()
-            .child(self.fit_plot_bar(cx));
-        if self.structure.show {
-            return column.child(self.structure_center(cx));
-        }
+            .child(self.fit_plot_bar(cx))
+            .when(self.joint.result_config.is_some(), |d| {
+                d.child(self.joint_result_bar(cx))
+            });
         if let Some(provenance) = self.fit_provenance.clone() {
             let stale = self.fit_is_stale();
             if stale {
@@ -115,34 +66,93 @@ impl StudioApp {
             r_residual: p.r_residual.clone(),
             q: p.q.clone(),
         }) else {
-            let hint: SharedString = if self.fit_paths.is_empty() {
-                "Add FEFF paths (Generate… or + Add path) in the inspector, then press Fit".into()
-            } else if self.fit_running {
-                "fitting…".into()
-            } else {
-                "Press Fit to see data vs model".into()
-            };
             let mut empty = column.child(
-                div()
-                    .flex_1()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .text_color(t.text_muted)
-                    .child(hint),
+                div().flex_none().px_3().py_2().text_size(px(11.)).text_color(t.text_muted)
+                    .child(if self.fit_running {"Fitting… Data shown below; the fitted model will appear when ready."} else {"Processed data · run the fit to see the model, residuals, and path contributions."}),
             );
-            if self.batch_fit.is_some() || self.stage_view.fit_show_batch {
+            let slots: &[usize] = match self.stage_view.fit_view {
+                FitView::Both => &[2, 3],
+                FitView::K => &[2],
+                FitView::R => &[3],
+                FitView::Q => &[4],
+            };
+            let mut area = div()
+                .flex_1()
+                .min_h_0()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .px_3()
+                .pb_3();
+            for &slot in slots {
+                if let Some((title, plot)) = self.quadrants.get(slot) {
+                    area = area.child(
+                        div()
+                            .flex_1()
+                            .min_h_0()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .rounded_lg()
+                            .bg(t.raised)
+                            .border_1()
+                            .border_color(t.border)
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .px_3()
+                                    .pt_2()
+                                    .text_size(px(11.))
+                                    .child(title.clone()),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_h_0()
+                                    .relative()
+                                    .child(plot.clone())
+                                    .child(self.measure_card(slot, cx)),
+                            ),
+                    );
+                }
+            }
+            empty = empty.child(area);
+            if self.stage_view.fit_show_batch {
                 empty = empty.child(self.batch_results_table(cx));
             }
             return empty;
         };
         let view = self.stage_view.fit_view;
-        let kw = self.fit_result.as_ref().map(|r| r.kweight).unwrap_or(2.0);
+        let kw = self
+            .fit_result
+            .as_ref()
+            .map(|r| {
+                if self.joint.result_config.is_some() {
+                    r.datasets
+                        .get(self.joint.result_index)
+                        .map(|d| d.kweight)
+                        .unwrap_or(r.kweight)
+                } else {
+                    r.kweight
+                }
+            })
+            .unwrap_or(2.0);
         let k_title: SharedString =
             format!("{} · data vs fit", crate::plotting::chik_label(kw)).into();
         let r_title: SharedString = format!(
-            "{} · data vs fit{}",
+            "{}{}{} · data vs fit{}",
             crate::plotting::chir_label(kw),
+            if self.stage_view.fit_show_re {
+                " + Re"
+            } else {
+                ""
+            },
+            if self.stage_view.fit_show_im {
+                " + Im"
+            } else {
+                ""
+            },
             if self.stage_view.fit_show_paths {
                 " · path contributions"
             } else {
@@ -190,14 +200,14 @@ impl StudioApp {
             )),
         };
         column = column.child(area);
-        if self.batch_fit.is_some() || self.stage_view.fit_show_batch {
+        if self.stage_view.fit_show_batch {
             column = column.child(self.batch_results_table(cx));
         }
         column
     }
 
     /// Main plot card with an optional residual strip beneath.
-    fn fit_column(
+    pub(super) fn fit_column(
         &mut self,
         plot: usize,
         title: SharedString,
@@ -265,7 +275,7 @@ impl StudioApp {
             column = column.child(
                 div()
                     .flex_none()
-                    .h(px(110.))
+                    .h(px(130.))
                     .min_w_0()
                     .flex()
                     .flex_col()
@@ -318,6 +328,7 @@ impl StudioApp {
                 )
                 .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
                     this.stage_view.fit_view = fv;
+                    this.rebuild_fit_plots(cx);
                     cx.notify();
                 })),
             );
@@ -342,20 +353,9 @@ impl StudioApp {
                     .child("Space"),
             )
             .child(seg)
-            .child(
-                chip(&t, "fit-structure", "structure", self.structure.show).on_click(cx.listener(
-                    |this, _: &ClickEvent, _w, cx| {
-                        this.structure.show = !this.structure.show;
-                        if this.structure.show {
-                            this.refresh_structure(cx);
-                        }
-                        cx.notify();
-                    },
-                )),
-            )
             .child(div().w(px(1.)).h(px(18.)).bg(t.border))
             .child(
-                chip(&t, "fit-paths", "paths", v.fit_show_paths).on_click(cx.listener(
+                chip(&t, "fit-paths", "Contributions", v.fit_show_paths).on_click(cx.listener(
                     |this, _: &ClickEvent, _w, cx| {
                         this.stage_view.fit_show_paths = !this.stage_view.fit_show_paths;
                         this.rebuild_fit_plots(cx);
@@ -368,6 +368,17 @@ impl StudioApp {
                     |this, _: &ClickEvent, _w, cx| {
                         this.stage_view.fit_show_re = !this.stage_view.fit_show_re;
                         this.rebuild_fit_plots(cx);
+                        this.explore_plots_dirty = true;
+                        cx.notify();
+                    },
+                )),
+            )
+            .child(
+                chip(&t, "fit-im", "Im χ(R)", v.fit_show_im).on_click(cx.listener(
+                    |this, _: &ClickEvent, _w, cx| {
+                        this.stage_view.fit_show_im = !this.stage_view.fit_show_im;
+                        this.rebuild_fit_plots(cx);
+                        this.explore_plots_dirty = true;
                         cx.notify();
                     },
                 )),
@@ -378,112 +389,16 @@ impl StudioApp {
                     .text_color(t.text_muted)
                     .whitespace_nowrap()
                     .overflow_hidden()
-                    .child("fit-range edges are draggable"),
+                    .child(if self.fit_plots.is_some() {
+                        "drag edges to adjust ranges"
+                    } else {
+                        "data preview"
+                    }),
             )
             .child(div().flex_1())
-            .child(
-                chip(&t, "fit-batch", "batch results", v.fit_show_batch).on_click(cx.listener(
-                    |this, _: &ClickEvent, _w, cx| {
-                        this.stage_view.fit_show_batch = !this.stage_view.fit_show_batch;
-                        cx.notify();
-                    },
-                )),
-            )
     }
 
     // ---- inspector ----------------------------------------------------------
-
-    pub(crate) fn fit_inspector(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let t = self.theme;
-        div()
-            .flex()
-            .flex_col()
-            .child(self.fit_step(0, "Structure", cx, |this, cx| this.structure_section(cx).into_any_element()))
-            .child(self.fit_step(1, "Paths", cx, |this, cx| this.fit_paths_section(cx).into_any_element()))
-            .child(self.fit_step(2, "Parameters", cx, |this, cx| this.fit_params_section(cx).into_any_element()))
-            .child(self.fit_step(3, "Fit settings", cx, |this, cx| this.fit_settings_section(cx).into_any_element()))
-            .child(self.fit_result_section(cx))
-            .child(self.fit_history_section(cx))
-            .children(
-                self.stage_view
-                    .fit_show_batch
-                    .then(|| self.fit_batch_section(cx)),
-            )
-            .child(div().h(px(12.)).bg(t.surface))
-    }
-
-    /// One numbered step of the guided flow: a header with the step's
-    /// status line, collapsing to that line when closed.
-    fn fit_step(
-        &self,
-        step: usize,
-        title: &'static str,
-        cx: &mut Context<Self>,
-        body: impl FnOnce(&Self, &mut Context<Self>) -> gpui::AnyElement,
-    ) -> impl IntoElement + use<> {
-        let t = self.theme;
-        let (done, status) = self.fit_step_status(step);
-        let open = self.fit_steps_open[step];
-        let head = div()
-            .id(("fit-step", step))
-            .px_3()
-            .pt_2p5()
-            .pb_1p5()
-            .flex()
-            .items_center()
-            .gap_2()
-            .cursor_pointer()
-            .hover(|d| d.bg(t.raised))
-            .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
-                this.fit_steps_open[step] = !this.fit_steps_open[step];
-                cx.notify();
-            }))
-            .child(
-                div()
-                    .flex_none()
-                    .w(px(16.))
-                    .h(px(16.))
-                    .rounded_full()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .text_size(px(10.))
-                    .font_family(MONO)
-                    .when(done, |d| d.bg(t.success).text_color(t.bg))
-                    .when(!done, |d| d.border_1().border_color(t.border).text_color(t.text_muted))
-                    .child(SharedString::from(format!("{}", step + 1))),
-            )
-            .child(section_label(&t, title))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .font_family(MONO)
-                    .text_size(px(10.5))
-                    .text_color(if done { t.text } else { t.text_muted })
-                    .child(SharedString::from(status)),
-            )
-            .child(
-                div()
-                    .flex_none()
-                    .text_size(px(10.))
-                    .text_color(t.text_muted)
-                    .child(if open { "▾" } else { "▸" }),
-            );
-        let mut wrap = div()
-            .flex()
-            .flex_col()
-            .border_b_1()
-            .border_color(t.border)
-            .child(head);
-        if open {
-            wrap = wrap.child(body(self, cx));
-        }
-        wrap
-    }
 
     fn sub_button(
         &self,
@@ -508,96 +423,12 @@ impl StudioApp {
             .child(label)
     }
 
-    fn fit_paths_section(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let t = self.theme;
-        let mut rows: Vec<gpui::AnyElement> = Vec::new();
-        if self.fit_paths.is_empty() {
-            rows.push(
-                self.note("No paths yet. Generate them from a structure above, or add FEFF path files (+ Add).")
-                    .into_any_element(),
-            );
-        }
-        // The docked table beside the 3D view replaces this compact one.
-        if !self.fit_paths.is_empty() && !self.structure.show {
-            rows.push(
-                div()
-                    .mx_2()
-                    .mb_1()
-                    .max_h(px(320.))
-                    .flex()
-                    .flex_col()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(t.border)
-                    .overflow_hidden()
-                    .child(self.structure_paths_table(false, cx))
-                    .into_any_element(),
-            );
-        }
-        // Expression cells of the selected paths (advanced: edit per path).
-        let selected: Vec<usize> = self
-            .fit_paths
-            .iter()
-            .enumerate()
-            .filter(|(_, r)| r.spec.enabled)
-            .map(|(i, _)| i)
-            .collect();
-        if !selected.is_empty() {
-            let open = self.stage_view.fit_show_cells;
-            rows.push(
-                div()
-                    .id("fit-cells-toggle")
-                    .mx_2()
-                    .h(px(22.))
-                    .px_1()
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .text_size(px(10.5))
-                    .text_color(t.text_muted)
-                    .cursor_pointer()
-                    .hover(|d| d.text_color(t.text))
-                    .on_click(cx.listener(|this, _: &ClickEvent, _w, cx| {
-                        this.stage_view.fit_show_cells = !this.stage_view.fit_show_cells;
-                        cx.notify();
-                    }))
-                    .child(if open { "▾" } else { "▸" })
-                    .child(SharedString::from(format!(
-                        "path parameter cells ({} selected paths)",
-                        selected.len()
-                    )))
-                    .into_any_element(),
-            );
-            if open {
-                for i in selected {
-                    rows.push(self.fit_path_cells(i, cx).into_any_element());
-                }
-            }
-        }
-        rows.push(
-            div()
-                .mx_2()
-                .mt_1()
-                .flex()
-                .items_center()
-                .gap_1()
-                .child(self.sub_button("add-path", "+ Add path files…", cx, |this, cx| {
-                    this.add_fit_path_dialog(cx)
-                }))
-                .child(
-                    self.sub_button("show-structure", "Structure view", cx, |this, cx| {
-                        this.structure.show = true;
-                        this.refresh_structure(cx);
-                        cx.notify();
-                    }),
-                )
-                .into_any_element(),
-        );
-        div().flex().flex_col().pb_2().children(rows)
-    }
-
     /// One selected path's parameter-expression cells.
-    fn fit_path_cells(&self, i: usize, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    pub(super) fn fit_path_cells(
+        &self,
+        i: usize,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
         let t = self.theme;
         let row = &self.fit_paths[i];
         let label: SharedString = self
@@ -653,53 +484,16 @@ impl StudioApp {
                         cx.notify();
                     }
                 }))
-                .child(if more { "▾ fewer" } else { "▸ more (Ei, C₃, C₄)" }),
+                .child(if more {
+                    "▾ fewer"
+                } else {
+                    "▸ more (Ei, C₃, C₄)"
+                }),
         );
         grid.child(cells)
     }
 
-    /// Structure database + cluster generator (replaces the Atoms-lite form).
-    fn structure_section(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let t = self.theme;
-        let head = div()
-            .px_3()
-            .pt_3()
-            .pb_1()
-            .flex()
-            .items_center()
-            .gap_2()
-            .child(section_label(&t, "Structure"))
-            .child(div().flex_1());
-        let advanced = div()
-            .px_3()
-            .pt_1()
-            .flex()
-            .flex_wrap()
-            .items_center()
-            .gap_1()
-            .child(
-                div()
-                    .text_size(px(11.))
-                    .text_color(t.text_muted)
-                    .child("custom feff.inp:"),
-            )
-            .child(self.sub_button("feff-new", "New…", cx, |this, cx| this.new_feff_inp(cx)))
-            .child(self.sub_button("feff-choose", "Choose…", cx, |this, cx| {
-                this.choose_feff_inp(cx)
-            }))
-            .child(self.sub_button("feff-run", "Run FEFF", cx, |this, cx| {
-                this.run_feff10_now(cx)
-            }));
-        let _ = head;
-        div()
-            .flex()
-            .flex_col()
-            .pb_2()
-            .child(self.structure_panel(cx))
-            .child(advanced)
-    }
-
-    fn fit_params_section(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    pub(super) fn fit_params_section(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
         let result = self.fit_result.clone();
         let fresh = !self.fit_is_stale();
@@ -716,16 +510,19 @@ impl StudioApp {
             let is_expr = var.spec.expr.is_some();
             let vary = var.spec.vary;
             let (kind, color) = if is_expr {
-                ("def", t.success)
+                ("expr", t.success)
             } else if vary {
-                ("guess", t.accent)
+                ("vary", t.accent)
             } else {
-                ("set", t.text_muted)
+                ("fixed", t.text_muted)
             };
             let fitted: SharedString = result
                 .as_ref()
                 .filter(|_| fresh && vary && !is_expr)
                 .and_then(|r| r.variables.get(&name))
+                // History restores the original starting values. An uncertainty
+                // belongs beside the fitted value, not a different starting value.
+                .filter(|v| (v.value - var.spec.value).abs() <= 1e-10 * v.value.abs().max(1.0))
                 .and_then(|v| v.stderr)
                 .map(|e| format!("± {e:.4}"))
                 .unwrap_or_default()
@@ -829,7 +626,7 @@ impl StudioApp {
                     .font_family(MONO)
                     .text_size(px(10.))
                     .text_color(t.text_muted)
-                    .child("guess · def · set"),
+                    .child("vary · fixed · expression"),
             );
         div()
             .flex()
@@ -846,19 +643,27 @@ impl StudioApp {
     /// Template segment + Apply, with the MS rule note.
     fn fit_template_chooser(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
-        let mut seg = segmented(&t);
+        let mut seg = div().flex().flex_wrap().gap_1();
         for (i, tpl) in ParameterTemplate::ALL.into_iter().enumerate() {
             seg = seg.child(
-                segment(
+                chip(
                     &t,
                     SharedString::from(format!("tpl-{i}")),
-                    tpl.label(),
+                    match tpl {
+                        ParameterTemplate::PerShell => "Share by shell",
+                        ParameterTemplate::PerPath => "Separate by path",
+                        ParameterTemplate::FirstShellOnly => "Nearest shell",
+                        ParameterTemplate::Manual => "Custom expressions",
+                    },
                     self.fit_template == tpl,
-                    i == 0,
                 )
+                .w(px(164.))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
                     this.fit_template = tpl;
-                    if !this.fit_template_dirty {
+                    if tpl == ParameterTemplate::Manual {
+                        this.fit_template_dirty = true;
+                        cx.notify();
+                    } else if !this.fit_template_dirty {
                         this.apply_fit_template(cx);
                     } else {
                         cx.notify();
@@ -886,20 +691,52 @@ impl StudioApp {
                     .items_center()
                     .gap_1()
                     .child(seg)
-                    .child(
-                        button(&t, "tpl-apply", apply_label, n_sel > 0 && (dirty || self.fit_vars.is_empty()))
-                            .on_click(cx.listener(|this, _: &ClickEvent, _w, cx| {
+                    .when(self.fit_template!=ParameterTemplate::Manual,|d|d.child(
+                        button(
+                            &t,
+                            "tpl-apply",
+                            apply_label,
+                            n_sel > 0 && (dirty || self.fit_vars.is_empty()),
+                        )
+                        .on_click(cx.listener(
+                            |this, _: &ClickEvent, _w, cx| {
                                 this.apply_fit_template(cx);
-                                this.fit_steps_open[2] = true;
-                            })),
-                    ),
+                                this.stage_view.fit_model_tab = 0;
+                            },
+                        )),
+                    )),
             )
             .child(
                 div()
                     .text_size(px(10.5))
                     .text_color(t.text_muted)
-                    .child(self.fit_template.description()),
+                    .child(match self.fit_template {
+                        ParameterTemplate::PerShell=>"Paths in the same shell share ΔR and σ². S₀² and E₀ are shared within each structure. Multiple-scattering paths follow their constituent shells.",
+                        ParameterTemplate::PerPath=>"Every path gets its own ΔR and σ². S₀² and E₀ stay shared within each structure; this adds more variables.",
+                        ParameterTemplate::FirstShellOnly=>"Only the nearest selected shell varies in ΔR and σ². Other paths keep ΔR = 0 and σ² = 0.003 Å².",
+                        ParameterTemplate::Manual=>"Keep your current model and edit Path expressions. A new name in a cell creates a variable; reuse a name to share it.",
+                    }),
             );
+        let selected = self.selected_path_infos();
+        let shells: std::collections::BTreeSet<_> = selected
+            .iter()
+            .filter(|p| p.is_single_scattering)
+            .map(|p| (self.fit_paths[p.index].spec.file.parent(), p.shell))
+            .collect();
+        col = col.child(div().text_size(px(11.)).text_color(t.text).child(format!(
+            "{} selected paths · {} SS shells · {} parameter definitions",
+            n_sel,
+            shells.len(),
+            self.fit_vars.len()
+        )));
+        if self.fit_template == ParameterTemplate::PerShell
+            && shells.len() == 1
+            && self.path_sources().len() == 1
+        {
+            col=col.child(div().text_size(px(10.5)).text_color(t.text_muted).child(if self.joint.config.enabled {
+                "Four base parameters: S₀², E₀, ΔR and σ². Shared / Per spectrum scopes determine the total number of fitted values."
+            } else { "One shell = 4 variables: S₀² + E₀ + ΔR + σ². Selecting another shell adds two variables." }));
+        }
         for note in &self.fit_template_notes {
             col = col.child(
                 div()
@@ -934,9 +771,12 @@ impl StudioApp {
         }
     }
 
-    fn fit_settings_section(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    pub(super) fn fit_settings_section(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
-        let r = &self.fit_ranges;
+        let resolved = self
+            .fit_ranges
+            .resolved(self.joint_params(&self.current_path).fft_kweight);
+        let r = &resolved;
         let mut rows: Vec<gpui::AnyElement> = Vec::new();
         for (key, field) in &self.fit_range_fields {
             if *key == crate::app::RangeKey::Kweight {
@@ -944,6 +784,38 @@ impl StudioApp {
             }
             rows.push(field.clone().into_any_element());
         }
+        rows.push(
+            div()
+                .px_3()
+                .py_1()
+                .child(
+                    chip(
+                        &t,
+                        "fit-weight-transform",
+                        format!(
+                            "{} Transform k-weight ({:.0})",
+                            if self.fit_ranges.follow_transform {
+                                "☑"
+                            } else {
+                                "☐"
+                            },
+                            self.joint_params(&self.current_path)
+                                .fft_kweight
+                                .unwrap_or(2.)
+                        ),
+                        self.fit_ranges.follow_transform,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        let follow = !this.fit_ranges.follow_transform;
+                        this.fit_ranges = this
+                            .fit_ranges
+                            .resolved(this.joint_params(&this.current_path).fft_kweight);
+                        this.fit_ranges.follow_transform = follow;
+                        this.fit_model_changed(cx);
+                    })),
+                )
+                .into_any_element(),
+        );
         // k-weights: 1 · 2 · 3 multi-select; the first selected is the plot weight.
         let mut kw_row = div().px_3().py_0p5().flex().items_center().gap_1p5().child(
             div()
@@ -984,6 +856,9 @@ impl StudioApp {
                             .hover(|d| d.bg(t.raised))
                     })
                     .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
+                        this.fit_ranges = this
+                            .fit_ranges
+                            .resolved(this.joint_params(&this.current_path).fft_kweight);
                         this.fit_ranges.toggle_kweight(kw);
                         let plot_kw = this.fit_ranges.kweight;
                         if !this.fit_ranges.kweights.contains(&plot_kw) {
@@ -1008,6 +883,7 @@ impl StudioApp {
                 )
                 .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
                     this.fit_ranges.fitspace = sp;
+                    this.select_fit_space_view(sp, cx);
                     this.fit_model_changed(cx);
                 })),
             );
@@ -1073,7 +949,7 @@ impl StudioApp {
         self.section("Fit settings", None, rows, cx)
     }
 
-    fn fit_result_section(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    pub(super) fn fit_result_section(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
         let Some(result) = self.fit_result.clone() else {
             return self
@@ -1107,7 +983,109 @@ impl StudioApp {
         if let Some(d) = self.last_fit_duration {
             card.push(("time".into(), format!("{:.2} s", d.as_secs_f64())));
         }
+        if let Some(report) = &result.solver_report {
+            card.push((
+                "optimizer".into(),
+                if report.converged {
+                    "converged"
+                } else {
+                    "stopped"
+                }
+                .into(),
+            ));
+            if let Some(iterations) = report.iterations {
+                card.push(("iterations".into(), iterations.to_string()));
+            }
+            if let Some(evaluations) = report.evaluations {
+                card.push(("evaluations".into(), evaluations.to_string()));
+            }
+            card.push((
+                "objective".into(),
+                format!("{:.3e} → {:.3e}", report.initial_cost, report.final_cost),
+            ));
+        }
         let mut rows: Vec<gpui::AnyElement> = vec![self.result_card(card).into_any_element()];
+        if let Some(report) = &result.solver_report {
+            rows.push(
+                div()
+                    .px_3()
+                    .py_1()
+                    .text_size(px(11.))
+                    .text_color(t.text_muted)
+                    .child(format!(
+                        "{}. Numerical convergence alone does not establish a good fit.",
+                        report.termination
+                    ))
+                    .into_any_element(),
+            );
+        }
+        for notice in crate::fitting::fit_result_notices(&result) {
+            rows.push(
+                div()
+                    .mx_3()
+                    .mt_2()
+                    .p_2()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(t.warn)
+                    .text_size(px(11.))
+                    .text_color(t.warn)
+                    .child(notice)
+                    .into_any_element(),
+            );
+        }
+        rows.push(
+            div()
+                .px_3()
+                .pt_3()
+                .pb_1()
+                .child(section_label(&t, "Fitted parameters · value ± uncertainty"))
+                .into_any_element(),
+        );
+        for (name, variable) in &result.variables.vars {
+            let value = match variable.stderr {
+                Some(error) => format!("{:.5} ± {:.5}", variable.value, error),
+                None => format!(
+                    "{:.5} · {}",
+                    variable.value,
+                    if variable.vary && variable.expr.is_none() {
+                        "± unavailable"
+                    } else {
+                        "fixed / expr"
+                    }
+                ),
+            };
+            rows.push(
+                div()
+                    .mx_3()
+                    .py_1()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .border_b_1()
+                    .border_color(t.border)
+                    .font_family(MONO)
+                    .text_size(px(11.))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(crate::joint_fitting::display_name(
+                                name,
+                                self.joint.result_config.as_ref(),
+                            )),
+                    )
+                    .child(value)
+                    .into_any_element(),
+            );
+        }
+        if let Some(entry) = self
+            .fit_history
+            .iter()
+            .find(|e| Some(e.id) == self.fit_history_selected)
+        {
+            rows.push(self.fit_path_details(entry).into_any_element());
+        }
         let correlations = high_correlations(&result, CORRELATION_WARN);
         for (a, b, c) in correlations.iter().take(4) {
             rows.push(
@@ -1181,7 +1159,80 @@ impl StudioApp {
             .into_any_element()
     }
 
-    fn fit_history_section(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    fn fit_path_details(
+        &self,
+        entry: &crate::fitting::FitHistoryEntry,
+    ) -> impl IntoElement + use<> {
+        let t = self.theme;
+        let mut details = div()
+            .mx_3()
+            .py_2()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .text_size(px(11.));
+        if entry.path_details.is_empty() {
+            return details.child("Path distances were not recorded in this older history entry. Run a fit to record them.");
+        }
+        details = details.child(section_label(&t, "Fitted path distances"));
+        for p in &entry.path_details {
+            let value = |v: &Option<crate::fit_details::Estimate>, digits| {
+                v.as_ref()
+                    .map(|v| v.label(digits))
+                    .unwrap_or_else(|| "unavailable".into())
+            };
+            let distance_label = if p.nleg.is_some_and(|n| n > 2) {
+                "R_eff + ΔR · half path"
+            } else {
+                "R = R_eff + ΔR"
+            };
+            let source = p
+                .file
+                .parent()
+                .and_then(|p| p.file_name())
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            details = details.child(
+                div()
+                    .py_1()
+                    .border_b_1()
+                    .border_color(t.border)
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(
+                        div()
+                            .font_weight(gpui::FontWeight::MEDIUM)
+                            .child(format!("{} · {}", p.label, source)),
+                    )
+                    .child(
+                        div()
+                            .text_color(t.accent)
+                            .child(format!("{distance_label}   {} Å", value(&p.distance, 4))),
+                    )
+                    .child(div().text_color(t.text_muted).child(format!(
+                            "FEFF R_eff {} Å · {} legs · degeneracy {}",
+                            p.reff
+                                .map(|r| format!("{r:.4}"))
+                                .unwrap_or_else(|| "unavailable".into()),
+                            p.nleg.map(|n| n.to_string()).unwrap_or_else(|| "?".into()),
+                            p.degeneracy
+                                .map(|n| n.to_string())
+                                .unwrap_or_else(|| "?".into())
+                        )))
+                    .child(format!("ΔR  {} Å", value(&p.deltar, 4)))
+                    .child(format!("σ²  {} Å²", value(&p.sigma2, 5)))
+                    .child(format!(
+                        "S₀²  {} · ΔE₀  {} eV",
+                        value(&p.s02, 4),
+                        value(&p.e0, 3)
+                    )),
+            );
+        }
+        details.child(div().text_size(px(10.)).text_color(t.text_muted).child("± one standard error, propagated from the fit covariance. FEFF reference geometry is treated as exact."))
+    }
+
+    pub(super) fn fit_history_section(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
         let mut rows: Vec<gpui::AnyElement> = Vec::new();
         if self.fit_history.is_empty() {
@@ -1245,15 +1296,57 @@ impl StudioApp {
                             .text_ellipsis()
                             .child(summary),
                     )
+                    .when_some(entry.solver_report.as_ref(), |d, report| {
+                        d.child(
+                            div()
+                                .text_size(px(10.))
+                                .text_color(if report.converged {
+                                    t.text_muted
+                                } else {
+                                    t.warn
+                                })
+                                .child(report.termination.clone()),
+                        )
+                    })
                     .into_any_element(),
             );
+            if on {
+                rows.push(
+                    div()
+                        .mx_3()
+                        .py_2()
+                        .text_size(px(11.))
+                        .text_color(t.text_muted)
+                        .child(format!(
+                            "χ² {:.4} · reduced χ² {:.4} · independent points {:.1}",
+                            entry.chi_square, entry.reduced_chi_square, entry.n_idp
+                        ))
+                        .into_any_element(),
+                );
+                for (name, value, error) in &entry.values {
+                    let name = crate::joint_fitting::display_name(name, entry.joint.as_ref());
+                    rows.push(
+                        div()
+                            .mx_3()
+                            .font_family(MONO)
+                            .text_size(px(11.))
+                            .child(match error {
+                                Some(e) => format!("{name}  {value:.6} ± {e:.6}"),
+                                None => format!("{name}  {value:.6} ± unavailable"),
+                            })
+                            .into_any_element(),
+                    );
+                }
+                rows.push(self.fit_path_details(entry).into_any_element());
+            }
         }
         self.section("History", None, rows, cx)
     }
 
-    fn fit_batch_section(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    pub(super) fn fit_batch_section(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
         let mut rows: Vec<gpui::AnyElement> = Vec::new();
+        let can_run = self.batch_blocker().is_none();
         rows.push(
             div()
                 .px_3()
@@ -1289,7 +1382,10 @@ impl StudioApp {
                 )
                 .child(div().flex_1())
                 .child(
-                    button(&t, "batch-run", batch_label, !self.batch_running)
+                    button(&t, "batch-run", batch_label, can_run && !self.batch_running)
+                        .when(!can_run && !self.batch_running, |d| {
+                            d.opacity(0.45).cursor_default()
+                        })
                         .when(self.batch_running, |d| {
                             d.border_color(t.error).text_color(t.error)
                         })
@@ -1323,6 +1419,11 @@ impl StudioApp {
         if let Some(bf) = &self.batch_fit {
             let stale = self.batch_fit_is_stale();
             let problems = bf.problems.len();
+            let stopped = bf
+                .rows
+                .iter()
+                .filter(|row| row.solver_report.as_ref().is_some_and(|r| !r.converged))
+                .count();
             rows.push(
                 div()
                     .px_3()
@@ -1333,7 +1434,7 @@ impl StudioApp {
                     .text_size(px(11.))
                     .text_color(t.text_muted)
                     .child(format!(
-                        "{} / {} fitted · {problems} problems{}",
+                        "{} / {} complete · {stopped} stopped · {problems} errors{}",
                         bf.rows.len(),
                         bf.total,
                         if stale { " · stale" } else { "" }

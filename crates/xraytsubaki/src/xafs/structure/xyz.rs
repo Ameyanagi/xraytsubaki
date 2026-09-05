@@ -58,12 +58,8 @@ pub fn parse_xyz(text: &str) -> Result<Xyz, StructureError> {
                 message: format!("XYZ line needs `El x y z`, got {line:?}"),
             });
         }
-        let element = Element::from_label(words[0]).or_else(|| {
-            words[0]
-                .parse::<u8>()
-                .ok()
-                .and_then(Element::from_z)
-        });
+        let element = Element::from_label(words[0])
+            .or_else(|| words[0].parse::<u8>().ok().and_then(Element::from_z));
         let Some(element) = element else {
             return Err(StructureError::UnknownElement {
                 label: words[0].to_string(),
@@ -149,7 +145,9 @@ impl Xyz {
                 }
                 Ok(members
                     .into_iter()
-                    .min_by(|&i, &j| dist(self.atoms[i].cart, c).total_cmp(&dist(self.atoms[j].cart, c)))
+                    .min_by(|&i, &j| {
+                        dist(self.atoms[i].cart, c).total_cmp(&dist(self.atoms[j].cart, c))
+                    })
                     .unwrap())
             }
         }
@@ -158,7 +156,11 @@ impl Xyz {
     /// A cluster centred on the absorber, truncated to `radius` (Å) when
     /// given. FEFF potentials: 0 = absorber, then one per element by first
     /// appearance in distance order.
-    pub fn to_cluster(&self, sel: &XyzAbsorber, radius: Option<f64>) -> Result<Cluster, StructureError> {
+    pub fn to_cluster(
+        &self,
+        sel: &XyzAbsorber,
+        radius: Option<f64>,
+    ) -> Result<Cluster, StructureError> {
         let ai = self.absorber_index(sel)?;
         let origin = self.atoms[ai].cart;
         let mut atoms: Vec<ClusterAtom> = self
@@ -166,7 +168,11 @@ impl Xyz {
             .iter()
             .enumerate()
             .filter_map(|(i, a)| {
-                let cart = [a.cart[0] - origin[0], a.cart[1] - origin[1], a.cart[2] - origin[2]];
+                let cart = [
+                    a.cart[0] - origin[0],
+                    a.cart[1] - origin[1],
+                    a.cart[2] - origin[2],
+                ];
                 let distance = dist(cart, [0.0; 3]);
                 if radius.is_some_and(|r| distance > r) && i != ai {
                     return None;
@@ -183,7 +189,11 @@ impl Xyz {
                 })
             })
             .collect();
-        atoms.sort_by(|a, b| a.distance.total_cmp(&b.distance).then(a.site_index.cmp(&b.site_index)));
+        atoms.sort_by(|a, b| {
+            a.distance
+                .total_cmp(&b.distance)
+                .then(a.site_index.cmp(&b.site_index))
+        });
         if let Some(pos) = atoms.iter().position(|a| a.site_index == ai) {
             let abs = atoms.remove(pos);
             atoms.insert(0, abs);
@@ -252,14 +262,17 @@ fn dist(a: [f64; 3], b: [f64; 3]) -> f64 {
 mod tests {
     use super::*;
 
-    const SAMPLE: &str = "5\nRu5 cluster\nRu 0 0 0\nRu 2.7 0 0\nRu -2.7 0 0\nO 0 2.0 0\nRu 0 0 9.0\n";
+    const SAMPLE: &str =
+        "5\nRu5 cluster\nRu 0 0 0\nRu 2.7 0 0\nRu -2.7 0 0\nO 0 2.0 0\nRu 0 0 9.0\n";
 
     #[test]
     fn parses_and_centres_on_the_absorber() {
         let xyz = parse_xyz(SAMPLE).unwrap();
         assert_eq!(xyz.atoms.len(), 5);
         assert_eq!(xyz.elements(), vec!["Ru".to_string(), "O".to_string()]);
-        let c = xyz.to_cluster(&XyzAbsorber::Element("Ru".into()), Some(5.0)).unwrap();
+        let c = xyz
+            .to_cluster(&XyzAbsorber::Element("Ru".into()), Some(5.0))
+            .unwrap();
         assert_eq!(c.atoms.len(), 4, "far Ru is outside 5 Å");
         assert_eq!(c.absorber().symbol, "Ru");
         assert_eq!(c.atoms[1].symbol, "O");

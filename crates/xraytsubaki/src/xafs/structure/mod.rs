@@ -22,6 +22,7 @@ pub mod paths;
 pub mod symmetry;
 pub mod xyz;
 
+pub use builtin::{BuiltinEntry, BuiltinLibrary};
 pub use cif::{parse_cif, read_cif, structure_from_cif, structure_to_cif, CifBlock, CifLoop};
 pub use cluster::{
     absorber_sites, build_cluster, AbsorberSelection, Cluster, ClusterAtom, ClusterOptions,
@@ -32,11 +33,12 @@ pub use element::Element;
 pub use feffinp::{write_feff_inp, Edge, FeffInputOptions, FeffInputStyle};
 pub use lattice::Lattice;
 pub use model::{Site, SpaceGroupInfo, Species, Structure};
-pub use builtin::{BuiltinEntry, BuiltinLibrary};
-pub use pathrank::{path_label, rank_paths, select_by, select_default, shells_of, PathInfo, ShellInfo};
+pub use pathrank::{
+    path_label, rank_paths, select_by, select_default, shells_of, PathInfo, ShellInfo,
+};
 pub use paths::{PathGeometry, PathLeg};
-pub use xyz::{parse_xyz, read_xyz, Xyz, XyzAbsorber, XyzAtom};
 pub use symmetry::{expand_sites, find_space_group, SpaceGroupEntry, SymOp};
+pub use xyz::{parse_xyz, read_xyz, Xyz, XyzAbsorber, XyzAtom};
 
 use thiserror::Error;
 

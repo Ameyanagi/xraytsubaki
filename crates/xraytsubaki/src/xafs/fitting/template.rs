@@ -144,8 +144,12 @@ pub fn apply_template(template: ParameterTemplate, selected: &[PathInfo]) -> Tem
             shared(&mut out.variables);
             for (i, p) in selected.iter().enumerate() {
                 let n = i + 1;
-                out.variables
-                    .push(guess(&format!("dr_{n}"), 0.0, Some(-DR_LIMIT), Some(DR_LIMIT)));
+                out.variables.push(guess(
+                    &format!("dr_{n}"),
+                    0.0,
+                    Some(-DR_LIMIT),
+                    Some(DR_LIMIT),
+                ));
                 out.variables
                     .push(guess(&format!("ss_{n}"), SS_GUESS, Some(0.0), None));
                 out.assignments.push(PathAssignment {
@@ -177,8 +181,12 @@ pub fn apply_template(template: ParameterTemplate, selected: &[PathInfo]) -> Tem
                 _ => shells.iter().copied().collect(),
             };
             for &n in &vary_shells {
-                out.variables
-                    .push(guess(&format!("dr_{n}"), 0.0, Some(-DR_LIMIT), Some(DR_LIMIT)));
+                out.variables.push(guess(
+                    &format!("dr_{n}"),
+                    0.0,
+                    Some(-DR_LIMIT),
+                    Some(DR_LIMIT),
+                ));
                 out.variables
                     .push(guess(&format!("ss_{n}"), SS_GUESS, Some(0.0), None));
             }
@@ -188,7 +196,8 @@ pub fn apply_template(template: ParameterTemplate, selected: &[PathInfo]) -> Tem
                     let n = if p.shell > 0 { p.shell } else { first_shell };
                     shell_params(n, &vary_shells)
                 } else {
-                    let legs: Vec<usize> = p.leg_shells.iter().copied().filter(|&s| s > 0).collect();
+                    let legs: Vec<usize> =
+                        p.leg_shells.iter().copied().filter(|&s| s > 0).collect();
                     if legs.is_empty() {
                         shell_params(first_shell, &vary_shells)
                     } else {
@@ -226,12 +235,16 @@ fn shell_params(n: usize, vary_shells: &[usize]) -> (String, String) {
 fn ms_params(legs: &[usize], vary_shells: &[usize]) -> (String, String) {
     let terms: Vec<String> = legs
         .iter()
-        .map(|&n| if vary_shells.contains(&n) { format!("dr_{n}") } else { "0".to_string() })
+        .map(|&n| {
+            if vary_shells.contains(&n) {
+                format!("dr_{n}")
+            } else {
+                "0".to_string()
+            }
+        })
         .collect();
     let deltar = if terms.iter().all(|t| t == "0") {
         "0".to_string()
-    } else if terms.len() == 1 {
-        terms[0].clone()
     } else if terms.iter().all(|t| t == &terms[0]) {
         terms[0].clone()
     } else {
@@ -250,7 +263,14 @@ fn ms_params(legs: &[usize], vary_shells: &[usize]) -> (String, String) {
 mod tests {
     use super::*;
 
-    fn info(index: usize, label: &str, reff: f64, nleg: usize, shell: usize, legs: &[usize]) -> PathInfo {
+    fn info(
+        index: usize,
+        label: &str,
+        reff: f64,
+        nleg: usize,
+        shell: usize,
+        legs: &[usize],
+    ) -> PathInfo {
         PathInfo {
             index,
             filename: format!("feff{index:04}.dat"),
@@ -305,6 +325,8 @@ mod tests {
         let r = apply_template(ParameterTemplate::Manual, &sel);
         assert!(r.variables.is_empty());
         assert!(r.assignments.iter().all(|a| a.s02.is_empty()));
-        assert!(apply_template(ParameterTemplate::PerShell, &[]).assignments.is_empty());
+        assert!(apply_template(ParameterTemplate::PerShell, &[])
+            .assignments
+            .is_empty());
     }
 }

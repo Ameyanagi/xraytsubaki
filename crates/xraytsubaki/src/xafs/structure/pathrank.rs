@@ -77,7 +77,10 @@ fn symbol_of(z: u8, label: &str) -> String {
     Element::from_z(z)
         .map(|e| e.symbol.to_string())
         .unwrap_or_else(|| {
-            let s: String = label.chars().take_while(|c| c.is_ascii_alphabetic()).collect();
+            let s: String = label
+                .chars()
+                .take_while(|c| c.is_ascii_alphabetic())
+                .collect();
             if s.is_empty() {
                 format!("Z{z}")
             } else {
@@ -200,7 +203,9 @@ pub fn shells_of(paths: &[PathInfo]) -> Vec<ShellInfo> {
     for p in ss {
         let (absorber, symbol) = split_label(&p.label);
         match shells.last_mut() {
-            Some(last) if (p.reff - last.reff).abs() <= SHELL_TOL + 1e-9 && last.symbol == symbol => {
+            Some(last)
+                if (p.reff - last.reff).abs() <= SHELL_TOL + 1e-9 && last.symbol == symbol =>
+            {
                 last.paths.push(p.index);
                 last.degeneracy += p.degen;
             }

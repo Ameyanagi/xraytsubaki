@@ -18,7 +18,7 @@ impl StudioApp {
             Stage::Background => self.background_inspector(cx).into_any_element(),
             Stage::Transform => self.transform_inspector(cx).into_any_element(),
             Stage::Series => self.series_inspector(cx).into_any_element(),
-            Stage::Fit => div().into_any_element(),
+            Stage::Fit | Stage::Publish => div().into_any_element(),
         };
         div()
             .w(px(312.))
@@ -116,40 +116,46 @@ impl StudioApp {
                         .child("Reset"),
                 );
         }
-        header.into_any_element()
+        let count = self
+            .differing_settings(super::parameter_actions::ParamScope::Stage(self.stage))
+            .len();
+        div()
+            .flex()
+            .flex_col()
+            .child(header)
+            .when(
+                self.stage_view.scope == super::PlotScope::Marked && count > 0,
+                |d| {
+                    d.child(
+                        div()
+                            .id("marked-settings-differ")
+                            .px_3()
+                            .py_1()
+                            .text_size(px(11.5))
+                            .text_color(t.warn)
+                            .cursor_pointer()
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.param_menu =
+                                    Some(super::parameter_actions::ParamScope::Stage(this.stage));
+                                cx.notify();
+                            }))
+                            .child(format!(
+                                "⚠ {count} {}  ›",
+                                if count == 1 {
+                                    "setting differs"
+                                } else {
+                                    "settings differ"
+                                }
+                            )),
+                    )
+                },
+            )
+            .into_any_element()
     }
 
     /// Copy the displayed parameter set onto every marked catalog group.
     pub(crate) fn apply_params_to_marked(&mut self, cx: &mut Context<Self>) {
-        let params = self.ui_params().clone();
-        let targets: Vec<usize> = self
-            .selection
-            .iter()
-            .copied()
-            .filter(|&ix| ix < DERIVED_BASE && !self.frozen.contains(&ix))
-            .collect();
-        let n = targets.len();
-        for ix in targets {
-            if params == self.params {
-                self.overrides.remove(&ix);
-            } else {
-                self.overrides.insert(ix, params.clone());
-            }
-        }
-        let skipped = self
-            .selection
-            .iter()
-            .filter(|ix| self.frozen.contains(ix))
-            .count();
-        self.record(format!("apply parameters to {n} marked groups"), None);
-        self.status = if skipped > 0 {
-            format!("parameters applied to {n} marked groups · {skipped} frozen skipped").into()
-        } else {
-            "parameters applied to marked groups".into()
-        };
-        self.ensure_compare_loaded(cx);
-        self.schedule_recompute(cx);
-        cx.notify();
+        self.apply_scope_to_marked(super::parameter_actions::ParamScope::All, cx);
     }
 
     /// Drop the current group's override (or reset the globals to defaults).
@@ -172,11 +178,24 @@ impl StudioApp {
         cx.notify();
     }
 
-    pub(crate) fn field(&self, key: ParamKey) -> Option<gpui::AnyElement> {
+    pub(crate) fn field(&self, key: ParamKey, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        let mixed = self.stage_view.scope == super::PlotScope::Marked
+            && !self
+                .differing_settings(super::parameter_actions::ParamScope::Field(
+                    key.setting_key(),
+                ))
+                .is_empty();
         self.param_fields
             .iter()
             .find(|(k, _)| *k == key)
-            .map(|(_, f)| f.clone().into_any_element())
+            .map(|(_, f)| {
+                f.update(cx, |field, cx| field.set_mixed(mixed, cx));
+                self.parameter_context(
+                    super::parameter_actions::ParamScope::Field(key.setting_key()),
+                    f.clone().into_any_element(),
+                    cx,
+                )
+            })
     }
 
     /// Section: uppercase label, optional override chip, then rows.
@@ -189,6 +208,7 @@ impl StudioApp {
     ) -> impl IntoElement + use<> {
         let t = self.theme;
         let mut head = div()
+            .id(SharedString::from(format!("section-context-{title}")))
             .px_3()
             .pt_3()
             .pb_1()
@@ -203,6 +223,32 @@ impl StudioApp {
                 section,
                 cx,
             ));
+        }
+        if super::parameter_actions::SETTINGS
+            .iter()
+            .any(|s| s.section == title)
+        {
+            let scope = super::parameter_actions::ParamScope::Section(title);
+            head = head.children(self.parameter_badge(scope, cx)).child(
+                button(
+                    &t,
+                    SharedString::from(format!("section-actions-{title}")),
+                    "⋯",
+                    false,
+                )
+                .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
+                    this.param_context_menu = Some((scope, event.position()));
+                    cx.notify();
+                })),
+            );
+            head = head.on_mouse_down(
+                gpui::MouseButton::Right,
+                cx.listener(move |this, event: &gpui::MouseDownEvent, _, cx| {
+                    cx.stop_propagation();
+                    this.param_context_menu = Some((scope, event.position));
+                    cx.notify();
+                }),
+            );
         }
         div()
             .flex()
@@ -309,16 +355,16 @@ impl StudioApp {
             .child(self.section(
                 "Edge",
                 Some(ParamSection::Norm),
-                vec![self.field(ParamKey::E0)].into_iter().flatten().collect(),
+                vec![self.field(ParamKey::E0, cx)].into_iter().flatten().collect(),
                 cx,
             ))
             .child(self.section(
                 "Pre-edge line",
                 None,
                 [
-                    self.field(ParamKey::PreEdgeStart),
-                    self.field(ParamKey::PreEdgeEnd),
-                    self.field(ParamKey::NVictoreen),
+                    self.field(ParamKey::PreEdgeStart, cx),
+                    self.field(ParamKey::PreEdgeEnd, cx),
+                    self.field(ParamKey::NVictoreen, cx),
                     Some(
                         self.note("Relative to E₀. Default −200 … −30 eV; end before the pre-edge features.")
                             .into_any_element(),
@@ -333,9 +379,9 @@ impl StudioApp {
                 "Normalization",
                 None,
                 [
-                    self.field(ParamKey::NormStart),
-                    self.field(ParamKey::NormEnd),
-                    self.field(ParamKey::NormPolyorder),
+                    self.field(ParamKey::NormStart, cx),
+                    self.field(ParamKey::NormEnd, cx),
+                    self.field(ParamKey::NormPolyorder, cx),
                 ]
                 .into_iter()
                 .flatten()
@@ -370,11 +416,11 @@ impl StudioApp {
                 "AUTOBK",
                 Some(ParamSection::Bkg),
                 [
-                    self.field(ParamKey::Rbkg),
-                    self.field(ParamKey::BkgKmin),
-                    self.field(ParamKey::BkgKmax),
-                    self.field(ParamKey::BkgKweight),
-                    self.field(ParamKey::BkgNknots),
+                    self.field(ParamKey::Rbkg, cx),
+                    self.field(ParamKey::BkgKmin, cx),
+                    self.field(ParamKey::BkgKmax, cx),
+                    self.field(ParamKey::BkgKweight, cx),
+                    self.field(ParamKey::BkgNknots, cx),
                 ]
                 .into_iter()
                 .flatten()
@@ -385,10 +431,10 @@ impl StudioApp {
                 "Clamps & window",
                 None,
                 [
-                    self.field(ParamKey::BkgClampLo),
-                    self.field(ParamKey::BkgClampHi),
+                    self.field(ParamKey::BkgClampLo, cx),
+                    self.field(ParamKey::BkgClampHi, cx),
                     Some(self.enum_row("window", EnumParam::BkgWindow, cx)),
-                    self.field(ParamKey::BkgDk),
+                    self.field(ParamKey::BkgDk, cx),
                 ]
                 .into_iter()
                 .flatten()
@@ -400,8 +446,8 @@ impl StudioApp {
                 None,
                 [
                     Some(self.enum_row("method", EnumParam::BkgSolver, cx)),
-                    self.field(ParamKey::BkgKstep),
-                    self.field(ParamKey::BkgNfft),
+                    self.field(ParamKey::BkgKstep, cx),
+                    self.field(ParamKey::BkgNfft, cx),
                     Some(
                         self.result_card(vec![(
                             "Spline knots".into(),
@@ -441,12 +487,12 @@ impl StudioApp {
                 "Forward FT  k → R",
                 Some(ParamSection::Fft),
                 [
-                    self.field(ParamKey::FftKmin),
-                    self.field(ParamKey::FftKmax),
-                    self.field(ParamKey::FftDk),
+                    self.field(ParamKey::FftKmin, cx),
+                    self.field(ParamKey::FftKmax, cx),
+                    self.field(ParamKey::FftDk, cx),
                     Some(self.enum_row("window", EnumParam::FftWindow, cx)),
-                    self.field(ParamKey::FftKweight),
-                    self.field(ParamKey::FftRmax),
+                    self.field(ParamKey::FftKweight, cx),
+                    self.field(ParamKey::FftRmax, cx),
                 ]
                 .into_iter()
                 .flatten()
@@ -457,9 +503,9 @@ impl StudioApp {
                 "Back FT  R → q",
                 None,
                 [
-                    self.field(ParamKey::BftRmin),
-                    self.field(ParamKey::BftRmax),
-                    self.field(ParamKey::BftDr),
+                    self.field(ParamKey::BftRmin, cx),
+                    self.field(ParamKey::BftRmax, cx),
+                    self.field(ParamKey::BftDr, cx),
                     Some(
                         self.note("Isolates a shell: χ(q) overlays k-weighted χ(k) when the shell is well separated.")
                             .into_any_element(),
@@ -474,9 +520,9 @@ impl StudioApp {
                 "Advanced",
                 None,
                 [
-                    self.field(ParamKey::FftDk2),
-                    self.field(ParamKey::FftKstep),
-                    self.field(ParamKey::FftNfft),
+                    self.field(ParamKey::FftDk2, cx),
+                    self.field(ParamKey::FftKstep, cx),
+                    self.field(ParamKey::FftNfft, cx),
                 ]
                 .into_iter()
                 .flatten()

@@ -77,6 +77,7 @@ impl StudioApp {
                     Stage::Transform => "⌘4",
                     Stage::Fit => "⌘5",
                     Stage::Series => "⌘6",
+                    Stage::Publish => "",
                 },
                 cmd: PaletteCmd::Stage(stage),
             });

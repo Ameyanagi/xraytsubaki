@@ -237,6 +237,11 @@ impl StudioApp {
                 d.on_mouse_move(cx.listener(move |this, ev: &gpui::MouseMoveEvent, _w, cx| {
                     this.plot_pointer_move(plot, ev.position, cx);
                 }))
+                .capture_any_mouse_down(cx.listener(
+                    move |this, ev: &gpui::MouseDownEvent, _, cx| {
+                        this.capture_handle_press(plot, ev, cx);
+                    },
+                ))
             })
             .child(
                 div()

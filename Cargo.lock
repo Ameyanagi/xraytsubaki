@@ -11123,6 +11123,7 @@ name = "xraytsubaki-gui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "feff10",
  "futures",
  "gpui",

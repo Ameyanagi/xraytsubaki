@@ -30,7 +30,7 @@ pub(crate) struct PreviewData {
     pub arrays: KweightTransform,
     pub q: Vec<f64>,
 }
-fn transform(input: Input, ranges: FitRanges) -> Result<PreviewData, String> {
+pub(super) fn transform(input: Input, ranges: FitRanges) -> Result<PreviewData, String> {
     if !ranges.valid() {
         return Err("Set a valid k and R range.".into());
     }
@@ -51,6 +51,55 @@ fn transform(input: Input, ranges: FitRanges) -> Result<PreviewData, String> {
         arrays,
         q,
     })
+}
+
+pub(super) fn preview_plots(
+    data: &PreviewData,
+    t: crate::theme::Theme,
+    show_re: bool,
+    show_im: bool,
+) -> [Plot; 3] {
+    let a = &data.arrays;
+    let kw = a.kweight;
+    let k = data.input.0.as_slice();
+    let mut kp: Plot = Plot::new()
+        .theme(t.plot_theme())
+        .line(k, a.chik.as_slice())
+        .color(trace_color(&t, 0))
+        .into();
+    kp = kp.xlabel("k (Å⁻¹)").ylabel(chik_label(kw));
+    let mut rp: Plot = Plot::new()
+        .theme(t.plot_theme())
+        .line(a.r_space.r.as_slice(), a.r_space.chir_mag.as_slice())
+        .color(trace_color(&t, 0))
+        .label("|χ(R)|")
+        .into();
+    for (on, y, label, style) in [
+        (show_re, &a.r_space.chir_re, "Re", LineStyle::Dotted),
+        (show_im, &a.r_space.chir_im, "Im", LineStyle::Dashed),
+    ] {
+        if on {
+            rp = rp
+                .line(a.r_space.r.as_slice(), y.as_slice())
+                .color(trace_color(&t, 0))
+                .line_style(style)
+                .label(label)
+                .into();
+        }
+    }
+    rp = rp
+        .xlabel("R (Å)")
+        .ylabel(chir_label(kw))
+        .xlim(0., (data.ranges.rmax + 2.).clamp(6., 10.));
+    let qp: Plot = Plot::new()
+        .theme(t.plot_theme())
+        .line(&data.q, &a.chiq.as_slice()[..data.q.len()])
+        .color(trace_color(&t, 0))
+        .into();
+    let qp = qp
+        .xlabel("q (Å⁻¹)")
+        .ylabel(format!("Re χ(q) · k-weight {kw:.0}"));
+    [kp, rp, qp]
 }
 
 pub(crate) struct FitPreviewState {
@@ -95,7 +144,7 @@ impl StudioApp {
             .filter(|id| self.joint.config.datasets.iter().any(|d| d.id == *id))
             .or_else(|| self.joint.config.datasets.first().map(|d| d.id))
     }
-    fn preview_source(&self) -> (PathBuf, String, FitRanges) {
+    pub(super) fn preview_source(&self) -> (PathBuf, String, FitRanges) {
         if let Some(id) = self.model_preview_dataset_id()
             && let Some(d) = self.joint.config.datasets.iter().find(|d| d.id == id)
         {
@@ -224,56 +273,12 @@ impl StudioApp {
             return;
         };
         let t = self.theme;
-        let a = &data.arrays;
-        let kw = a.kweight;
-        let k = data.input.0.as_slice();
-        let mut kp: Plot = Plot::new()
-            .theme(t.plot_theme())
-            .line(k, a.chik.as_slice())
-            .color(trace_color(&t, 0))
-            .into();
-        kp = kp.xlabel("k (Å⁻¹)").ylabel(chik_label(kw));
-        let mut rp: Plot = Plot::new()
-            .theme(t.plot_theme())
-            .line(a.r_space.r.as_slice(), a.r_space.chir_mag.as_slice())
-            .color(trace_color(&t, 0))
-            .label("|χ(R)|")
-            .into();
-        for (on, y, label, style) in [
-            (
-                self.stage_view.fit_show_re,
-                &a.r_space.chir_re,
-                "Re",
-                LineStyle::Dotted,
-            ),
-            (
-                self.stage_view.fit_show_im,
-                &a.r_space.chir_im,
-                "Im",
-                LineStyle::Dashed,
-            ),
-        ] {
-            if on {
-                rp = rp
-                    .line(a.r_space.r.as_slice(), y.as_slice())
-                    .color(trace_color(&t, 0))
-                    .line_style(style)
-                    .label(label)
-                    .into();
-            }
-        }
-        rp = rp
-            .xlabel("R (Å)")
-            .ylabel(chir_label(kw))
-            .xlim(0., (data.ranges.rmax + 2.).clamp(6., 10.));
-        let qp: Plot = Plot::new()
-            .theme(t.plot_theme())
-            .line(&data.q, &a.chiq.as_slice()[..data.q.len()])
-            .color(trace_color(&t, 0))
-            .into();
-        let qp = qp
-            .xlabel("q (Å⁻¹)")
-            .ylabel(format!("Re χ(q) · k-weight {kw:.0}"));
+        let [kp, rp, qp] = preview_plots(
+            &data,
+            t,
+            self.stage_view.fit_show_re,
+            self.stage_view.fit_show_im,
+        );
         for (id, plot, slot) in [
             (PREVIEW_K, kp, &mut self.fit_preview.k),
             (PREVIEW_R, rp, &mut self.fit_preview.r),

@@ -526,15 +526,8 @@ impl StudioApp {
             }
             return;
         }
-        // Arming: the pixel threshold is converted to data units through
-        // two `data_at` probes (`screen_at` needs a y inside the view).
-        let debug = std::env::var_os("XTS_DEBUG_HANDLES").is_some();
-        let plot_entity = entity.read(cx);
-        let here = plot_entity.data_at(position).ok().flatten();
-        let there = plot_entity
-            .data_at(gpui::point(position.x + px(ARM_PX as f32), position.y))
-            .ok()
-            .flatten();
+        // The visible grab tabs are above the plot area. Hit-test their
+        // window coordinates too; data_at intentionally excludes this strip.
         let (specs, _) = self.handle_specs(plot);
         let visible = self
             .handles
@@ -543,32 +536,47 @@ impl StudioApp {
             .ok()
             .and_then(|c| c.get(&plot).copied());
         let mut nearest: Option<(HandleKey, f64)> = None;
-        if let (Some(here), Some(there)) = (here, there) {
-            let tol = (there.x - here.x).abs().max(1e-9);
-            for (key, x) in specs {
-                // Off-screen handles cannot be armed.
-                if let Some(area) = visible
-                    && (x < area.data_x0 || x > area.data_x1)
-                {
-                    continue;
-                }
-                let d = (x - here.x).abs();
-                if d <= tol && nearest.is_none_or(|(_, best)| d < best) {
-                    nearest = Some((key, d));
+        if let Some(area) = visible {
+            let x = f32::from(position.x);
+            let y = f32::from(position.y);
+            if y >= area.top - 18.
+                && y <= area.bottom
+                && x >= area.left - ARM_PX as f32
+                && x <= area.right + ARM_PX as f32
+            {
+                for (key, value) in specs {
+                    if value < area.data_x0 || value > area.data_x1 {
+                        continue;
+                    }
+                    let distance = (area.px_of(value) - x).abs() as f64;
+                    if distance <= ARM_PX && nearest.is_none_or(|(_, best)| distance < best) {
+                        nearest = Some((key, distance));
+                    }
                 }
             }
-            if debug {
-                eprintln!(
-                    "[handles] plot {plot} pointer x={:.2} tol={tol:.3} nearest={nearest:?}",
-                    here.x
-                );
-            }
-        } else if debug {
-            eprintln!("[handles] plot {plot} pointer outside plot area ({position:?})");
         }
         let armed = nearest.map(|(key, _)| (plot, key));
         if armed != self.handles.armed {
             self.handles.armed = armed;
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn capture_handle_press(
+        &mut self,
+        plot: usize,
+        event: &gpui::MouseDownEvent,
+        cx: &mut Context<Self>,
+    ) {
+        if event.button != gpui::MouseButton::Left {
+            return;
+        }
+        self.plot_pointer_move(plot, event.position, cx);
+        if let Some((p, key)) = self.handles.armed
+            && p == plot
+        {
+            self.handles.dragging = Some((p, key));
+            cx.stop_propagation();
             cx.notify();
         }
     }

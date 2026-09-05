@@ -28,21 +28,17 @@ fn vecs(v: &nalgebra::DVector<f64>) -> Vec<f64> {
 }
 
 /// Thumbnail data for the four downstream views of one spectrum.
-pub fn thumb_data(sp: &XASSpectrum, fit_r: (f64, f64)) -> [ThumbData; 4] {
+pub fn thumb_data(sp: &XASSpectrum, _fit_r: (f64, f64)) -> [ThumbData; 4] {
     let energy = sp.energy.as_ref().map(vecs).unwrap_or_default();
     let norm = sp
-        .get_flat()
-        .or_else(|| sp.get_norm())
+        .get_norm()
+        .or_else(|| sp.get_flat())
         .map(|v| vecs(&v))
         .unwrap_or_default();
     let k = sp.get_k().map(|v| vecs(&v)).unwrap_or_default();
     let chi = sp.get_chi_kweighted().map(|v| vecs(&v)).unwrap_or_default();
     let r = sp.get_r().map(|v| vecs(&v)).unwrap_or_default();
     let mag = sp.get_chir_mag().map(|v| vecs(&v)).unwrap_or_default();
-    let xlim_e = sp.get_e0().map(|e0| {
-        let emax = energy.last().copied().unwrap_or(e0 + 300.0);
-        (e0 - 60.0, (e0 + 300.0).min(emax))
-    });
     let mut win_series = vec![ThumbSeries {
         x: k.clone(),
         y: chi.clone(),
@@ -64,7 +60,7 @@ pub fn thumb_data(sp: &XASSpectrum, fit_r: (f64, f64)) -> [ThumbData; 4] {
                 y: norm,
                 muted: false,
             }],
-            xlim: xlim_e,
+            xlim: None,
             span: None,
         },
         ThumbData {
@@ -87,8 +83,8 @@ pub fn thumb_data(sp: &XASSpectrum, fit_r: (f64, f64)) -> [ThumbData; 4] {
                 y: mag,
                 muted: false,
             }],
-            xlim: Some((0.0, 6.0)),
-            span: Some(fit_r),
+            xlim: None,
+            span: None,
         },
     ]
 }

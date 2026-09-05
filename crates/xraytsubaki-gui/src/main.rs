@@ -5,6 +5,7 @@
 
 mod app;
 mod catalog;
+mod codex_client;
 mod debug_stats;
 mod feffgen;
 mod fit_details;
@@ -13,6 +14,7 @@ mod joint_fitting;
 mod params;
 mod plotting;
 mod project;
+mod publication;
 mod settings;
 mod spectrum_interest;
 mod structure;

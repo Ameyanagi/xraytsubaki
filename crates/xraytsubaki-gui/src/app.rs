@@ -814,6 +814,14 @@ pub struct StudioApp {
     open_import_role: Option<ImportRole>,
     /// Which enum parameter's option list is expanded.
     open_enum: Option<EnumParam>,
+    param_menu: Option<shell::parameter_actions::ParamScope>,
+    param_context_menu: Option<(
+        shell::parameter_actions::ParamScope,
+        gpui::Point<gpui::Pixels>,
+    )>,
+    publish: shell::publish::PublishState,
+    main_window: gpui::AnyWindowHandle,
+    assistant_window: Option<gpui::AnyWindowHandle>,
     /// Catalog indices passing the filter (ascending); None = no filter.
     filtered: Option<Arc<Vec<usize>>>,
     /// Bumped per filter edit; stale background match results are dropped.
@@ -1569,6 +1577,7 @@ impl StudioApp {
             Some("transform") => Stage::Transform,
             Some("fit") => Stage::Fit,
             Some("series") => Stage::Series,
+            Some("publish") => Stage::Publish,
             _ => Stage::Normalize,
         };
 
@@ -1614,6 +1623,11 @@ impl StudioApp {
             import_preview_gen: 0,
             open_import_role: None,
             open_enum: None,
+            param_menu: None,
+            param_context_menu: None,
+            publish: Default::default(),
+            main_window: _window.window_handle(),
+            assistant_window: None,
             generation: 0,
             load_running: false,
             recompute_epoch: 0,
@@ -1717,6 +1731,7 @@ impl StudioApp {
                     cx.notify();
                 }
                 FieldEvent::Changed(None) => {}
+                FieldEvent::InspectMixed => {}
                 FieldEvent::Invalid(message) => {
                     this.status = message.clone();
                     cx.notify();
@@ -1854,21 +1869,11 @@ impl StudioApp {
             + usize::from(self.lcf_running)
     }
 
-    fn selection_count(&self) -> usize {
-        self.selection.len()
-            + usize::from(
-                self.selected
-                    .is_some_and(|selected| !self.selection.contains(&selected)),
-            )
-    }
-
-    /// Entry whose params a context-panel edit targets: exactly one active
-    /// catalog spectrum (doc: "editing while a spectrum is selected creates
-    /// an override"). Multi-selection, derived spectra, and the default
-    /// file edit the global set.
+    /// Editing always targets the current catalog spectrum, including when
+    /// other spectra are marked for comparison. Bulk copying is explicit.
     fn override_target(&self) -> Option<usize> {
         let ix = self.selected?;
-        (ix < DERIVED_BASE && self.selection_count() <= 1).then_some(ix)
+        (ix < DERIVED_BASE).then_some(ix)
     }
 
     /// Effective params for an entry: its override, else the global set.
@@ -2212,8 +2217,8 @@ impl StudioApp {
             (ParamKey::FftRmax, "R max out (Å)", "auto (10)", FLOAT),
             (ParamKey::FftKstep, "k step (Å⁻¹)", "auto", FLOAT),
             (ParamKey::FftNfft, "nfft", "auto (2048)", INT),
-            (ParamKey::BftRmin, "R min (Å)", "auto (1)", FLOAT),
-            (ParamKey::BftRmax, "R max (Å)", "auto (3)", FLOAT),
+            (ParamKey::BftRmin, "R min (Å)", "auto (0)", FLOAT),
+            (ParamKey::BftRmax, "R max (Å)", "auto (20)", FLOAT),
             (ParamKey::BftDr, "dR (Å)", "auto (1)", FLOAT),
         ];
         specs
@@ -2227,6 +2232,12 @@ impl StudioApp {
                     &field,
                     move |this: &mut Self, _field, event, cx| match event {
                         FieldEvent::Changed(value) => this.apply_param(key, *value, cx),
+                        FieldEvent::InspectMixed => {
+                            this.param_menu = Some(shell::parameter_actions::ParamScope::Field(
+                                key.setting_key(),
+                            ));
+                            cx.notify();
+                        }
                         FieldEvent::Invalid(message) => {
                             this.status = message.clone();
                             cx.notify();
@@ -3671,6 +3682,7 @@ impl StudioApp {
         self.invalidate_explore_plots(cx);
         self.rebuild_operando_plots(cx);
         self.rebuild_fit_plots(cx);
+        self.rebuild_fit_preview_plots(cx, false);
         cx.notify();
     }
 
@@ -4404,6 +4416,7 @@ impl StudioApp {
                 cx.subscribe(&field, move |this: &mut Self, _field, event, cx| {
                     let value = match event {
                         FieldEvent::Changed(value) => value,
+                        FieldEvent::InspectMixed => return,
                         FieldEvent::Invalid(message) => {
                             this.status = message.clone();
                             cx.notify();
@@ -6208,7 +6221,9 @@ impl StudioApp {
     }
 
     fn explore_escape(&mut self, cx: &mut Context<Self>) {
-        if self.maximized.is_some() {
+        if self.param_context_menu.take().is_some() || self.param_menu.take().is_some() {
+            cx.notify();
+        } else if self.maximized.is_some() {
             self.set_maximized(None, cx);
         } else {
             self.clear_selection(cx);
@@ -7117,6 +7132,10 @@ impl StudioApp {
                         .text_color(t.text_muted)
                         .child(label),
                 )
+                .children(self.parameter_badge(
+                    shell::parameter_actions::ParamScope::Field(which.setting_key()),
+                    cx,
+                ))
                 .child(
                     div()
                         .id(SharedString::from(format!("enum-{label}-{which:?}")))
@@ -7177,7 +7196,11 @@ impl StudioApp {
             }
             col = col.child(list);
         }
-        col.into_any_element()
+        self.parameter_context(
+            shell::parameter_actions::ParamScope::Field(which.setting_key()),
+            col.into_any_element(),
+            cx,
+        )
     }
 
     fn problems_panel(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {

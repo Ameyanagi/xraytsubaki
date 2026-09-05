@@ -12,6 +12,13 @@ use crate::params::{DerivedSpectrum, PipelineParams};
 /// Inverse of a recorded change.
 #[allow(clippy::large_enum_variant)]
 pub enum UndoOp {
+    FitModel {
+        before: super::assistant_actions::ModelSettings,
+        after: super::assistant_actions::ModelSettings,
+    },
+    Params {
+        changes: Vec<(usize, Option<PipelineParams>, Option<PipelineParams>)>,
+    },
     /// Pipeline parameters of `target` (a group override, or the globals).
     Param {
         target: Option<usize>,
@@ -143,6 +150,10 @@ impl StudioApp {
             return;
         };
         let inverse = match op {
+            UndoOp::FitModel { before, after } => {
+                self.restore_model_settings(&before, cx);
+                UndoOp::FitModel { before, after }
+            }
             UndoOp::Param {
                 target,
                 key,
@@ -157,6 +168,20 @@ impl StudioApp {
                     before,
                     after,
                 }
+            }
+            UndoOp::Params { changes } => {
+                for (ix, before, _) in &changes {
+                    match before {
+                        Some(p) => {
+                            self.overrides.insert(*ix, p.clone());
+                        }
+                        None => {
+                            self.overrides.remove(ix);
+                        }
+                    }
+                }
+                self.after_param_undo(cx);
+                UndoOp::Params { changes }
             }
             UndoOp::DerivedAdd { index, spectrum } => {
                 let spectrum = self.take_derived(index, cx).unwrap_or(spectrum);
@@ -182,6 +207,10 @@ impl StudioApp {
             return;
         };
         let forward = match op {
+            UndoOp::FitModel { before, after } => {
+                self.restore_model_settings(&after, cx);
+                UndoOp::FitModel { before, after }
+            }
             UndoOp::Param {
                 target,
                 key,
@@ -196,6 +225,20 @@ impl StudioApp {
                     before,
                     after,
                 }
+            }
+            UndoOp::Params { changes } => {
+                for (ix, _, before) in &changes {
+                    match before {
+                        Some(p) => {
+                            self.overrides.insert(*ix, p.clone());
+                        }
+                        None => {
+                            self.overrides.remove(ix);
+                        }
+                    }
+                }
+                self.after_param_undo(cx);
+                UndoOp::Params { changes }
             }
             UndoOp::DerivedAdd { index, spectrum } => {
                 self.insert_derived(index, spectrum.clone(), cx);

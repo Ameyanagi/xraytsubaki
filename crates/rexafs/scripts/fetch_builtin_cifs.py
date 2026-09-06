@@ -9,7 +9,7 @@ kept unless --force.
 """
 import json, os, sys, time, urllib.parse, urllib.request, re
 BASE = "https://www.crystallography.net/cod"
-UA = "rexafs-builtin-fetch/1.0 (+https://github.com/ameyanagi/xraytsubaki)"
+UA = "rexafs-builtin-fetch/1.0 (+https://github.com/Ameyanagi/rexafs)"
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.normpath(os.path.join(HERE, "..", "data", "builtin_cifs"))
 # key, display name, Hill formula (COD 'formula' field, without dashes), sg number, category, note

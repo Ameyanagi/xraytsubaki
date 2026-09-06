@@ -4,12 +4,15 @@
 
 - Adopt **rexafs** for the Rust crate, Python import, npm package, desktop binary
   and documentation. Preserve xraytsubaki as the development codename.
-- Add `process(energy, mu)` across Rust, Python and JavaScript, with matching owned
-  results, checked array inputs and an optional E0 override.
+- Add a shared `Spectrum` workflow across Rust, Python and JavaScript:
+  `from_arrays` followed by `normalize()`, `calc_background()` or `fft()`.
+  Stages compute missing prerequisites and expose configuration and result getters.
+  Validate finite arrays with strictly increasing energy and support an E0 override.
 - Add concise Rust `Spectrum`, `Group`, `Error`, `Result` and module entry points.
   Preserve existing advanced APIs and add borrowed `k()` / `chi()` accessors.
-- Repair the installed Python module contract, add typed NumPy results and report
-  independent QAS batch failures with their original indices.
+- Repair the installed Python module contract, add typed NumPy results and expose
+  `rexafs.io.read_qas_transmission`. Remove the unreleased standalone `process`
+  facade and legacy Python free pipeline/batch wrappers in favor of `Spectrum`.
 - Add browser/Node Wasm packaging and TypeScript declarations, tested from the
   actual npm tarball and in Chromium.
 - Upgrade to Rust 1.98.1 and current compatible Rust dependencies; adapt solver,
@@ -39,5 +42,7 @@
   package checks, dependency notices and checksums. Publish from a successful
   GitHub build of the exact version-tag commit and reuse it across channels.
 
-Publication, final repository rename, platform qualification, distribution license
-review and domain deployment are tracked in the [release runbook](doc/releasing.md).
+The repository is now [`Ameyanagi/rexafs`](https://github.com/Ameyanagi/rexafs),
+with matching package metadata. The `r` stands for Rust and reinventing the wheel.
+Publication, platform qualification, distribution license review and domain
+deployment are tracked in the [release runbook](doc/releasing.md).

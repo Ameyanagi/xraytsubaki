@@ -20,7 +20,7 @@ dynamic = ["version"]
 
 [project.urls]
 Homepage = "https://rexafs.com"
-Repository = "https://github.com/ameyanagi/xraytsubaki"
+Repository = "https://github.com/Ameyanagi/rexafs"
 
 [tool.maturin]
 manifest-path = "py-rexafs/Cargo.toml"

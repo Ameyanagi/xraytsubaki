@@ -13,6 +13,12 @@ on:
         description: Successful Release builds run ID for this exact tag commit
         type: string
         required: true
+      registry_auth:
+        description: Use token only for the first crates.io/npm upload; PyPI always uses trusted publishing
+        type: choice
+        options: [trusted-publishing, token]
+        default: trusted-publishing
+        required: true
 
 permissions:
   contents: read
@@ -71,13 +77,21 @@ jobs:
       - name: Verify GitHub artifact checksums
         run: python scripts/check-artifacts.py verify artifacts artifacts/release-manifest/SHA256SUMS
       - uses: dtolnay/rust-toolchain@1.98.1
-      - name: Publish Rust library
+      - name: Verify Rust package matches the GitHub artifact
         if: inputs.channel == 'crates-io'
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
         run: |
           cargo package --locked -p rexafs
           cmp target/package/rexafs-*.crate artifacts/rust-package/rexafs-*.crate
+      - name: Authenticate to crates.io with trusted publishing
+        if: inputs.channel == 'crates-io' && inputs.registry_auth == 'trusted-publishing'
+        id: crates_auth
+        uses: rust-lang/crates-io-auth-action@v1
+      - name: Publish Rust library
+        if: inputs.channel == 'crates-io'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ inputs.registry_auth == 'token' && secrets.CRATES_IO_TOKEN || steps.crates_auth.outputs.token }}
+        run: |
+          : "${CARGO_REGISTRY_TOKEN:?Configure CRATES_IO_TOKEN for the first upload, or configure the crates.io trusted publisher}"
           cargo publish --locked -p rexafs
       - name: Collect Python distributions
         if: inputs.channel == 'pypi'
@@ -96,9 +110,13 @@ jobs:
       - name: Publish npm package
         if: inputs.channel == 'npm'
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ inputs.registry_auth == 'token' && secrets.NPM_TOKEN || '' }}
+          REGISTRY_AUTH: ${{ inputs.registry_auth }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
+          if [[ "$REGISTRY_AUTH" == token ]]; then
+            : "${NODE_AUTH_TOKEN:?Configure NPM_TOKEN in the release environment for the first upload}"
+          fi
           npm install --global npm@11
           DIST_TAG=latest
           if [[ "$RELEASE_TAG" == *-* ]]; then DIST_TAG=next; fi

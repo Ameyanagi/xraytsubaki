@@ -12,8 +12,8 @@ are separate release operations, not implied by local build success.
 ## Brand and naming
 
 Use lowercase `rexafs` in prose, imports, commands and package names. Describe it
-as **Rust-powered X-ray absorption analysis**. The `r` can evoke Rust and the
-ReFEFF relationship without prescribing an artificial expansion of every letter.
+as **Rust-powered X-ray absorption analysis**. The `r` stands for both Rust and
+reinventing the wheel for EXAFS analysis.
 Credit **ReFEFF** as the optional Rust scattering calculation engine and keep its
 upstream name, citations and license notices. rexafs also processes measured XAS,
 loads existing FEFF paths and performs fitting independently of that engine.
@@ -174,7 +174,9 @@ Do not put unverified install badges or a download button on the site prematurel
 - [x] GPL dependencies removed; direct spline solve and dependency license gate added.
 - [ ] Desktop release build packaged and launched on each advertised target.
 - [ ] Release automation checked; signing and dependency notices qualified.
-- [ ] Remote repository renamed, URLs and trusted publishers reconciled.
+- [x] Remote repository renamed and current package/documentation URLs updated.
+- [x] Initial crates.io/npm GitHub secrets and the PyPI pending publisher configured.
+- [ ] crates.io/npm trusted publishers configured after the first package uploads.
 - [ ] Domain documentation deployed, packages published and downloads verified.
 
 Implementation status and measured local results are recorded in the

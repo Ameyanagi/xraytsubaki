@@ -33,7 +33,7 @@ pub const LICENSE: &str = "COD data are in the public domain (CC0 1.0)";
 const USER_AGENT: &str = concat!(
     "rexafs/",
     env!("CARGO_PKG_VERSION"),
-    " (+https://github.com/ameyanagi/xraytsubaki)"
+    " (+https://github.com/Ameyanagi/rexafs)"
 );
 /// Minimum spacing between requests from one process (polite use).
 const MIN_REQUEST_GAP: Duration = Duration::from_millis(500);

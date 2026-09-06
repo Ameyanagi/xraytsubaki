@@ -243,7 +243,7 @@ e9ed9b20b15a0bf2d44dc301fdd09248f5d5ae1c304605214a92613bc33ae165  baseline-0.1.0
 9fb969082649c6f05996cf594c52d0fd74050576f915f0a0f5d27df7d776c2e3  clamping-0.1.0/README.md
 e2ecca8f84a48db206463436997dfd4f4ff5803fa42208757c50e55673996ecf  clamping-0.1.0/clamp-jacobian-diagnostic.rs
 f8e3d1dc925402c82e666c6a095e4f579d9fe5d3843e5aac60bd436dab403861  clamping-0.1.0/clamp-jacobian-result.txt
-d7a915342f06ac33c09234898b2a17f6742b31ba54acbe087c6dadff1259b8d2  clamping-0.1.0/clamping.json
+5b62dc8763cc40029b3d5ae9a8a9e20e00e5cac6438ec0e8df23616c87e9b7a2  clamping-0.1.0/clamping.json
 d4e431b7e5c419cee67c993fdc6ea0ab3da78ae77cee50c11b63cb22f86bb833  clamping-0.1.0/clamps-on-off.png
 0029de179a843c195c1fe3aa04da3fa3b592179e2fc2156c248f02b1246e1e50  clamping-0.1.0/clamps-on-off.svg
 6f28dfdf8ec8277bb80591d1a7c9d167e9a32897373633bb97316a11fedf474c  clamping-0.1.0/cu.npz

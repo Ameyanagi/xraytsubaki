@@ -1,6 +1,6 @@
 {
   "purpose": "Controlled clamp diagnostics, not performance benchmarks or an accuracy ranking",
-  "script_sha256": "dc5670594dcd09e8954b265d536286b54ea0e726ddedf5d598e2bcb0725fbed9",
+  "script_sha256": "001fbcbce498904b78507870b1a8e8289d722d80fd75358cf169381c3fc1e8f5",
   "benchmark_script_sha256": "baad0b83df1f2766e7b51a569a22ea277fd6a105414e69a25dd1dd0f321b38bb",
   "larch_autobk_sha256": "b1677ab45e12a756d2c2601e6195f5fcb6c9c6937d46624a8a0dfc3b7c7aa4aa",
   "versions": {

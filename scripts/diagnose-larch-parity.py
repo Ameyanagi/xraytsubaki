@@ -23,9 +23,17 @@ autobk_module = importlib.import_module("larch.xafs.autobk")
 
 
 def relative_l2(actual, expected):
-    assert actual.shape == expected.shape
-    assert np.isfinite(actual).all() and np.isfinite(expected).all()
-    return float(np.linalg.norm(actual - expected) / np.linalg.norm(expected))
+    if actual.shape != expected.shape:
+        raise ValueError("Comparison arrays must have the same shape")
+    if not np.isfinite(actual).all() or not np.isfinite(expected).all():
+        raise ValueError("Comparison arrays must contain only finite values")
+    denominator = np.linalg.norm(expected)
+    if not np.isfinite(denominator) or denominator <= 0:
+        raise ValueError("Reference norm must be finite and positive")
+    result = np.linalg.norm(actual - expected) / denominator
+    if not np.isfinite(result):
+        raise ValueError("Relative L2 calculation overflowed")
+    return float(result)
 
 
 def linear_resampling(kraw, mu, knots, coefs, order, kout):

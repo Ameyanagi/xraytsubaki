@@ -85,10 +85,17 @@ def linear_resampling(kraw, mu, knots, coefs, order, kout):
 
 
 def relative_l2(actual, reference):
-    np.testing.assert_equal(actual.shape, reference.shape)
+    if actual.shape != reference.shape:
+        raise ValueError("Comparison arrays must have the same shape")
     if not np.isfinite(actual).all() or not np.isfinite(reference).all():
         raise ValueError("Non-finite comparison array")
-    return float(np.linalg.norm(actual - reference) / np.linalg.norm(reference))
+    denominator = np.linalg.norm(reference)
+    if not np.isfinite(denominator) or denominator <= 0:
+        raise ValueError("Reference norm must be finite and positive")
+    result = np.linalg.norm(actual - reference) / denominator
+    if not np.isfinite(result):
+        raise ValueError("Relative L2 calculation overflowed")
+    return float(result)
 
 
 def diagnostic(energy, mu, model, multiplier, shift, policy, enabled=True):

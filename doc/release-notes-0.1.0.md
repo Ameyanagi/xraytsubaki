@@ -28,8 +28,10 @@ Rust fitting and structure APIs are not all available through those bindings.
 ## Distribution status before publication
 
 These notes are a draft. `rexafs 0.1.0` is available on crates.io and npm, and all
-20 Python wheels are available on PyPI. The PyPI source upload needs its omitted
-root license files restored before it can be accepted. The source and binaries
+20 Python wheels plus the source distribution are available on PyPI. The source
+archive's omitted root licenses were restored by
+[repair run 34028288522](https://github.com/Ameyanagi/rexafs/actions/runs/34028288522),
+which passed installation and API tests before upload. The source and binaries
 come from [tagged build 34025866097](https://github.com/Ameyanagi/rexafs/actions/runs/34025866097),
 which passed all 29 jobs at `ee365067ba97a762888caf65593af213dca5b7e4`.
 

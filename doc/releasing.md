@@ -21,10 +21,11 @@ Checked 2026-09-06:
 - PR #17 was merged at `ee365067ba97a762888caf65593af213dca5b7e4`, and `v0.1.0`
   points to that commit. [Tagged build 34025866097](https://github.com/Ameyanagi/rexafs/actions/runs/34025866097)
   passed all 29 jobs; main Rust CI passed all four jobs.
-- crates.io and npm now contain `rexafs 0.1.0`. PyPI accepted all 20 wheels;
-  the source upload was rejected because three root license files were omitted.
-  The source-repair procedure below completes that missing asset without changing
-  existing source files, uploaded wheels, or the release tag.
+- crates.io and npm now contain `rexafs 0.1.0`. PyPI contains all 20 wheels and
+  the source distribution. [Source repair 34028288522](https://github.com/Ameyanagi/rexafs/actions/runs/34028288522)
+  restored three omitted root license files, passed installation/API tests, and
+  uploaded the sdist without changing existing source files, wheels or the tag.
+  All published package hashes were checked against their GitHub artifacts.
 - crates.io and npm trusted publishers were registered and verified in their
   settings: `Ameyanagi/rexafs`, `publish.yml`, environment `release` (npm permits
   direct `npm publish`). The first uploads used the bootstrap tokens; an OIDC
@@ -35,7 +36,7 @@ Checked 2026-09-06:
   for `rexafs`, repository `Ameyanagi/rexafs`, workflow `publish.yml`, environment
   `release`. Registry authentication will be exercised by the first tagged upload.
 
-Next, finish the missing Python source upload, macOS notarization and
+Next, finish macOS notarization and
 [draft release notes](release-notes-0.1.0.md). Complete platform launch
 qualification before public promotion of the desktop downloads.
 

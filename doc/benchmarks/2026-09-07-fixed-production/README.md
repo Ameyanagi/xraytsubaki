@@ -14,6 +14,19 @@ Another 30 checks vary kmin and the start/end weights, including both ends
 switched off; their maximum relative difference is **1.36e-13**. The reference
 Larch code is unmodified. Both implementations now use CODATA 2022 constants.
 
+The follow-up [strict validation](validation-strict.json) reruns all 996 checks
+with `rtol=1e-11, atol=1e-12` (previously `1e-8, 1e-10`). All pass; maximum
+absolute χ error is **2.07e-13**. Its separate
+[provenance](provenance-validation-strict.json) records the unchanged installed
+extension and the tightened test source. The original timing provenance and
+reference arrays remain unchanged. Python and Wasm now check all eight fixture
+spectra at λ=0/0.001/1 with the same strict bounds.
+
+The benchmark also gates agreement with stock Larch at λ=0.001: relative L2
+error ≤**0.005%** over 2≤k≤kmax for measured Cu/Ni/Ru on standard and fine grids.
+This is a model-compatibility bound, distinct from the floating-point bound for
+two implementations of the same fixed objective.
+
 The core regression fixture covers Cu, Ni, Ru, standard/fine grids, and synthetic
 single-shell/FEFF signals. It additionally exercises cached/uncached geometry,
 absorption gains of 0.1/1/10, and zero-penalty equivalence to disabled clamps.
@@ -36,6 +49,41 @@ new implementation's difference from Larch. [SVG](measured-chi.svg) and complete
 output arrays in [chi-candidate.npz](chi-candidate.npz) /
 [chi-published.npz](chi-published.npz) are retained.
 
+## Fresh-runner CI timings
+
+[Run 34046599255](https://github.com/Ameyanagi/rexafs/actions/runs/34046599255)
+completed the same 90-cell matrix on a fresh Ubuntu 24.04 x86_64 runner with
+four vCPUs, using one thread per numerical backend. The repeated Larch controls
+in the candidate and published-package runs agree within 1.1% across all ten
+input/setup combinations. The two package runs share the same pinned scientific
+environment. These results provide a more stable old/new comparison than the
+loaded Mac measurements below.
+
+Median AUTOBK time, standard grid, 140 retained fits per cell:
+
+| Input | New λ=.001 cached | New uncached | Published 0.1.0 cached | Larch | Larch / new cached |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Cu | 0.059 ms | 0.114 ms | 0.124 ms | 5.891 ms | 99.6× |
+| Ni | 0.056 ms | 0.110 ms | 0.122 ms | 5.748 ms | 102.3× |
+| Ru | 0.069 ms | 0.124 ms | 0.142 ms | 5.024 ms | 72.4× |
+| Dense Cu, 8,192 | 0.253 ms | 0.305 ms | 0.407 ms | 16.687 ms | 66.0× |
+| Dense Cu, 32,768 | 0.922 ms | 0.960 ms | 1.385 ms | 53.310 ms | 57.8× |
+
+The new cached implementation is 2.04–2.17× faster than published 0.1.0 on
+measured standard-grid scans, and 1.50–1.61× faster on densified Cu. λ=0,
+0.001 and 1 have similar timings because each uses one solve. Fine-grid
+measurements, quantiles and every raw timing sample are retained in the
+[CI report and artifacts](ci-34046599255/README.md). The CI fixed-objective
+validation maximum relative difference was **1.33e-12**. The native model was
+unchanged when its tolerances were subsequently tightened.
+
+![Fresh-runner timings](ci-34046599255/speed.png)
+
+These are AUTOBK timings with shared E₀ and edge step, excluding file loading,
+the separate output FFT and rendering. Caching reuses compatible geometry;
+every fit solves new coefficients. Linux numerical backends and hardware differ
+from the Mac; the ratios are observations for these inputs and settings.
+
 ## Initial Mac timings — background load was present
 
 These measurements used an **Apple M4 (10 logical CPUs), macOS 26.5.1, Python
@@ -43,7 +91,7 @@ These measurements used an **Apple M4 (10 logical CPUs), macOS 26.5.1, Python
 were active. Candidate-run one-minute load averages ranged from 14.4 to 18.0;
 load increased substantially during the later published-package run. Therefore
 **do not use the sequential old/new wall times as a clean regression ratio**.
-A fresh-runner CI comparison is included in the PR to check the speed separately.
+The fresh-runner comparison above checks the speed separately.
 
 The same measured Cu/Ni/Ru inputs and linearly densified Cu scans (8,192/32,768
 points) are evaluated at standard (kstep=0.05, nfft=2048) and fine

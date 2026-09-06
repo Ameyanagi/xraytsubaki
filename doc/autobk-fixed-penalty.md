@@ -64,6 +64,20 @@ returns an error; it never changes λ or inserts regularization to force a resul
 Compatible spline/FFT geometry can be cached, with exact geometry comparison.
 The solution is invariant to consistent scaling of μ and the edge step.
 
+Regression checks compare every χ point with the independent SciPy solution of
+the same fixed objective using `abs(error) <= 1e-12 + 1e-11 * abs(reference)`.
+The absolute term handles zero crossings. Rust covers cache use and absorption
+gains as well as λ=0/0.001/1; the Python and Wasm bindings use the same eight
+measured/synthetic fixtures and three λ values. The full benchmark validates
+966 archived fits plus 30 endpoint/kmin cases with this bound.
+
+Stock Larch uses a different, dynamic clamp objective. Its separate compatibility
+gate requires relative L2 χ error at most `5e-5` (**0.005%**) over 2≤k≤kmax for
+Cu/Ni/Ru at standard and fine settings with λ=0.001. This bound reflects the
+observed model difference; it is not applied to synthetic truth recovery or
+deliberately stronger penalties. Reference arrays are retained unchanged when
+tolerances are tightened.
+
 ```python
 bkg = rexafs.AUTOBK()
 bkg.clamp_lambda = 0.001  # default; 0 disables the endpoint penalty

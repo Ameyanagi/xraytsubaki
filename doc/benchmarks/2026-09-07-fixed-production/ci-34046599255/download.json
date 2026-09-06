@@ -1,0 +1,21 @@
+{
+  "run_id": 34046599255,
+  "artifact": "fixed-lambda-larch-comparison",
+  "original_file_sha256": {
+    "chi-candidate.npz": "6dbb458bb7332174f24b32fe11ad283c03f64bd20178e581fcb3b0493d5b0e9a",
+    "chi-published.npz": "3aedb64813f09aaf25ee449800468dc7d013f191e1b7855f1d3102abcc3e2afb",
+    "fixed_0.001_cached-profile.txt": "bc2b6d76ccebc45086febe16c67029d495eb19b7539d55e4781d0dbcca9010df",
+    "fixed_0.001_cached.pstats": "286a710ee2fd15fe5ad2ae9591e7bf86e881bd0301699bebde1ad89ea7c6b9dc",
+    "fixed_0.001_uncached-profile.txt": "747036958f10fba63cfe6898d96828138dbb71d594b99825d29637df58cdea06",
+    "fixed_0.001_uncached.pstats": "05378526d9f7e66b9aee75c9ee39d52c497a9be7b0d3afe95ac7b08cf9a41483",
+    "larch-profile.txt": "e27d506960d434e38bdd722a4743ffa22fce30530269a23905f962b50f7299c7",
+    "larch.pstats": "2ce53964978f3944b814186aaaa1cb0730d606d8ed1390963b81b79676b62485",
+    "provenance-candidate.json": "8d548828d3642985ebff1186c54f062fa5aad1321580b542e47afe1eca024c98",
+    "provenance-published.json": "e307df113bc10ab739a7d87a832eee948e6ab6b97dbf5dd943d8ee472f445866",
+    "requirements-candidate.txt": "a9c211ff9e78a7f34ba724ad04d78ad97f1e85c21aaa584c403918024d0c51ec",
+    "timing-candidate.json": "bc43a5253dd22a9c551e08737935913ad4fd693d642ea124afd2cc129f68d684",
+    "timing-published.json": "0aa76ceb2cbaa654b7f55ff52c616fc9b4d08cacd96369370622bb82f8732a16",
+    "validation.json": "ab4e326062d005d4387de34f941aaec35828f71e26d6a7f77eb5366e73b12253"
+  },
+  "post_processing": "Final blank lines removed from profile text summaries; raw numeric JSON/NPZ/pstats files unchanged. CSV and plots derived with report-fixed-clamp.py."
+}

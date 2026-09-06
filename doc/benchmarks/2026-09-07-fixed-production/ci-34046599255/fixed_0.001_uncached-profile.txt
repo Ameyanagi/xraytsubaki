@@ -1,0 +1,16 @@
+         7801 function calls in 0.050 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      300    0.000    0.000    0.050    0.000 benchmark-fixed-clamp.py:276(run)
+      300    0.034    0.000    0.034    0.000 {method 'calc_background' of 'rexafs.Spectrum' objects}
+      300    0.004    0.000    0.015    0.000 benchmark-fixed-clamp.py:31(rx_spectrum)
+      300    0.010    0.000    0.010    0.000 {method 'normalize' of 'rexafs.Spectrum' objects}
+     5100    0.001    0.000    0.001    0.000 {built-in method builtins.setattr}
+      300    0.000    0.000    0.000    0.000 {method 'set_e0' of 'rexafs.Spectrum' objects}
+      300    0.000    0.000    0.000    0.000 {method 'set_normalization_method' of 'rexafs.Spectrum' objects}
+      300    0.000    0.000    0.000    0.000 {built-in method PrePostEdge}
+      300    0.000    0.000    0.000    0.000 {method 'set_background_method' of 'rexafs.Spectrum' objects}
+      300    0.000    0.000    0.000    0.000 {built-in method AUTOBK}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}

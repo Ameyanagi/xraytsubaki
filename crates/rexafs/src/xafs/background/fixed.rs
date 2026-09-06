@@ -326,12 +326,17 @@ mod tests {
                             &mut norm,
                         )
                         .unwrap();
+                    assert_eq!(settings.k.as_ref().unwrap().len(), case.k.len());
+                    assert_eq!(settings.chi.as_ref().unwrap().len(), expected.len());
                     for (actual, expected) in settings.k.as_ref().unwrap().iter().zip(&case.k) {
                         assert_abs_diff_eq!(actual, expected, epsilon = 1e-14);
                     }
                     for (actual, expected) in settings.chi.as_ref().unwrap().iter().zip(expected) {
+                        // Same quadratic objective, independent SciPy reference.
+                        // Keep an absolute floor at zero crossings and room for
+                        // different SVD/FFT roundoff across native and Wasm builds.
                         assert!(
-                            (actual - expected).abs() < 1e-10,
+                            (actual - expected).abs() <= 1e-12 + 1e-11 * expected.abs(),
                             "{} lambda={lambda} gain={gain}: {actual} != {expected}",
                             case.name
                         );

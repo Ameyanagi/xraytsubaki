@@ -96,7 +96,7 @@ test("browser glue initializes from bytes and matches Node", async () => {
 
 test("fixed lambda matches the independent Larch-model reference", async () => {
   const cases = JSON.parse(await readFile(new URL("../../crates/rexafs/tests/testfiles/autobk_fixed_reference.json", import.meta.url), "utf8"));
-  for (const data of cases.slice(0, 2)) {
+  for (const data of cases) {
     const norm = new PrePostEdge(); norm.e0 = data.settings.ek0; norm.edge_step = data.edge_step;
     const bkg = new AUTOBK();
     assert.equal(bkg.clamp_scale_policy, "FixedPenalty");
@@ -110,7 +110,8 @@ test("fixed lambda matches the independent Larch-model reference", async () => {
         .set_e0(data.settings.ek0).set_normalization_method(n).set_background_method(b).calc_background();
       const actual = s.chi(), expected = data.chi[index];
       assert.equal(actual.length, expected.length);
-      actual.forEach((value, i) => assert.ok(Math.abs(value - expected[i]) < 1e-10, `${data.name} lambda=${lambda} chi[${i}]`));
+      // Same fixed objective; absolute floor protects comparisons at zero crossings.
+      actual.forEach((value, i) => assert.ok(Math.abs(value - expected[i]) <= 1e-12 + 1e-11 * Math.abs(expected[i]), `${data.name} lambda=${lambda} chi[${i}]`));
       s.free(); b.free();
     }
     norm.free(); n.free(); bkg.free();

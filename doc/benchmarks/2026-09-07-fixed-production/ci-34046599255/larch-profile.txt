@@ -1,0 +1,51 @@
+         1038301 function calls in 2.194 seconds
+
+   Ordered by: cumulative time
+   List reduced from 134 to 45 due to restriction <45>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      300    0.000    0.000    2.194    0.007 benchmark-fixed-clamp.py:276(run)
+      300    0.002    0.000    2.194    0.007 study-autobk-clamps.py:80(call_larch)
+      300    0.006    0.000    2.191    0.007 larchlib.py:549(wrapper)
+      300    0.032    0.000    2.123    0.007 autobk.py:48(autobk)
+     9300    0.146    0.000    1.836    0.000 autobk.py:29(_resid)
+      300    0.010    0.000    1.821    0.006 _minpack_py.py:292(leastsq)
+      300    0.025    0.000    1.735    0.006 {built-in method scipy.optimize._minpack._lmdif}
+     9900    0.053    0.000    1.182    0.000 autobk.py:23(spline_eval)
+     9900    0.026    0.000    0.679    0.000 _fitpack2.py:560(__init__)
+     9900    0.048    0.000    0.427    0.000 _fitpack2.py:53(_curfit)
+    19800    0.123    0.000    0.421    0.000 _fitpack_impl.py:304(splev)
+    10200    0.309    0.000    0.309    0.000 {built-in method scipy.interpolate._fitpack.curfit}
+    19800    0.251    0.000    0.251    0.000 {built-in method scipy.interpolate._fitpack.splev}
+     9300    0.065    0.000    0.251    0.000 xafsft.py:328(xftf_fast)
+     9900    0.011    0.000    0.229    0.000 _fitpack_py.py:309(splev)
+     9900    0.014    0.000    0.220    0.000 _fitpack2.py:720(__call__)
+     9900    0.061    0.000    0.203    0.000 _fitpack2.py:574(validate_input)
+     9300    0.104    0.000    0.190    0.000 utils.py:74(realimag)
+     9300    0.012    0.000    0.169    0.000 _numpy_fft.py:114(fft)
+     9300    0.012    0.000    0.140    0.000 _numpy_fft.py:103(_trycall)
+     9300    0.122    0.000    0.128    0.000 _mkl_fft.py:52(fft)
+     9300    0.008    0.000    0.106    0.000 {method 'mean' of 'numpy.ndarray' objects}
+     9300    0.038    0.000    0.098    0.000 _methods.py:115(_mean)
+    10200    0.066    0.000    0.075    0.000 _function_base_impl.py:1413(diff)
+     9900    0.066    0.000    0.066    0.000 {built-in method numpy.array}
+      300    0.001    0.000    0.065    0.000 _minpack_py.py:22(_check_func)
+    20100    0.048    0.000    0.064    0.000 numeric.py:170(ones)
+      300    0.010    0.000    0.057    0.000 inspect.py:1358(getfullargspec)
+     9900    0.012    0.000    0.052    0.000 fromnumeric.py:2586(all)
+     5700    0.047    0.000    0.047    0.000 {built-in method builtins.min}
+      300    0.002    0.000    0.042    0.000 inspect.py:2501(_signature_from_callable)
+    39900    0.042    0.000    0.042    0.000 {built-in method numpy.zeros}
+     9900    0.022    0.000    0.040    0.000 fromnumeric.py:86(_wrapreduction_any_all)
+      300    0.012    0.000    0.040    0.000 inspect.py:2397(_signature_from_function)
+      300    0.002    0.000    0.037    0.000 utils.py:170(remove_dups)
+    20100    0.034    0.000    0.034    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+     6000    0.033    0.000    0.033    0.000 {built-in method builtins.max}
+      600    0.003    0.000    0.032    0.000 utils.py:32(index_of)
+     9300    0.029    0.000    0.032    0.000 _methods.py:73(_count_reduce_items)
+    79800    0.026    0.000    0.026    0.000 {built-in method numpy.asarray}
+     9900    0.013    0.000    0.023    0.000 _fitpack2.py:621(_reset_class)
+     9900    0.021    0.000    0.021    0.000 {method 'flatten' of 'numpy.ndarray' objects}
+      300    0.009    0.000    0.020    0.000 xafsft.py:45(ftwindow)
+     7500    0.010    0.000    0.018    0.000 inspect.py:2743(__init__)
+    20700    0.012    0.000    0.018    0.000 shape_base.py:19(atleast_1d)

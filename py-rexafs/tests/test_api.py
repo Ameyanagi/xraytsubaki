@@ -1,4 +1,5 @@
 """Run against the built wheel, not the source package."""
+import json
 import unittest
 from pathlib import Path
 import numpy as np
@@ -88,6 +89,27 @@ class SpectrumTests(unittest.TestCase):
             bkg.clamp_lambda = invalid
             with self.assertRaisesRegex(RuntimeError, "clamp_lambda"):
                 chi()
+
+    def test_fixed_lambda_matches_independent_reference(self):
+        cases = json.loads(FIXTURE.with_name("autobk_fixed_reference.json").read_text())
+        for case in cases:
+            norm = rexafs.PrePostEdge()
+            norm.e0 = case["settings"]["ek0"]
+            norm.edge_step = case["edge_step"]
+            bkg = rexafs.AUTOBK()
+            for name, value in case["settings"].items():
+                setattr(bkg, name, value)
+            for penalty, expected in zip((0, 0.001, 1), case["chi"]):
+                with self.subTest(case=case["name"], penalty=penalty):
+                    bkg.clamp_lambda = penalty
+                    spectrum = (rexafs.Spectrum(case["energy"], case["mu"])
+                        .set_e0(norm.e0)
+                        .set_normalization_method(rexafs.NormalizationMethod.PrePostEdge(norm))
+                        .set_background_method(rexafs.BackgroundMethod.AUTOBK(bkg))
+                        .calc_background())
+                    np.testing.assert_allclose(spectrum.k(), case["k"], rtol=0, atol=1e-14)
+                    # Independent SciPy fixture of the same fixed objective.
+                    np.testing.assert_allclose(spectrum.chi(), expected, rtol=1e-11, atol=1e-12)
 
     def test_unsupported_methods_are_not_replaced(self):
         spectrum = self.spectrum().set_normalization_method(rexafs.NormalizationMethod.new_mback())

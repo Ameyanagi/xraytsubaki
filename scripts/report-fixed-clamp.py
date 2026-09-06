@@ -17,6 +17,9 @@ import numpy as np
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--platform-label", default="Mac measurements under background load"
+    )
     args = parser.parse_args()
     out = args.output
     current = json.loads((out / "timing-candidate.json").read_text())
@@ -125,7 +128,7 @@ def main():
         ylabel="Median AUTOBK time (ms, log scale)",
         xticks=x,
         xticklabels=labels,
-        title="Mac measurements under background load — standard grid\n140 fresh fits per cell; cached and uncached geometry shown separately",
+        title=f"{args.platform_label} — standard grid\n140 fresh fits per cell; cached and uncached geometry shown separately",
     )
     ax.legend()
     ax.grid(axis="y", alpha=0.2)

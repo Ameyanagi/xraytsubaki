@@ -27,6 +27,22 @@ bench = study.bench
 np = study.np
 from threadpoolctl import threadpool_info, threadpool_limits
 
+# Same fixed objective, independent SciPy solve. These bounds leave headroom
+# over the measured native/CI roundoff without masking algorithm changes.
+FIXED_RTOL = 1e-11
+FIXED_ATOL = 1e-12
+# Stock Larch updates its clamp scale, so this is a scientific compatibility
+# bound on measured scans at the default lambda, not a roundoff assertion.
+LARCH_RELATIVE_L2_LIMIT = 5e-5  # 0.005%, over 2 <= k <= kmax
+
+
+def assert_fixed_reference(actual, expected, label):
+    np.testing.assert_equal(np.shape(actual), np.shape(expected), err_msg=label)
+    assert np.all(np.isfinite(actual)) and np.all(np.isfinite(expected)), label
+    np.testing.assert_allclose(
+        actual, expected, rtol=FIXED_RTOL, atol=FIXED_ATOL, err_msg=label
+    )
+
 
 def rx_spectrum(energy, mu, p, step, penalty=0.001, cached=True, legacy=False):
     norm = bench.rexafs.PrePostEdge()
@@ -96,20 +112,17 @@ def validate(output):
                         penalty,
                     )
                     reference = raw[study.fixed_name(penalty)]
-                    np.testing.assert_allclose(k, raw["k"], rtol=0, atol=1e-12)
+                    np.testing.assert_allclose(k, raw["k"], rtol=0, atol=1e-14)
                     error = study.relative(chi, reference)
-                    np.testing.assert_allclose(
-                        chi,
-                        reference,
-                        rtol=1e-8,
-                        atol=1e-10,
-                        err_msg=f"{name} lambda={penalty}",
-                    )
+                    assert_fixed_reference(chi, reference, f"{name} lambda={penalty}")
                     rows.append(
                         {
                             "case": name.removesuffix(".json"),
                             "lambda": penalty,
                             "relative_l2_vs_prototype": error,
+                            "max_abs_vs_prototype": float(
+                                np.max(np.abs(chi - reference))
+                            ),
                             "relative_l2_vs_larch": study.relative(
                                 chi, raw["larch_dynamic"]
                             ),
@@ -136,7 +149,11 @@ def validate(output):
             for penalty in (0.001, 1):
                 expected, _ = problem.fixed(penalty=penalty)
                 _, actual = rx_fit(energy, mu, p, step, penalty, cached=False)
-                np.testing.assert_allclose(actual, expected, rtol=1e-8, atol=1e-10)
+                assert_fixed_reference(
+                    actual,
+                    expected,
+                    f"{dataset} kmin={kmin} lo={lo} hi={hi} lambda={penalty}",
+                )
                 extra.append(
                     {
                         "dataset": dataset,
@@ -145,11 +162,13 @@ def validate(output):
                         "hi": hi,
                         "penalty": penalty,
                         "relative_l2": study.relative(actual, expected),
+                        "max_abs": float(np.max(np.abs(actual - expected))),
                     }
                 )
     result = {
         "reference_archive_sha256": study.sha(archive),
         "fits": len(rows),
+        "fixed_reference_tolerance": {"rtol": FIXED_RTOL, "atol": FIXED_ATOL},
         "extra_endpoint_checks": extra,
         "larch_etok": reference_etok,
         "rexafs_etok": rust_etok,
@@ -181,7 +200,7 @@ def modes(old=False):
 
 
 def timing(output, old=False, quick=False):
-    rows, arrays, host_loads = [], {}, []
+    rows, arrays, host_loads, compatibility = [], {}, [], []
     rng = random.Random(20260907)
     datasets = ["cu"] if quick else list(bench.DATASETS)
     for dataset in datasets:
@@ -229,6 +248,19 @@ def timing(output, old=False, quick=False):
                             full[mode].append(total)
                     arrays[f"{dataset}__{setup}__{mode}"] = chi.copy()
             arrays[f"{dataset}__{setup}__k"] = np.asarray(reference.k)
+            if not old and dataset in ("cu", "ni", "ru"):
+                k = np.asarray(reference.k)
+                mask = (k >= 2) & (k <= p["kmax"])
+                assert mask.any(), f"empty Larch comparison range: {dataset}/{setup}"
+                chi = arrays[f"{dataset}__{setup}__fixed_0.001_cached"]
+                error = study.relative(chi[mask], reference.chi[mask])
+                assert np.isfinite(error) and error <= LARCH_RELATIVE_L2_LIMIT, (
+                    f"{dataset}/{setup}: Larch relative L2 {error} exceeds "
+                    f"{LARCH_RELATIVE_L2_LIMIT} at lambda=0.001"
+                )
+                compatibility.append(
+                    {"dataset": dataset, "setup": setup, "relative_l2": error}
+                )
             for mode in options:
                 chi = arrays[f"{dataset}__{setup}__{mode}"]
                 rows.append(
@@ -253,6 +285,19 @@ def timing(output, old=False, quick=False):
                 )
             print(f"Timed {dataset}/{setup}", flush=True)
     suffix = "published" if old else "candidate"
+    if not old:
+        (output / "larch-compatibility.json").write_text(
+            json.dumps(
+                {
+                    "lambda": 0.001,
+                    "relative_l2_limit": LARCH_RELATIVE_L2_LIMIT,
+                    "k_range": "2 <= k <= kmax",
+                    "rows": compatibility,
+                },
+                indent=2,
+            )
+            + "\n"
+        )
     (output / f"timing-{suffix}.json").write_text(
         json.dumps(
             {"rows": rows, "host_loads": host_loads, "logical_cpus": os.cpu_count()},

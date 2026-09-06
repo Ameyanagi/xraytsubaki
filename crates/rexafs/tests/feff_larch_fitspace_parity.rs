@@ -156,7 +156,7 @@ fn assert_near(actual: f64, expected: f64, abs_tol: f64, label: &str) {
 }
 
 fn assert_fit_matches(result: &FeffFitResult, reference: &FitspaceRef, name: &str) {
-    if std::env::var("rexafs_PARITY_DEBUG").is_ok() {
+    if std::env::var("REXAFS_PARITY_DEBUG").is_ok() {
         eprintln!(
             "{name}: actual chi2={} redchi={} rfactor={} n_idp={} n_data={} | expected chi2={} redchi={} rfactor={} n_idp={} n_data={}",
             result.chi_square,
@@ -289,7 +289,7 @@ fn cu_qspace_fit_matches_larch() {
     };
     let data_rmse = rmse(&result.data_chiq, data_ref) / scale;
     let model_rmse = rmse(&result.model_chiq, model_ref) / scale;
-    if std::env::var("rexafs_PARITY_DEBUG").is_ok() {
+    if std::env::var("REXAFS_PARITY_DEBUG").is_ok() {
         eprintln!("cu chiq parity: data rmse={data_rmse:.3e} model rmse={model_rmse:.3e}");
     }
     assert!(
@@ -350,7 +350,7 @@ fn cu_noise_estimate_matches_larch() {
     let expected = &metadata.noise_estimate_kw123;
     assert_eq!(noise.epsilon_k.len(), 3);
     for i in 0..3 {
-        if std::env::var("rexafs_PARITY_DEBUG").is_ok() {
+        if std::env::var("REXAFS_PARITY_DEBUG").is_ok() {
             eprintln!(
                 "noise kw{}: eps_k {} vs {} | eps_r {} vs {}",
                 i + 1,

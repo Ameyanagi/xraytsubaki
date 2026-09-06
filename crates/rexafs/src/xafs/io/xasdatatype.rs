@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 use version::version;
 
 use crate::xafs::xasgroup::XASGroup;
-use crate::xafs::xasspectrum::XASSpectrum;
 
 #[derive(Serialize, Deserialize, Default, Debug)]
 pub enum XASDataType {

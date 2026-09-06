@@ -339,7 +339,7 @@ fn feff10_znse_fit_has_finite_error_bars_and_similar_model_quality() {
         );
         let value_delta_pct = percent_delta(lhs.value, rhs.value);
         let stderr_delta_pct = percent_delta(lhs_stderr, rhs_stderr);
-        if std::env::var("rexafs_PARITY_DEBUG").is_ok() {
+        if std::env::var("REXAFS_PARITY_DEBUG").is_ok() {
             eprintln!(
                 "{name}: value feff10={:.15e} feff85={:.15e} (delta={:.3}%) stderr feff10={:.15e} feff85={:.15e} (delta={:.3}%)",
                 lhs.value,

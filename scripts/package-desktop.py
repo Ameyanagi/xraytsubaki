@@ -90,7 +90,7 @@ for package_id in sorted(included):
     "Built with ReFEFF. Keep the extracted directory together; it contains the example and notices.\n"
     "Open rexafs.app on macOS or run rexafs / rexafs.exe on Linux / Windows.\n"
     "This archive has no publisher code signature; macOS notarization is not included.\n"
-    "Linux requires a graphical session, Vulkan-capable driver, fontconfig and xkbcommon.\n"
+    "Linux requires a graphical session, Vulkan-capable driver, GTK 3, fontconfig and xkbcommon.\n"
     "Save .rxs projects with relative source paths (default), or select Raw: embedded for portable originals.\n"
     "Run the executable with --self-check for a display-free packaged example check.\n"
 )

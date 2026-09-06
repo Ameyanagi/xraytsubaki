@@ -88,7 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     fn discover_feff85l_rdinp() -> Option<PathBuf> {
-        let env_candidates = ["rexafs_FEFF8L_RDINP", "FEFF8L_RDINP", "FEFF85L_RDINP"];
+        let env_candidates = ["REXAFS_FEFF8L_RDINP", "FEFF8L_RDINP", "FEFF85L_RDINP"];
         for key in env_candidates {
             if let Ok(value) = env::var(key) {
                 let path = PathBuf::from(value);
@@ -401,7 +401,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .save_png(out.join("group_selected.png"))?;
 
     let feff8l_rdinp = discover_feff85l_rdinp().ok_or_else(|| {
-        "failed to locate feff8l_rdinp executable. set rexafs_FEFF8L_RDINP or install xraylarch FEFF binaries".to_string()
+        "failed to locate feff8l_rdinp executable. set REXAFS_FEFF8L_RDINP or install xraylarch FEFF binaries".to_string()
     })?;
 
     let feff_materials = [

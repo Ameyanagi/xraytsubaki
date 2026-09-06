@@ -138,7 +138,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential clang cmake pkg-config libasound2-dev libfontconfig-dev libglib2.0-dev libssl-dev libvulkan-dev libwayland-dev libx11-xcb-dev libxkbcommon-x11-dev libzstd-dev libsqlite3-dev
+          sudo apt-get install -y build-essential clang cmake pkg-config libasound2-dev libfontconfig-dev libglib2.0-dev libgtk-3-dev libssl-dev libvulkan-dev libwayland-dev libx11-xcb-dev libxkbcommon-x11-dev libzstd-dev libsqlite3-dev
       - name: Project compatibility, publication and desktop regressions
         run: cargo test --locked --release -p rexafs-gui --no-default-features --features refeff-runner
       - run: cargo build --locked --release -p rexafs-gui --no-default-features --features refeff-runner

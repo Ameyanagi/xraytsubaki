@@ -243,7 +243,7 @@ fn assert_fit_matches_reference(
     reference: &LarchDatasetRef,
     dataset: &str,
 ) {
-    if std::env::var("rexafs_PARITY_DEBUG").is_ok() {
+    if std::env::var("REXAFS_PARITY_DEBUG").is_ok() {
         eprintln!(
             "{dataset}: stats actual chi2={} redchi={} rfactor={} n_idp={} n_data={} | expected chi2={} redchi={} rfactor={} n_idp={}",
             result.chi_square,
@@ -358,7 +358,7 @@ fn znse_path2chi_curve_matches_larch_reference_curve() {
         mse += diff * diff;
     }
     let rmse = (mse / k.len() as f64).sqrt();
-    if std::env::var("rexafs_PARITY_DEBUG").is_ok() {
+    if std::env::var("REXAFS_PARITY_DEBUG").is_ok() {
         eprintln!("znse path2chi parity: rmse={rmse:.15e}, max_abs={max_abs:.15e}");
     }
     assert!(rmse <= 2.0e-3, "znse path2chi rmse too large: {rmse}");

@@ -73,7 +73,7 @@ It does not test GPU rendering or replace an interactive launch check.
 The macOS package rejects Homebrew/local dynamic libraries; Linux rejects unresolved
 linked libraries. Inspect `linked-libraries.txt` and qualify a clean installation.
 The Linux runner installs GPUI's X11/Wayland build dependencies; the release needs
-a graphical session, fontconfig, xkbcommon and a Vulkan-capable driver. Windows
+a graphical session, GTK 3, fontconfig, xkbcommon and a Vulkan-capable driver. Windows
 uses its native MSVC/Windows SDK toolchain. Test the actual minimum OS before
 advertising compatibility beyond the runner image.
 
@@ -176,7 +176,7 @@ Verified locally on Apple Silicon macOS with Rust 1.98.1, 2026-09-06:
 | CPython 3.12 wheel | Fresh installation; 5 API tests passed |
 | CPython 3.14 sdist rebuild | Fresh installation with NumPy 2.5.2; 5 API tests passed |
 | npm/Wasm | 3 tests passed, Chromium fetch/processing passed, tarball installation and Node-only TypeScript compilation passed |
-| Desktop optimized tests, ReFEFF build | 123 passed, 2 ignored; includes project fixtures, captioned exports, credential permissions and stale FEFF jobs |
+| Desktop optimized tests, ReFEFF build | 124 passed, 2 ignored; includes project fixtures, captioned exports, credential permissions and stale FEFF jobs |
 | macOS app archive | Extracted `--version` / `--self-check` passed; example E0=8977.493 eV |
 | macOS interactive app | Bundled Cu example rendered; custom 4 × 3 inch / 300 DPI PNG saved at 1200 × 900; project reopened with saved plot settings; opaque cluster correctly occluded the central absorber; .rxs controls saved both modes and a portable embedded copy restored the selected spectrum/overrides without adjacent inputs |
 | Publication report | Five vector figures rendered in Chromium; numbered figure/table captions and resolved processing values verified visually |

@@ -25,6 +25,11 @@ impl StudioApp {
             return;
         }
         self.publish.source = Some(source);
+        let selected_key = self
+            .publish
+            .figures
+            .get(self.publish.selected)
+            .map(|f| f.key);
         let mut figures = self
             .spectrum
             .as_ref()
@@ -39,8 +44,10 @@ impl StudioApp {
         self.publish.figures = figures.into_iter().map(Arc::new).collect();
         self.publish.selected = self
             .publish
-            .selected
-            .min(self.publish.figures.len().saturating_sub(1));
+            .figures
+            .iter()
+            .position(|f| Some(f.key) == selected_key)
+            .unwrap_or(0);
         self.publication_fields(cx);
         self.refresh_publication_preview(cx);
     }
@@ -229,14 +236,34 @@ impl StudioApp {
         cx.notify();
     }
 
-    fn save_publication_figure(&mut self, svg: bool, cx: &mut Context<Self>) {
-        let Some(rendered) = self.publish.preview.clone() else {
-            return;
-        };
+    fn save_publication_figure(&mut self, extension: &'static str, cx: &mut Context<Self>) {
         let Some(figure) = self.publish.figures.get(self.publish.selected) else {
             return;
         };
-        let extension = if svg { "svg" } else { "png" };
+        let bytes = if extension == "csv" {
+            match figure.csv(&self.publish.settings.options(figure.key)) {
+                Ok(csv) => csv.into_bytes(),
+                Err(error) => {
+                    self.publish.error = Some(error);
+                    cx.notify();
+                    return;
+                }
+            }
+        } else {
+            let Some(rendered) = self
+                .publish
+                .preview
+                .as_ref()
+                .filter(|_| !self.publish.preview_running)
+            else {
+                return;
+            };
+            if extension == "svg" {
+                rendered.svg.as_bytes().to_vec()
+            } else {
+                rendered.png.clone()
+            }
+        };
         let name = format!("rexafs-{}.{}", figure.key, extension);
         let home = crate::settings::home_dir().unwrap_or_else(std::env::temp_dir);
         let rx = cx.prompt_for_new_path(&home, Some(&name));
@@ -261,11 +288,6 @@ impl StudioApp {
                 let result = cx
                     .background_executor()
                     .spawn(async move {
-                        let bytes = if svg {
-                            rendered.svg.as_bytes()
-                        } else {
-                            &rendered.png
-                        };
                         std::fs::write(&path, bytes)
                             .map(|()| path)
                             .map_err(|e| e.to_string())
@@ -310,11 +332,16 @@ impl StudioApp {
                         .child("Publish"),
                 )
                 .child(button(&t, "save-figure-png", "Save PNG…", ready).on_click(
-                    cx.listener(|this, _, _, cx| this.save_publication_figure(false, cx)),
+                    cx.listener(|this, _, _, cx| this.save_publication_figure("png", cx)),
                 ))
                 .child(button(&t, "save-figure-svg", "Save SVG…", ready).on_click(
-                    cx.listener(|this, _, _, cx| this.save_publication_figure(true, cx)),
-                ));
+                    cx.listener(|this, _, _, cx| this.save_publication_figure("svg", cx)),
+                ))
+                .child(
+                    button(&t, "save-figure-csv", "Save data CSV…", false).on_click(
+                        cx.listener(|this, _, _, cx| this.save_publication_figure("csv", cx)),
+                    ),
+                );
         let mut controls = div()
             .id("publication-controls")
             .w(px(268.))
@@ -331,6 +358,8 @@ impl StudioApp {
                 .text_size(px(12.))
                 .child("Figure · current spectrum / fit"),
         );
+        controls = controls.child(div().text_size(px(11.)).text_color(t.text_muted)
+            .child("Normalized and flattened μ(E) are separate figures. CSV saves the visible curves on their full data grids; axis limits only crop the figure."));
         for (index, figure) in self.publish.figures.iter().enumerate() {
             controls = controls.child(
                 chip(
@@ -554,47 +583,45 @@ impl StudioApp {
                     .child(error.clone()),
             );
         }
-        let footer = div()
-            .flex()
-            .flex_wrap()
-            .gap_2()
-            .items_center()
-            .child(
-                button(
-                    &t,
-                    "publish-export",
-                    if self.publish.running {
-                        "Exporting…"
-                    } else {
-                        "Export analysis folder…"
-                    },
-                    false,
+        let footer =
+            div()
+                .flex()
+                .flex_wrap()
+                .gap_2()
+                .items_center()
+                .child(
+                    button(
+                        &t,
+                        "publish-export",
+                        if self.publish.running {
+                            "Exporting…"
+                        } else {
+                            "Export analysis folder…"
+                        },
+                        false,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.export_publication(cx))),
                 )
-                .on_click(cx.listener(|this, _, _, cx| this.export_publication(cx))),
-            )
-            .child(
-                button(&t, "copy-analysis-markdown", "Copy Markdown", false).on_click(cx.listener(
-                    |this, _: &ClickEvent, _, cx| {
-                        cx.write_to_clipboard(gpui::ClipboardItem::new_string(
-                            this.analysis_snapshot().markdown(),
-                        ));
-                        this.status = "Analysis record copied".into();
-                        cx.notify();
-                    },
-                )),
-            )
-            .when_some(self.publish.destination.clone(), |d, path| {
-                d.child(
-                    button(&t, "open-publication", "Show saved output", false)
-                        .on_click(cx.listener(move |_, _, _, cx| cx.reveal_path(&path))),
+                .child(
+                    button(&t, "copy-analysis-markdown", "Copy Markdown", false).on_click(
+                        cx.listener(|this, _: &ClickEvent, _, cx| {
+                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(
+                                this.analysis_snapshot().markdown(),
+                            ));
+                            this.status = "Analysis record copied".into();
+                            cx.notify();
+                        }),
+                    ),
                 )
-            })
-            .child(
-                div()
-                    .text_size(px(11.))
-                    .text_color(t.text_muted)
-                    .child("PNG + SVG · captioned report & tables · methods · project · arrays"),
-            );
+                .when_some(self.publish.destination.clone(), |d, path| {
+                    d.child(
+                        button(&t, "open-publication", "Show saved output", false)
+                            .on_click(cx.listener(move |_, _, _, cx| cx.reveal_path(&path))),
+                    )
+                })
+                .child(div().text_size(px(11.)).text_color(t.text_muted).child(
+                    "PNG + SVG + CSV · captioned report & tables · methods · project · arrays",
+                ));
         div()
             .flex_1()
             .min_w_0()
@@ -604,6 +631,11 @@ impl StudioApp {
             .p_4()
             .gap_3()
             .child(header)
+            .child(div().text_size(px(12.)).text_color(t.text_muted)
+                .child(format!("Spectrum: {} · Export analysis folder includes the current spectrum, marked groups and joint-fit inputs.", self.current_group_label())))
+            .when(self.fit_result.is_some() && self.fit_is_stale(), |d| d.child(
+                div().text_size(px(12.)).text_color(t.warn)
+                    .child("Fit figures show a previous result. The spectrum or fit settings have changed; rerun the fit to update them.")))
             .child(
                 div()
                     .flex_1()

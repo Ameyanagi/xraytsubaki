@@ -89,6 +89,16 @@ impl StudioApp {
                     }
                 }
                 Edit::Range(id, axis) => {
+                    let floor = this.fit_background_floor(Some(*id));
+                    if *axis == 2 && number.unwrap() < floor {
+                        field.update(cx, |f, cx| f.set_error(true, cx));
+                        this.status = format!(
+                            "Fit R min must be at least this spectrum's Rbkg ({floor:.4} Å)."
+                        )
+                        .into();
+                        cx.notify();
+                        return;
+                    }
                     if let Some(d) = this.joint.config.datasets.iter_mut().find(|d| d.id == *id) {
                         let r = d.ranges.get_or_insert_with(|| this.fit_ranges.clone());
                         match axis {
@@ -161,6 +171,15 @@ impl StudioApp {
                     .child(f),
             );
         }
+        row = row.child(
+            div()
+                .text_size(px(11.))
+                .text_color(t.text_muted)
+                .child(format!(
+                    "R min ≥ Rbkg ({:.4} Å)",
+                    self.fit_background_floor(Some(id))
+                )),
+        );
         let mut weights = div()
             .flex()
             .items_center()

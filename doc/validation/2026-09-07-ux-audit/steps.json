@@ -1,0 +1,332 @@
+[
+  {
+    "screenshot": "01-catalog-start.png",
+    "note": "Released 0.1.1; imported a temporary folder containing Cu, Ni XDI and Ru QAS fixtures.",
+    "time": "2026-09-06T18:43:01.160Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "02-mark-two-groups.png",
+    "note": "Clicked two checkboxes. Check mark count, scope and current-group behavior.",
+    "time": "2026-09-06T18:43:16.176Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "03-select-all-shortcut.png",
+    "note": "Command-A with the group list active left two marked groups (Cu and Ni); Ru remains unchecked. No select-all result was observed.",
+    "time": "2026-09-06T18:43:21.470Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "04-marked-overlay.png",
+    "note": "Switched plot scope to Marked; inspect overlays and counts separately from the current group.",
+    "time": "2026-09-06T18:43:34.467Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "05-filtered-hidden-marks.png",
+    "note": "Filtered to Ru while Cu and Ni remain marked; inspect whether hidden selections and action scope are clear.",
+    "time": "2026-09-06T18:43:52.994Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "06-unmark-command-discovery.png",
+    "note": "Find deselect-all through the command palette while the file filter is active.",
+    "time": "2026-09-06T18:44:07.378Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "07-unmark-result.png",
+    "note": "Unmark all via palette; verify hidden Cu/Ni selections are cleared and observe the empty marked-scope behavior.",
+    "time": "2026-09-06T18:44:12.622Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "08-scan-grouping.png",
+    "note": "Clear the filter and inspect Scans grouping for two source directories.",
+    "time": "2026-09-06T18:44:19.916Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "09-qas-import-preview.png",
+    "note": "Inspect QAS import detection, channel assignments, reference options and raw-table preview.",
+    "time": "2026-09-06T18:44:29.763Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "10-qas-import-expanded.png",
+    "note": "Expanded import options for the 9-column QAS fixture.",
+    "time": "2026-09-06T18:44:36.200Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "11-qas-mode-menu.png",
+    "note": "Inspect available sample/reference import modes; mode selection acts on one group.",
+    "time": "2026-09-06T18:44:44.087Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "12-qas-reference-replaces-sample.png",
+    "note": "Selected Reference. Verify signal change, unchanged group count, and whether sample/reference identity is visible in the group label.",
+    "time": "2026-09-06T18:44:54.481Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "13-import-file-dialog.png",
+    "note": "+ Import opens a folder-only dialog; the copied Ru_QAS.dat file is greyed out. Screenshot uses only the disposable audit folder.",
+    "time": "2026-09-06T18:45:05.580Z",
+    "accessibility": "Window: \"Open\", App: rexafs.\n0 standard window Open, ID: open-panel, Secondary Actions: Raise\n\t1 split group\n\t\t2 scroll area Secondary Actions: Scroll Up, Scroll Down\n\t\t\t3 outline sidebar\n\t\t\t\t4 row (selectable) Description: clock, Value: Recents\n\t\t\t\t5 row (selectable) Description: Shared Folder, Value: Shared\n\t\t\t\t6 row (selectable, expanded) Value: Favorites, Secondary Actions: Collapse\n\t\t\t\t7 row (selectable) Applications\n\t\t\t\t8 row (selectable) Desktop\n\t\t\t\t9 row (selectable) Description: document, Value: Documents\n\t\t\t\t10 row (selectable) Description: Arrow Down Circle, Value: Downloads\n\t\t\t\t11 row (selectable) Description: move, Value: slid\n\t\t\t\t12 row (selectable, expanded) Value: Locations, Secondary Actions: Collapse\n\t\t\t\t13 row (selectable) Description: iCloud, Value: iCloud Drive\n\t\t\t\t14 row (selectable) Description: home, Value: ryuichi\n\t\t\t\t15 row (selectable) Macintosh HD\n\t\t\t\t16 row (selectable) Eject, Description: eject, Value: T3 Code (Alpha) 0.0.33-arm64\n\t\t\t\t17 row (selectable) Eject, Description: eject, Value: Claude Science\n\t\t\t\t18 row (selectable) Network\n\t\t\t\t19 row (selectable, expanded) Value: Tags, Secondary Actions: Collapse\n\t\t\t\t20 row (selectable) Important\n\t\t\t\t21 row (selectable) Gray\n\t\t\t\t22 row (selectable) Home\n\t\t\t\t23 row (selectable) Yellow\n\t\t\t\t24 row (selectable) Blue\n\t\t\t\t25 row (selectable) Green\n\t\t\t\t26 row (selectable) Orange\n\t\t\t\t27 row (selectable) All Tags…\n\t\t\t28 scroll bar (settable, float) 0\n\t\t\t\t29 value indicator (settable, float) 0\n\t\t\t\t30 increment arrow button\n\t\t\t\t31 decrement arrow button\n\t\t\t\t32 increment page button\n\t\t\t\t33 decrement page button\n\t\t34 splitter (disabled, settable, float) 167\n\t\t35 scroll area\n\t\t\t36 outline Description: list view, ID: ListView\n\t\t\t\t37 row (selectable) Description: go up, Value: Name\nSize\nKind\nDate Added\n\t\t\t\t38 row (selectable)\n\t\t\t\t\t39 cell\n\t\t\t\t\t\t40 image\n\t\t\t\t\t\t41 text field (settable) URL: file:///private/tmp/rexafs-ux-audit-20260907/data/qas/Ru_QAS.dat, Value: Ru_QAS.dat, Secondary Actions: Open Finder item\n\t\t\t\t\t42 cell\n\t\t\t\t\t\t43 text 76 KB\n\t\t\t\t\t44 cell\n\t\t\t\t\t\t45 text Zed Document\n\t\t\t\t\t46 cell\n\t\t\t\t\t\t47 text Today at 3:42\n\t\t\t\t48 container\n\t\t\t\t\t49 sort button Name\n\t\t\t\t\t50 sort button Size\n\t\t\t\t\t51 sort button Kind\n\t\t\t\t\t52 sort button Date Added\n\t\t53 container\n\t\t\t54 button back\n\t\t\t55 button (disabled) forward\n\t\t56 menu button Description: List, Help: Show as Icons, List, or Columns, and hide/show the sidebar, ID: View Options\n\t\t57 menu button Help: Change the item grouping (hold down Option to change the sort), ID: Group or Sort By\n\t\t58 pop up button Where:, Value: qas, ID: where popup\n\t\t59 search text field Search\n\t\t\t60 button search\n\t\t61 button New Folder, ID: NewFolderButton\n\t\t62 button Cancel, ID: CancelButton\n\t\t63 button Open, ID: OKButton\n64 menu bar\n\t65 rexafs\n\nThe focused UI element is 36 outline Description: list view, ID: ListView"
+  },
+  {
+    "screenshot": "14-normalization-controls.png",
+    "note": "Inspect all normalization controls in the released GUI before changing the post-edge maximum.",
+    "time": "2026-09-06T18:46:09.994Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 66 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "15-normalization-maximum-400ev.png",
+    "note": "Set normalization upper fit limit to +400 eV and apply with Enter; check field, yellow window, recomputed edge step and errors.",
+    "time": "2026-09-06T18:46:18.836Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 66 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "16-invalid-numeric-input.png",
+    "note": "Enter nonnumeric text in the fit limit; check validation visibility and whether the last valid spectrum is preserved.",
+    "time": "2026-09-06T18:46:30.054Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 66 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "17-background-controls.png",
+    "note": "Inspect AUTOBK controls, fixed-lambda default and available advanced options.",
+    "time": "2026-09-06T18:46:41.090Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 66 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "18-chik-background-view.png",
+    "note": "Switch background view to chi(k); inspect axes, weighting controls and the low-R background plot.",
+    "time": "2026-09-06T18:47:01.159Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 66 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "19-chik-pan-reversal.png",
+    "note": "Pan chi(k) and reverse direction. Inspect for stale duplicate traces, clipping and misleading retained axes.",
+    "time": "2026-09-06T18:47:11.124Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 66 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "20-lambda-one-recompute.png",
+    "note": "Set fixed lambda to 1. Verify recomputation and inspect whether the GUI explains strength, active endpoints and point count.",
+    "time": "2026-09-06T18:47:24.533Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 66 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "21-solver-menu.png",
+    "note": "Inspect solver choices and how their names fit in the narrow inspector.",
+    "time": "2026-09-06T18:47:48.159Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 66 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "22-alternate-solver-result.png",
+    "note": "Try the offered TrustRegionDogLeg solver; inspect compatibility, automatic model changes and error reporting.",
+    "time": "2026-09-06T18:48:05.506Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 66 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "23-transform-controls.png",
+    "note": "Inspect forward and inverse Fourier-transform controls, especially inverse window, taper, grid and output limits.",
+    "time": "2026-09-06T18:48:20.892Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 66 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "24-back-transform-shell.png",
+    "note": "Set inverse-transform R range to 1–3 Å and display chi(q); verify visible response and field scope.",
+    "time": "2026-09-06T18:48:37.076Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 66 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "25-save-project-dialog.png",
+    "note": "Save the audit session as audit-linked.rxs in the disposable data folder, with linked raw inputs.",
+    "time": "2026-09-06T18:49:02.438Z",
+    "accessibility": "The following is a diff from the previous accessibility tree for Window: \"Save\" with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\n~\t\t72 text field (settable) Value: audit-linked.rxs, ID: saveAsNameTextField\nThe focused UI element is 72 text field (settable) Value: audit-linked.rxs, ID: saveAsNameTextField"
+  },
+  {
+    "screenshot": "26-project-saved.png",
+    "note": "Confirm successful linked-project save and status feedback.",
+    "time": "2026-09-06T18:49:12.525Z",
+    "accessibility": "The following is a diff from the previous accessibility tree for Window: \"rexafs\" with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 68-77\n~66 standard window rexafs, Secondary Actions: Raise\n~\t67 close button\n+\t68 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n+\t69 minimize button\n+\t70 text rexafs\nThe focused UI element is 66 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "27-unsaved-project-change.png",
+    "note": "Change R max to 4 after saving; inspect whether the app shows an unsaved-change indicator.",
+    "time": "2026-09-06T18:49:21.775Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 66 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "28-project-reopened.png",
+    "note": "Project open dialog showing audit-linked.rxs; the first row-click attempt did not complete opening.",
+    "time": "2026-09-06T18:49:39.284Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"Open\".\nThe focused UI element is 106 outline Description: list view, ID: ListView"
+  },
+  {
+    "screenshot": "29-reopen-saved-settings-result.png",
+    "note": "Opened saved project. Check restored current spectrum and saved inverse-transform R range.",
+    "time": "2026-09-06T18:50:14.703Z",
+    "accessibility": "The following is a diff from the previous accessibility tree for Window: \"rexafs\" with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 0-89\n+92 standard window rexafs, Secondary Actions: Raise\n+\t93 close button\n+\t94 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n+\t95 minimize button\n+\t96 text rexafs\nThe focused UI element is 92 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "30-reopen-blank-after-refresh.png",
+    "note": "After project reopen finishes, the current Ru row is highlighted but plots remain blank and saved R limits are not shown. Status says index refreshed, with no running jobs.",
+    "time": "2026-09-06T18:50:31.529Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 92 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "31-reselect-after-project-reopen.png",
+    "note": "Reselect Ru after the blank project reopen. Check whether reloading restores plots and whether saved R limits survive.",
+    "time": "2026-09-06T18:50:40.254Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 92 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "32-state-after-interruption.png",
+    "note": "State refreshed after a computer-use interruption; resume from the observed app view.",
+    "time": "2026-09-06T18:51:27.622Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 92 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "33-publish-normalized-only-before.png",
+    "note": "Released 0.1.1 Publish: normalized μ(E) is available but flattened μ(E) and CSV are absent. Current user-prepared Ru fit is present. Figure selection and style controls share one long scrolling column.",
+    "time": "2026-09-06T19:04:07.568Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 92 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "34-publish-normalized-preview-before.png",
+    "note": "Released Publish normalized μ(E) preview: raw/post-edge/fit quantities can be chosen, but flattened μ(E) and curve CSV export are missing.",
+    "time": "2026-09-06T19:14:30.433Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 92 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "35-patched-project-reopened.png",
+    "note": "Patched development app: Opened the saved linked project directly; verifying the restored spectrum and per-spectrum inverse R range.",
+    "time": "2026-09-06T19:17:51.896Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "36-patched-select-all.png",
+    "note": "Patched development app: Select all marks all three groups. Controls are visible without clipping and explicitly apply across the full catalog.",
+    "time": "2026-09-06T19:18:06.871Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "37-patched-invert-all.png",
+    "note": "Patched development app: Invert changes three marked groups to zero while retaining the current spectrum; the plot scope is explicitly Current.",
+    "time": "2026-09-06T19:18:13.116Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "38-patched-select-all-shortcut.png",
+    "note": "Patched development app: Testing Cmd+A with the data group list focused.",
+    "time": "2026-09-06T19:18:21.058Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "39-patched-restored-back-transform.png",
+    "note": "Patched development app: Deselect all clears marks. Transform opens the saved per-spectrum R=1–3 Å window; inspect numeric fields and plotted handles.",
+    "time": "2026-09-06T19:18:29.082Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "40-patched-background-controls.png",
+    "note": "Patched development app: Background inspector now includes endpoint clamp-point count and explains direct k-window selection on χ(k).",
+    "time": "2026-09-06T19:18:37.663Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "41-patched-background-k-handles.png",
+    "note": "Patched development app, first build: χ(k) showed the lower AUTOBK handle, but the Auto k-max handle overlapped it at zero. Visual QA caught the unset-value fallback bug; a correction is being rebuilt.",
+    "time": "2026-09-06T19:18:50.332Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "42-patched-publish-choices.png",
+    "note": "Patched development app: Publish now includes flattened μ(E), Save data CSV, the spectrum identity, and export scope.",
+    "time": "2026-09-06T19:19:43.665Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "43-patched-publish-flattened.png",
+    "note": "Patched development app: Flattened μ(E) is a separate Publish figure with dimensionless labeling and a caption describing removal of the fitted post-edge trend.",
+    "time": "2026-09-06T19:19:51.763Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "44-patched-flattened-csv-saved.png",
+    "note": "Patched development app: CSV export completed with 645 rows and energy/flattened μ(E) columns. The native Save As name field interpreted slashes as literal colons; the agent moved its two uniquely named QA files into /tmp/rexafs-ux-audit-20260907/output afterward. This was an automation navigation mistake, not a spectrum export failure.",
+    "time": "2026-09-06T19:20:08.171Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 7 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "45-patched-publication-bundle-exported.png",
+    "note": "Patched development app: The complete Ru publication bundle exported six figures, each as PNG/SVG/CSV, with zero notices. The standalone flattened CSV exactly matches the bundle CSV (645 points).",
+    "time": "2026-09-06T19:22:14.540Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 7 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "46-patched-background-auto-kmax-fixed.png",
+    "note": "Patched development app: The Auto k-max handle now appears at the measured upper energy limit, rather than overlapping k min.",
+    "time": "2026-09-06T19:23:03.706Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "47-patched-background-kmax-drag-inward.png",
+    "note": "Patched development app: Dragged AUTOBK k max inward from the full range toward 12 Å⁻¹; checking that the numeric field and processed spectrum follow.",
+    "time": "2026-09-06T19:23:10.887Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "48-patched-fit-after-raised-rbkg.png",
+    "note": "Patched development app: Raised the current spectrum’s Rbkg to 1.3 Å and opened Fit to check the R-min guard.",
+    "time": "2026-09-06T19:24:32.496Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "49-patched-fit-range-floor-warning.png",
+    "note": "Patched development app: Model & fit should show R min ≥ the current Rbkg of 1.3 Å.",
+    "time": "2026-09-06T19:24:38.765Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "50-patched-fit-rmin-below-rbkg-warning.png",
+    "note": "Patched development app: The Fit ranges panel flags the existing R min=1.0 Å in red after Rbkg was raised to 1.3 Å. It does not silently alter the saved fit range.",
+    "time": "2026-09-06T19:24:50.057Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "51-patched-fit-rmin-rejected.png",
+    "note": "Patched development app: A valid R min of 1.5 Å was accepted. Entering 1.2 Å with Rbkg=1.3 Å was rejected and the field reverted to 1.5 Å with a status message.",
+    "time": "2026-09-06T19:25:00.841Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "52-patched-fit-rmin-drag-floor.png",
+    "note": "Patched development app: Dragging the R-min handle below Rbkg stops at 1.3 Å and synchronizes the numeric field.",
+    "time": "2026-09-06T19:25:08.679Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "53-patched-kmax-inward-stable-axis.png",
+    "note": "Patched development app: Dragging k max to 12 Å⁻¹ updates AUTOBK while the plot retains the full measured k-axis, keeping the outward range reachable.",
+    "time": "2026-09-06T19:26:40.431Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "54-patched-kmax-outward.png",
+    "note": "Patched development app: Dragging k max outward again restores processing to 15 Å⁻¹ in one gesture; the numeric field and spectrum agree.",
+    "time": "2026-09-06T19:26:47.234Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "55-patched-inverse-rmax-drag.png",
+    "note": "Patched development app: Dragging the inverse-transform right R handle changes R max from 3 to 4 Å and updates the numerical setting.",
+    "time": "2026-09-06T19:27:17.928Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  }
+]

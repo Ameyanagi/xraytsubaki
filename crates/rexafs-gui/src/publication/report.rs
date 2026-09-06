@@ -308,7 +308,11 @@ pub(crate) fn write(
         let n = asset["number"].as_u64().unwrap();
         let caption = asset["caption"].as_str().unwrap();
         captions.push_str(&format!("**Figure {n}.** {}\n\n", cell(caption)));
-        report.push_str(&format!("<figure id=\"figure-{n}\"><img src=\"{}\" alt=\"{}\"><figcaption><strong>Figure {n}.</strong> {} <a href=\"{}\">PNG</a> · <a href=\"{}\">SVG</a></figcaption></figure>",html(asset["svg"].as_str().unwrap()),html(caption),html(caption),html(asset["file"].as_str().unwrap()),html(asset["svg"].as_str().unwrap())));
+        let csv_link = asset["csv"]
+            .as_str()
+            .map(|path| format!(" · <a href=\"{}\">Data CSV</a>", html(path)))
+            .unwrap_or_default();
+        report.push_str(&format!("<figure id=\"figure-{n}\"><img src=\"{}\" alt=\"{}\"><figcaption><strong>Figure {n}.</strong> {} <a href=\"{}\">PNG</a> · <a href=\"{}\">SVG</a>{csv_link}</figcaption></figure>",html(asset["svg"].as_str().unwrap()),html(caption),html(caption),html(asset["file"].as_str().unwrap()),html(asset["svg"].as_str().unwrap())));
     }
     report.push_str("<h2>Tables</h2>");
     for table in tables {

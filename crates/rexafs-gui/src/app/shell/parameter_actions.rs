@@ -23,6 +23,7 @@ settings![
     (align_to_ref, "Reference alignment", "Import"),
     (align_target, "Alignment energy (eV)", "Import"),
     (e0, "E₀ (eV)", "Edge"),
+    (edge_step, "Edge step", "Edge"),
     (pre_edge_start, "Pre-edge start (eV)", "Pre-edge line"),
     (pre_edge_end, "Pre-edge end (eV)", "Pre-edge line"),
     (n_victoreen, "Victoreen n", "Pre-edge line"),
@@ -36,6 +37,7 @@ settings![
     (bkg_nknots, "Spline knots", "AUTOBK"),
     (bkg_clamp_lo, "Clamp low", "Clamps & window"),
     (bkg_clamp_hi, "Clamp high", "Clamps & window"),
+    (bkg_nclamp, "Clamp points", "Clamps & window"),
     (bkg_clamp_lambda, "Clamp λ", "Clamps & window"),
     (bkg_clamp_policy, "Clamp model", "Clamps & window"),
     (bkg_window, "Background window", "Clamps & window"),
@@ -104,6 +106,7 @@ impl ParamKey {
             Self::ImpEnergyCol | Self::ImpI0Col | Self::ImpItCol | Self::ImpIrCol => "import",
             Self::AlignTarget => "align_target",
             Self::E0 => "e0",
+            Self::EdgeStep => "edge_step",
             Self::PreEdgeStart => "pre_edge_start",
             Self::PreEdgeEnd => "pre_edge_end",
             Self::NormStart => "norm_start",
@@ -118,6 +121,7 @@ impl ParamKey {
             Self::BkgKweight => "bkg_kweight",
             Self::BkgClampLo => "bkg_clamp_lo",
             Self::BkgClampHi => "bkg_clamp_hi",
+            Self::BkgNclamp => "bkg_nclamp",
             Self::BkgClampLambda => "bkg_clamp_lambda",
             Self::BkgDk => "bkg_dk",
             Self::BkgNfft => "bkg_nfft",
@@ -143,6 +147,7 @@ impl EnumParam {
             Self::BkgSolver => "bkg_solver",
             Self::BkgClampPolicy => "bkg_clamp_policy",
             Self::FftWindow => "fft_window",
+            Self::BftWindow => "bft_window",
         }
     }
 }

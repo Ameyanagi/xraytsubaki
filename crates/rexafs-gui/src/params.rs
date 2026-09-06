@@ -502,6 +502,8 @@ pub struct PipelineParams {
     pub align_target: Option<f64>,
     // Normalization (pre/post-edge); energies relative to E0.
     pub e0: Option<f64>,
+    /// Positive measured edge-step override; None derives it from the fits.
+    pub edge_step: Option<f64>,
     pub pre_edge_start: Option<f64>,
     pub pre_edge_end: Option<f64>,
     pub norm_start: Option<f64>,
@@ -520,6 +522,8 @@ pub struct PipelineParams {
     pub bkg_kweight: Option<i32>,
     pub bkg_clamp_lo: Option<i32>,
     pub bkg_clamp_hi: Option<i32>,
+    /// Number of points at each active clamp endpoint (default 3).
+    pub bkg_nclamp: Option<i32>,
     /// Missing fields in v1 projects retain the historical clamp model.
     #[serde(default = "legacy_bkg_clamp_policy")]
     pub bkg_clamp_policy: AUTOBKClampScalePolicy,
@@ -616,6 +620,7 @@ impl PipelineParams {
         self.hash_raw_fields(&mut hasher);
         for v in [
             self.e0,
+            self.edge_step,
             self.pre_edge_start,
             self.pre_edge_end,
             self.norm_start,
@@ -646,6 +651,7 @@ impl PipelineParams {
             self.bkg_kweight,
             self.bkg_clamp_lo,
             self.bkg_clamp_hi,
+            self.bkg_nclamp,
             self.bkg_nfft,
             self.fft_nfft,
         ] {
@@ -815,7 +821,17 @@ pub fn process_arrays(
         }
     }
 
+    if params
+        .edge_step
+        .is_some_and(|value| !value.is_finite() || value <= 0.0)
+    {
+        return Err("Edge step must be finite and greater than zero.".into());
+    }
+    if params.bkg_nclamp.is_some_and(|value| value < 0) {
+        return Err("Clamp points must be zero or greater.".into());
+    }
     let mut ppe = PrePostEdge::new();
+    ppe.edge_step = params.edge_step;
     let defaults = PrePostEdge::default();
     ppe.pre_edge_start = params.pre_edge_start.or(defaults.pre_edge_start);
     ppe.pre_edge_end = params.pre_edge_end.or(defaults.pre_edge_end);
@@ -854,6 +870,7 @@ pub fn process_arrays(
     }
     autobk.clamp_scale_policy = Some(params.bkg_clamp_policy);
     autobk.clamp_lambda = params.bkg_clamp_lambda;
+    autobk.nclamp = params.bkg_nclamp;
     if let Some(window) = params.bkg_window {
         autobk.window = window;
     }
@@ -951,6 +968,48 @@ pub fn resample_chik(sp: &XASSpectrum, grid: &[f64]) -> Option<Vec<f64>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gui_edge_step_override_reaches_normalization_and_invalidates_cache() {
+        let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../rexafs/tests/testfiles/xraylarch_d867/xafsdata/cu_150k.xmu");
+        let defaults = PipelineParams::default();
+        let automatic = process_file(&file, &defaults).unwrap();
+        let step = automatic
+            .normalization
+            .as_ref()
+            .unwrap()
+            .get_edge_step()
+            .unwrap()
+            * 1.5;
+        let custom = PipelineParams {
+            edge_step: Some(step),
+            ..defaults.clone()
+        };
+        assert_ne!(defaults.fingerprint(), custom.fingerprint());
+        let spectrum = process_file(&file, &custom).unwrap();
+        assert_eq!(
+            spectrum.normalization.as_ref().unwrap().get_edge_step(),
+            Some(step)
+        );
+        for (value, reference) in spectrum
+            .norm()
+            .unwrap()
+            .iter()
+            .zip(automatic.norm().unwrap().iter())
+        {
+            assert!((value * 1.5 - reference).abs() < 1e-12);
+        }
+        let no_clamps = PipelineParams {
+            bkg_nclamp: Some(0),
+            ..defaults.clone()
+        };
+        assert_ne!(defaults.fingerprint(), no_clamps.fingerprint());
+        let spectrum = process_file(&file, &no_clamps).unwrap();
+        assert!(
+            matches!(spectrum.background, Some(BackgroundMethod::AUTOBK(a)) if a.nclamp == Some(0))
+        );
+    }
 
     #[test]
     fn xdi_import_uses_declared_columns_units_and_signal_math() {

@@ -62,6 +62,15 @@ fn frozen_badge(t: &crate::theme::Theme) -> impl IntoElement {
 }
 
 impl StudioApp {
+    pub(crate) fn invert_group_marks(&mut self, cx: &mut Context<Self>) {
+        let groups =
+            (0..self.catalog.len()).chain((0..self.derived.len()).map(|i| DERIVED_BASE + i));
+        self.selection = groups.filter(|i| !self.selection.contains(i)).collect();
+        self.ensure_compare_loaded(cx);
+        self.sync_param_fields(cx);
+        cx.notify();
+    }
+
     /// Freeze / thaw the current group.
     pub(crate) fn toggle_frozen(&mut self, cx: &mut Context<Self>) {
         let Some(ix) = self.selected else {
@@ -141,6 +150,16 @@ impl StudioApp {
             .id("groups-panel")
             .key_context("DataPanel")
             .track_focus(&self.data_focus)
+            .on_action(
+                cx.listener(|this: &mut Self, _: &crate::app::MarkAllGroups, _, cx| {
+                    this.mark_all(true, cx)
+                }),
+            )
+            .on_action(
+                cx.listener(|this: &mut Self, _: &crate::app::InvertGroupMarks, _, cx| {
+                    this.invert_group_marks(cx)
+                }),
+            )
             .on_action(cx.listener(|this: &mut Self, _: &NavUp, _window, cx| {
                 this.nav_move(-1, false, cx);
             }))
@@ -205,6 +224,34 @@ impl StudioApp {
                     ),
             )
             .child(div().px_2().pb_1().children(self.filter_input.clone()))
+            .child(
+                div()
+                    .px_2()
+                    .pb_1()
+                    .flex()
+                    .flex_wrap()
+                    .gap_1()
+                    .child(
+                        button(&t, "mark-all-groups", "Select all", false)
+                            .on_click(cx.listener(|this, _, _, cx| this.mark_all(true, cx))),
+                    )
+                    .child(
+                        button(&t, "unmark-all-groups", "Deselect all", false)
+                            .on_click(cx.listener(|this, _, _, cx| this.clear_selection(cx))),
+                    )
+                    .child(
+                        button(&t, "invert-all-groups", "Invert", false)
+                            .on_click(cx.listener(|this, _, _, cx| this.invert_group_marks(cx))),
+                    ),
+            )
+            .child(
+                div()
+                    .px_3()
+                    .pb_1()
+                    .text_size(px(10.))
+                    .text_color(t.text_muted)
+                    .child("All groups, including filtered-out groups"),
+            )
             .child(
                 div()
                     .flex()
@@ -312,7 +359,9 @@ impl StudioApp {
                         .text_color(if enabled { t.accent } else { t.text_muted })
                         .when(enabled, |d| d.cursor_pointer().hover(|d| d.bg(t.raised)))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                            action(this, cx);
+                            if enabled {
+                                action(this, cx);
+                            }
                         }))
                         .child(label)
                 };
@@ -325,6 +374,7 @@ impl StudioApp {
                     .text_size(px(11.))
                     .text_color(t.text_muted)
                     .child("mark:")
+                    .flex_wrap()
                     .child(cmd(
                         "sel-scan",
                         "scan",

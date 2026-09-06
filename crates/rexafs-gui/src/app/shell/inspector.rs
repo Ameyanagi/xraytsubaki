@@ -355,7 +355,7 @@ impl StudioApp {
             .child(self.section(
                 "Edge",
                 Some(ParamSection::Norm),
-                vec![self.field(ParamKey::E0, cx)].into_iter().flatten().collect(),
+                [self.field(ParamKey::E0, cx), self.field(ParamKey::EdgeStep, cx)].into_iter().flatten().collect(),
                 cx,
             ))
             .child(self.section(
@@ -382,6 +382,7 @@ impl StudioApp {
                     self.field(ParamKey::NormStart, cx),
                     self.field(ParamKey::NormEnd, cx),
                     self.field(ParamKey::NormPolyorder, cx),
+                    Some(self.note("Fit minimum and maximum are energies relative to E₀. Click a value to type; Enter applies it. The yellow plot handles edit the same window. Clear the value for Auto.").into_any_element()),
                 ]
                 .into_iter()
                 .flatten()
@@ -419,6 +420,7 @@ impl StudioApp {
                     self.field(ParamKey::Rbkg, cx),
                     self.field(ParamKey::BkgKmin, cx),
                     self.field(ParamKey::BkgKmax, cx),
+                    Some(self.note("On the χ(k) plot, drag the shaded window's left or right edge to set k min or k max. Clear the numeric value for Auto.").into_any_element()),
                     self.field(ParamKey::BkgKweight, cx),
                     self.field(ParamKey::BkgNknots, cx),
                 ]
@@ -433,8 +435,14 @@ impl StudioApp {
                 [
                     self.field(ParamKey::BkgClampLo, cx),
                     self.field(ParamKey::BkgClampHi, cx),
+                    self.field(ParamKey::BkgNclamp, cx),
                     Some(self.enum_row("clamp model", EnumParam::BkgClampPolicy, cx)),
-                    self.field(ParamKey::BkgClampLambda, cx),
+                    if self.ui_params().bkg_clamp_policy == rexafs::prelude::AUTOBKClampScalePolicy::FixedPenalty {
+                        self.field(ParamKey::BkgClampLambda, cx)
+                    } else {
+                        Some(self.note("λ is inactive for legacy clamp models. Select Fixed λ with the linear solver to use a constant penalty.").into_any_element())
+                    },
+                    Some(self.note("Clamp points sets the number of samples at each active end. Zero points disables clamping; in Fixed λ, λ = 0 also disables it.").into_any_element()),
                     Some(self.enum_row("window", EnumParam::BkgWindow, cx)),
                     self.field(ParamKey::BkgDk, cx),
                 ]
@@ -479,8 +487,15 @@ impl StudioApp {
         });
         let (kmin, kmax, _, _) = self.fft_summary();
         let p = self.ui_params();
-        let rmin = p.bft_rmin.unwrap_or(1.0);
-        let rmax = p.bft_rmax.unwrap_or(3.0);
+        let back_ft = self.spectrum.as_ref().and_then(|sp| sp.xftr.as_ref());
+        let rmin = p
+            .bft_rmin
+            .or_else(|| back_ft.and_then(|f| f.rmin))
+            .unwrap_or(0.0);
+        let rmax = p
+            .bft_rmax
+            .or_else(|| back_ft.and_then(|f| f.rmax))
+            .unwrap_or(20.0);
         let nidp = 2.0 * (kmax - kmin) * (rmax - rmin) / std::f64::consts::PI;
         div()
             .flex()
@@ -508,8 +523,9 @@ impl StudioApp {
                     self.field(ParamKey::BftRmin, cx),
                     self.field(ParamKey::BftRmax, cx),
                     self.field(ParamKey::BftDr, cx),
+                    Some(self.enum_row("window", EnumParam::BftWindow, cx)),
                     Some(
-                        self.note("Isolates a shell: χ(q) overlays k-weighted χ(k) when the shell is well separated.")
+                        self.note("Drag the R-window edges on χ(R) to set this range. The back transform isolates the selected shell in χ(q).")
                             .into_any_element(),
                     ),
                 ]

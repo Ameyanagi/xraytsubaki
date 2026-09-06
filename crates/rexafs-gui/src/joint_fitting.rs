@@ -231,7 +231,42 @@ pub(crate) fn prepare(
     output.vars.resolve_values().map_err(|e| e.to_string())?;
     Ok(output)
 }
-pub(crate) fn run(
+pub(crate) fn run_processed(
+    config: &JointConfig,
+    spectra: &[rexafs::prelude::XASSpectrum],
+    paths: &[FitPathSpec],
+    vars: &[FitVarSpec],
+    ranges: &FitRanges,
+) -> Result<(FeffFitResult, Vec<FitPathSpec>), String> {
+    if spectra.len() != config.datasets.len() {
+        return Err("Joint dataset count changed while preparing data.".into());
+    }
+    let mut data = Vec::with_capacity(spectra.len());
+    for (spectrum, dataset) in spectra.iter().zip(&config.datasets) {
+        let rbkg = crate::fitting::spectrum_rbkg(spectrum).ok_or_else(|| {
+            format!(
+                "{}: prepare the spectrum with AUTOBK before fitting.",
+                dataset.label
+            )
+        })?;
+        dataset
+            .ranges
+            .as_ref()
+            .unwrap_or(ranges)
+            .validate_background(rbkg)
+            .map_err(|e| format!("{}: {e}", dataset.label))?;
+        let (Some(k), Some(chi)) = (spectrum.k(), spectrum.chi()) else {
+            return Err(format!("{}: no processed χ(k).", dataset.label));
+        };
+        data.push((
+            DVector::from_column_slice(k),
+            DVector::from_column_slice(chi),
+        ));
+    }
+    run(config, &data, paths, vars, ranges)
+}
+
+fn run(
     config: &JointConfig,
     data: &[(DVector<f64>, DVector<f64>)],
     paths: &[FitPathSpec],
@@ -281,6 +316,42 @@ pub(crate) fn result_view(result: &FeffFitResult, index: usize) -> FeffFitResult
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn joint_fit_checks_each_processed_background_and_its_own_range() {
+        use rexafs::prelude::{BackgroundMethod, XASSpectrum};
+        use rexafs::xafs::background::AUTOBK;
+        let (mut config, paths, vars) = fixture();
+        let spectra: Vec<_> = [1.0, 1.3]
+            .into_iter()
+            .map(|rbkg| {
+                let mut spectrum = XASSpectrum::default();
+                spectrum.background = Some(BackgroundMethod::AUTOBK(AUTOBK {
+                    rbkg: Some(rbkg),
+                    k: Some(DVector::from_vec(vec![0., 1.])),
+                    chi: Some(DVector::zeros(2)),
+                    ..Default::default()
+                }));
+                spectrum
+            })
+            .collect();
+        let error = run_processed(&config, &spectra, &paths, &vars, &FitRanges::default())
+            .err()
+            .unwrap();
+        assert!(error.starts_with("B:"), "{error}");
+        assert!(error.contains("Rbkg (1.3000 Å)"), "{error}");
+        // A safe shared range does not excuse an unsafe per-dataset override.
+        config.datasets[1].ranges = Some(FitRanges::default());
+        let shared = FitRanges {
+            rmin: 1.5,
+            ..Default::default()
+        };
+        let error = run_processed(&config, &spectra, &paths, &vars, &shared)
+            .err()
+            .unwrap();
+        assert!(error.starts_with("B:"), "{error}");
+        assert!(error.contains("Rbkg"), "{error}");
+    }
+
     fn fixture() -> (JointConfig, Vec<FitPathSpec>, Vec<FitVarSpec>) {
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../rexafs/tests/testfiles/xraylarch_d867/feffit/Feff_Cu");

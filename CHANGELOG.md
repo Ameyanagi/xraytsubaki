@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- Add visible Select all, Deselect all and Invert group controls, with scoped
+  keyboard shortcuts and explicit overlay scope.
+- Restore per-spectrum project settings across directory aliases and catalog
+  refreshes, reload the current plot, and invalidate raw caches when indices change.
+- Edit AUTOBK k limits and inverse-transform R limits by dragging plot handles.
+  Keep the full measured k range visible while changing the background window.
+- Require fit R min to be at least the spectrum's AUTOBK Rbkg, including numeric
+  edits, plot drags, restored models, and individual batch/joint solver inputs.
+- Expose edge-step overrides, endpoint clamp-point counts and the inverse FFT
+  window in the GUI; show when fixed λ is inactive for a legacy clamp model.
+- Add flattened normalized μ(E) to Publish as a separate figure using the exact
+  library output. Export visible curve data as CSV alongside PNG/SVG figures,
+  preserve figure choices across spectrum changes, and flag stale fit figures.
+
 ## 0.1.1
 
 - Fix duplicate stationary spectra exposed during fast desktop plot pans by

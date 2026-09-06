@@ -35,6 +35,41 @@ pub const PLOT_FIT_Q: usize = 104;
 /// Pixel distance within which a handle arms.
 const ARM_PX: f64 = 7.0;
 
+/// Use raw energy coverage, not the shortened χ(k) grid: users must be able
+/// to drag k-max outward again after reducing it. Share the core conversion.
+pub(crate) fn background_k_domain(sp: &rexafs::prelude::XASSpectrum) -> Option<(f64, f64)> {
+    use rexafs::xafs::xafsutils::XAFSUtils;
+    let e0 = match sp.background.as_ref()? {
+        BackgroundMethod::AUTOBK(a) => a.ek0.or_else(|| sp.e0())?,
+        _ => return None,
+    };
+    let emax = sp.energy.as_ref()?.iter().copied().max_by(f64::total_cmp)?;
+    (emax > e0).then(|| (0.0, (emax - e0).etok()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn background_handle_can_expand_past_a_cropped_chi_grid() {
+        use rexafs::xafs::xafsutils::constants::KTOE;
+        let mut sp = rexafs::prelude::XASSpectrum::default();
+        sp.energy = Some(nalgebra::DVector::from_vec(vec![
+            9000.,
+            9000. + KTOE * 16.0_f64.powi(2),
+        ]));
+        sp.background = Some(BackgroundMethod::AUTOBK(rexafs::xafs::background::AUTOBK {
+            ek0: Some(9000.),
+            kmax: Some(10.),
+            k: Some(nalgebra::DVector::from_vec(vec![0., 10.])),
+            ..Default::default()
+        }));
+        let (lo, hi) = background_k_domain(&sp).unwrap();
+        assert_eq!(lo, 0.0);
+        assert!((hi - 16.).abs() < 1e-12, "{hi}");
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum HandleKey {
     E0,
@@ -42,8 +77,12 @@ pub enum HandleKey {
     PreEnd,
     NormStart,
     NormEnd,
+    BkgKmin,
+    BkgKmax,
     FftKmin,
     FftKmax,
+    BftRmin,
+    BftRmax,
     Rbkg,
     FitKmin,
     FitKmax,
@@ -60,8 +99,12 @@ impl HandleKey {
             HandleKey::PreEnd => ParamKey::PreEdgeEnd,
             HandleKey::NormStart => ParamKey::NormStart,
             HandleKey::NormEnd => ParamKey::NormEnd,
+            HandleKey::BkgKmin => ParamKey::BkgKmin,
+            HandleKey::BkgKmax => ParamKey::BkgKmax,
             HandleKey::FftKmin => ParamKey::FftKmin,
             HandleKey::FftKmax => ParamKey::FftKmax,
+            HandleKey::BftRmin => ParamKey::BftRmin,
+            HandleKey::BftRmax => ParamKey::BftRmax,
             HandleKey::Rbkg => ParamKey::Rbkg,
             HandleKey::FitKmin | HandleKey::FitKmax | HandleKey::FitRmin | HandleKey::FitRmax => {
                 return None;
@@ -83,10 +126,14 @@ impl HandleKey {
             HandleKey::PreStart | HandleKey::PreEnd | HandleKey::NormStart | HandleKey::NormEnd => {
                 1.0
             }
-            HandleKey::FftKmin | HandleKey::FftKmax => 0.1,
+            HandleKey::FftKmin | HandleKey::FftKmax | HandleKey::BkgKmin | HandleKey::BkgKmax => {
+                0.1
+            }
             HandleKey::Rbkg => 0.05,
             HandleKey::FitKmin | HandleKey::FitKmax => 0.1,
-            HandleKey::FitRmin | HandleKey::FitRmax => 0.05,
+            HandleKey::FitRmin | HandleKey::FitRmax | HandleKey::BftRmin | HandleKey::BftRmax => {
+                0.05
+            }
         }
     }
 
@@ -97,11 +144,18 @@ impl HandleKey {
             HandleKey::PreStart | HandleKey::PreEnd | HandleKey::NormStart | HandleKey::NormEnd => {
                 format!("{x:.0} eV")
             }
-            HandleKey::FftKmin | HandleKey::FftKmax | HandleKey::FitKmin | HandleKey::FitKmax => {
+            HandleKey::FftKmin
+            | HandleKey::FftKmax
+            | HandleKey::FitKmin
+            | HandleKey::FitKmax
+            | HandleKey::BkgKmin
+            | HandleKey::BkgKmax => {
                 format!("k {x:.1} Å⁻¹")
             }
             HandleKey::Rbkg => format!("Rbkg {x:.2} Å"),
-            HandleKey::FitRmin | HandleKey::FitRmax => format!("R {x:.2} Å"),
+            HandleKey::FitRmin | HandleKey::FitRmax | HandleKey::BftRmin | HandleKey::BftRmax => {
+                format!("R {x:.2} Å")
+            }
         }
     }
 
@@ -226,6 +280,43 @@ impl StudioApp {
                             accent: false,
                         },
                     ],
+                )
+            }
+            (Stage::Background, PLOT_CHIK) => {
+                let a = match sp.background.as_ref() {
+                    Some(BackgroundMethod::AUTOBK(a)) => a,
+                    _ => return (Vec::new(), Vec::new()),
+                };
+                let lo = p.bkg_kmin.or(a.kmin).unwrap_or(0.0);
+                let available = background_k_domain(sp).map(|(_, hi)| hi).unwrap_or(0.0);
+                let hi = p.bkg_kmax.or(a.kmax).unwrap_or(available).min(available);
+                (
+                    vec![(HandleKey::BkgKmin, lo), (HandleKey::BkgKmax, hi)],
+                    vec![Span {
+                        lo: Some(HandleKey::BkgKmin),
+                        hi: Some(HandleKey::BkgKmax),
+                        fixed_lo: 0.0,
+                        accent: true,
+                    }],
+                )
+            }
+            (Stage::Transform, PLOT_CHIR) => {
+                let lo = p
+                    .bft_rmin
+                    .or_else(|| sp.xftr.as_ref().and_then(|f| f.rmin))
+                    .unwrap_or(0.0);
+                let hi = p
+                    .bft_rmax
+                    .or_else(|| sp.xftr.as_ref().and_then(|f| f.rmax))
+                    .unwrap_or(20.0);
+                (
+                    vec![(HandleKey::BftRmin, lo), (HandleKey::BftRmax, hi)],
+                    vec![Span {
+                        lo: Some(HandleKey::BftRmin),
+                        hi: Some(HandleKey::BftRmax),
+                        fixed_lo: 0.0,
+                        accent: true,
+                    }],
                 )
             }
             (Stage::Transform, PLOT_CHIK) => {
@@ -602,6 +693,15 @@ impl StudioApp {
         // Snap away the binary noise of `round() * step` (22130.1000000002)
         // so fields and the journal show the intended decimal.
         let value = (value * 1e6).round() / 1e6;
+        // Reapply the domain after rounding so the end never crosses the
+        // measured range when the final sample is between rounding steps.
+        let value = if !key.relative_to_e0() {
+            self.handle_domain(key)
+                .filter(|(lo, hi)| lo < hi)
+                .map_or(value, |(lo, hi)| value.clamp(lo, hi))
+        } else {
+            value
+        };
         let value = match key {
             HandleKey::Rbkg | HandleKey::FftKmin | HandleKey::FitKmin | HandleKey::FitRmin => {
                 value.max(0.0)
@@ -611,6 +711,12 @@ impl StudioApp {
         let Some(param) = key.param() else {
             // Fit ranges: model state, not pipeline params.
             let id = self.joint_plotted_dataset_id();
+            // Clamp after rounding as Rbkg need not lie on the handle's grid.
+            let value = if key == HandleKey::FitRmin {
+                value.max(self.fit_background_floor(id))
+            } else {
+                value
+            };
             let r = if let Some(d) = self
                 .joint
                 .config
@@ -622,6 +728,13 @@ impl StudioApp {
             } else {
                 &mut self.fit_ranges
             };
+            if (key == HandleKey::FitRmin && value >= r.rmax)
+                || (key == HandleKey::FitRmax && value <= r.rmin)
+                || (key == HandleKey::FitKmin && value >= r.kmax)
+                || (key == HandleKey::FitKmax && value <= r.kmin)
+            {
+                return;
+            }
             let slot = match key {
                 HandleKey::FitKmin => &mut r.kmin,
                 HandleKey::FitKmax => &mut r.kmax,
@@ -638,6 +751,26 @@ impl StudioApp {
             cx.notify();
             return;
         };
+        let plot = match key {
+            HandleKey::BkgKmin | HandleKey::BkgKmax => Some(PLOT_CHIK),
+            HandleKey::BftRmin | HandleKey::BftRmax => Some(PLOT_CHIR),
+            _ => None,
+        };
+        if let Some(plot) = plot {
+            let (specs, _) = self.handle_specs(plot);
+            let (other, is_min) = match key {
+                HandleKey::BkgKmin => (HandleKey::BkgKmax, true),
+                HandleKey::BkgKmax => (HandleKey::BkgKmin, false),
+                HandleKey::BftRmin => (HandleKey::BftRmax, true),
+                _ => (HandleKey::BftRmin, false),
+            };
+            if specs
+                .iter()
+                .any(|(k, x)| *k == other && if is_min { value >= *x } else { value <= *x })
+            {
+                return;
+            }
+        }
         let current = crate::app::param_field_value(param, self.ui_params());
         if current == Some(value) {
             return;
@@ -726,6 +859,7 @@ impl StudioApp {
                     Some((lo, hi))
                 }
             }
+            HandleKey::BkgKmin | HandleKey::BkgKmax => background_k_domain(sp),
             HandleKey::FftKmin | HandleKey::FftKmax | HandleKey::FitKmin | HandleKey::FitKmax => {
                 Some((
                     0.0,
@@ -735,9 +869,11 @@ impl StudioApp {
                         .and_then(last)?,
                 ))
             }
-            HandleKey::Rbkg | HandleKey::FitRmin | HandleKey::FitRmax => {
-                Some((0.0, sp.r().as_ref().and_then(last)?))
-            }
+            HandleKey::Rbkg
+            | HandleKey::FitRmin
+            | HandleKey::FitRmax
+            | HandleKey::BftRmin
+            | HandleKey::BftRmax => Some((0.0, sp.r().as_ref().and_then(last)?)),
         }
     }
 

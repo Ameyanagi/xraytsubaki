@@ -123,7 +123,12 @@ fn save_figure(
 ) -> Result<(), String> {
     let rendered = figures::render_figure(data, &settings.options(data.key))?;
     fs::write(path, rendered.png).map_err(|e| e.to_string())?;
-    fs::write(path.with_extension("svg"), rendered.svg).map_err(|e| e.to_string())
+    fs::write(path.with_extension("svg"), rendered.svg).map_err(|e| e.to_string())?;
+    fs::write(
+        path.with_extension("csv"),
+        data.csv(&settings.options(data.key))?,
+    )
+    .map_err(|e| e.to_string())
 }
 pub(crate) fn spectrum_plots(
     sp: Arc<XASSpectrum>,
@@ -243,7 +248,7 @@ pub(crate) fn export(mut snapshot: Snapshot, destination: &Path) -> Result<PathB
                     &s.path.file_name().unwrap_or_default().to_string_lossy(),
                 ) {
                     let filename = format!("{id}-{}.png", figure.key);
-                    match save_figure(&figure,&snapshot.project.publication,&figs.join(&filename)) {Ok(())=>assets.push(json!({"file":format!("figures/{filename}"),"svg":format!("figures/{}",filename.replace(".png",".svg")),"source":s.path,"kind":figure.key,"number":assets.len()+1,"caption":format!("Spectrum {} ({}). {}",i+1,s.path.file_name().unwrap_or_default().to_string_lossy(),figure.caption(&snapshot.project.publication.options(figure.key)))})),Err(e)=>errors.push(format!("{filename}: {e}"))}
+                    match save_figure(&figure,&snapshot.project.publication,&figs.join(&filename)) {Ok(())=>assets.push(json!({"file":format!("figures/{filename}"),"svg":format!("figures/{}",filename.replace(".png",".svg")),"csv":format!("figures/{}",filename.replace(".png",".csv")),"source":s.path,"kind":figure.key,"number":assets.len()+1,"caption":format!("Spectrum {} ({}). {}",i+1,s.path.file_name().unwrap_or_default().to_string_lossy(),figure.caption(&snapshot.project.publication.options(figure.key)))})),Err(e)=>errors.push(format!("{filename}: {e}"))}
                 }
             }
             Err(e) => errors.push(format!("{}: {e}", s.path.display())),
@@ -258,7 +263,7 @@ pub(crate) fn export(mut snapshot: Snapshot, destination: &Path) -> Result<PathB
             }
             for figure in figures::fit_figures(&view) {
                 let filename = format!("fit-{id}-spectrum-{}-{}.png", index + 1, figure.key);
-                match save_figure(&figure,&snapshot.project.publication,&figs.join(&filename)) {Ok(())=>assets.push(json!({"file":format!("figures/{filename}"),"svg":format!("figures/{}",filename.replace(".png",".svg")),"fit_id":id,"dataset_index":index,"kind":figure.key,"number":assets.len()+1,"caption":format!("Fit {id}, dataset {}. {}",index+1,figure.caption(&snapshot.project.publication.options(figure.key)))})),Err(e)=>errors.push(format!("{filename}: {e}"))}
+                match save_figure(&figure,&snapshot.project.publication,&figs.join(&filename)) {Ok(())=>assets.push(json!({"file":format!("figures/{filename}"),"svg":format!("figures/{}",filename.replace(".png",".svg")),"csv":format!("figures/{}",filename.replace(".png",".csv")),"fit_id":id,"dataset_index":index,"kind":figure.key,"number":assets.len()+1,"caption":format!("Fit {id}, dataset {}. {}",index+1,figure.caption(&snapshot.project.publication.options(figure.key)))})),Err(e)=>errors.push(format!("{filename}: {e}"))}
             }
         }
     }
@@ -302,6 +307,9 @@ pub(crate) fn export(mut snapshot: Snapshot, destination: &Path) -> Result<PathB
             if let Some(svg) = asset["svg"].as_str() {
                 index.push_str(&format!("[Download vector SVG]({svg})\n\n"));
             }
+        }
+        if let Some(csv) = asset["csv"].as_str() {
+            index.push_str(&format!("[Download curve data CSV]({csv})\n\n"));
         }
     }
     if !errors.is_empty() {
@@ -369,7 +377,7 @@ mod tests {
         export(snapshot, &folder).unwrap();
         let manifest: Value =
             serde_json::from_slice(&fs::read(folder.join("manifest.json")).unwrap()).unwrap();
-        assert_eq!(manifest["figures"].as_array().unwrap().len(), 5);
+        assert_eq!(manifest["figures"].as_array().unwrap().len(), 6);
         assert_eq!(manifest["project_storage"], "embedded");
         let restored = crate::project::load(&folder.join("project.rxs")).unwrap();
         assert_eq!(restored.data_storage, crate::project::DataStorage::Embedded);
@@ -389,7 +397,7 @@ mod tests {
                 .contains("Copper processing settings")
         );
         let report = fs::read_to_string(folder.join("report.html")).unwrap();
-        assert_eq!(report.matches("<figcaption>").count(), 5);
+        assert_eq!(report.matches("<figcaption>").count(), 6);
         assert_eq!(report.matches("<caption>").count(), 1);
         assert!(report.contains("Copper &lt;reference&gt; &amp; EXAFS."));
         assert!(report.contains("Absorption edge E₀"));
@@ -419,6 +427,8 @@ mod tests {
                 .unwrap();
         assert!(data["energy"].is_array() || data["energy"].is_object());
         for asset in manifest["figures"].as_array().unwrap() {
+            let csv = fs::read_to_string(folder.join(asset["csv"].as_str().unwrap())).unwrap();
+            assert!(csv.lines().count() > 1);
             let bytes = fs::read(folder.join(asset["file"].as_str().unwrap())).unwrap();
             assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n");
             let default = if asset["kind"] == "chi-k" {

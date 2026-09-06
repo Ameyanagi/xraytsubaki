@@ -39,7 +39,7 @@ use crate::catalog::{Catalog, ScanEvent, index_cache_path, load_index, start_sca
 use crate::fitting::expr_identifiers;
 use crate::fitting::{
     BatchFitRow, FitHistoryEntry, FitPathSpec, FitRanges, FitVarSpec, PathMeta, batch_csv,
-    path_meta, run_fit,
+    path_meta, run_spectrum_fit,
 };
 use crate::params::{
     AUTOBK_SOLVERS, DerivedSpectrum, DetectionMode, FT_WINDOWS, ImportPreview, PipelineParams,
@@ -89,6 +89,7 @@ pub(crate) enum ParamKey {
     ImpIrCol,
     AlignTarget,
     E0,
+    EdgeStep,
     PreEdgeStart,
     PreEdgeEnd,
     NormStart,
@@ -103,6 +104,7 @@ pub(crate) enum ParamKey {
     BkgKweight,
     BkgClampLo,
     BkgClampHi,
+    BkgNclamp,
     BkgClampLambda,
     BkgDk,
     BkgNfft,
@@ -127,6 +129,7 @@ pub(crate) enum EnumParam {
     BkgSolver,
     BkgClampPolicy,
     FftWindow,
+    BftWindow,
 }
 
 /// Import role edited by a detected-column picker.
@@ -155,6 +158,7 @@ pub(crate) enum ParamSection {
 fn param_step(key: ParamKey) -> f64 {
     match key {
         ParamKey::E0 => 0.5,
+        ParamKey::EdgeStep => 0.01,
         ParamKey::PreEdgeStart
         | ParamKey::PreEdgeEnd
         | ParamKey::NormStart
@@ -184,6 +188,7 @@ fn copy_section(dst: &mut PipelineParams, src: &PipelineParams, section: ParamSe
         }
         ParamSection::Norm => {
             dst.e0 = src.e0;
+            dst.edge_step = src.edge_step;
             dst.pre_edge_start = src.pre_edge_start;
             dst.pre_edge_end = src.pre_edge_end;
             dst.norm_start = src.norm_start;
@@ -200,6 +205,7 @@ fn copy_section(dst: &mut PipelineParams, src: &PipelineParams, section: ParamSe
             dst.bkg_kweight = src.bkg_kweight;
             dst.bkg_clamp_lo = src.bkg_clamp_lo;
             dst.bkg_clamp_hi = src.bkg_clamp_hi;
+            dst.bkg_nclamp = src.bkg_nclamp;
             dst.bkg_clamp_lambda = src.bkg_clamp_lambda;
             dst.bkg_clamp_policy = src.bkg_clamp_policy;
             dst.bkg_window = src.bkg_window;
@@ -260,6 +266,7 @@ fn param_field_value(key: ParamKey, p: &PipelineParams) -> Option<f64> {
         ParamKey::ImpIrCol => p.import.ir_col.map(|column| column as f64),
         ParamKey::AlignTarget => p.align_target,
         ParamKey::E0 => p.e0,
+        ParamKey::EdgeStep => p.edge_step,
         ParamKey::PreEdgeStart => p.pre_edge_start,
         ParamKey::PreEdgeEnd => p.pre_edge_end,
         ParamKey::NormStart => p.norm_start,
@@ -274,6 +281,7 @@ fn param_field_value(key: ParamKey, p: &PipelineParams) -> Option<f64> {
         ParamKey::BkgKweight => p.bkg_kweight.map(|v| v as f64),
         ParamKey::BkgClampLo => p.bkg_clamp_lo.map(|v| v as f64),
         ParamKey::BkgClampHi => p.bkg_clamp_hi.map(|v| v as f64),
+        ParamKey::BkgNclamp => p.bkg_nclamp.map(|v| v as f64),
         ParamKey::BkgClampLambda => p.bkg_clamp_lambda,
         ParamKey::BkgDk => p.bkg_dk,
         ParamKey::BkgNfft => p.bkg_nfft.map(|v| v as f64),
@@ -305,6 +313,8 @@ actions!(
         NavDown,
         NavExtendUp,
         NavExtendDown,
+        MarkAllGroups,
+        InvertGroupMarks,
         ClearCompare,
         FramePrev,
         FrameNext,
@@ -343,6 +353,9 @@ pub fn studio_keybindings() -> Vec<KeyBinding> {
         KeyBinding::new("down", NavDown, Some("DataPanel")),
         KeyBinding::new("shift-up", NavExtendUp, Some("DataPanel")),
         KeyBinding::new("shift-down", NavExtendDown, Some("DataPanel")),
+        KeyBinding::new("cmd-a", MarkAllGroups, Some("DataPanel && !TextInput")),
+        KeyBinding::new("cmd-shift-a", ClearCompare, Some("DataPanel && !TextInput")),
+        KeyBinding::new("cmd-i", InvertGroupMarks, Some("DataPanel && !TextInput")),
         KeyBinding::new(
             "escape",
             ClearCompare,
@@ -2142,6 +2155,10 @@ impl StudioApp {
         }
         self.cache.clear();
         // Overrides are keyed by catalog index; a new catalog orphans them.
+        self.raw_cache.clear();
+        self.frozen.clear();
+        self.thumbs = None;
+        self.stale_plots = None;
         // Persisted copies live in the project file, keyed by path.
         self.overrides.clear();
         self.pending_overrides.clear();
@@ -2220,13 +2237,14 @@ impl StudioApp {
         const COL: FieldKind = FieldKind::Integer { min: Some(0) };
         const INT: FieldKind = FieldKind::Integer { min: None };
         const FLOAT: FieldKind = FieldKind::Float;
-        let specs: [(ParamKey, &str, &str, FieldKind); 34] = [
+        let specs: [(ParamKey, &str, &str, FieldKind); 36] = [
             (ParamKey::ImpEnergyCol, "energy col", "0", COL),
             (ParamKey::ImpI0Col, "I0 col", "1", COL),
             (ParamKey::ImpItCol, "It col", "2", COL),
             (ParamKey::ImpIrCol, "Ir col", "3", COL),
             (ParamKey::AlignTarget, "ref E0 target", "e.g. 22117", FLOAT),
             (ParamKey::E0, "E0 (eV)", "auto", FLOAT),
+            (ParamKey::EdgeStep, "edge step", "auto", FLOAT),
             // These four are eV *relative to E0* — the thing newcomers get
             // wrong. The label carries the unit; the "relative to E0" part is
             // stated once in the panel footer, since a 260px panel leaves
@@ -2243,8 +2261,8 @@ impl StudioApp {
                 "auto (-30)",
                 FLOAT,
             ),
-            (ParamKey::NormStart, "norm start (eV)", "auto (150)", FLOAT),
-            (ParamKey::NormEnd, "norm end (eV)", "auto (2000)", FLOAT),
+            (ParamKey::NormStart, "fit minimum (eV)", "auto (150)", FLOAT),
+            (ParamKey::NormEnd, "fit maximum (eV)", "auto (2000)", FLOAT),
             (ParamKey::NormPolyorder, "poly order", "auto (2)", INT),
             (ParamKey::NVictoreen, "victoreen n", "auto (0)", INT),
             (ParamKey::Rbkg, "rbkg (Å)", "auto (1.0)", FLOAT),
@@ -2258,6 +2276,7 @@ impl StudioApp {
             (ParamKey::BkgKweight, "bkg k-weight", "auto (1)", INT),
             (ParamKey::BkgClampLo, "clamp lo", "auto (0)", INT),
             (ParamKey::BkgClampHi, "clamp hi", "auto (1)", INT),
+            (ParamKey::BkgNclamp, "clamp points", "auto (3)", COL),
             (ParamKey::BkgClampLambda, "clamp λ", "auto (0.001)", FLOAT),
             (ParamKey::BkgDk, "window dk (Å⁻¹)", "auto (0.1)", FLOAT),
             (ParamKey::BkgNfft, "nfft", "auto (2048)", INT),
@@ -2323,6 +2342,7 @@ impl StudioApp {
             ParamKey::ImpIrCol => p.import.ir_col = col,
             ParamKey::AlignTarget => p.align_target = value,
             ParamKey::E0 => p.e0 = value,
+            ParamKey::EdgeStep => p.edge_step = value,
             ParamKey::PreEdgeStart => p.pre_edge_start = value,
             ParamKey::PreEdgeEnd => p.pre_edge_end = value,
             ParamKey::NormStart => p.norm_start = value,
@@ -2337,6 +2357,7 @@ impl StudioApp {
             ParamKey::BkgKweight => p.bkg_kweight = int,
             ParamKey::BkgClampLo => p.bkg_clamp_lo = int,
             ParamKey::BkgClampHi => p.bkg_clamp_hi = int,
+            ParamKey::BkgNclamp => p.bkg_nclamp = int,
             ParamKey::BkgClampLambda => p.bkg_clamp_lambda = value,
             ParamKey::BkgDk => p.bkg_dk = value,
             ParamKey::BkgNfft => p.bkg_nfft = int,
@@ -2411,6 +2432,10 @@ impl StudioApp {
                 "auto (KaiserBessel)",
                 FT_WINDOWS.iter().map(|w| format!("{w:?}")).collect(),
             ),
+            EnumParam::BftWindow => (
+                "auto (KaiserBessel)",
+                FT_WINDOWS.iter().map(|w| format!("{w:?}")).collect(),
+            ),
         };
         let mut out = vec![auto_label.to_string()];
         out.extend(variants);
@@ -2457,6 +2482,9 @@ impl StudioApp {
             }
             EnumParam::FftWindow => {
                 p.fft_window = variant.map(|i| FT_WINDOWS[i]);
+            }
+            EnumParam::BftWindow => {
+                p.bft_window = variant.map(|i| FT_WINDOWS[i]);
             }
         }
         self.open_enum = None;
@@ -2506,6 +2534,11 @@ impl StudioApp {
                 .unwrap_or(0),
             EnumParam::FftWindow => p
                 .fft_window
+                .and_then(|w| FT_WINDOWS.iter().position(|x| *x == w))
+                .map(|i| i + 1)
+                .unwrap_or(0),
+            EnumParam::BftWindow => p
+                .bft_window
                 .and_then(|w| FT_WINDOWS.iter().position(|x| *x == w))
                 .map(|i| i + 1)
                 .unwrap_or(0),
@@ -3675,7 +3708,18 @@ impl StudioApp {
             Vec::new()
         };
         let in_plot_legend = self.maximized.is_some();
-        let specs = build_quadrant_specs(&traces, &self.view, &self.theme, in_plot_legend);
+        let mut specs = build_quadrant_specs(&traces, &self.view, &self.theme, in_plot_legend);
+        if self.stage == Stage::Background
+            && let Some((_, hi)) = self
+                .spectrum
+                .as_ref()
+                .and_then(|sp| shell::handles::background_k_domain(sp))
+        {
+            // Keep the measured k range visible while AUTOBK truncates its
+            // output. Otherwise every recompute auto-zooms to the new limit
+            // and makes an outward drag chase a moving axis.
+            specs[shell::center::PLOT_CHIK].xlim = Some((-0.04 * hi, 1.04 * hi));
+        }
         // The figure aspect follows the card layout (ruviz-gpui fits the
         // figure aspect inside the container). Stage handles (range regions,
         // E0 / Rbkg lines) are painted by GPUI; see shell::handles.
@@ -3943,6 +3987,25 @@ impl StudioApp {
     /// keyed by catalog indices is invalidated; the active spectrum is
     /// re-located by path so the plots keep their subject when it survived.
     fn install_refreshed_catalog(&mut self, catalog: Catalog, cx: &mut Context<Self>) {
+        let remap = |indices: &BTreeSet<usize>| -> BTreeSet<usize> {
+            indices
+                .iter()
+                .filter_map(|&ix| {
+                    if ix >= DERIVED_BASE {
+                        Some(ix)
+                    } else if ix < self.catalog.len() {
+                        catalog.find_by_path(&self.catalog.path(ix))
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        };
+        let selection = remap(&self.selection);
+        let frozen = remap(&self.frozen);
+        let derived_selected = self
+            .selected
+            .filter(|&ix| ix >= DERIVED_BASE && ix != NO_ENTRY);
         self.generation += 1;
         self.compare_gen += 1;
         self.operando_gen += 1;
@@ -3980,8 +4043,10 @@ impl StudioApp {
             .into_iter()
             .filter_map(|(path, params)| self.catalog.find_by_path(&path).map(|ix| (ix, params)))
             .collect();
-        self.selection.clear();
+        self.selection = selection;
+        self.frozen = frozen;
         self.cache.clear();
+        self.raw_cache.clear();
         self.expanded_scan = None;
         self.active_scan = None;
         self.operando = None;
@@ -3989,9 +4054,21 @@ impl StudioApp {
         self.time_pos = 0;
         self.pending_time_pos = None;
         self.batch_fit = None;
-        self.selected = (!self.current_path.as_os_str().is_empty())
-            .then(|| (0..self.catalog.len()).find(|&ix| self.catalog.path(ix) == self.current_path))
-            .flatten();
+        self.selected = derived_selected.or_else(|| self.catalog.find_by_path(&self.current_path));
+        self.resolve_pending_overrides(cx);
+        if self.pending_project_spectrum.is_some() {
+            self.restore_project_selection(cx);
+        } else if let Some(ix) = self.selected {
+            // The generation change cancelled any in-flight first load.
+            // Explicitly reload even if this group was already selected.
+            let path = if ix < DERIVED_BASE {
+                self.catalog.path(ix)
+            } else {
+                self.current_path.clone()
+            };
+            let label = self.entry_label(ix);
+            self.load_spectrum(ix, path, label.into(), cx);
+        }
         if !self.filter_text.is_empty() {
             self.apply_filter(cx);
         }
@@ -4518,6 +4595,16 @@ impl StudioApp {
                         }
                     };
                     if let Some(v) = value {
+                        if matches!(key, RangeKey::Rmin) && *v < this.fit_background_floor(None) {
+                            this.status = format!(
+                                "Fit R min must be at least Rbkg ({:.4} Å).",
+                                this.fit_background_floor(None)
+                            )
+                            .into();
+                            this.sync_range_fields(cx);
+                            cx.notify();
+                            return;
+                        }
                         let r = &mut this.fit_ranges;
                         match key {
                             RangeKey::Kmin => r.kmin = *v,
@@ -4879,14 +4966,7 @@ impl StudioApp {
             cx.notify();
             return;
         };
-        let (Some(k), Some(chi)) = (
-            sp.k().map(nalgebra::DVector::from_column_slice),
-            sp.chi().map(nalgebra::DVector::from_column_slice),
-        ) else {
-            self.status = "current spectrum has no chi(k) — check background".into();
-            cx.notify();
-            return;
-        };
+        let sp = sp.clone();
         self.fit_gen += 1;
         let generation = self.fit_gen;
         let provenance = FitProvenance {
@@ -4908,7 +4988,7 @@ impl StudioApp {
         let history_inputs = (paths.clone(), vars.clone(), ranges.clone());
         let job = cx
             .background_executor()
-            .spawn(async move { run_fit(k, chi, &paths, &vars, &ranges) });
+            .spawn(async move { run_spectrum_fit(&sp, &paths, &vars, &ranges) });
         cx.spawn(async move |this, cx| {
             let result = job.await;
             this.update(cx, |app, cx| {
@@ -5349,16 +5429,8 @@ impl StudioApp {
                         if job_cancel.load(Ordering::Relaxed) {
                             return Err("batch cancelled".into());
                         }
-                        let k = sp
-                            .k()
-                            .map(nalgebra::DVector::from_column_slice)
-                            .ok_or_else(|| "processed spectrum has no k grid".to_string())?;
-                        let chi = sp
-                            .chi()
-                            .map(nalgebra::DVector::from_column_slice)
-                            .ok_or_else(|| "processed spectrum has no chi(k)".to_string())?;
                         let frame_ranges = ranges.resolved(frame_params.fft_kweight);
-                        let result = run_fit(k, chi, &paths, &vars, &frame_ranges)?;
+                        let result = run_spectrum_fit(&sp, &paths, &vars, &frame_ranges)?;
                         Ok(BatchFitRow::from_result(*frame, *ix, &result))
                     })();
                     if job_cancel.load(Ordering::Relaxed)

@@ -154,6 +154,49 @@ pub(crate) struct FigureData {
 }
 
 impl FigureData {
+    /// One x/y pair per visible curve preserves distinct grids without
+    /// interpolation. Seventeen significant digits round-trip f64 values.
+    pub(crate) fn csv(&self, options: &FigureOptions) -> Result<String, String> {
+        let series: Vec<_> = self
+            .series
+            .iter()
+            .filter(|s| !options.hidden.contains(&s.key) && !s.x.is_empty())
+            .collect();
+        if series.is_empty() {
+            return Err("Select at least one curve with available data.".into());
+        }
+        if series.iter().any(|s| s.x.len() != s.y.len()) {
+            return Err("A curve has mismatched x and y arrays.".into());
+        }
+        let quote = crate::fitting::csv_field;
+        let mut csv = series
+            .iter()
+            .flat_map(|s| {
+                [
+                    quote(&format!("{}: {}", s.label, self.xlabel)),
+                    quote(&format!("{}: {}", s.label, self.ylabel)),
+                ]
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        csv.push('\n');
+        for row in 0..series.iter().map(|s| s.x.len()).max().unwrap_or(0) {
+            let cells: Vec<_> = series
+                .iter()
+                .flat_map(|s| {
+                    if row < s.x.len() {
+                        [format!("{:.16e}", s.x[row]), format!("{:.16e}", s.y[row])]
+                    } else {
+                        [String::new(), String::new()]
+                    }
+                })
+                .collect();
+            csv.push_str(&cells.join(","));
+            csv.push('\n');
+        }
+        Ok(csv)
+    }
+
     /// A factual starting caption, derived only from the curves actually shown.
     pub fn caption(&self, options: &FigureOptions) -> String {
         if let Some(caption) = &options.caption {
@@ -162,6 +205,9 @@ impl FigureData {
         let description = match self.key {
             "mu-energy" => "X-ray absorption spectrum and selected normalization/background curves",
             "normalized-mu" => "Edge-step-normalized X-ray absorption spectrum",
+            "flattened-mu" => {
+                "Flattened, edge-step-normalized X-ray absorption spectrum with the fitted post-edge trend removed"
+            }
             "chi-k" => "Background-subtracted EXAFS as a function of photoelectron wave number",
             "chi-r" => "Fourier-transformed EXAFS; radial coordinates are not phase corrected",
             "chi-q" => "Back-transformed EXAFS",
@@ -270,6 +316,28 @@ pub(crate) fn render_figure(
 }
 
 pub(crate) fn spectrum_figures(sp: Arc<XASSpectrum>, label: &str) -> Vec<FigureData> {
+    // Use the library output directly: a missing flat array must never become
+    // a normalized curve carrying a flattened label.
+    let flattened = sp
+        .energy
+        .as_ref()
+        .zip(sp.flat())
+        .and_then(|(energy, flat)| {
+            (!energy.is_empty() && energy.len() == flat.len()).then(|| FigureData {
+                key: "flattened-mu",
+                label: "flattened μ(E)".into(),
+                xlabel: "Energy (eV)".into(),
+                ylabel: "Flattened μ(E) (dimensionless)".into(),
+                series: vec![FigureSeries {
+                    key: "series-0".into(),
+                    label: label.into(),
+                    x: energy.iter().copied().collect(),
+                    y: flat.iter().copied().collect(),
+                    dashed: false,
+                }],
+                guides: sp.e0().into_iter().collect(),
+            })
+        });
     let weight = sp.kweight().copied().unwrap_or(2.);
     let opts = plotting::ViewOptions {
         flat: false,
@@ -288,7 +356,7 @@ pub(crate) fn spectrum_figures(sp: Arc<XASSpectrum>, label: &str) -> Vec<FigureD
         sp,
         active: true,
     }];
-    ["mu-energy", "normalized-mu", "chi-k", "chi-r", "chi-q"]
+    let mut figures: Vec<_> = ["mu-energy", "normalized-mu", "chi-k", "chi-r", "chi-q"]
         .into_iter()
         .zip(plotting::build_quadrant_specs(
             &traces,
@@ -328,7 +396,11 @@ pub(crate) fn spectrum_figures(sp: Arc<XASSpectrum>, label: &str) -> Vec<FigureD
                 })
                 .collect(),
         })
-        .collect()
+        .collect();
+    if let Some(flattened) = flattened {
+        figures.insert(2, flattened);
+    }
+    figures
 }
 
 pub(crate) fn fit_figures(result: &FeffFitResult) -> Vec<FigureData> {
@@ -465,6 +537,57 @@ pub(crate) fn fit_figures(result: &FeffFitResult) -> Vec<FigureData> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn flattened_publication_preserves_library_values_in_figure_and_csv() {
+        let file = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../rexafs/tests/testfiles/xraylarch_d867/xafsdata/cu_150k.xmu");
+        let sp = Arc::new(crate::params::process_file(&file, &PipelineParams::default()).unwrap());
+        let figures = spectrum_figures(sp.clone(), "Cu, \"reference\"");
+        let flat = figures.iter().find(|f| f.key == "flattened-mu").unwrap();
+        let norm = figures.iter().find(|f| f.key == "normalized-mu").unwrap();
+        assert_eq!(flat.series[0].y, sp.flat().unwrap().as_slice());
+        assert_eq!(norm.series[0].y, sp.norm().unwrap().as_slice());
+        assert_ne!(flat.series[0].y, norm.series[0].y);
+        let csv = flat.csv(&FigureOptions::default()).unwrap();
+        assert!(csv.starts_with("\"Cu, \"\"reference\"\""));
+        for (row, (energy, value)) in csv
+            .lines()
+            .skip(1)
+            .zip(flat.series[0].x.iter().zip(&flat.series[0].y))
+        {
+            let values: Vec<f64> = row.split(',').map(|s| s.parse().unwrap()).collect();
+            assert_eq!(values, [*energy, *value]);
+        }
+        assert_eq!(csv.lines().count(), sp.energy.as_ref().unwrap().len() + 1);
+        let empty = spectrum_figures(Arc::new(XASSpectrum::default()), "unprocessed");
+        assert!(empty.iter().all(|f| f.key != "flattened-mu"));
+    }
+
+    #[test]
+    fn csv_preserves_distinct_grids_and_respects_hidden_curves() {
+        let mut figure = sample();
+        figure.series.push(FigureSeries {
+            key: "short".into(),
+            label: "Other".into(),
+            x: vec![0.5],
+            y: vec![0.25],
+            dashed: false,
+        });
+        let csv = figure.csv(&FigureOptions::default()).unwrap();
+        assert_eq!(csv.lines().count(), 4);
+        assert!(csv.lines().nth(2).unwrap().ends_with(",,"));
+        let hidden = FigureOptions {
+            hidden: BTreeSet::from(["short".into()]),
+            ..Default::default()
+        };
+        assert!(!figure.csv(&hidden).unwrap().contains("Other"));
+        let hidden = FigureOptions {
+            hidden: BTreeSet::from(["short".into(), "data".into()]),
+            ..Default::default()
+        };
+        assert!(figure.csv(&hidden).is_err());
+    }
+
     fn sample() -> FigureData {
         FigureData {
             key: "test",

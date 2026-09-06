@@ -248,6 +248,24 @@ impl Default for FitRanges {
 }
 
 impl FitRanges {
+    /// AUTOBK removes signal below Rbkg. Reject this range before constructing
+    /// a solver, including when processing settings came from a saved project.
+    pub(crate) fn validate_background(&self, rbkg: f64) -> Result<(), String> {
+        if !rbkg.is_finite() || rbkg < 0.0 {
+            return Err("The spectrum has an invalid background Rbkg.".into());
+        }
+        if !self.valid() {
+            return Err("Set valid k and R ranges: minimum must be below maximum.".into());
+        }
+        if self.rmin < rbkg {
+            return Err(format!(
+                "Fit R min ({:.4} Å) must be at least Rbkg ({rbkg:.4} Å).",
+                self.rmin
+            ));
+        }
+        Ok(())
+    }
+
     pub fn resolved(&self, transform_kweight: Option<f64>) -> Self {
         let mut result = self.clone();
         if self.follow_transform {
@@ -495,7 +513,34 @@ pub(crate) fn path_model(p: &FitPathSpec) -> Result<FeffPathModel, String> {
     Ok(model)
 }
 
-pub fn run_fit(
+pub(crate) fn spectrum_rbkg(spectrum: &XASSpectrum) -> Option<f64> {
+    match spectrum.background.as_ref()? {
+        BackgroundMethod::AUTOBK(background) => background.rbkg,
+        _ => None,
+    }
+}
+
+/// Production entry point: retain background provenance until validation.
+pub(crate) fn run_spectrum_fit(
+    spectrum: &XASSpectrum,
+    paths: &[FitPathSpec],
+    vars: &[FitVarSpec],
+    ranges: &FitRanges,
+) -> Result<FeffFitResult, String> {
+    let rbkg = spectrum_rbkg(spectrum).ok_or("Prepare the spectrum with AUTOBK before fitting.")?;
+    ranges.validate_background(rbkg)?;
+    let k = spectrum.k().ok_or("Spectrum has no k grid.")?;
+    let chi = spectrum.chi().ok_or("Spectrum has no χ(k).")?;
+    run_fit(
+        DVector::from_column_slice(k),
+        DVector::from_column_slice(chi),
+        paths,
+        vars,
+        ranges,
+    )
+}
+
+fn run_fit(
     k: DVector<f64>,
     chi: DVector<f64>,
     paths: &[FitPathSpec],
@@ -613,7 +658,7 @@ impl BatchFitRow {
 /// comma or quote — which would shift every later column — and both can begin
 /// with a character that Excel, LibreOffice and Sheets treat as the start of a
 /// formula rather than text.
-fn csv_field(value: &str) -> String {
+pub(crate) fn csv_field(value: &str) -> String {
     let mut field = String::with_capacity(value.len() + 2);
     if value.starts_with(['=', '+', '-', '@', '\t', '\r']) {
         field.push('\'');
@@ -700,6 +745,40 @@ pub fn result_summary(result: &FeffFitResult) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::params::{PipelineParams, process_file};
+
+    #[test]
+    fn background_floor_accepts_equality_and_rejects_any_lower_radius() {
+        let rbkg = 1.234567;
+        let mut ranges = FitRanges {
+            rmin: rbkg,
+            ..Default::default()
+        };
+        assert!(ranges.validate_background(rbkg).is_ok());
+        ranges.rmin = f64::from_bits(rbkg.to_bits() - 1);
+        assert!(
+            ranges
+                .validate_background(rbkg)
+                .unwrap_err()
+                .contains("Rbkg")
+        );
+        ranges.rmin = rbkg + 0.1;
+        assert!(ranges.validate_background(rbkg).is_ok());
+        assert!(ranges.validate_background(f64::NAN).is_err());
+        assert!(ranges.validate_background(-1.).is_err());
+        ranges.rmin = f64::NAN;
+        assert!(ranges.validate_background(rbkg).is_err());
+    }
+
+    #[test]
+    fn processed_fit_rejects_unsafe_range_before_loading_paths_or_starting_solver() {
+        let mut spectrum = XASSpectrum::default();
+        spectrum.background = Some(BackgroundMethod::AUTOBK(rexafs::xafs::background::AUTOBK {
+            rbkg: Some(1.3),
+            ..Default::default()
+        }));
+        let error = run_spectrum_fit(&spectrum, &[], &[], &FitRanges::default()).unwrap_err();
+        assert!(error.contains("Rbkg (1.3000 Å)"), "{error}");
+    }
 
     #[test]
     fn energy_shift_name_resolves_as_variable() {

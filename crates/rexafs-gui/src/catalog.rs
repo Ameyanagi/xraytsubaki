@@ -38,6 +38,7 @@ pub fn start_scan(root: PathBuf) -> mpsc::UnboundedReceiver<ScanEvent> {
     std::thread::Builder::new()
         .name("catalog-scan".into())
         .spawn(move || {
+            let root = canonical_root(&root);
             let mut batch: Vec<FileMeta> = Vec::with_capacity(BATCH_SIZE);
             let mut total = 0usize;
             let mut current_dir: Option<(PathBuf, Arc<str>)> = None;
@@ -251,9 +252,15 @@ impl Catalog {
     /// Scans are per-directory, so only the matching directory's members
     /// are searched, never the whole catalog.
     pub fn find_by_path(&self, path: &Path) -> Option<usize> {
-        let dir = path.parent()?.to_string_lossy();
+        let parent = path.parent()?;
+        let dir = parent.to_string_lossy();
         let name = path.file_name()?.to_string_lossy();
-        let dir_id = *self.dir_ids.get(dir.as_ref())?;
+        let dir_id = self.dir_ids.get(dir.as_ref()).copied().or_else(|| {
+            let canonical = canonical_root(parent);
+            self.dir_ids
+                .get(canonical.to_string_lossy().as_ref())
+                .copied()
+        })?;
         self.scans
             .iter()
             .filter(|scan| scan.dir == dir_id)
@@ -437,7 +444,13 @@ pub fn decode_index(bytes: &[u8], expected_root: &Path) -> Result<Catalog, Strin
     let dir_count = r.u32()? as usize;
     let mut dirs: Vec<Arc<str>> = Vec::with_capacity(dir_count.min(1 << 20));
     for _ in 0..dir_count {
-        dirs.push(Arc::from(r.str()?));
+        // Old indexes could store /tmp while their header used /private/tmp.
+        // Decode runs off the UI thread; resolve aliases once per directory.
+        dirs.push(Arc::from(
+            canonical_root(Path::new(r.str()?))
+                .to_string_lossy()
+                .as_ref(),
+        ));
     }
     let entry_count = r.u64()? as usize;
     let mut catalog = Catalog::default();
@@ -607,6 +620,40 @@ mod tests {
             assert_eq!(loaded.entry_size(ix), catalog.entry_size(ix));
         }
         assert!(loaded.index_parts().same_index(&catalog.index_parts()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn legacy_index_and_new_walk_resolve_the_same_symlinked_directory() {
+        use std::os::unix::fs::symlink;
+        let temp =
+            std::env::temp_dir().join(format!("rexafs-catalog-alias-{}", std::process::id()));
+        std::fs::create_dir_all(temp.join("real")).unwrap();
+        std::fs::write(temp.join("real/foil.xmu"), "").unwrap();
+        symlink(temp.join("real"), temp.join("alias")).unwrap();
+        let alias = temp.join("alias");
+        let canonical = canonical_root(&alias);
+        let mut old = Catalog::default();
+        old.extend(vec![meta(
+            &Arc::from(alias.to_string_lossy().as_ref()),
+            "foil.xmu",
+        )]);
+        let restored = decode_index(&encode_index(&alias, &old.index_parts()), &canonical).unwrap();
+        assert_eq!(restored.find_by_path(&alias.join("foil.xmu")), Some(0));
+        assert_eq!(restored.find_by_path(&canonical.join("foil.xmu")), Some(0));
+        let mut fresh = Catalog::default();
+        let mut events = start_scan(alias);
+        futures::executor::block_on(async {
+            while let Some(event) = events.next().await {
+                match event {
+                    ScanEvent::Batch(batch) => fresh.extend(batch),
+                    ScanEvent::Done { .. } => break,
+                    ScanEvent::Error(error) => panic!("{error}"),
+                }
+            }
+        });
+        assert!(fresh.index_parts().same_index(&restored.index_parts()));
+        std::fs::remove_dir_all(temp).unwrap();
     }
 
     #[test]

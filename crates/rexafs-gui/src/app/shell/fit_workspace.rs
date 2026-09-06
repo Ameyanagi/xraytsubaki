@@ -41,6 +41,27 @@ impl FitStep {
 }
 
 impl StudioApp {
+    /// A shared range must be safe for every dataset that inherits it. An
+    /// individual range uses that dataset's own processing settings.
+    pub(crate) fn fit_background_floor(&self, dataset_id: Option<usize>) -> f64 {
+        if let Some(id) = dataset_id
+            && let Some(dataset) = self.joint.config.datasets.iter().find(|d| d.id == id)
+        {
+            return self.joint_params(&dataset.file).rbkg.unwrap_or(1.0);
+        }
+        if self.joint.config.enabled {
+            return self
+                .joint
+                .config
+                .datasets
+                .iter()
+                .filter(|d| d.ranges.is_none())
+                .map(|d| self.joint_params(&d.file).rbkg.unwrap_or(1.0))
+                .fold(0.0, f64::max);
+        }
+        self.ui_params().rbkg.unwrap_or(1.0)
+    }
+
     pub(crate) fn set_fit_step(&mut self, step: FitStep, cx: &mut Context<Self>) {
         self.stage_view.fit_step = step;
         self.structure.show = matches!(
@@ -91,6 +112,15 @@ impl StudioApp {
         {
             return Some("Set valid k and R ranges: minimum must be below maximum.");
         }
+        let Some(rbkg) = crate::fitting::spectrum_rbkg(s) else {
+            return Some("Prepare the spectrum with AUTOBK before fitting.");
+        };
+        if r.validate_background(rbkg).is_err()
+            || r.validate_background(self.fit_background_floor(None))
+                .is_err()
+        {
+            return Some("Fit R min must be at least the spectrum's background Rbkg.");
+        }
         None
     }
 
@@ -107,7 +137,18 @@ impl StudioApp {
         {
             return Some("Open Scans in the data panel and select a scan.");
         }
-        self.fit_blocker()
+        if let Some(reason) = self.fit_blocker() {
+            return Some(reason);
+        }
+        let scan = &self.catalog.scans[self.active_scan.unwrap()];
+        if (scan.start..scan.start + scan.len).any(|ix| {
+            self.fit_ranges
+                .validate_background(self.effective_params(ix).rbkg.unwrap_or(1.0))
+                .is_err()
+        }) {
+            return Some("Fit R min must be at least Rbkg for every spectrum in the batch.");
+        }
+        None
     }
 
     pub(crate) fn fit_workspace(&mut self, cx: &mut Context<Self>) -> impl IntoElement + use<> {

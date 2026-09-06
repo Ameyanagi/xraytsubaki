@@ -62,8 +62,8 @@ impl StudioApp {
             .then_some(id)
     }
     pub(crate) fn joint_params(&self, file: &Path) -> PipelineParams {
-        (0..self.catalog.len())
-            .find(|&i| self.catalog.path(i) == file)
+        self.catalog
+            .find_by_path(file)
             .map(|i| self.effective_params(i))
             .unwrap_or(&self.params)
             .clone()
@@ -125,6 +125,15 @@ impl StudioApp {
             .any(|d| !d.ranges.as_ref().unwrap_or(&self.fit_ranges).valid())
         {
             return Some("Set valid k and R fit ranges for the selected spectra.");
+        }
+        if self.joint.config.datasets.iter().any(|d| {
+            d.ranges
+                .as_ref()
+                .unwrap_or(&self.fit_ranges)
+                .validate_background(self.joint_params(&d.file).rbkg.unwrap_or(1.0))
+                .is_err()
+        }) {
+            return Some("Each spectrum's fit R min must be at least its background Rbkg.");
         }
         let paths: Vec<_> = self.fit_paths.iter().map(|p| p.spec.clone()).collect();
         let vars: Vec<_> = self.fit_vars.iter().map(|v| v.spec.clone()).collect();
@@ -277,14 +286,9 @@ impl StudioApp {
             let mut data = vec![];
             for (file, params, label) in inputs {
                 let sp = process_file(&file, &params).map_err(|e| format!("{label}: {e}"))?;
-                data.push(
-                    sp.k()
-                        .map(nalgebra::DVector::from_column_slice)
-                        .zip(sp.chi().map(nalgebra::DVector::from_column_slice))
-                        .ok_or_else(|| format!("{label}: no processed χ(k)."))?,
-                );
+                data.push(sp);
             }
-            joint_fitting::run(&config, &data, &paths, &vars, &ranges)
+            joint_fitting::run_processed(&config, &data, &paths, &vars, &ranges)
         });
         cx.spawn(async move |this, cx| {
             let result = job.await;

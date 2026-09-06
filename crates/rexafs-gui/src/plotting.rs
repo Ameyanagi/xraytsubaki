@@ -199,6 +199,7 @@ pub struct QuadrantSpec {
     pub vlines: Vec<(f64, Color, f32, bool)>,
     pub legend_columns: Option<usize>,
     pub grid: bool,
+    pub xlim: Option<(f64, f64)>,
 }
 
 impl QuadrantSpec {
@@ -214,6 +215,9 @@ impl QuadrantSpec {
         self.ylabel.hash(&mut h);
         self.legend_columns.hash(&mut h);
         self.grid.hash(&mut h);
+        self.xlim
+            .map(|(lo, hi)| (lo.to_bits(), hi.to_bits()))
+            .hash(&mut h);
         for s in &self.series {
             s.key.hash(&mut h);
             s.width.to_bits().hash(&mut h);
@@ -239,6 +243,9 @@ impl QuadrantSpec {
             .xlabel(&self.xlabel)
             .ylabel(&self.ylabel);
         let mut sources = Vec::with_capacity(self.series.len());
+        if let Some((lo, hi)) = self.xlim {
+            plot = plot.xlim(lo, hi);
+        }
         for s in &self.series {
             let src = SeriesSource {
                 x: Observable::new(s.x.clone()),
@@ -397,6 +404,7 @@ fn build_multi(
         .collect();
     (
         QuadrantSpec {
+            xlim: None,
             title: title.to_string(),
             xlabel: xlabel.to_string(),
             ylabel: ylabel.to_string(),

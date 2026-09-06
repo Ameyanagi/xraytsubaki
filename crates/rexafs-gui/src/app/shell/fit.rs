@@ -783,6 +783,20 @@ impl StudioApp {
             .resolved(self.joint_params(&self.current_path).fft_kweight);
         let r = &resolved;
         let mut rows: Vec<gpui::AnyElement> = Vec::new();
+        let floor = self.fit_background_floor(None);
+        rows.push(
+            div()
+                .px_3()
+                .py_1()
+                .text_size(px(11.))
+                .text_color(if r.rmin < floor {
+                    t.error
+                } else {
+                    t.text_muted
+                })
+                .child(format!("R min must be at least Rbkg ({floor:.4} Å)."))
+                .into_any_element(),
+        );
         for (key, field) in &self.fit_range_fields {
             if *key == crate::app::RangeKey::Kweight {
                 continue;

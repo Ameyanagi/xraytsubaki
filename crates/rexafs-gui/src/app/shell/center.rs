@@ -179,7 +179,7 @@ impl StudioApp {
                         segment(
                             &t,
                             "scope-marked",
-                            format!("marked ({marked})"),
+                            format!("current + marked ({marked})"),
                             v.scope == PlotScope::Marked,
                             false,
                         )

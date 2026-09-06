@@ -22,7 +22,7 @@ edition = "2021"
 rust-version = "1.98"
 authors = ["Ameyanagi <contact@ameyanagi.com>"]
 homepage = "https://rexafs.com"
-repository = "https://github.com/ameyanagi/xraytsubaki"
+repository = "https://github.com/Ameyanagi/rexafs"
 license = "MIT OR Apache-2.0"
 
 [profile.bench]

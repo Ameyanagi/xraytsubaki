@@ -7,7 +7,7 @@
   "homepage": "https://rexafs.com",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ameyanagi/xraytsubaki.git",
+    "url": "git+https://github.com/Ameyanagi/rexafs.git",
     "directory": "js-rexafs"
   },
   "types": "./index.d.ts",

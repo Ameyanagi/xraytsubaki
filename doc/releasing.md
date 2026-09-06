@@ -5,6 +5,29 @@ runbook means the packages, website or GitHub downloads have already been publis
 The [rebranding plan](rebranding-plan.md) defines scope; [dependency notes](dependencies.md)
 record the Rust 1.98.1 toolchain and compatibility constraints.
 
+## Current launch status
+
+Checked 2026-09-06:
+
+- The public repository is now [`Ameyanagi/rexafs`](https://github.com/Ameyanagi/rexafs),
+  and this checkout's `origin` and current package metadata use that name.
+- [Release build 34012430217](https://github.com/Ameyanagi/rexafs/actions/runs/34012430217)
+  passed for PR #16 at `a88599ee382fb7a4ed89dce48b094b160bc5cc35`. All build jobs
+  succeeded, including 20 Python wheel targets and four desktop targets; all 28
+  uploaded artifacts remain available. This was a pull-request run, so it cannot
+  be promoted by `publish.yml`.
+- [Main CI 34013687691](https://github.com/Ameyanagi/rexafs/actions/runs/34013687691)
+  passed at merge commit `df7a2d698ba1e4d39848b6a452c05bc180423937`.
+- No GitHub release or version tag exists. The crates.io, PyPI and npm package
+  endpoints for `rexafs` returned HTTP 404 at this check.
+- The GitHub `release` environment and repository publishing secrets are absent.
+  Registry trusted-publisher configuration has not been verified.
+
+Next, review the final metadata and [draft release notes](release-notes-0.1.0.md), tag the reviewed commit, and
+dispatch a new release build for that tag. Use its successful run ID to create the
+GitHub draft. Complete platform launch qualification before public promotion;
+configure each registry's credentials or trusted publisher before its upload.
+
 ## Local checks
 
 ```bash
@@ -142,10 +165,10 @@ compare their hashes before replacing anything.
 ## Final repository rename and launch
 
 1. Finish local rebranding and artifact qualification.
-2. Rename the existing GitHub repository from `ameyanagi/xraytsubaki` to
-   `ameyanagi/rexafs`. Preserve the existing history and issue/PR context.
-3. Update `origin` to `https://github.com/ameyanagi/rexafs.git`; replace the old
-   GitHub URLs in workspace metadata, Python/npm metadata, READMEs and links.
+2. The existing GitHub repository has been renamed from `ameyanagi/xraytsubaki`
+   to `Ameyanagi/rexafs`, preserving its history and issue/PR context.
+3. `origin` and current workspace, Python/npm and documentation URLs now use
+   `https://github.com/Ameyanagi/rexafs`. Update other existing clones as needed.
    Retain old URLs only where they explain migration history.
 4. Configure/reconcile registry trusted-publisher repository/workflow/environment
    bindings with the final name. Verify Actions access and tag protection.
@@ -199,9 +222,10 @@ Jacobian step, `sqrt(f64::EPSILON)`; cost and gradient tolerances are unchanged.
 The joint-fit regression still requires convergence, known parameter recovery and
 finite positive uncertainties. AUTOBK's direct solver is unchanged.
 
-These are **local** results. GitHub Actions has not yet executed the new release
-matrix; Intel macOS/Linux/Windows launches and the remaining Python matrix cells
-are not qualified by this record. The public repository has not been renamed,
-registries have not been written, and the domain has not been deployed. The first
-public release still requires a successful GitHub build, credentials/publisher
-setup and final download qualification, including each platform's notices.
+The table above records **local** results. The subsequent GitHub pull-request
+matrix passed, as recorded in the current launch status, and the repository rename
+is complete. Automated archive self-checks do not qualify interactive Intel macOS,
+Linux or Windows launches. Registries remain unpublished and domain deployment
+is pending. The first public release still requires a successful manual build of
+the final tag, credentials/publisher setup for registry channels, and final
+download qualification, including each platform's notices.

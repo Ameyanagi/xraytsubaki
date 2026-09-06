@@ -10,15 +10,16 @@ JavaScript/Wasm package or desktop application. [rexafs.com](https://rexafs.com)
 the project's domain; website deployment is part of the release plan.
 
 Developed under the codename **xraytsubaki**, inspired by the camellia. The `r`
-evokes Rust and the connection to **ReFEFF**, the optional Rust scattering engine.
-The project began with the need to process large in-situ measurement series.
+in **rexafs** stands for both **Rust** and **reinventing the wheel** for EXAFS
+analysis. The project began with the need to process large in-situ measurement
+series.
 
 ## Release status
 
 The source tree uses `rexafs`. Registry publication and GitHub downloads are being
-prepared; the commands below build from this checkout. The repository is still
-[`ameyanagi/xraytsubaki`](https://github.com/ameyanagi/xraytsubaki) and will be renamed
-at the end of the migration. See the [release plan](doc/rebranding-plan.md),
+prepared; the commands below build from this checkout. The repository is now
+[`Ameyanagi/rexafs`](https://github.com/Ameyanagi/rexafs). See the
+[release plan](doc/rebranding-plan.md),
 [migration guide](doc/migration.md) and [release runbook](doc/releasing.md).
 
 ## What is available

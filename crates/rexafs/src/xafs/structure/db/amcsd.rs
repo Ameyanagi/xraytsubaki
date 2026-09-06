@@ -463,7 +463,7 @@ pub fn download_amcsd_with<P: AsRef<Path>>(
             .user_agent(concat!(
                 "rexafs/",
                 env!("CARGO_PKG_VERSION"),
-                " (+https://github.com/ameyanagi/xraytsubaki)"
+                " (+https://github.com/Ameyanagi/rexafs)"
             ))
             .build()
             .into();

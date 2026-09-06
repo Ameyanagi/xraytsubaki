@@ -66,8 +66,9 @@ TypeScript continue to return independent arrays. `set_xftf(parameters)` is now
 The GitHub repository has been renamed from `ameyanagi/xraytsubaki` to
 [`Ameyanagi/rexafs`](https://github.com/Ameyanagi/rexafs). Update existing clones with
 `git remote set-url origin https://github.com/Ameyanagi/rexafs.git`. Package metadata
-uses the new URL; registry publisher bindings still need configuration as described
-in the [release runbook](releasing.md). The local checkout folder name is not a
+uses the new URL. Initial registry authentication is configured; crates.io/npm
+trusted publishers follow their first uploads as described in the
+[release runbook](releasing.md). The local checkout folder name is not a
 package identifier. `rexafs.com` is the project domain; publication and hosting
 status are tracked separately.
 

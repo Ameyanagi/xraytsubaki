@@ -175,7 +175,8 @@ Do not put unverified install badges or a download button on the site prematurel
 - [ ] Desktop release build packaged and launched on each advertised target.
 - [ ] Release automation checked; signing and dependency notices qualified.
 - [x] Remote repository renamed and current package/documentation URLs updated.
-- [ ] Registry trusted publishers configured for the renamed repository.
+- [x] Initial crates.io/npm GitHub secrets and the PyPI pending publisher configured.
+- [ ] crates.io/npm trusted publishers configured after the first package uploads.
 - [ ] Domain documentation deployed, packages published and downloads verified.
 
 Implementation status and measured local results are recorded in the

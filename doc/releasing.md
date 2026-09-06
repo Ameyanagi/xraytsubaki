@@ -20,13 +20,16 @@ Checked 2026-09-06:
   passed at merge commit `df7a2d698ba1e4d39848b6a452c05bc180423937`.
 - No GitHub release or version tag exists. The crates.io, PyPI and npm package
   endpoints for `rexafs` returned HTTP 404 at this check.
-- The GitHub `release` environment and repository publishing secrets are absent.
-  Registry trusted-publisher configuration has not been verified.
+- The GitHub `release` environment is configured for tags matching `v*`.
+  Its `CRATES_IO_TOKEN` and `NPM_TOKEN` secret names were verified through GitHub;
+  their values were not read. The maintainer confirmed the PyPI pending publisher
+  for `rexafs`, repository `Ameyanagi/rexafs`, workflow `publish.yml`, environment
+  `release`. Registry authentication will be exercised by the first tagged upload.
 
-Next, review the final metadata and [draft release notes](release-notes-0.1.0.md), tag the reviewed commit, and
-dispatch a new release build for that tag. Use its successful run ID to create the
-GitHub draft. Complete platform launch qualification before public promotion;
-configure each registry's credentials or trusted publisher before its upload.
+Next, review the final metadata and [draft release notes](release-notes-0.1.0.md),
+tag the reviewed commit, and dispatch a new release build for that tag. Use its
+successful run ID for the initial registry uploads and GitHub draft. Complete
+platform launch qualification before public promotion of the desktop downloads.
 
 ## Local checks
 
@@ -145,14 +148,47 @@ verifies every checksum. The Rust publishing step additionally reproduces the
 Python and npm upload the downloaded distributions directly. Local artifact paths
 are never accepted as publication inputs.
 
-Configure the `release` GitHub environment for the final repository. Channels:
+The `release` GitHub environment is configured for the final repository. Channels:
 
-- `crates-io`: scoped `CRATES_IO_TOKEN` for the initial/current workflow; replace
-  with trusted publishing once the package and publisher are configured.
+- `crates-io`: select `registry_auth=token` to use `CRATES_IO_TOKEN` for the first
+  upload. After configuring the crate's trusted publisher, use the default
+  `registry_auth=trusted-publishing` to obtain a temporary token through
+  `rust-lang/crates-io-auth-action`. Package verification runs before authentication.
 - `pypi`: pending/existing trusted publisher for `publish.yml`, environment `release`.
-- `npm`: trusted publishing on the final repo, or `NPM_TOKEN` for bootstrap.
+  This channel always uses trusted publishing and needs no PyPI API token.
+- `npm`: select `registry_auth=token` to use `NPM_TOKEN` for the first upload.
+  After configuring the package's trusted publisher, use the default
+  `registry_auth=trusted-publishing`; it does not pass the bootstrap token to npm.
 - `github-draft`: creates a draft with GitHub-built assets and checksums. Review
   platform qualification, notices, signing status and notes before making it public.
+
+All registry publisher forms use these exact values:
+
+| Field | Value |
+|---|---|
+| Package/project | `rexafs` |
+| GitHub owner | `Ameyanagi` |
+| Repository | `rexafs` |
+| Workflow filename | `publish.yml` |
+| Environment | `release` |
+
+For the first coordinated upload, replace `RUN_ID` with the successful manual
+release build of the `v0.1.0` commit:
+
+```bash
+gh workflow run publish.yml --ref v0.1.0 -f channel=crates-io -f registry_auth=token -f build_run_id=RUN_ID
+gh workflow run publish.yml --ref v0.1.0 -f channel=npm -f registry_auth=token -f build_run_id=RUN_ID
+gh workflow run publish.yml --ref v0.1.0 -f channel=pypi -f registry_auth=trusted-publishing -f build_run_id=RUN_ID
+```
+
+PyPI's pending publisher creates the project on first upload. crates.io and npm
+require an existing package before their trusted publisher can be configured.
+After those first uploads, add the publishers using the table above. For npm,
+allow direct `npm publish`, which is the operation used by this workflow. Remove
+the bootstrap secrets and revoke their registry tokens after switching to and
+verifying trusted publishing. See the [PyPI setup guide](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/),
+[crates.io guidance](https://blog.rust-lang.org/2025/07/11/crates-io-development-update-2025-07/)
+and [npm trusted publishing guide](https://docs.npmjs.com/trusted-publishers/).
 
 Repeat publication with the **same build_run_id and tag** for missing channels;
 no rebuild is necessary after a registry-only failure. Keep the run's artifacts

@@ -1,0 +1,90 @@
+name: Sign reviewed macOS release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing reviewed release tag (the tag is never moved)
+        type: string
+        required: true
+      build_run_id:
+        description: Successful manually dispatched Release builds run for that tag
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  source:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.source.outputs.commit }}
+      version: ${{ steps.source.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+        run: python scripts/check-release-source.py "$RELEASE_TAG" "$BUILD_RUN_ID"
+
+  sign:
+    needs: source
+    environment: macos-signing
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            target: aarch64-apple-darwin
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-${{ matrix.os }}
+          path: unsigned
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-manifest
+          path: manifest
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+      - name: Sign, notarize, staple and check the extracted final archive
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          MACOS_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
+          RELEASE_VERSION: ${{ needs.source.outputs.version }}
+          RELEASE_COMMIT: ${{ needs.source.outputs.commit }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+          RELEASE_TARGET: ${{ matrix.target }}
+        run: >-
+          python scripts/sign-macos-release.py unsigned/*.zip manifest/SHA256SUMS signed
+          --version "$RELEASE_VERSION" --commit "$RELEASE_COMMIT"
+          --build-run-id "$BUILD_RUN_ID" --target "$RELEASE_TARGET"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-desktop-${{ matrix.os }}
+          path: signed/*
+          if-no-files-found: error

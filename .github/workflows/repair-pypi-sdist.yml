@@ -1,0 +1,90 @@
+name: Complete reviewed PyPI source release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing tag whose PyPI source upload was rejected for missing licenses
+        type: string
+        required: true
+      build_run_id:
+        description: Successful manually dispatched Release builds run for that tag
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  repair:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@1.98.1
+      - id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+        run: python scripts/check-release-source.py "$RELEASE_TAG" "$BUILD_RUN_ID"
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-sdist
+          path: original
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-manifest
+          path: manifest
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+      - name: Restore only missing license files from the tagged source
+        env:
+          RELEASE_COMMIT: ${{ steps.source.outputs.commit }}
+        run: python scripts/repair-python-sdist.py original/*.tar.gz manifest/SHA256SUMS repaired --commit "$RELEASE_COMMIT"
+      - name: Check metadata and install the repaired source distribution
+        env:
+          RELEASE_COMMIT: ${{ steps.source.outputs.commit }}
+        run: |
+          python scripts/check-python-sdist.py repaired/*.tar.gz
+          python -m pip install twine
+          twine check repaired/*.tar.gz
+          python -m pip install repaired/*.tar.gz
+          mkdir source-tests
+          git archive "$RELEASE_COMMIT" py-rexafs/tests/test_api.py crates/rexafs/tests/testfiles/Ru_QAS.dat | tar -x -C source-tests
+          python source-tests/py-rexafs/tests/test_api.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: repaired-python-sdist
+          path: repaired/*
+          if-no-files-found: error
+
+  publish:
+    needs: repair
+    runs-on: ubuntu-latest
+    environment: pypi-repair
+    permissions:
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: repaired-python-sdist
+          path: repaired
+      - name: Verify and collect the source distribution
+        run: |
+          cd repaired
+          sha256sum --check ./*.sha256
+          mkdir ../dist
+          cp ./*.tar.gz ../dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/

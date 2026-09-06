@@ -1,11 +1,13 @@
 # rexafs brand assets
 
-Created with the built-in imagegen tool on 2026-09-06. The palette follows the
-structure viewer's copper atoms and cyan absorber. These are brand illustrations,
-not representations of a measured spectrum or a specific crystal.
+Regenerated with the built-in imagegen tool on 2026-09-06 in a geometric direction.
+Six copper facets surround a cyan hexagon, combining a crystalline motif with a
+subtle reference to the camellia codename. The copper/cyan palette connects the
+identity to the structure viewer. These are abstract brand illustrations, not
+representations of a measured spectrum or a specific crystal.
 
-- `rexafs-icon.png`: original generated app emblem, with alpha preserved.
-- `rexafs-release.png`: release/README artwork with the lowercase rexafs name.
+- `rexafs-icon.png`: generated geometric app emblem, with alpha preserved.
+- `rexafs-release.png`: matching release/README banner with the lowercase rexafs name.
 - `rexafs.icns`: macOS icon used by the desktop packaging script.
 - `rexafs.ico`: Windows icon resource included with the desktop download.
 
@@ -15,8 +17,8 @@ Regenerate icon containers from the selected PNG with:
 uv run --no-project --python 3.12 --with pillow python scripts/build-brand-icons.py
 ```
 
-The PNG originals are kept intact. The icon script only resizes and packages the
-same artwork. No external image API key or CLI fallback was used for generation.
+The generated PNG masters are kept intact. The icon script only resizes and
+packages the same artwork. No external image API key or CLI fallback was used.
 
 ## Generation prompts
 
@@ -24,23 +26,25 @@ same artwork. No external image API key or CLI fallback was used for generation.
 
 ```text
 Use case: logo-brand
-Asset type: rexafs desktop application icon, square 1024 by 1024 pixels.
-Primary request: Create a polished, distinctive raster app icon for rexafs, a Rust-powered X-ray absorption spectroscopy application.
-Subject: a compact abstract cluster of five copper-orange spherical atoms arranged around one small cyan atom, with a single restrained cyan scattering-wave arc integrated into the silhouette. Scientific software identity, geometric and readable at small dock sizes.
-Style/medium: premium restrained 3D icon, softly shaded copper and cyan material, crisp edges, minimal detail.
-Composition: centered emblem filling about 70 percent of a solid deep graphite square canvas. Full-bleed square background; do not draw rounded outer corners or a mockup frame. Balanced silhouette with generous safe margins.
-Lighting: soft upper-left studio light, subtle depth, no lens flare.
-Constraints: no lettering, no text, no watermark, no orbiting-electron cartoon, no chart axes, no desktop screenshot, no extra objects. This is a brand illustration, not a scientific structure diagram.
+Asset type: rexafs desktop app icon; one square 1024 × 1024 raster master.
+Primary request: Regenerate the rexafs identity in a much more geometric, minimal style (幾何学的). Create one distinctive flat emblem based on a crystalline hexagonal rosette: six precisely constructed copper rhombus facets around one small cyan central hexagon, separated by clean even negative-space channels. A subtle geometric camellia reference is welcome, but the mark must read primarily as a precise scientific lattice.
+Style: Swiss modernist graphic design, exact 60-degree angles, a disciplined triangular grid, flat solid fills, crisp antialiased edges, bold simple silhouette legible at 24 pixels. Two closely related copper tones may distinguish facets; one cyan accent.
+Palette: warm copper #CF8748 / #AD6534 and clear cyan #68D6E7. Genuine transparent background.
+Composition: a single centered symmetrical emblem occupying about 72% of the canvas, ample equal safe margins. No surrounding tile or frame.
+Constraints: no text, no letters, no wordmark, no gradients, no 3D, no spheres, no glossy reflections, no shadows, no texture, no orbit rings, no Wi-Fi arcs, no decorative linework, no watermark, no presentation board. This is abstract brand art, not a claim about a specific crystal.
 ```
 
 ### Release artwork
 
+The newly generated app icon was supplied as the reference image.
+
 ```text
-Use case: ads-marketing
-Asset type: rexafs release banner, wide landscape 1792 by 1024 pixels.
-Input image: reference for the copper and cyan material palette only, not an edit target.
-Primary request: Create matching release artwork for rexafs, a Rust-powered X-ray absorption spectroscopy application. A restrained scientific software identity.
-Composition: deep graphite background across the full canvas. On the right, a compact tasteful 3D copper atom cluster with a small cyan central atom visible through real gaps; foreground atoms correctly occlude the central atom. On the left, generous negative space with the exact lowercase word "rexafs" in a clean large off-white sans-serif, spelled r e x a f s. A thin cyan damped oscillation curve subtly bridges the composition. No other text.
-Style: precise, calm, contemporary scientific software artwork; softly shaded matte copper spheres, subtle cyan accent, soft studio lighting. Less glossy than the reference. Balanced and legible at README and release-page sizes.
-Constraints: no fake UI, no chart axes or numerical claims, no electron-orbit cartoon, no Wi-Fi symbol, no watermarks, no slogans. Illustrative brand art, not a rendered experimental dataset.
+Use case: logo-brand
+Asset type: rexafs release and README banner, wide landscape approximately 1792 × 1024.
+Input image: reference for the exact new geometric rexafs emblem, its six copper facets, cyan central hexagon, and palette. This is a matching new composition.
+Primary request: Create a minimal geometric scientific-software identity banner for rexafs. Use the same sixfold crystalline rosette emblem from the reference on the right, reproduced faithfully, with generous space around it. On the left set the exact lowercase word "rexafs" in large, precise, clean off-white geometric sans-serif typography, spelled r e x a f s. Align the wordmark and emblem to the same visual center.
+Backdrop: a uniform deep graphite #171C22 background across the entire rectangular canvas.
+Style: restrained Swiss modernist graphic design, mathematically crisp polygon edges, flat copper and cyan fills, clean negative space, confident and quiet. The emblem should occupy about one third of the canvas width; wordmark and emblem have balanced visual weight.
+Text (verbatim): "rexafs". No other text.
+Constraints: preserve the emblem geometry and palette from the reference; no 3D, no glossy surfaces, no spheres, no shadows, no glow, no texture, no gradients, no wave curves, no chart axes, no UI screenshot, no mockup, no slogans, no watermark. This is abstract brand artwork rather than a scientific dataset.
 ```

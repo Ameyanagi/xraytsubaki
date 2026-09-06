@@ -23,8 +23,23 @@ The workspace lockfile records the resulting transitive versions. Unused
 Other direct dependencies use the newest compatible resolution of the updated
 requirements. This does not force every transitive crate to its newest major:
 upstream public types, feature contracts and native-link constraints still apply.
-The unused `xraydb-rs` reference directory is not a workspace member or release
-package and is not a dependency fork used by these builds.
+
+## Published XrayDB dependency
+
+The desktop uses [`xraydb` 0.4.1](https://crates.io/crates/xraydb), the published
+library from [`Ameyanagi/xraydb-rs`](https://github.com/Ameyanagi/xraydb-rs).
+This is the latest stable crates.io release verified on 2026-09-06. Cargo resolves
+both `xraydb` and `xraydb-data` from crates.io; there is no local fork or path patch.
+The unused local `xraydb-rs/` scaffold has been removed.
+
+`SpectrumInterest` uses its embedded reference database to identify likely
+absorption edges from E₀ when XDI metadata is absent. Explicit element/edge
+metadata takes priority, and a database estimate never changes an existing model.
+The desktop regression suite checks Cu/Ni edge identification, metadata priority
+and invalid-energy handling. The crate is MIT OR Apache-2.0 licensed and is covered
+by the release dependency inventory and license gate.
+
+## Spline and license changes
 
 `rusty-fitpack` was removed. Spline coefficients now use a direct QR solve with
 the existing nalgebra dependency, with local evaluation and basis derivatives.

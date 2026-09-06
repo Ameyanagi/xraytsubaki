@@ -33,7 +33,9 @@ at the end of the migration. See the [release plan](doc/rebranding-plan.md),
 Optional Rust integrations include [ReFEFF](https://crates.io/crates/refeff), FEFF10,
 structure databases and plotting. The Python and JavaScript packages expose the
 small processing API; they do not yet expose all Rust fitting and structure APIs.
-The desktop's experimental assistant is optional.
+The desktop uses the published [`xraydb`](https://crates.io/crates/xraydb) crate
+from [`xraydb-rs`](https://github.com/Ameyanagi/xraydb-rs) for absorption-edge
+identification. The desktop's experimental assistant is optional.
 
 ## Build from source
 

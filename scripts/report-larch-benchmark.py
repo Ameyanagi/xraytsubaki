@@ -10,6 +10,7 @@ import matplotlib
 import numpy as np
 
 matplotlib.use("Agg")
+matplotlib.rcParams["svg.hashsalt"] = "rexafs-larch-benchmark"
 import matplotlib.pyplot as plt
 
 
@@ -155,7 +156,7 @@ def main():
             ax.grid(alpha=0.2)
     axes[0, 0].legend(fontsize=8)
     figure.savefig(root / "output-comparison.png", dpi=180)
-    figure.savefig(root / "output-comparison.svg")
+    figure.savefig(root / "output-comparison.svg", metadata={"Date": None})
     plt.close(figure)
 
     configs = [
@@ -181,11 +182,21 @@ def main():
             ax.barh(present, times, left=bottom, label=stage, color=color)
             bottom += times
         ax.invert_yaxis()
+        for index, config in enumerate(present):
+            ax.annotate(
+                f"{selected[config]['pipeline_ms']:.3f}",
+                (bottom[index], index),
+                xytext=(4, 0),
+                textcoords="offset points",
+                va="center",
+                fontsize=8,
+            )
+        ax.set_xlim(0, max(bottom) * 1.16)
         ax.set(xlabel="Milliseconds per fresh spectrum", title=f"Cu: {setup}")
         ax.grid(axis="x", alpha=0.2)
     axes[0].legend(loc="lower right", fontsize=8)
     figure.savefig(root / "stage-timing.png", dpi=180)
-    figure.savefig(root / "stage-timing.svg")
+    figure.savefig(root / "stage-timing.svg", metadata={"Date": None})
     plt.close(figure)
 
     # Matplotlib emits trailing spaces in SVG paths; keep checked-in artifacts

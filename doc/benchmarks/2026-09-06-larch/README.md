@@ -29,11 +29,13 @@ the implementations equivalent.
   Python 3.12.12, NumPy 2.5.2, SciPy 1.18.1 and lmfit 1.3.4 on macOS 26.5.1,
   Apple M4 (10 cores), 32 GiB RAM. It uses one numerical worker; thread controls
   and detected thread pools are recorded in every case.
+- [SHA-256 checksums](SHA256SUMS) cover the retained measurements, arrays,
+  figures, profiles and environment requirements.
 
 Run from the repository root, in an isolated environment:
 
 ```sh
-uv venv --python 3.12 .venv-larch-benchmark
+uv venv --python 3.12.12 .venv-larch-benchmark
 uv pip sync --python .venv-larch-benchmark/bin/python doc/benchmarks/2026-09-06-larch/requirements.txt
 .venv-larch-benchmark/bin/python scripts/benchmark-larch.py --rounds 7 --output /tmp/larch-results
 .venv-larch-benchmark/bin/python scripts/report-larch-benchmark.py /tmp/larch-results
@@ -44,7 +46,7 @@ uv pip sync --python .venv-larch-benchmark/bin/python doc/benchmarks/2026-09-06-
 
 Native profiles require macOS `sample`. Rust symbols in the retained files were
 demangled with `rustfilt 0.2.1`; this changes names, not sample counts. The earlier
-standard profiles precede formatting-only changes to the benchmark script, so
+standard profiles precede formatting and non-timing metadata changes to the script, so
 their line numbers and script hashes differ from the final timing harness.
 
 ## Workload and fairness limits
@@ -229,6 +231,9 @@ uncertainty coverage, reverse transforms, multi-spectrum parallel throughput,
 WASM performance, or GPU plotting latency. Scientific parity changes need their
 own regression fixtures and review; this plot-rendering release preserves the
 existing numerical behavior.
+
+These compatibility decisions and the Dogleg diagnostics are tracked in
+[issue #20](https://github.com/Ameyanagi/rexafs/issues/20).
 
 ## Sources
 

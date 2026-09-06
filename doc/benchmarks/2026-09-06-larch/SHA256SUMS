@@ -180,7 +180,7 @@ e30a987a30f63569fe4e750336bfc2e85f0a634ed73e7836431b6a712b0f9a52  baseline-0.1.0
 f8203404b7f12eadfa081a1474482e77dbe911a2418966bec76f1a73b8a8afeb  baseline-0.1.0/ni--standard--shipped_default.json
 0471aaff11c221fb84bb08b6b4c7b35fdac054b1b0cee3d189e5f9c425851cd9  baseline-0.1.0/ni--standard--shipped_default.npz
 c1d5c38e7ec6a5dfc11c406a2af17be9406f20291e84e95363e138bb9abacce6  baseline-0.1.0/output-comparison.png
-e7b8f10ef3851c52a2961c58fbf2b15e82a3846b84679e432b9f2ab86a78c578  baseline-0.1.0/output-comparison.svg
+7c399b5bbe1c73ad93f59aca2dd473b95f5d2a9b74a998335a24a264473368c1  baseline-0.1.0/output-comparison.svg
 cdf9b59f447a428613430e317dbff072f1c91d34e8bfbdf17b45472ee5d6bcf8  baseline-0.1.0/parity-diagnostics.json
 278412346b8cd11cbe852baaa00a02a7d3cd95ccb3c28ea1fa4125ebf531dd9e  baseline-0.1.0/ru--aligned_rounding--direct_cached.json
 c3ce9dca52fa5ccbb45dcf16c1a280b74a617ce7333c343cabff013baa07c43b  baseline-0.1.0/ru--aligned_rounding--direct_cached.npz
@@ -238,8 +238,8 @@ e9ed9b20b15a0bf2d44dc301fdd09248f5d5ae1c304605214a92613bc33ae165  baseline-0.1.0
 53f0b2a0c179877cc7c972dd386535dbf292eff3ba1c600f9fa899c5e23d744b  baseline-0.1.0/ru--standard--legacy_lm.npz
 80d87da995cc395e6fe456ee1121583903b5a9c46227e521bce7d6143b1827dc  baseline-0.1.0/ru--standard--shipped_default.json
 5fd62c6b3d2ae8a537ba0a70de1def6ac4f6cb99d86420dbfcbb90abb4d2f7cb  baseline-0.1.0/ru--standard--shipped_default.npz
-8783ad4e10e1ed64d96d33705e13a61ec18b17b97ce08f2df23656ebadeb2a66  baseline-0.1.0/stage-timing.png
-ef2f5a857dc62f048db3b6c27271a13fb424b5ac8823a22bbd7cba615f9b5072  baseline-0.1.0/stage-timing.svg
+6dcb10761dbf41d511d2043557b3e55bfd73953252fcd99e41ab0b3bf13da9fc  baseline-0.1.0/stage-timing.png
+8da2f3c7ef05c144d7d1bc625c45956c4c77a6056bc083b13c2c92d4117dcb74  baseline-0.1.0/stage-timing.svg
 3affd01105d654cd1e2242ec3e9e90b52fc1ea421a353ce094f4f705d0f17b52  profiles-0.1.0/cu--fine_fft--dogleg.json
 fd1df5b987ddf57fafd37ad4ef7f865e9bde4b71c1733bcab6c1256fb629fe40  profiles-0.1.0/cu--fine_fft--dogleg.native-sample.top.txt
 7e27222ead5dabb7f4a70869cbaeeb4f40db3793d39670e22dc1b115a5883795  profiles-0.1.0/cu--fine_fft--dogleg.native-sample.txt.gz

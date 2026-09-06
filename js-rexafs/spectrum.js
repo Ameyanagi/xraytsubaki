@@ -14,6 +14,7 @@ export function bindSpectrum(core, ready = () => true) {
     set_spectrum(energy, mu) { validate(energy, mu); this.#inner.set_spectrum(energy, mu); return this; }
     set_e0(e0) {
       if (typeof e0 !== "number") throw new TypeError("e0 must be a number in eV");
+      if (!Number.isFinite(e0)) throw new RangeError("e0 must be finite in eV");
       this.#inner.set_e0(e0);
       return this;
     }

@@ -40,6 +40,10 @@ chains such as `spectrum.normalize().calc_background().fft()` are also supported
 (with `?` between stages in Rust). There is no public `process()` facade or
 separate `ProcessedSpectrum` result class.
 
+When E0 is unset, the selected normalization method estimates it. Rust's optional
+`ndarray-compat` feature retains its legacy normalization edge detector; explicitly
+calling `find_e0()` selects the core derivative-based estimate instead.
+
 Generic stage names are independent of the chosen algorithm. The defaults are
 pre/post-edge normalization and AUTOBK background removal. Setting another
 method never silently falls back to a default: the existing MBack normalization
@@ -104,6 +108,9 @@ that stage. Replacing spectrum data clears the old E0 and derived results.
 Rust's legacy public fields remain accessible. After modifying input data or
 stage parameters directly, call `invalidate_derived()` before requesting another
 stage; prefer setters to invalidate automatically.
+Changing the public normalization `edge_step` preserves the new scale through
+invalidation; clearing it to `None` restores automatic estimation. This tracking
+also survives spectrum serialization.
 
 ## Inputs, results and errors
 
@@ -139,6 +146,8 @@ Python owns its inputs and releases the GIL during stages. Browser consumers
 must `await init()` before constructing spectra; Node loads its packaged Wasm
 asset automatically. Processing is synchronous after initialization. Use a Web
 Worker for long browser calculations and `free()` to release Wasm objects.
+JavaScript's `set_e0()` rejects non-finite values immediately, leaving the
+existing configuration and results intact.
 
 Python's `rexafs.io.read_qas_transmission(path)` returns a spectrum, matching
 Rust's reader. For multiple files, load spectra and call their stage methods.

@@ -63,6 +63,9 @@ pub struct XASSpectrum {
     /// Explicit normalization scale, distinct from the scale inferred by a stage.
     #[serde(skip_serializing_if = "Option::is_none")]
     normalization_edge_step_override: Option<f64>,
+    /// Last normalization output, used to recognize later public-field edits.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    normalization_edge_step_last_result: Option<f64>,
 }
 
 impl XASSpectrum {
@@ -349,9 +352,8 @@ impl XASSpectrum {
         }
 
         let configured_e0 = self.normalization.as_ref().and_then(|m| m.get_e0());
-        if self.e0.is_none() && configured_e0.is_none() {
-            self.find_e0()?;
-        }
+        // Let the selected normalization method estimate an unset E0. In
+        // ndarray compatibility mode this preserves its legacy edge detector.
 
         let energy = self.energy.as_ref().ok_or_else(|| DataError::MissingData {
             field: "energy".to_string(),
@@ -386,6 +388,8 @@ impl XASSpectrum {
         }
         self.normalization = Some(method);
         self.e0 = self.normalization.as_ref().and_then(|m| m.get_e0());
+        self.normalization_edge_step_last_result =
+            self.normalization.as_ref().and_then(|m| m.get_edge_step());
         Ok(self)
     }
 
@@ -535,6 +539,14 @@ impl XASSpectrum {
     /// background, χ(k), χ(R), χ(q)) while keeping the stage parameters, so
     /// the pipeline recomputes from the modified data.
     pub fn invalidate_derived(&mut self) -> &mut Self {
+        if let Some(last_result) = self.normalization_edge_step_last_result.take() {
+            let current = self.normalization.as_ref().and_then(|m| m.get_edge_step());
+            if current != Some(last_result) {
+                // The caller changed (or cleared) the public parameter after
+                // normalization. Preserve that choice instead of the old scale.
+                self.normalization_edge_step_override = current;
+            }
+        }
         match self.normalization.as_mut() {
             Some(normalization::NormalizationMethod::PrePostEdge(p)) => {
                 if p.norm.is_some() {

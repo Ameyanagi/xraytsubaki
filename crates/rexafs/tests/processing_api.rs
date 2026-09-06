@@ -14,8 +14,6 @@ fn terminal_stage_matches_explicit_stages() {
     automatic.fft().unwrap();
     let mut explicit = sample();
     explicit
-        .find_e0()
-        .unwrap()
         .normalize()
         .unwrap()
         .calc_background()
@@ -172,6 +170,84 @@ fn explicit_edge_step_survives_invalidation_and_serialization() {
             Some(2.5)
         );
     }
+}
+
+#[test]
+fn public_edge_step_edits_survive_invalidation_and_serialization() {
+    for initial in [None, Some(2.5)] {
+        let mut spectrum = sample();
+        let mut norm = PrePostEdge::new();
+        norm.edge_step = initial;
+        spectrum
+            .set_normalization_method(Some(NormalizationMethod::PrePostEdge(norm)))
+            .unwrap()
+            .fft()
+            .unwrap();
+
+        // Test both editing a restored result and restoring an already edited one.
+        for serialize_before_edit in [false, true] {
+            let mut edited = spectrum.clone();
+            if serialize_before_edit {
+                edited = serde_json::from_str(&serde_json::to_string(&edited).unwrap()).unwrap();
+            }
+            let Some(NormalizationMethod::PrePostEdge(norm)) = &mut edited.normalization else {
+                panic!("expected pre/post-edge normalization");
+            };
+            norm.edge_step = Some(4.25);
+            if !serialize_before_edit {
+                edited = serde_json::from_str(&serde_json::to_string(&edited).unwrap()).unwrap();
+            }
+            edited.invalidate_derived().fft().unwrap();
+            assert_eq!(
+                edited.normalization.as_ref().unwrap().get_edge_step(),
+                Some(4.25)
+            );
+            edited.set_e0(edited.e0().unwrap() + 0.25).fft().unwrap();
+            assert_eq!(
+                edited.normalization.as_ref().unwrap().get_edge_step(),
+                Some(4.25)
+            );
+
+            // Clearing an explicit scale restores automatic scale estimation.
+            let Some(NormalizationMethod::PrePostEdge(norm)) = &mut edited.normalization else {
+                unreachable!();
+            };
+            norm.edge_step = None;
+            let mut automatic = sample();
+            automatic
+                .set_normalization_method(edited.normalization.clone())
+                .unwrap()
+                .normalize()
+                .unwrap();
+            edited.invalidate_derived().normalize().unwrap();
+            approx::assert_abs_diff_eq!(
+                edited.norm().unwrap(),
+                automatic.norm().unwrap(),
+                epsilon = 1e-10
+            );
+        }
+    }
+}
+
+#[test]
+fn automatic_edge_step_is_recomputed_after_input_changes() {
+    let mut spectrum = sample();
+    spectrum.normalize().unwrap();
+    let original_step = spectrum
+        .normalization
+        .as_ref()
+        .unwrap()
+        .get_edge_step()
+        .unwrap();
+    *spectrum.mu.as_mut().unwrap() *= 2.0;
+    spectrum.invalidate_derived().normalize().unwrap();
+    let new_step = spectrum
+        .normalization
+        .as_ref()
+        .unwrap()
+        .get_edge_step()
+        .unwrap();
+    assert!((new_step - 2.0 * original_step).abs() < 1e-10);
 }
 
 #[test]

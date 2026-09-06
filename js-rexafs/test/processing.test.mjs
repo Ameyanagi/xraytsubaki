@@ -69,8 +69,13 @@ test("invalid inputs and FFT settings throw errors and allow recovery", () => {
     assert.throws(() => new Spectrum(Float64Array.from(e), Float64Array.from(m)), Error);
   }
   const s = new Spectrum(energy, mu);
-  assert.throws(() => s.set_e0(NaN).fft(), /e0|E0/);
   s.set_e0(reference.e0).fft();
+  const savedMagnitude = s.chir_mag();
+  for (const e0 of [NaN, Infinity, -Infinity]) {
+    assert.throws(() => s.set_e0(e0), RangeError);
+    assert.equal(s.e0(), reference.e0);
+    assert.deepEqual(s.chir_mag(), savedMagnitude);
+  }
   const ft = new XrayFFTF(); ft.nfft = 0;
   assert.throws(() => s.set_fft(ft).fft(), /nfft/);
   assert.equal(s.r(), undefined);

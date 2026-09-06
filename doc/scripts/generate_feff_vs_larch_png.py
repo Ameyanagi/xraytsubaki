@@ -209,7 +209,7 @@ def draw_plot(series: Series) -> None:
     rms = math.sqrt(sum(v * v for v in series.diff) / max(1, len(series.diff)))
     max_abs = max(abs(v) for v in series.diff) if series.diff else 0.0
     x_label, y_label = axis_labels(series.x_name)
-    title = f"{series.name}: xraytsubaki vs xraylarch"
+    title = f"{series.name}: rexafs vs xraylarch"
     subtitle = f"RMS(diff)={rms:.3e}, Max|diff|={max_abs:.3e}, contributions={len(series.contributions)}"
     draw.text((left, 22), title, fill=text_col, font=font)
     draw.text((left, 46), subtitle, fill=(70, 70, 70), font=font)
@@ -221,7 +221,7 @@ def draw_plot(series: Series) -> None:
     legend_y = top + 20
     lx = left + 8
     draw.line([(lx, legend_y), (lx + 40, legend_y)], fill=(204, 63, 63), width=4)
-    draw.text((lx + 48, legend_y - 8), "xraytsubaki total", fill=text_col, font=font)
+    draw.text((lx + 48, legend_y - 8), "rexafs total", fill=text_col, font=font)
     lx += 250
     draw.line([(lx, legend_y), (lx + 40, legend_y)], fill=(45, 99, 214), width=4)
     draw.text((lx + 48, legend_y - 8), "xraylarch total", fill=text_col, font=font)

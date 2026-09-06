@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "releases": {
+    "0.1.0": {
+      "project": "rexafs-0.1.0-links.rxs",
+      "embedded_project": "rexafs-0.1.0-embedded.rxs",
+      "format_version": 1
+    }
+  },
+  "invalid_projects": [
+    "future-version.rxs",
+    "truncated.rxs"
+  ],
+  "sha256": {
+    "data/cu_150k.xmu": "c309e53ec6b681024718d5c25694c6426818725974afd7b124a2f076be618cf2",
+    "data/second.xmu": "c309e53ec6b681024718d5c25694c6426818725974afd7b124a2f076be618cf2",
+    "feff/feff0001.dat": "9fa9934c94b34d78aa5380a93afad03f86c5724393e046fb403a66b326d4b06a",
+    "format-v1-defaults.json": "9ae0aacdbf1ef35afd249ee72b5fc8e6f0445e0b4c886040f7556eb13add0bd9",
+    "future-version.rxs": "1f2991674799bad50ade9b9a3728ef840380eff3807a45da89e5b2cfa139f825",
+    "minimal-v1.rxs": "9575bfa41d22db9d0bdb929955eabde9fa53cf7316460bc42775580c0b870bbc",
+    "rexafs-0.1.0-embedded.rxs": "e407fcf3587c45d481e5d34e7b3f3b6b4b5520664bdfd02936e6b0c907d5ce99",
+    "rexafs-0.1.0-links.rxs": "496c8171743c0e4307efb49edb68f52993dfe30800e18a151fb7bd5670fbe85e",
+    "truncated.rxs": "f11cad939b7c5e9b31a8910d2fa82cb7ca6dfec6d0dee4f55cc051287a5af59c"
+  }
+}

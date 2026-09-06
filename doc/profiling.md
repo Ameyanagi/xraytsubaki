@@ -1,6 +1,8 @@
 # Profiling of the preedge, autobk, and fft process.
 
-Profinings were performed using the following command:
+Historical measurements from the codename period; figures retain their original profiler labels.
+
+Profiling were performed using the following command:
 
 ```bash
 sudo cargo flamegraph --bench xas_group_benchmark_parallel
@@ -10,14 +12,14 @@ sudo cargo flamegraph --bench xas_group_benchmark_parallel
 
 In both cases (numerical and analytical Jacobian), AUTOBK algorithm takes most of the time, and the minimization process is the bottleneck of the entire process. The analytical Jacobian gives roughly x3-4 speedup compared to the numerical Jacobian, but we need to avoid minimization for further speedup.
 
-![profile for numerical Jacobian](img/flamegraph_xraytsubaki_numerical_optimization.svg)
+![profile for numerical Jacobian](img/flamegraph_rexafs_numerical_optimization.svg)
 
-![profile for analytical Jacobian](img/flamegraph_xraytsubaki_analytical_optimization.svg)
+![profile for analytical Jacobian](img/flamegraph_rexafs_analytical_optimization.svg)
 
 ## Appectix: Profiling of xraylarch
 
 Profile of python + xraylarch (preedge, autobk, and fft) were also measured. In this case, AUTOBK is also the bottleneck of the entire process.
-xraytsubaki with single core and numerical Jacobian give similar performance to xraylarch.
+rexafs with single core and numerical Jacobian give similar performance to xraylarch.
 
 ![profile of xraylarch](img/flamegraph_xraylarch.svg)
 
@@ -35,14 +37,14 @@ Dependency state used for this baseline:
 
 - Removed `fftconvolve` dependency path.
 - Single FFT stack in runtime path: `easyfft 0.4.2`.
-- `cargo tree -p xraytsubaki | rg "easyfft|fftconvolve|anymap"` confirms no `fftconvolve` and only `anymap3` via `easyfft`.
+- `cargo tree -p rexafs | rg "easyfft|fftconvolve|anymap"` confirms no `fftconvolve` and only `anymap3` via `easyfft`.
 
 Commands:
 
 ```bash
-cargo test -p xraytsubaki
-/usr/bin/time -l cargo bench -p xraytsubaki --bench xas_group_benchmark_single -- --noplot
-/usr/bin/time -l cargo bench -p xraytsubaki --bench xas_group_benchmark_parallel -- --noplot
+cargo test -p rexafs
+/usr/bin/time -l cargo bench -p rexafs --bench xas_group_benchmark_single -- --noplot
+/usr/bin/time -l cargo bench -p rexafs --bench xas_group_benchmark_parallel -- --noplot
 ```
 
 Runtime metrics (Criterion sample p50/p95 from `target/criterion/*/new/sample.json`):
@@ -59,7 +61,7 @@ Runtime metrics (Criterion sample p50/p95 from `target/criterion/*/new/sample.js
 Allocation count status:
 
 - Captured with allocator-instrumented runner:
-  - command: `cargo run -p xraytsubaki --example alloc_baseline --release`
+  - command: `cargo run -p rexafs --example alloc_baseline --release`
   - `xas_group_benchmark_single_alloc`:
     - `alloc_calls=4929638`
     - `dealloc_calls=4927810`
@@ -84,10 +86,10 @@ Date: 2026-02-08
 Commands:
 
 ```bash
-cargo test -p xraytsubaki
-/usr/bin/time -l cargo bench -p xraytsubaki --bench xas_group_benchmark_single -- --noplot
-/usr/bin/time -l cargo bench -p xraytsubaki --bench xas_group_benchmark_parallel -- --noplot
-cargo run -p xraytsubaki --example alloc_baseline --release
+cargo test -p rexafs
+/usr/bin/time -l cargo bench -p rexafs --bench xas_group_benchmark_single -- --noplot
+/usr/bin/time -l cargo bench -p rexafs --bench xas_group_benchmark_parallel -- --noplot
+cargo run -p rexafs --example alloc_baseline --release
 ```
 
 Runtime metrics:
@@ -125,11 +127,11 @@ Date: 2026-02-08
 Commands:
 
 ```bash
-cargo test -p xraytsubaki
-cargo bench -p xraytsubaki --bench autobk_stage_benchmark -- --noplot
-cargo bench -p xraytsubaki --bench xas_group_benchmark_single -- --noplot
-cargo bench -p xraytsubaki --bench xas_group_benchmark_parallel -- --noplot
-bash crates/xraytsubaki/scripts/bench_regression_gate.sh informational
+cargo test -p rexafs
+cargo bench -p rexafs --bench autobk_stage_benchmark -- --noplot
+cargo bench -p rexafs --bench xas_group_benchmark_single -- --noplot
+cargo bench -p rexafs --bench xas_group_benchmark_parallel -- --noplot
+bash crates/rexafs/scripts/bench_regression_gate.sh informational
 ```
 
 Runtime metrics (Criterion median point estimate):
@@ -148,7 +150,7 @@ Notes:
   - `AUTOBKSolver::LinearDirect` (default)
   - `AUTOBKSolver::LegacyLm`
 - Direct solver guards ill-conditioned systems and can fall back to LM automatically (`linear_fallback_to_lm = true` by default).
-- Regression baseline now includes AUTOBK stage benchmarks in `crates/xraytsubaki/benchmarks/baseline.json`.
+- Regression baseline now includes AUTOBK stage benchmarks in `crates/rexafs/benchmarks/baseline.json`.
 
 ## Benchmark Methodology Update (Matched Workload)
 
@@ -168,8 +170,8 @@ To ensure fair sequential vs parallel comparison:
 Use these commands for matched comparisons:
 
 ```bash
-cargo bench -p xraytsubaki --bench xas_group_benchmark_single -- --nocapture
-cargo bench -p xraytsubaki --bench xas_group_benchmark_parallel -- --nocapture
+cargo bench -p rexafs --bench xas_group_benchmark_single -- --nocapture
+cargo bench -p rexafs --bench xas_group_benchmark_parallel -- --nocapture
 ```
 
 Derived metrics:
@@ -184,9 +186,9 @@ Date: 2026-02-08
 Commands:
 
 ```bash
-cargo bench -p xraytsubaki --bench xas_group_benchmark_single -- --nocapture
-cargo bench -p xraytsubaki --bench xas_group_benchmark_parallel -- --nocapture
-bash crates/xraytsubaki/scripts/bench_regression_gate.sh informational
+cargo bench -p rexafs --bench xas_group_benchmark_single -- --nocapture
+cargo bench -p rexafs --bench xas_group_benchmark_parallel -- --nocapture
+bash crates/rexafs/scripts/bench_regression_gate.sh informational
 ```
 
 Runtime metrics (Criterion time interval):

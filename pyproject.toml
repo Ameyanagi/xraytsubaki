@@ -1,0 +1,37 @@
+[build-system]
+requires = ["maturin>=1.9,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "rexafs"
+description = "Rust-powered X-ray absorption spectroscopy analysis"
+readme = "py-rexafs/README.md"
+requires-python = ">=3.10,<3.15"
+license = { text = "MIT OR Apache-2.0" }
+authors = [{ name = "Ameyanagi", email = "contact@ameyanagi.com" }]
+dependencies = ["numpy>=1.23"]
+classifiers = [
+  "Programming Language :: Rust",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Topic :: Scientific/Engineering :: Physics",
+]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://rexafs.com"
+Repository = "https://github.com/ameyanagi/xraytsubaki"
+
+[tool.maturin]
+manifest-path = "py-rexafs/Cargo.toml"
+features = ["pyo3/extension-module"]
+python-source = "py-rexafs/python"
+module-name = "rexafs._core"
+# The sdist retains the workspace manifest, so Cargo must be able to resolve
+# its local sum_tree patch even though Python does not depend on the desktop.
+include = [
+  { path = "vendor/sum_tree/Cargo.toml", format = "sdist" },
+  { path = "vendor/sum_tree/src/*.rs", format = "sdist" },
+  { path = "vendor/sum_tree/LICENSE-APACHE", format = "sdist" },
+  { path = "vendor/sum_tree/README.rexafs.md", format = "sdist" },
+]

@@ -1,4 +1,4 @@
-# FEFF: xraytsubaki vs xraylarch
+# FEFF: rexafs vs xraylarch
 
 Generated comparison plots:
 - `01_path_builder`: `doc/plots/feff_vs_larch_01_path_builder.svg`, `doc/plots/feff_vs_larch_01_path_builder.png`

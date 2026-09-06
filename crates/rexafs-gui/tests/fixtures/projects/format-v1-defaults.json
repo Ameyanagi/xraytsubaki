@@ -1,0 +1,83 @@
+{
+  "publication": {
+    "figures": {},
+    "table_captions": {}
+  },
+  "version": 1,
+  "source_dir": null,
+  "spectrum_file": null,
+  "params": {
+    "import": {
+      "mode": "Auto",
+      "energy_col": null,
+      "i0_col": null,
+      "it_col": null,
+      "ir_col": null,
+      "fluor_cols": null,
+      "mu_col": null
+    },
+    "align_to_ref": false,
+    "align_target": null,
+    "e0": null,
+    "pre_edge_start": null,
+    "pre_edge_end": null,
+    "norm_start": null,
+    "norm_end": null,
+    "norm_polyorder": null,
+    "n_victoreen": null,
+    "rbkg": null,
+    "bkg_kmin": null,
+    "bkg_kmax": null,
+    "bkg_kstep": null,
+    "bkg_nknots": null,
+    "bkg_kweight": null,
+    "bkg_clamp_lo": null,
+    "bkg_clamp_hi": null,
+    "bkg_window": null,
+    "bkg_dk": null,
+    "bkg_solver": null,
+    "bkg_nfft": null,
+    "fft_kmin": null,
+    "fft_kmax": null,
+    "fft_dk": null,
+    "fft_kweight": null,
+    "fft_dk2": null,
+    "fft_rmax": null,
+    "fft_window": null,
+    "fft_kstep": null,
+    "fft_nfft": null,
+    "bft_rmin": null,
+    "bft_rmax": null,
+    "bft_dr": null,
+    "bft_window": null
+  },
+  "overrides": [],
+  "fit_paths": [],
+  "fit_vars": [],
+  "fit_ranges": {
+    "follow_transform": true,
+    "kmin": 2.0,
+    "kmax": 12.0,
+    "rmin": 1.0,
+    "rmax": 3.0,
+    "kweight": 2.0,
+    "kweights": [
+      1.0,
+      2.0,
+      3.0
+    ],
+    "fitspace": "R",
+    "noise": false
+  },
+  "feff_workspace": null,
+  "derived": [],
+  "fit_history": [],
+  "joint": {
+    "enabled": false,
+    "datasets": [],
+    "local": [],
+    "scopes": {},
+    "values": {},
+    "varying": {}
+  }
+}

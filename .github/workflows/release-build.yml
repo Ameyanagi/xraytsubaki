@@ -1,0 +1,172 @@
+name: Release builds
+
+on:
+  workflow_dispatch:
+  workflow_call:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  licenses:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          rust-version: '1.98.1'
+          command: check licenses
+          arguments: --locked --all-features
+      - uses: dtolnay/rust-toolchain@1.98.1
+      - name: Test the Apache sum_tree patch
+        run: cargo test --locked --manifest-path vendor/sum_tree/Cargo.toml
+
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python scripts/check-release-version.py
+      - name: Require retained compatibility fixtures for this release
+        run: python scripts/check-compatibility-fixtures.py
+      - run: cargo test --locked -p rexafs
+      - run: cargo test --locked -p rexafs --features ndarray-compat
+      - run: cargo test --locked -p rexafs --features trust-region
+      - run: cargo package --locked -p rexafs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rust-package
+          path: target/package/rexafs-*.crate
+          if-no-files-found: error
+
+  python:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, macos-15-intel, windows-2025]
+        python: ['3.10', '3.11', '3.12', '3.13', '3.14']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: --release --locked --manifest-path py-rexafs/Cargo.toml --out dist --interpreter python${{ matrix.python }}
+          manylinux: auto
+          rust-toolchain: '1.98.1'
+      - run: python -m pip install --no-index --find-links dist rexafs --no-deps
+      - run: python -m pip install numpy
+      - run: python py-rexafs/tests/test_api.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.os }}-${{ matrix.python }}
+          path: dist/*.whl
+          if-no-files-found: error
+
+  sdist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install maturin twine
+      - run: maturin sdist --manifest-path py-rexafs/Cargo.toml --out dist
+      - run: twine check dist/*
+      - run: python -m pip install dist/*.tar.gz
+      - run: python py-rexafs/tests/test_api.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  npm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98.1
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: cargo install wasm-pack --locked --version 0.15.0
+      - run: npm --prefix js-rexafs run build
+      - run: npm --prefix js-rexafs test
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install playwright
+      - run: python -m playwright install --with-deps chromium
+      - run: python js-rexafs/test/browser.py
+      - run: npm pack
+        working-directory: js-rexafs
+      - run: node scripts/test-npm-package.mjs js-rexafs/rexafs-*.tgz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-package
+          path: js-rexafs/rexafs-*.tgz
+          if-no-files-found: error
+
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel, ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Linux platform dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang cmake pkg-config libasound2-dev libfontconfig-dev libglib2.0-dev libssl-dev libvulkan-dev libwayland-dev libx11-xcb-dev libxkbcommon-x11-dev libzstd-dev libsqlite3-dev
+      - name: Project compatibility, publication and desktop regressions
+        run: cargo test --locked --release -p rexafs-gui --no-default-features --features refeff-runner
+      - run: cargo build --locked --release -p rexafs-gui --no-default-features --features refeff-runner
+      - run: python scripts/package-desktop.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.os }}
+          path: |
+            target/distributions/*.zip
+            target/distributions/*.tar.gz
+            target/distributions/*.sha256
+          if-no-files-found: error
+
+  manifest:
+    needs: [licenses, core, python, sdist, npm, desktop]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Hash every qualified distribution
+        run: python scripts/check-artifacts.py create artifacts SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-manifest
+          path: SHA256SUMS
+          if-no-files-found: error

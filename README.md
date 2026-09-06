@@ -1,70 +1,141 @@
-# xraytsubaki: Fast XAS Data Analysis Tool
+# rexafs
 
-xraytsubaki is a Rust-based program that implements the core functionalities of [xraylarch](https://xraypy.github.io/xraylarch/). The primary aim of this project is to expedite the processing of extensive XAS data sets. The project's name, xraytsubaki, draws inspiration from [tsubaki](https://en.wikipedia.org/wiki/Camellia_japonica).
+![rexafs — Rust-powered X-ray absorption analysis](assets/brand/rexafs-release.png)
 
-Currently the main source code is placed under `./crates/xraytsubaki/`.
+**Rust-powered X-ray absorption analysis.**
 
-## Project Genesis and Objectives
+rexafs processes measured XAS spectra, removes EXAFS backgrounds, computes Fourier
+transforms and fits scattering-path models. Use the Rust library, Python bindings,
+JavaScript/Wasm package or desktop application. [rexafs.com](https://rexafs.com) is
+the project's domain; website deployment is part of the release plan.
 
-The inception of this project was triggered when I needed to process over 1000 spectra from in-situ measurements. The data loading and processing in xraylarch were too time-consuming, not to mention also for demeter. The goal was to develop a tool capable of processing data within a reasonable timeframe. While this project does not seek to replace xraylarch, it does aim to provide a phenomenally fast core API for xraylarch's backend to augment its capacity.
+Developed under the codename **xraytsubaki**, inspired by the camellia. The `r`
+evokes Rust and the connection to **ReFEFF**, the optional Rust scattering engine.
+The project began with the need to process large in-situ measurement series.
 
-Additionally, this project seeks to leverage Rust's ecosystem to create a generalized library compatible with other languages such as Python and Javascript. This will facilitate a shift away from exclusive Python-based analysis.
+## Release status
 
-## Key Features
+The source tree uses `rexafs`. Registry publication and GitHub downloads are being
+prepared; the commands below build from this checkout. The repository is still
+[`ameyanagi/xraytsubaki`](https://github.com/ameyanagi/xraytsubaki) and will be renamed
+at the end of the migration. See the [release plan](doc/rebranding-plan.md),
+[migration guide](doc/migration.md) and [release runbook](doc/releasing.md).
 
-- [x] Standard EXAFS analysis (find_e0, preedge postedge normalization, AUTOBK, FFT, IFFT)
-- [x] Parallel processing using Rayon. (For example, M1 Macbook Pro with 10 cores can process 10000 spectra in 7.5 seconds, which is ~x10 enhancement without parallelization. Numpy + xraylarch takes 145 seconds.)
-- [x] Optimization on AUTOBK. The AUTOBK process were optimized with providing an analytical Jacobian to speed up the minimization process by Leverberg-Marquardt algorithm.
+## What is available
 
-## Future Developments
+| Surface | Implemented scope |
+|---|---|
+| Rust core | Normalization, AUTOBK, FFT/IFFT, parallel groups, alignment/rebinning/merging, LCF/PCA, structures, path fitting and joint/independent fits |
+| Python | Array processing with NumPy results; QAS transmission batch processing |
+| JavaScript / TypeScript | Array processing through Wasm in Node and browsers |
+| Desktop | Import, processing, structures and path selection, fitting, project persistence and publication exports |
 
-- [ ] EXAFS helper funtions (rebinning and more)
-- [ ] Develop a Python wrapper for the library. (TODO: py-xraytsubaki)
-- [ ] Develop a web assembly version of the library for web application usage.
+Optional Rust integrations include [ReFEFF](https://crates.io/crates/refeff), FEFF10,
+structure databases and plotting. The Python and JavaScript packages expose the
+small processing API; they do not yet expose all Rust fitting and structure APIs.
+The desktop's experimental assistant is optional.
 
-## Licensing
+## Build from source
 
-Licensed under either of
-
-- Apache License, Version 2.0
-  ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
-- MIT license
-  ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
-
-at your option.
-
-## Plotting Support
-
-`xraytsubaki` now supports feature-gated core plotting via `ruviz`.
-
-```bash
-cargo run -p xraytsubaki --features plotting --example plot_demo
-```
-
-`plot_demo` output path:
-- `crates/xraytsubaki/target/plot_demo`
-
-Current demo inputs:
-- FEFF calculation materials (`feff.inp`): `Co`, `FeO_withPb`, `MnO2`, `ZnSe`
-- Fit materials (`FeffFit::fit()`): `Cu`, `ZnSe`
-
-Regenerate the Cu/ZnSe XrayLarch fit references:
+The release work is tested with Rust 1.98.1. The desktop uses edition 2024 and a
+pinned GPUI dependency; see the runbook for platform qualification.
 
 ```bash
-uv run --with xraylarch python crates/xraytsubaki/scripts/generate_larch_fit_references.py
+cargo test -p rexafs
+cargo run --release -p rexafs-gui
 ```
 
-Plotting APIs use a mutable entrypoint (`plot(&mut self)`) so missing intermediates can be auto-computed and cached (`normalize`, `calc_background`, `fft`) when panel selection requires them.
+The desktop executable is `target/release/rexafs`. To build only the ReFEFF backend:
 
-Current defaults:
-- `mu()` renders flattened `mu(E)` (auto-normalized).
-- `k()` applies symmetric y-limits and k-weight-aware units in the y-axis label.
-- `FeffFitResult::plot().k()` uses the fit/dataset `kweight` by default.
-- `r()` uses `xlim(0.0, 6.0)` by default.
-- Plot text is rendered with `typst(true)` for scientific notation-friendly output.
-- `r()` plots magnitude by default; use `.real()` / `.imag()` for components, and `.mag().real().imag()` for all traces.
-- Window overlays are off by default.
-- `window(true)` on `k()` is an alias that enables both `window_fn(true)` and `window_box(true)`.
-- `window_fn(...)` is k-space only; `window_box(...)` supports k-space and fit r-space and draws two range lines (min/max).
+```bash
+cargo build --release -p rexafs-gui --no-default-features --features refeff-runner
+```
 
-For this phase, multi-panel export is PNG-focused.
+Python development (CPython 3.10–3.14):
+
+```bash
+uv venv --python 3.12
+uv pip install maturin numpy
+uv run --no-project maturin develop --release
+```
+
+JavaScript build (Node 22+, Rust Wasm target and `wasm-pack` on PATH):
+
+```bash
+rustup target add wasm32-unknown-unknown
+npm --prefix js-rexafs run build
+npm --prefix js-rexafs test
+```
+
+## Small processing API
+
+Each language uses the same normalization → AUTOBK → Fourier pipeline. Inputs are
+finite, equal-length arrays with strictly increasing energy in eV.
+
+```rust,ignore
+let result = rexafs::process(&energy, &mu)?;
+```
+
+```python
+import rexafs
+result = rexafs.process(energy, mu)
+print(result.e0, result.k, result.chi)
+```
+
+```javascript
+import init, { process } from "rexafs";
+await init();
+const result = process(energy, mu); // Float64Array inputs
+```
+
+See the [API guide](doc/api.md) for units, errors and advanced Rust entry points,
+[Python guide](py-rexafs/README.md) and [JavaScript guide](js-rexafs/README.md).
+
+## Documentation and scientific context
+
+### Saving projects and compatibility
+
+Use **Save project** / **Open project** with **`.rxs`** files. This is the first
+release format; unreleased codename formats are not supported. **Raw: paths** is
+the default: source paths are relative to the project file's directory. Move the
+project and data folders together. Choose **Raw: embedded** to include losslessly
+compressed original spectra and referenced FEFF files for portability.
+
+Saved projects use compact JSON and omit redundant defaults while retaining
+numeric precision, arrays, expressions and metadata. The file begins with a header
+containing format/software versions, timestamps, source paths, checksums and
+original comment headers. Every save checks the reconstructed state, then uses
+atomic replacement and keeps the previous `.rxs.bak`.
+
+Projects store processing, fit history/models, joint assignments, derived spectra
+and publication settings. Embedded inputs retain their original bytes; derived
+spectra retain full arrays in either mode. See the
+[compatibility and recovery policy](doc/project-compatibility.md).
+
+Every release must add small retained linked and embedded project fixtures. GitHub
+checks their manifest and runs load/save/reopen, relocation, byte-recovery, backup and failure tests alongside
+the Rust numerical and Python/JavaScript API regressions. Historical fixtures stay
+in the suite; a release version without its fixture fails the release gate.
+
+### Publication figures and tables
+
+**Publish** lets you set plot size, DPI, labels, limits and visible curves, then
+save PNG or vector SVG. Defaults come from ruviz and previews preserve aspect
+ratio. Figure/table captions are editable and saved with the project. Analysis
+exports include a report with numbered captions, units, uncertainty notes and
+source records. See the [publication guide](doc/publication.md).
+
+The [documentation index](doc/README.md) links current workflows, plotting,
+validation records and design history. Historical benchmark results retain their
+hardware and workload context; no single speedup is promised for all inputs.
+XrayLarch provides algorithm and regression-reference context. ReFEFF, FEFF and
+imported structure/data sources retain their own names and attribution.
+
+## License
+
+The project's own source is dual-licensed under [MIT](LICENSE-MIT) or
+[Apache-2.0](LICENSE-APACHE), at your option. See [COPYRIGHT.md](COPYRIGHT.md).
+Dependencies and reference fixtures retain their own terms. The release license
+gate requires a non-GPL license choice for every Rust dependency; see the
+[distribution notices](doc/distribution-notices.md). Identify the actual calculation
+backend when reporting scientific results.

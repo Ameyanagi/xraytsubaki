@@ -1,7 +1,7 @@
 # Structure database for EXAFS fitting — core design
 
 Status: implemented on `feat/structure-db` (2026-09-03), module
-`crates/xraytsubaki/src/xafs/structure/`. Larix parity target: CIF browser,
+`crates/rexafs/src/xafs/structure/`. Larix parity target: CIF browser,
 AMCSD database, Materials Project import → `feff.inp` → FEFF paths, with
 path geometry available for a 3D visualiser.
 

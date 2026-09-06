@@ -44,14 +44,14 @@ retain those tables, but conversion to an energy spectrum rejects unsupported ax
 ## Rust API
 
 ```rust,no_run
-use xraytsubaki::prelude::{XdiFile, XdiSignal};
+use rexafs::prelude::{XdiFile, XdiSignal};
 
 let file = XdiFile::read("ni_metal_rt.xdi")?;
 let spectrum = file.to_spectrum(XdiSignal::Auto)?;
 let reference = file.header.get("sample.prep");
 // file.header retains metadata, comments, column units and import warnings.
 // file.data retains the numeric table in its original units and order.
-# Ok::<(), xraytsubaki::prelude::XdiError>(())
+# Ok::<(), rexafs::prelude::XdiError>(())
 ```
 
 `XdiFile::parse` accepts text directly. `XdiFile::energy_ev` exposes the converted

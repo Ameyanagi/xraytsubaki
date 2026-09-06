@@ -4,7 +4,7 @@
 
 Reviewed primary documentation on 2026-09-05. These are design references, not claims of comparative user-study results.
 
-| Reference | Useful concept | Decision for X-Ray Tsubaki |
+| Reference | Useful concept | Decision for rexafs |
 | --- | --- | --- |
 | [Athena introduction](https://bruceravel.github.io/demeter/documents/Athena/intro.html) | Current data and marked groups are distinct; processing controls follow the scientific workflow. | Keep the existing spectrum browser and show the fitted spectrum in a persistent summary. Batch scope remains explicit. |
 | [Artemis main window](https://bruceravel.github.io/demeter/documents/Artemis/startup/main.html) | Data, FEFF calculations, model, and fitting actions have distinct roles. | Give fitting its own full workspace, with five freely navigable steps and a persistent primary action. |
@@ -40,7 +40,7 @@ Desktop checks use the native app in Cargo release mode, evaluated through compu
 - Resizing the native window from about 1187 to 1022 displayed pixels wraps the viewer controls and keeps source selection and fit actions reachable.
 - Release checks completed a single fit and a 12-frame batch (12 completed, zero failed), including a final desktop batch run after the parser fix, using copies of the repository spectrum as a workflow fixture. Batch results now occupy the central table area; they retain CSV export and selection-to-spectrum navigation. Explicit column navigation was verified to reveal the rightmost fitted parameters.
 
-Initial validation: `cargo build --release -p xraytsubaki-gui`; 73 GUI tests passed, with two explicitly invoked local diagnostics ignored in the ordinary suite. All 64 core fitting tests passed with the default trust-region solver enabled; 60 passed with default features disabled, exercising the Levenberg–Marquardt fallback. Later foil, XDI and molecule checks are recorded below. Online database requests requiring service access were not exercised live.
+Initial validation: `cargo build --release -p rexafs-gui`; 73 GUI tests passed, with two explicitly invoked local diagnostics ignored in the ordinary suite. All 64 core fitting tests passed with the default trust-region solver enabled; 60 passed with default features disabled, exercising the Levenberg–Marquardt fallback. Later foil, XDI and molecule checks are recorded below. Online database requests requiring service access were not exercised live.
 
 ## Upstream rendering request
 
@@ -65,8 +65,8 @@ The generators agree closely for this input: for the first two paths, relative R
 Raw comparison summaries are in [validation/feff-backend-comparison.json](validation/feff-backend-comparison.json). Full calculation artifacts were retained in the local temporary comparison directories. Reproduce with both engine features (now enabled by default):
 
 ```sh
-XTS_COMPARE_PROJECT=/path/to/project.xtproj cargo test --release -p xraytsubaki-gui compare_saved_project_backends -- --ignored --nocapture
-cargo run --release -p xraytsubaki-gui
+REXAFS_COMPARE_PROJECT=/path/to/project.rxs cargo test --release -p rexafs-gui compare_saved_project_backends -- --ignored --nocapture
+cargo run --release -p rexafs-gui
 ```
 
 The comparison helper expects a single calculated source and its standalone spectrum. Source-specific physical constraints and initial values still need to be chosen for a real multi-phase analysis. Calculation inputs are copied into unique workspaces when rerunning an existing source, keeping earlier model path files intact.
@@ -75,7 +75,7 @@ The comparison helper expects a single calculated source and its standalone spec
 
 The core previously discarded the optimizer's termination report. Fit results now retain the method, stopping reason, convergence flag, iteration/evaluation count when available, and initial/final objective (half the squared weighted residual norm). Older serialized results remain readable with an absent report. Results distinguishes numerical convergence from a low residual, identifies parameters at bounds, and reports insufficient independent information. History retains the report; the batch table and CSV distinguish converged and stopped runs.
 
-A diagnostic with the saved hcp fixture reduced the objective from 2.09274 to 0.15762 and stopped at parameter tolerance after 48 iterations, with R factor 1.19771. Repeating from those fitted values reached R factor 0.96336 with S₀² at its lower bound and ΔR at its upper bound. Another repeat made no material improvement. This is not an iteration-limit failure and is not evidence that the sample is bulk hcp Ru. A real scientific fit requires the sample identity and a defensible model. The runs are preserved in [validation/fit-convergence-diagnostic.json](validation/fit-convergence-diagnostic.json); reproduce with the `diagnose_saved_fit` ignored test and `XTS_COMPARE_PROJECT`.
+A diagnostic with the saved hcp fixture reduced the objective from 2.09274 to 0.15762 and stopped at parameter tolerance after 48 iterations, with R factor 1.19771. Repeating from those fitted values reached R factor 0.96336 with S₀² at its lower bound and ΔR at its upper bound. Another repeat made no material improvement. This is not an iteration-limit failure and is not evidence that the sample is bulk hcp Ru. A real scientific fit requires the sample identity and a defensible model. The runs are preserved in [validation/fit-convergence-diagnostic.json](validation/fit-convergence-diagnostic.json); reproduce with the `diagnose_saved_fit` ignored test and `REXAFS_COMPARE_PROJECT`.
 
 The covariance calculation previously used a forward difference that was clamped to zero at an upper parameter bound, creating a spurious zero Jacobian column. It now uses the available backward direction, sharing the bounded finite-difference rule with the trust-region factor. A regression compares the boundary derivative to the unrestricted derivative of the same FEFF amplitude model. Uncertainties near active bounds still require careful interpretation.
 
@@ -99,10 +99,10 @@ All four parameters have finite positive uncertainty estimates and remain inside
 The [machine-readable comparison](validation/metal-foil-backend-comparison.json) records provenance, engine versions, geometry, ranges, solver reports, parameters and acceptance criteria. Reproduce with:
 
 ```sh
-cargo test --release -p xraytsubaki-gui metal_foils_fit_with_both_backends -- --nocapture
+cargo test --release -p rexafs-gui metal_foils_fit_with_both_backends -- --nocapture
 ```
 
-The Ni measurement is an unmodified XDI file. [XDI support](xdi-import.md) now reads the official format, metadata, declared columns, original units and precomputed μ correctly. Folder discovery includes `.xdi`; keV and supported monochromator angles convert to eV. Malformed tables produce errors. Native release checks verified the [import preview](validation/xdi-ni-import.jpg), reopening the project with its ranges intact, and [Run fit → Results](validation/ni-foil-release-fit.jpg), yielding R = 0.00287 in nine iterations. Opening an `.xtproj` from the command line now uses the project loader.
+The Ni measurement is an unmodified XDI file. [XDI support](xdi-import.md) now reads the official format, metadata, declared columns, original units and precomputed μ correctly. Folder discovery includes `.xdi`; keV and supported monochromator angles convert to eV. Malformed tables produce errors. Native release checks verified the [import preview](validation/xdi-ni-import.jpg), reopening the project with its ranges intact, and [Run fit → Results](validation/ni-foil-release-fit.jpg), yielding R = 0.00287 in nine iterations. Opening an `.rxs` from the command line now uses the project loader.
 
 ## VESTA polyhedra and Mercury-style molecule inspection
 

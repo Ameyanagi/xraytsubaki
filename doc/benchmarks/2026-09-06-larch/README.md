@@ -12,6 +12,10 @@ were **6.21% for Cu, 7.62% for Ni, and 37.50% for Ru**. These differences must b
 considered alongside the timing results. Changing optimizer alone does not make
 the implementations equivalent.
 
+"Default" here means the released AUTOBK solver, clamp-scale and cache policy.
+Scientific parameters are the explicit matched settings below, including a
+shared E0; these are not two unrelated out-of-the-box configurations.
+
 ## Retained evidence and reproduction
 
 - [All 112 comparisons](baseline-0.1.0/measurements.md), with

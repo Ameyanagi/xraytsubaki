@@ -47,7 +47,12 @@ fn state(project: &ProjectFile) -> Value {
     let mut project = project.clone();
     let origins = project.source_origins.clone();
     storage::map_paths(&mut project, &mut |p| {
-        Ok(origins.get(p).cloned().unwrap_or_else(|| p.to_owned()))
+        let source = origins.get(p).cloned().unwrap_or_else(|| p.to_owned());
+        // Embedded reloads may spell the same original file through a directory
+        // alias (notably /tmp vs /private/tmp on macOS). Compare file identity
+        // after undoing the cache mapping. Resolve an existing ancestor when
+        // the portability test has deliberately removed the original files.
+        Ok(storage::resolved_location(&source))
     })
     .unwrap();
     let mut value = serde_json::to_value(project).unwrap();

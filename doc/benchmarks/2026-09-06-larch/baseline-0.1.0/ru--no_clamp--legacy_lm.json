@@ -1,0 +1,169 @@
+{
+  "environment": {
+    "utc": "2026-09-06T13:13:00Z",
+    "python": "3.12.12 (main, Dec 17 2025, 21:07:08) [Clang 21.1.4 ]",
+    "platform": "macOS-26.5.1-arm64-arm-64bit",
+    "machine": "arm64",
+    "cpu": "Apple M4",
+    "physical_cores": "10",
+    "logical_cores": 10,
+    "memory_bytes": "34359738368",
+    "versions": {
+      "rexafs": "0.1.0",
+      "xraylarch": "2026.3.1",
+      "numpy": "2.5.2",
+      "scipy": "1.18.1",
+      "lmfit": "1.3.4",
+      "threadpoolctl": "3.6.0"
+    },
+    "threadpools": [
+      {
+        "user_api": "openmp",
+        "internal_api": "openmp",
+        "num_threads": 1,
+        "prefix": "libomp",
+        "filepath": "/private/tmp/rexafs-larch-bench-20260906/lib/python3.12/site-packages/sklearn/.dylibs/libomp.dylib",
+        "version": null
+      }
+    ],
+    "thread_environment": {
+      "OPENBLAS_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1",
+      "MKL_NUM_THREADS": "1",
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "NUMEXPR_NUM_THREADS": "1",
+      "RAYON_NUM_THREADS": "1"
+    },
+    "checkout_commit": "fc373024789c3b4f9abc557d67e8e596e7e37306",
+    "rexafs_binary_sha256": "f7b596e07bf81109d587543170f3fd4fd355c85de9918c896c66ef2c4a107a38",
+    "larch_autobk_source_sha256": "b1677ab45e12a756d2c2601e6195f5fcb6c9c6937d46624a8a0dfc3b7c7aa4aa",
+    "script_sha256": "baad0b83df1f2766e7b51a569a22ea277fd6a105414e69a25dd1dd0f321b38bb"
+  },
+  "dataset": "ru",
+  "source": {
+    "file": "crates/rexafs/tests/testfiles/Ru_QAS.dat",
+    "file_sha256": "13669c95a20b03a4080a12b114dd427dea00516f86b72177bbcb0d4710aae2f8",
+    "input_sha256": "32368876272be0d5664380c229f97b78ef07462c8901f9f6b47c44d6ace8123c",
+    "points": 645,
+    "preprocessing": "log(I0/It)"
+  },
+  "config": "legacy_lm",
+  "setup": "no_clamp",
+  "parameters": {
+    "e0": 22118.8,
+    "pre1": -150.0,
+    "pre2": -30.0,
+    "norm1": 150.0,
+    "norm2": 700.0,
+    "nnorm": 2,
+    "nvict": 0,
+    "kmin": 0.0,
+    "kmax": 12.0,
+    "kweight": 1,
+    "dk": 0.1,
+    "nclamp": 0,
+    "clamp_lo": 0,
+    "clamp_hi": 1,
+    "nfft": 2048,
+    "kstep": 0.05,
+    "rbkg": 1.0
+  },
+  "rexafs_auto_e0": 22118.8,
+  "first_call_ms": {
+    "construct": 0.06704199999999999,
+    "normalize": 0.081292,
+    "autobk": 1.317208,
+    "fft": 0.024125,
+    "pipeline": 1.4896669999999999
+  },
+  "samples_ms_per_spectrum": {
+    "construct": [
+      0.006619980000000001,
+      0.006845079999999999,
+      0.007294079999999998,
+      0.005416739999999999,
+      0.005386639999999999,
+      0.005857439999999999,
+      0.00572828
+    ],
+    "normalize": [
+      0.0218783,
+      0.022124259999999996,
+      0.023473380000000002,
+      0.0200233,
+      0.019957520000000003,
+      0.02068916,
+      0.0203967
+    ],
+    "autobk": [
+      2.0287675000000003,
+      2.14339154,
+      2.15957832,
+      2.01828418,
+      2.0156816199999996,
+      2.0257075,
+      2.0186808999999997
+    ],
+    "fft": [
+      0.021106679999999996,
+      0.02170674,
+      0.022554199999999996,
+      0.02022666,
+      0.02027914,
+      0.020494179999999997,
+      0.02036656
+    ],
+    "pipeline": [
+      2.0783724599999998,
+      2.1940676199999998,
+      2.21289998,
+      2.0639508799999997,
+      2.06130492,
+      2.07274828,
+      2.0651724399999996
+    ]
+  },
+  "repeats_per_round": 50,
+  "rounds": 7,
+  "timing_ms": {
+    "construct": {
+      "median": 0.005857439999999999,
+      "p95": 0.007159379999999998,
+      "min": 0.005386639999999999,
+      "max": 0.007294079999999998
+    },
+    "normalize": {
+      "median": 0.02068916,
+      "p95": 0.023068644,
+      "min": 0.019957520000000003,
+      "max": 0.023473380000000002
+    },
+    "autobk": {
+      "median": 2.0257075,
+      "p95": 2.154722286,
+      "min": 2.0156816199999996,
+      "max": 2.15957832
+    },
+    "fft": {
+      "median": 0.020494179999999997,
+      "p95": 0.022299961999999996,
+      "min": 0.02022666,
+      "max": 0.022554199999999996
+    },
+    "pipeline": {
+      "median": 2.07274828,
+      "p95": 2.207250272,
+      "min": 2.06130492,
+      "max": 2.21289998
+    }
+  },
+  "peak_rss_bytes": 242909184,
+  "rss_before_bytes": 242417664,
+  "incremental_peak_rss_bytes": 491520,
+  "rss_scope": "Process imports both libraries; incremental peak excludes imports and shared E0 selection",
+  "load_average": [
+    5.04931640625,
+    6.2509765625,
+    8.01318359375
+  ]
+}

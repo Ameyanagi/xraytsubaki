@@ -1,0 +1,73 @@
+
+        __workq_kernreturn  (in libsystem_kernel.dylib)        10096
+        rexafs::xafs::spline::basis  (in _core.cpython-312-darwin.so)        1205
+        <rustfft::neon::neon_radix4::NeonRadix4<f64, f64>>::perform_fft_immut  (in _core.cpython-312-darwin.so)        834
+        <nalgebra::linalg::svd::SVD<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Dyn>>::new  (in _core.cpython-312-darwin.so)        374
+        rexafs::xafs::bessel_i0::bessel_i0  (in _core.cpython-312-darwin.so)        313
+        rustfft::array_utils::validate_and_iter::<num_complex::Complex<f64>, <rustfft::neon::neon_butterflies::NeonF64Butterfly16<f64> as rustfft::Fft<f64>>::process_with_scratch::{closure#0}>  (in _core.cpython-312-darwin.so)        283
+        <realfft::RealToComplexEven<f64> as realfft::RealToComplex<f64>>::process_with_scratch  (in _core.cpython-312-darwin.so)        260
+        rustfft::array_utils::bitreversed_transpose::<num_complex::Complex<f64>, 4>  (in _core.cpython-312-darwin.so)        255
+        <deduplicated_symbol>  (in _core.cpython-312-darwin.so)        200
+        _platform_memmove  (in libsystem_platform.dylib)        189
+        <core::iter::adapters::map::Map<core::slice::iter::Iter<f64>, rexafs::xafs::spline::evaluate::{closure#0}> as core::iter::traits::iterator::Iterator>::fold::<(), core::iter::traits::iterator::Iterator::for_each::call<f64, <alloc::vec::Vec<f64>>::extend_trusted<core::iter::adapters::map::Map<core::slice::iter::Iter<f64>, rexafs::xafs::spline::evaluate::{closure#0}>>::{closure#0}>::{closure#0}>  (in _core.cpython-312-darwin.so)        185
+        <nalgebra::geometry::reflection::Reflection<f64, nalgebra::base::dimension::Dyn, nalgebra::base::matrix_view::ViewStorage<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>, nalgebra::base::dimension::Const<1>, nalgebra::base::dimension::Dyn>>>::reflect_with_sign::<nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Dyn, nalgebra::base::matrix_view::ViewStorageMut<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>, nalgebra::base::dimension::Dyn>>  (in _core.cpython-312-darwin.so)        180
+        nalgebra::linalg::householder::clear_column_unchecked::<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Dyn>  (in _core.cpython-312-darwin.so)        171
+        <rexafs::xafs::background::AUTOBKSpline>::solve_linear_direct_for_scale  (in _core.cpython-312-darwin.so)        161
+        rexafs::xafs::xafsutils::ftwindow  (in _core.cpython-312-darwin.so)        135
+        <nalgebra::geometry::reflection::Reflection<f64, nalgebra::base::dimension::Dyn, nalgebra::base::matrix_view::ViewStorageMut<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>, nalgebra::base::dimension::Const<1>, nalgebra::base::dimension::Dyn>>>::reflect_rows_with_sign::<nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Dyn, nalgebra::base::matrix_view::ViewStorageMut<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>, nalgebra::base::dimension::Dyn>, nalgebra::base::matrix_view::ViewStorageMut<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>, nalgebra::base::dimension::Const<1>, nalgebra::base::dimension::Dyn>>  (in _core.cpython-312-darwin.so)        132
+        pow  (in libsystem_m.dylib)        132
+        <&enterpolation::linear::Linear<enterpolation::base::list::Sorted<&[f64]>, &[f64], enterpolation::easing::Identity> as enterpolation::base::signal::Signal<f64>>::eval  (in _core.cpython-312-darwin.so)        119
+        <core::hash::sip::Hasher<core::hash::sip::Sip13Rounds> as core::hash::Hasher>::write  (in _core.cpython-312-darwin.so)        112
+        <rexafs::xafs::normalization::PrePostEdge as rexafs::xafs::normalization::Normalization>::normalize  (in _core.cpython-312-darwin.so)        82
+        __bzero  (in libsystem_platform.dylib)        77
+        __powidf2  (in _core.cpython-312-darwin.so)        73
+        rexafs::xafs::xrayfft::xftf_fast_nalgebra  (in _core.cpython-312-darwin.so)        72
+        RotatingTree_Get  (in libpython3.12.dylib)        70
+        exp  (in libsystem_m.dylib)        70
+        madvise  (in libsystem_kernel.dylib)        66
+        <core::iter::adapters::map::Map<core::iter::adapters::filter::Filter<core::iter::adapters::zip::Zip<nalgebra::base::iter::MatrixIter<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>, nalgebra::base::vec_storage::VecStorage<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>>>, nalgebra::base::iter::MatrixIter<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>, nalgebra::base::vec_storage::VecStorage<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>>>>, <rexafs::xafs::normalization::PrePostEdge as rexafs::xafs::normalization::Normalization>::normalize::{closure#0}>, <rexafs::xafs::normalization::PrePostEdge as rexafs::xafs::normalization::Normalization>::normalize::{closure#1}> as core::iter::traits::iterator::Iterator>::fold::<(), core::iter::traits::iterator::Iterator::for_each::call<(f64, f64), core::iter::traits::collect::default_extend::extender<(alloc::vec::Vec<f64>, alloc::vec::Vec<f64>), (f64, f64)>::{closure#0}>::{closure#0}>  (in _core.cpython-312-darwin.so)        57
+        mach_absolute_time  (in libsystem_kernel.dylib)        55
+        _xzm_free  (in libsystem_malloc.dylib)        34
+        <alloc::vec::Vec<f64> as alloc::vec::spec_from_iter_nested::SpecFromIterNested<f64, enterpolation::base::signal::Extract<&enterpolation::linear::Linear<enterpolation::base::list::Sorted<&[f64]>, &[f64], enterpolation::easing::Identity>, core::iter::adapters::map::Map<nalgebra::base::iter::MatrixIter<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>, nalgebra::base::vec_storage::VecStorage<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>>>, <nalgebra::base::matrix::Matrix<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>, nalgebra::base::vec_storage::VecStorage<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>>> as rexafs::xafs::mathutils::MathUtils>::interpolate::{closure#2}>>>>::from_iter  (in _core.cpython-312-darwin.so)        31
+        <nalgebra::base::matrix::Matrix<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>, nalgebra::base::vec_storage::VecStorage<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>>> as rexafs::xafs::mathutils::MathUtils>::interpolate  (in _core.cpython-312-darwin.so)        28
+        _platform_memset  (in libsystem_platform.dylib)        27
+        DYLD-STUB$$exp  (in _core.cpython-312-darwin.so)        26
+        hypot  (in libsystem_m.dylib)        26
+        <rexafs::xafs::background::AUTOBK>::calc_background  (in _core.cpython-312-darwin.so)        25
+        <alloc::vec::Vec<f64> as alloc::vec::spec_from_iter_nested::SpecFromIterNested<f64, core::iter::adapters::copied::Copied<ndarray::iterators::Iter<f64, ndarray::dimension::dim::Dim<[usize; 1]>>>>>::from_iter  (in _core.cpython-312-darwin.so)        23
+        <&nalgebra::base::matrix::Matrix<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>, nalgebra::base::vec_storage::VecStorage<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>>> as core::ops::arith::Sub>::sub  (in _core.cpython-312-darwin.so)        23
+        _PyEval_EvalFrameDefault  (in libpython3.12.dylib)        19
+        <alloc::vec::Vec<f64> as alloc::vec::spec_from_iter::SpecFromIter<f64, core::iter::adapters::map::Map<core::iter::adapters::skip::Skip<nalgebra::base::iter::MatrixIter<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>, nalgebra::base::vec_storage::VecStorage<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>>>>, <rexafs::xafs::background::AUTOBK>::calc_background::{closure#12}>>>::from_iter  (in _core.cpython-312-darwin.so)        18
+        <nalgebra::base::matrix::Matrix<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>, nalgebra::base::vec_storage::VecStorage<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>>>>::fold_with::<f64, <nalgebra::base::matrix::Matrix<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>, nalgebra::base::vec_storage::VecStorage<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>>>>::max::{closure#0}, <nalgebra::base::matrix::Matrix<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>, nalgebra::base::vec_storage::VecStorage<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>>>>::max::{closure#1}>  (in _core.cpython-312-darwin.so)        16
+        <rexafs::xafs::xasspectrum::XASSpectrum>::validate_energy_mu_inputs  (in _core.cpython-312-darwin.so)        16
+        <rexafs::xafs::normalization::PrePostEdge>::validate_inputs  (in _core.cpython-312-darwin.so)        16
+        py_get_monotonic_clock.llvm.4507617447335561098  (in libpython3.12.dylib)        16
+        <rexafs::xafs::background::AUTOBK>::calc_background::{closure#14}  (in _core.cpython-312-darwin.so)        15
+        <nalgebra::base::matrix::Matrix<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>, nalgebra::base::vec_storage::VecStorage<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>>>>::fold_with::<f64, <nalgebra::base::matrix::Matrix<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>, nalgebra::base::vec_storage::VecStorage<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>>>>::min::{closure#0}, <nalgebra::base::matrix::Matrix<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>, nalgebra::base::vec_storage::VecStorage<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>>>>::min::{closure#1}>  (in _core.cpython-312-darwin.so)        14
+        _xzm_xzone_malloc  (in libsystem_malloc.dylib)        14
+        <nalgebra::base::matrix::Matrix<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Dyn, nalgebra::base::vec_storage::VecStorage<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Dyn>>>::ad_mul::<nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>, nalgebra::base::vec_storage::VecStorage<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>>>  (in _core.cpython-312-darwin.so)        13
+        nalgebra::linalg::householder::clear_row_unchecked::<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Dyn>  (in _core.cpython-312-darwin.so)        13
+        rexafs::xafs::background::dvector_arange  (in _core.cpython-312-darwin.so)        13
+        <rexafs::xafs::xrayfft::XrayFFTF>::xftf  (in _core.cpython-312-darwin.so)        12
+        <deduplicated_symbol>  (in libsystem_malloc.dylib)        11
+        <rexafs::xafs::xasspectrum::XASSpectrum>::from_arrays  (in _core.cpython-312-darwin.so)        11
+        <std::hash::random::RandomState as core::hash::BuildHasher>::hash_one::<&usize>  (in _core.cpython-312-darwin.so)        10
+        <nalgebra::linalg::svd::SVD<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Dyn>>::delimit_subproblem  (in _core.cpython-312-darwin.so)        10
+        _xzm_free_outlined  (in libsystem_malloc.dylib)        10
+        _xzm_xzone_malloc_tiny  (in libsystem_malloc.dylib)        10
+        polyfit_rs::polyfit_rs::polyfit::<f64>  (in _core.cpython-312-darwin.so)        9
+        <rexafs::xafs::background::AUTOBKSpline>::fft_residual_head  (in _core.cpython-312-darwin.so)        9
+        <nalgebra::linalg::bidiagonal::Bidiagonal<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Dyn>>::v_t  (in _core.cpython-312-darwin.so)        9
+        DYLD-STUB$$pow  (in _core.cpython-312-darwin.so)        8
+        <generic_singleton::thread_local_static_anymap::ThreadLocalStaticAnymap>::get_or_init_with::<core::cell::RefCell<realfft::RealFftPlanner<f64>>, easyfft::with_real_fft_algorithm<f64, <[f64] as easyfft::dyn_size::realfft::DynRealFft<f64>>::real_fft_using::{closure#0}>::{closure#1}::{closure#0}, easyfft::with_real_fft_algorithm<f64, <[f64] as easyfft::dyn_size::realfft::DynRealFft<f64>>::real_fft_using::{closure#0}>::{closure#0}>  (in _core.cpython-312-darwin.so)        8
+        <rexafs::xafs::xasspectrum::XASSpectrum>::set_spectrum::<nalgebra::base::matrix::Matrix<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>, nalgebra::base::vec_storage::VecStorage<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>>>, nalgebra::base::matrix::Matrix<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>, nalgebra::base::vec_storage::VecStorage<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>>>>  (in _core.cpython-312-darwin.so)        8
+        <nalgebra::base::matrix::Matrix<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>, nalgebra::base::vec_storage::VecStorage<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>>>>::map::<f64, <rexafs::xafs::background::AUTOBK>::calc_background::{closure#13}>  (in _core.cpython-312-darwin.so)        8
+        <rexafs::xafs::xasspectrum::XASSpectrum>::fft  (in _core.cpython-312-darwin.so)        8
+        <nalgebra::linalg::bidiagonal::Bidiagonal<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Dyn>>::u  (in _core.cpython-312-darwin.so)        8
+        DYLD-STUB$$hypot  (in _core.cpython-312-darwin.so)        7
+        <nalgebra::base::iter::MatrixIter<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>, nalgebra::base::vec_storage::VecStorage<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>>> as core::iter::traits::iterator::Iterator>::nth  (in _core.cpython-312-darwin.so)        7
+        _free  (in libsystem_malloc.dylib)        7
+        call_instrumentation_vector.llvm.13643779607317168238  (in libpython3.12.dylib)        7
+        _PyObject_Malloc  (in libpython3.12.dylib)        5
+        _tlv_get_addr  (in libdyld.dylib)        5
+        method_get  (in libpython3.12.dylib)        5

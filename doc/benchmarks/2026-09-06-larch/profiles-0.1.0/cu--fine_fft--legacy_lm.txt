@@ -1,0 +1,21 @@
+         50998 function calls in 14.997 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+     2318    0.008    0.000   14.997    0.006 benchmark-larch.py:259(run)
+     2318    0.001    0.000   14.789    0.006 benchmark-larch.py:207(background)
+     2318   14.788    0.006   14.788    0.006 {method 'calc_background' of 'rexafs.Spectrum' objects}
+     2318    0.001    0.000    0.119    0.000 benchmark-larch.py:236(transform)
+     2318    0.119    0.000    0.119    0.000 {method 'fft' of 'rexafs.Spectrum' objects}
+     2318    0.001    0.000    0.054    0.000 benchmark-larch.py:192(normalize)
+     2318    0.054    0.000    0.054    0.000 {method 'normalize' of 'rexafs.Spectrum' objects}
+     2318    0.021    0.000    0.023    0.000 benchmark-larch.py:180(create)
+    11590    0.002    0.000    0.002    0.000 {built-in method time.perf_counter_ns}
+     9272    0.001    0.000    0.001    0.000 {method 'append' of 'list' objects}
+     2318    0.001    0.000    0.001    0.000 {method 'set_normalization_method' of 'rexafs.Spectrum' objects}
+     2318    0.001    0.000    0.001    0.000 {method 'set_background_method' of 'rexafs.Spectrum' objects}
+     2318    0.001    0.000    0.001    0.000 {method 'set_e0' of 'rexafs.Spectrum' objects}
+     2318    0.001    0.000    0.001    0.000 {method 'set_fft' of 'rexafs.Spectrum' objects}
+     2319    0.000    0.000    0.000    0.000 {built-in method time.perf_counter}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}

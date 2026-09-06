@@ -34,6 +34,7 @@ and benchmark timings are historical, not assertions about the current build.
 - [Original FEFF fitting scope](../crates/rexafs/doc/feff-fitting-mvp.md)
 - [Performance and logic migration](../crates/rexafs/doc/migration-performance-logic-hardening.md)
 - [Profiling](profiling.md) and [extended core profiling](../crates/rexafs/doc/profiling.md)
+- [Larch/rexafs benchmark matrices, output agreement and CPU profiles (2026-09-06)](benchmarks/2026-09-06-larch/README.md)
 - [FEFF/Larch comparisons](plots/feff_vs_larch_index.md)
 - [FEFF10 card comparison](plots/feff10_card_comparison_2026-03-03/report.md)
 - [Uncertainty notes](../supportinginfo/uncertainty.md) and [additional notes](../supportinginfo/uncertainty2.md)

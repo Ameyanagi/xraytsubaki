@@ -1,0 +1,123 @@
+# Benchmark measurements
+
+Generated from retained raw JSON samples and NPZ arrays.
+
+| Dataset | Setup | Configuration | Median ms | p95 of round means (ms) | Speedup | χ(k) relative L2 | χ(R) magnitude relative L2 |
+|---|---|---|---:|---:|---:|---:|---:|
+| cu | aligned_rounding | direct_cached | 0.0991 | 0.1058 | 32.84× | 1.529% | 3.388% |
+| cu | aligned_rounding | direct_two_pass | 0.1054 | 0.1072 | 30.89× | 1.529% | 3.388% |
+| cu | aligned_rounding | direct_uncached | 0.1770 | 0.1778 | 18.40× | 1.529% | 3.388% |
+| cu | aligned_rounding | dogleg | 0.4229 | 0.4236 | 7.70× | 1.529% | 3.388% |
+| cu | aligned_rounding | larch | 3.2559 | 3.2945 | 1.00× | 0.000% | 0.000% |
+| cu | aligned_rounding | legacy_lm | 1.2476 | 1.3189 | 2.61× | 1.529% | 3.388% |
+| cu | aligned_rounding | shipped_default | 0.1061 | 0.1078 | 30.68× | 1.529% | 3.388% |
+| cu | fine_fft | direct_cached | 0.2139 | 0.2145 | 26.42× | 4.102% | 4.798% |
+| cu | fine_fft | direct_two_pass | 0.3264 | 0.3267 | 17.32× | 4.129% | 4.833% |
+| cu | fine_fft | direct_uncached | 0.5174 | 0.5304 | 10.92× | 4.102% | 4.798% |
+| cu | fine_fft | dogleg | 25.7133 | 26.3848 | 0.22× | 4.128% | 4.833% |
+| cu | fine_fft | larch | 5.6513 | 5.9441 | 1.00× | 0.000% | 0.000% |
+| cu | fine_fft | legacy_lm | 5.6594 | 6.0443 | 1.00× | 4.128% | 4.833% |
+| cu | fine_fft | shipped_default | 0.2136 | 0.2147 | 26.46× | 4.102% | 4.798% |
+| cu | no_clamp | direct_cached | 0.1030 | 0.1034 | 29.67× | 4.051% | 4.908% |
+| cu | no_clamp | direct_two_pass | 0.1026 | 0.1032 | 29.79× | 4.051% | 4.908% |
+| cu | no_clamp | direct_uncached | 0.1773 | 0.1864 | 17.24× | 4.051% | 4.908% |
+| cu | no_clamp | dogleg | 0.4321 | 0.4547 | 7.07× | 4.050% | 4.908% |
+| cu | no_clamp | larch | 3.0566 | 3.0945 | 1.00× | 0.000% | 0.000% |
+| cu | no_clamp | legacy_lm | 1.2326 | 1.2562 | 2.48× | 4.050% | 4.908% |
+| cu | no_clamp | shipped_default | 0.1031 | 0.1035 | 29.65× | 4.051% | 4.908% |
+| cu | standard | direct_cached | 0.1199 | 0.1208 | 31.51× | 6.206% | 5.534% |
+| cu | standard | direct_two_pass | 0.1927 | 0.1940 | 19.61× | 4.097% | 4.924% |
+| cu | standard | direct_uncached | 0.1915 | 0.1948 | 19.73× | 6.206% | 5.534% |
+| cu | standard | dogleg | 0.7437 | 0.7464 | 5.08× | 4.092% | 4.922% |
+| cu | standard | larch | 3.7793 | 3.8196 | 1.00× | 0.000% | 0.000% |
+| cu | standard | legacy_lm | 1.8056 | 1.8112 | 2.09× | 4.092% | 4.922% |
+| cu | standard | shipped_default | 0.1195 | 0.1206 | 31.62× | 6.206% | 5.534% |
+| cu_dense_32768 | fine_fft | direct_cached | 2.1551 | 2.1961 | 22.04× | 3.624% | 4.185% |
+| cu_dense_32768 | fine_fft | direct_two_pass | 2.3558 | 2.4090 | 20.16× | 3.715% | 4.284% |
+| cu_dense_32768 | fine_fft | direct_uncached | 2.4459 | 2.5365 | 19.42× | 3.624% | 4.185% |
+| cu_dense_32768 | fine_fft | dogleg | 123.1882 | 132.0380 | 0.39× | 3.714% | 4.284% |
+| cu_dense_32768 | fine_fft | larch | 47.4896 | 50.4606 | 1.00× | 0.000% | 0.000% |
+| cu_dense_32768 | fine_fft | legacy_lm | 13.0223 | 13.3953 | 3.65× | 3.714% | 4.284% |
+| cu_dense_32768 | fine_fft | shipped_default | 1.9554 | 1.9788 | 24.29× | 3.624% | 4.185% |
+| cu_dense_32768 | standard | direct_cached | 1.8745 | 1.8842 | 22.71× | 5.714% | 4.654% |
+| cu_dense_32768 | standard | direct_two_pass | 2.1983 | 2.2104 | 19.37× | 3.605% | 4.311% |
+| cu_dense_32768 | standard | direct_uncached | 2.1247 | 2.1835 | 20.04× | 5.714% | 4.654% |
+| cu_dense_32768 | standard | dogleg | 6.3595 | 6.3910 | 6.69× | 3.597% | 4.309% |
+| cu_dense_32768 | standard | larch | 42.5740 | 42.8838 | 1.00× | 0.000% | 0.000% |
+| cu_dense_32768 | standard | legacy_lm | 10.8310 | 11.8283 | 3.93× | 3.597% | 4.309% |
+| cu_dense_32768 | standard | shipped_default | 1.9682 | 2.0276 | 21.63× | 5.714% | 4.654% |
+| cu_dense_8192 | fine_fft | direct_cached | 0.6247 | 0.6301 | 22.65× | 3.751% | 4.235% |
+| cu_dense_8192 | fine_fft | direct_two_pass | 0.9781 | 1.0037 | 14.47× | 3.822% | 4.323% |
+| cu_dense_8192 | fine_fft | direct_uncached | 0.9046 | 0.9307 | 15.64× | 3.751% | 4.235% |
+| cu_dense_8192 | fine_fft | dogleg | 35.7745 | 39.6420 | 0.40× | 3.821% | 4.323% |
+| cu_dense_8192 | fine_fft | larch | 14.1492 | 14.6226 | 1.00× | 0.000% | 0.000% |
+| cu_dense_8192 | fine_fft | legacy_lm | 7.9750 | 8.0195 | 1.77× | 3.821% | 4.323% |
+| cu_dense_8192 | fine_fft | shipped_default | 0.6833 | 0.6858 | 20.71× | 3.751% | 4.235% |
+| cu_dense_8192 | standard | direct_cached | 0.5251 | 0.5317 | 23.72× | 5.826% | 4.736% |
+| cu_dense_8192 | standard | direct_two_pass | 0.6433 | 0.6691 | 19.37× | 3.705% | 4.345% |
+| cu_dense_8192 | standard | direct_uncached | 0.5975 | 0.6009 | 20.85× | 5.826% | 4.736% |
+| cu_dense_8192 | standard | dogleg | 2.1549 | 2.1632 | 5.78× | 3.697% | 4.343% |
+| cu_dense_8192 | standard | larch | 12.4582 | 13.9091 | 1.00× | 0.000% | 0.000% |
+| cu_dense_8192 | standard | legacy_lm | 3.4779 | 3.5368 | 3.58× | 3.697% | 4.343% |
+| cu_dense_8192 | standard | shipped_default | 0.5831 | 0.6434 | 21.37× | 5.826% | 4.736% |
+| ni | aligned_rounding | direct_cached | 0.0941 | 0.0971 | 32.56× | 0.963% | 2.901% |
+| ni | aligned_rounding | direct_two_pass | 0.0975 | 0.0988 | 31.44× | 0.963% | 2.901% |
+| ni | aligned_rounding | direct_uncached | 0.1707 | 0.1711 | 17.95× | 0.963% | 2.901% |
+| ni | aligned_rounding | dogleg | 0.4126 | 0.4128 | 7.43× | 0.962% | 2.901% |
+| ni | aligned_rounding | larch | 3.0652 | 3.1082 | 1.00× | 0.000% | 0.000% |
+| ni | aligned_rounding | legacy_lm | 1.4035 | 1.4414 | 2.18× | 0.962% | 2.901% |
+| ni | aligned_rounding | shipped_default | 0.0978 | 0.0985 | 31.35× | 0.963% | 2.901% |
+| ni | fine_fft | direct_cached | 0.1947 | 0.2057 | 26.91× | 8.192% | 4.236% |
+| ni | fine_fft | direct_two_pass | 0.3122 | 0.3185 | 16.78× | 8.980% | 4.522% |
+| ni | fine_fft | direct_uncached | 0.5628 | 0.6230 | 9.31× | 8.192% | 4.236% |
+| ni | fine_fft | dogleg | 2.2525 | 2.4363 | 2.33× | 8.978% | 4.521% |
+| ni | fine_fft | larch | 5.2391 | 5.3709 | 1.00× | 0.000% | 0.000% |
+| ni | fine_fft | legacy_lm | 6.9115 | 7.5963 | 0.76× | 8.978% | 4.521% |
+| ni | fine_fft | shipped_default | 0.2067 | 0.2069 | 25.35× | 8.192% | 4.236% |
+| ni | no_clamp | direct_cached | 0.0954 | 0.0962 | 30.96× | 9.057% | 4.593% |
+| ni | no_clamp | direct_two_pass | 0.0965 | 0.1053 | 30.60× | 9.057% | 4.593% |
+| ni | no_clamp | direct_uncached | 0.1662 | 0.1668 | 17.77× | 9.057% | 4.593% |
+| ni | no_clamp | dogleg | 0.4019 | 0.4056 | 7.35× | 9.054% | 4.592% |
+| ni | no_clamp | larch | 2.9536 | 2.9930 | 1.00× | 0.000% | 0.000% |
+| ni | no_clamp | legacy_lm | 2.1958 | 2.2976 | 1.35× | 9.054% | 4.592% |
+| ni | no_clamp | shipped_default | 0.0887 | 0.0900 | 33.32× | 9.057% | 4.593% |
+| ni | standard | direct_cached | 0.1152 | 0.1162 | 31.37× | 7.622% | 4.157% |
+| ni | standard | direct_two_pass | 0.1682 | 0.1689 | 21.49× | 9.007% | 4.576% |
+| ni | standard | direct_uncached | 0.1884 | 0.1888 | 19.18× | 7.622% | 4.157% |
+| ni | standard | dogleg | 0.7309 | 0.7397 | 4.95× | 9.007% | 4.576% |
+| ni | standard | larch | 3.6147 | 3.6651 | 1.00× | 0.000% | 0.000% |
+| ni | standard | legacy_lm | 2.0655 | 2.3973 | 1.75× | 9.007% | 4.576% |
+| ni | standard | shipped_default | 0.1246 | 0.1251 | 29.00× | 7.622% | 4.157% |
+| ru | aligned_rounding | direct_cached | 0.1098 | 0.1140 | 39.84× | 1.451% | 6.367% |
+| ru | aligned_rounding | direct_two_pass | 0.1148 | 0.1156 | 38.13× | 1.451% | 6.367% |
+| ru | aligned_rounding | direct_uncached | 0.1903 | 0.2060 | 22.99× | 1.451% | 6.367% |
+| ru | aligned_rounding | dogleg | 0.4507 | 0.4514 | 9.71× | 1.451% | 6.368% |
+| ru | aligned_rounding | larch | 4.3765 | 4.5077 | 1.00× | 0.000% | 0.000% |
+| ru | aligned_rounding | legacy_lm | 1.4047 | 1.4079 | 3.12× | 1.451% | 6.368% |
+| ru | aligned_rounding | shipped_default | 0.1066 | 0.1079 | 41.06× | 1.451% | 6.367% |
+| ru | fine_fft | direct_cached | 0.2251 | 0.2257 | 23.31× | 37.382% | 27.982% |
+| ru | fine_fft | direct_two_pass | 0.3437 | 0.3450 | 15.27× | 37.671% | 28.236% |
+| ru | fine_fft | direct_uncached | 0.5293 | 0.5298 | 9.91× | 37.382% | 27.982% |
+| ru | fine_fft | dogleg | 2.2912 | 2.3332 | 2.29× | 37.669% | 28.235% |
+| ru | fine_fft | larch | 5.2472 | 5.2906 | 1.00× | 0.000% | 0.000% |
+| ru | fine_fft | legacy_lm | 5.7163 | 5.7243 | 0.92× | 37.669% | 28.235% |
+| ru | fine_fft | shipped_default | 0.2482 | 0.2489 | 21.14× | 37.382% | 27.982% |
+| ru | no_clamp | direct_cached | 0.1116 | 0.1120 | 29.19× | 38.188% | 29.012% |
+| ru | no_clamp | direct_two_pass | 0.1115 | 0.1142 | 29.23× | 38.188% | 29.012% |
+| ru | no_clamp | direct_uncached | 0.1837 | 0.1854 | 17.73× | 38.188% | 29.012% |
+| ru | no_clamp | dogleg | 0.5046 | 0.9589 | 6.46× | 38.184% | 29.011% |
+| ru | no_clamp | larch | 3.2583 | 3.3165 | 1.00× | 0.000% | 0.000% |
+| ru | no_clamp | legacy_lm | 2.0727 | 2.2073 | 1.57× | 38.184% | 29.011% |
+| ru | no_clamp | shipped_default | 0.1117 | 0.1131 | 29.16× | 38.188% | 29.012% |
+| ru | standard | direct_cached | 0.1223 | 0.1309 | 28.19× | 37.505% | 28.434% |
+| ru | standard | direct_two_pass | 0.1923 | 0.1933 | 17.94× | 37.984% | 28.840% |
+| ru | standard | direct_uncached | 0.2068 | 0.2082 | 16.68× | 37.505% | 28.434% |
+| ru | standard | dogleg | 0.8205 | 0.8480 | 4.20× | 37.980% | 28.838% |
+| ru | standard | larch | 3.4490 | 3.6161 | 1.00× | 0.000% | 0.000% |
+| ru | standard | legacy_lm | 1.8489 | 1.8575 | 1.87× | 37.980% | 28.838% |
+| ru | standard | shipped_default | 0.1345 | 0.1416 | 25.65× | 37.505% | 28.434% |
+
+The p95 is over per-round means, not individual-spectrum tail latency. Speedup compares the complete public pipeline calls used here; the two APIs also perform different ancillary work. Agreement with Larch is not ground-truth accuracy.
+
+![Output comparison](output-comparison.png)
+![Stage timing](stage-timing.png)

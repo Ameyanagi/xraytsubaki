@@ -1,0 +1,55 @@
+
+        __workq_kernreturn  (in libsystem_kernel.dylib)        10236
+        rexafs::xafs::spline::basis  (in _core.cpython-312-darwin.so)        1468
+        <rustfft::neon::neon_radix4::NeonRadix4<f64, f64>>::perform_fft_immut  (in _core.cpython-312-darwin.so)        1284
+        rustfft::array_utils::validate_and_iter::<num_complex::Complex<f64>, <rustfft::neon::neon_butterflies::NeonF64Butterfly16<f64> as rustfft::Fft<f64>>::process_with_scratch::{closure#0}>  (in _core.cpython-312-darwin.so)        594
+        <realfft::RealToComplexEven<f64> as realfft::RealToComplex<f64>>::process_with_scratch  (in _core.cpython-312-darwin.so)        517
+        <levenberg_marquardt::qr::PivotedQR<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Dyn, nalgebra::base::vec_storage::VecStorage<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Dyn>>>::new  (in _core.cpython-312-darwin.so)        484
+        _platform_memset  (in libsystem_platform.dylib)        404
+        _platform_memmove  (in libsystem_platform.dylib)        350
+        rustfft::array_utils::bitreversed_transpose::<num_complex::Complex<f64>, 4>  (in _core.cpython-312-darwin.so)        290
+        <core::iter::adapters::map::Map<core::slice::iter::Iter<f64>, rexafs::xafs::spline::evaluate::{closure#0}> as core::iter::traits::iterator::Iterator>::fold::<(), core::iter::traits::iterator::Iterator::for_each::call<f64, <alloc::vec::Vec<f64>>::extend_trusted<core::iter::adapters::map::Map<core::slice::iter::Iter<f64>, rexafs::xafs::spline::evaluate::{closure#0}>>::{closure#0}>::{closure#0}>  (in _core.cpython-312-darwin.so)        205
+        rexafs::xafs::xrayfft::xftf_fast_nalgebra  (in _core.cpython-312-darwin.so)        165
+        <core::iter::adapters::map::Map<nalgebra::base::iter::ColumnIter<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Dyn, nalgebra::base::vec_storage::VecStorage<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Dyn>>, <levenberg_marquardt::qr::PivotedQR<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Dyn, nalgebra::base::vec_storage::VecStorage<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Dyn>>>::new::{closure#0}> as core::iter::traits::iterator::Iterator>::next  (in _core.cpython-312-darwin.so)        70
+        <levenberg_marquardt::qr::LinearLeastSquaresDiagonalProblem<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Dyn>>::solve_with_diagonal  (in _core.cpython-312-darwin.so)        63
+        <levenberg_marquardt::qr::PivotedQR<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Dyn, nalgebra::base::vec_storage::VecStorage<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Dyn>>>::into_least_squares_diagonal_problem::<nalgebra::base::vec_storage::VecStorage<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>>>  (in _core.cpython-312-darwin.so)        60
+        _xzm_free  (in libsystem_malloc.dylib)        54
+        <core::iter::adapters::map::Map<nalgebra::base::iter::ColumnIter<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Dyn, nalgebra::base::vec_storage::VecStorage<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Dyn>>, <rexafs::xafs::background::AUTOBKSpline>::residual_jacobian_with_scale::{closure#1}> as core::iter::traits::iterator::Iterator>::next  (in _core.cpython-312-darwin.so)        52
+        <deduplicated_symbol>  (in _core.cpython-312-darwin.so)        51
+        mach_absolute_time  (in libsystem_kernel.dylib)        30
+        <rexafs::xafs::background::AUTOBKSpline>::residual_jacobian_with_scale  (in _core.cpython-312-darwin.so)        25
+        _xzm_xzone_malloc_tiny  (in libsystem_malloc.dylib)        23
+        rexafs::xafs::bessel_i0::bessel_i0  (in _core.cpython-312-darwin.so)        21
+        _xzm_xzone_malloc  (in libsystem_malloc.dylib)        21
+        _free  (in libsystem_malloc.dylib)        17
+        <deduplicated_symbol>  (in libsystem_malloc.dylib)        16
+        pow  (in libsystem_m.dylib)        16
+        <&nalgebra::base::matrix::Matrix<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>, nalgebra::base::vec_storage::VecStorage<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>>> as core::ops::arith::Sub>::sub  (in _core.cpython-312-darwin.so)        14
+        _malloc_zone_malloc  (in libsystem_malloc.dylib)        14
+        <rexafs::xafs::background::AUTOBK>::calc_background  (in _core.cpython-312-darwin.so)        13
+        <&enterpolation::linear::Linear<enterpolation::base::list::Sorted<&[f64]>, &[f64], enterpolation::easing::Identity> as enterpolation::base::signal::Signal<f64>>::eval  (in _core.cpython-312-darwin.so)        13
+        _xzm_free_outlined  (in libsystem_malloc.dylib)        13
+        _xzm_xzone_free_freelist  (in libsystem_malloc.dylib)        12
+        xzm_realloc  (in libsystem_malloc.dylib)        12
+        <rexafs::xafs::background::AUTOBKSpline>::fft_residual_head  (in _core.cpython-312-darwin.so)        11
+        <core::hash::sip::Hasher<core::hash::sip::Sip13Rounds> as core::hash::Hasher>::write  (in _core.cpython-312-darwin.so)        10
+        __powidf2  (in _core.cpython-312-darwin.so)        10
+        <levenberg_marquardt::lm::LevenbergMarquardt<f64>>::minimize::<nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Dyn, rexafs::xafs::background::AUTOBKSpline>  (in _core.cpython-312-darwin.so)        9
+        rexafs::xafs::xafsutils::ftwindow  (in _core.cpython-312-darwin.so)        9
+        <generic_singleton::thread_local_static_anymap::ThreadLocalStaticAnymap>::get_or_init_with::<core::cell::RefCell<realfft::RealFftPlanner<f64>>, easyfft::with_real_fft_algorithm<f64, <[f64] as easyfft::dyn_size::realfft::DynRealFft<f64>>::real_fft_using::{closure#0}>::{closure#1}::{closure#0}, easyfft::with_real_fft_algorithm<f64, <[f64] as easyfft::dyn_size::realfft::DynRealFft<f64>>::real_fft_using::{closure#0}>::{closure#0}>  (in _core.cpython-312-darwin.so)        8
+        <generic_singleton::thread_local_static_anymap::ThreadLocalStaticAnymap>::get_or_init_with::<core::cell::RefCell<std::collections::hash::map::HashMap<usize, alloc::boxed::Box<[num_complex::Complex<f64>]>>>, <dyn realfft::RealToComplex<f64> as easyfft::dyn_size::realfft::StaticScratchRealToComplex<f64>>::process_with_static_scratch::{closure#0}::{closure#1}::{closure#0}::{closure#0}, <dyn realfft::RealToComplex<f64> as easyfft::dyn_size::realfft::StaticScratchRealToComplex<f64>>::process_with_static_scratch::{closure#0}::{closure#1}::{closure#0}::{closure#1}>  (in _core.cpython-312-darwin.so)        6
+        <std::hash::random::RandomState as core::hash::BuildHasher>::hash_one::<&usize>  (in _core.cpython-312-darwin.so)        6
+        <levenberg_marquardt::qr::LinearLeastSquaresDiagonalProblem<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Dyn>>::max_a_t_b_scaled  (in _core.cpython-312-darwin.so)        6
+        <levenberg_marquardt::qr::LinearLeastSquaresDiagonalProblem<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Dyn>>::a_x_norm  (in _core.cpython-312-darwin.so)        6
+        <alloc::vec::Vec<f64> as alloc::vec::spec_from_iter_nested::SpecFromIterNested<f64, core::iter::adapters::copied::Copied<ndarray::iterators::Iter<f64, ndarray::dimension::dim::Dim<[usize; 1]>>>>>::from_iter  (in _core.cpython-312-darwin.so)        6
+        RotatingTree_Get  (in libpython3.12.dylib)        5
+        _PyObject_Free  (in libpython3.12.dylib)        5
+        <core::iter::adapters::map::Map<core::iter::adapters::filter::Filter<core::iter::adapters::zip::Zip<nalgebra::base::iter::MatrixIter<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>, nalgebra::base::vec_storage::VecStorage<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>>>, nalgebra::base::iter::MatrixIter<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>, nalgebra::base::vec_storage::VecStorage<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Const<1>>>>, <rexafs::xafs::normalization::PrePostEdge as rexafs::xafs::normalization::Normalization>::normalize::{closure#0}>, <rexafs::xafs::normalization::PrePostEdge as rexafs::xafs::normalization::Normalization>::normalize::{closure#1}> as core::iter::traits::iterator::Iterator>::fold::<(), core::iter::traits::iterator::Iterator::for_each::call<(f64, f64), core::iter::traits::collect::default_extend::extender<(alloc::vec::Vec<f64>, alloc::vec::Vec<f64>), (f64, f64)>::{closure#0}>::{closure#0}>  (in _core.cpython-312-darwin.so)        5
+        __rustc::__rdl_alloc  (in _core.cpython-312-darwin.so)        5
+        <alloc::raw_vec::RawVecInner>::finish_grow  (in _core.cpython-312-darwin.so)        5
+        <levenberg_marquardt::qr::CholeskyFactor<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Dyn>>::solve  (in _core.cpython-312-darwin.so)        5
+        <levenberg_marquardt::qr::CholeskyFactor<f64, nalgebra::base::dimension::Dyn, nalgebra::base::dimension::Dyn>>::mul_qt_b  (in _core.cpython-312-darwin.so)        5
+        <rexafs::xafs::normalization::PrePostEdge as rexafs::xafs::normalization::Normalization>::normalize  (in _core.cpython-312-darwin.so)        5
+        <rustfft::neon::neon_radix4::NeonRadix4<f64, f64> as rustfft::Fft<f64>>::process_outofplace_with_scratch  (in _core.cpython-312-darwin.so)        5
+        _tlv_get_addr  (in libdyld.dylib)        5
+        exp  (in libsystem_m.dylib)        5

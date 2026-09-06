@@ -1,5 +1,9 @@
 # Profiling of the preedge, autobk, and fft process.
 
+For the published packages, see the [2026-09-06 matched Larch/rexafs benchmark
+and profiling report](benchmarks/2026-09-06-larch/README.md). It retains 112 timing
+and output comparisons plus Python and native CPU profiles for both packages.
+
 Historical measurements from the codename period; figures retain their original profiler labels.
 
 Profiling were performed using the following command:

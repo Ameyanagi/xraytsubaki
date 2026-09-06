@@ -1,0 +1,64 @@
+name: Larch comparison
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/larch-benchmark.yml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'crates/rexafs/**'
+      - 'py-rexafs/**'
+      - 'pyproject.toml'
+      - 'scripts/benchmark-fixed-clamp.py'
+      - 'scripts/study-autobk-clamps.py'
+      - 'scripts/benchmark-larch.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  comparison:
+    name: Fixed-lambda accuracy and speed
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      MPLBACKEND: Agg
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      NUMEXPR_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.98.1'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+      - name: Install pinned scientific environment
+        run: |
+          uv venv .benchmark-env --python python3.12
+          uv pip install --python .benchmark-env/bin/python maturin==1.12.6 xraylarch==2026.3.1 numpy==2.5.2 scipy==1.18.1 matplotlib==3.11.1 lmfit==1.3.4 threadpoolctl==3.6.0
+      - name: Build production candidate
+        run: |
+          .benchmark-env/bin/maturin build --release --locked --interpreter .benchmark-env/bin/python --out target/benchmark-wheels
+          uv pip install --python .benchmark-env/bin/python --no-deps target/benchmark-wheels/*.whl
+      - name: Validate and measure candidate
+        run: |
+          .benchmark-env/bin/python scripts/benchmark-fixed-clamp.py --output target/larch-comparison
+          uv pip freeze --python .benchmark-env/bin/python > target/larch-comparison/requirements-candidate.txt
+      - name: Measure published 0.1.0 with the same dependencies
+        run: |
+          uv pip install --python .benchmark-env/bin/python --no-deps --reinstall rexafs==0.1.0
+          .benchmark-env/bin/python scripts/benchmark-fixed-clamp.py --output target/larch-comparison --timing-only --published
+      - name: Preserve results and profiles
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fixed-lambda-larch-comparison
+          path: target/larch-comparison
+          if-no-files-found: warn
+          retention-days: 90

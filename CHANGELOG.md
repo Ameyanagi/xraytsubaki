@@ -9,7 +9,14 @@
   current writer; existing format-1 projects preserve their state.
 - Use floor when selecting the automatic AUTOBK spline parameter count. For
   rbkg=1 and kmax=12 this selects eight parameters instead of nine. Explicit
-  parameter counts and clamp behavior are unchanged.
+  parameter counts remain configurable.
+- Use a single linear solve with a configurable [fixed endpoint penalty](doc/autobk-fixed-penalty.md)
+  for new AUTOBK analyses (`clamp_lambda = 0.001`, zero disables clamping).
+  Match the study's cubic interpolation, floor cutoff, and final endpoint.
+  Expose λ in Rust, Python, JavaScript and the desktop inspector. Existing saved
+  projects retain their legacy clamp model; new projects persist the new model.
+- Update energy/k conversion to CODATA 2022 and share the constants between
+  array backends and Athena export.
 - Add reproducible [Larch/rexafs benchmark matrices and CPU profiles](doc/benchmarks/2026-09-06-larch/README.md),
   including numerical output comparisons and controlled explanations of AUTOBK
   and Fourier-window differences. Retain a separate [clamp study with known

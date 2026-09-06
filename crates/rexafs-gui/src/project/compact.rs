@@ -23,7 +23,7 @@ fn each(value: &mut Value, key: &str, apply: fn(&mut Value)) {
 fn params(value: &mut Value) {
     omit(
         value,
-        serde_json::to_value(PipelineParams::default()).unwrap(),
+        serde_json::to_value(PipelineParams::legacy_defaults()).unwrap(),
     );
     if let Some(import) = value.get_mut("import") {
         omit(
@@ -91,7 +91,11 @@ pub(super) fn encode(mut value: Value) -> Result<Vec<u8>, String> {
     // different legacy meaning from an absent parent (notably fit_ranges).
     omit(
         &mut value,
-        serde_json::to_value(ProjectFile::default()).map_err(|e| e.to_string())?,
+        serde_json::to_value(ProjectFile {
+            params: PipelineParams::legacy_defaults(),
+            ..ProjectFile::default()
+        })
+        .map_err(|e| e.to_string())?,
     );
     visit(&mut value, "params", params);
     each(&mut value, "overrides", |entry| {

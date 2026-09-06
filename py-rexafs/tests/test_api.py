@@ -68,6 +68,27 @@ class SpectrumTests(unittest.TestCase):
         self.assertIsNone(spectrum.chi())
         self.assertIsNotNone(spectrum.fft().r())
 
+    def test_fixed_lambda_is_configurable_and_zero_disables_both_clamps(self):
+        bkg = rexafs.AUTOBK()
+        self.assertEqual(bkg.clamp_scale_policy, "FixedPenalty")
+        self.assertEqual(bkg.clamp_lambda, 0.001)
+        bkg.kmax = 12.0
+        bkg.clamp_lo = 2
+        bkg.clamp_hi = 5
+        def chi():
+            return self.spectrum().set_background_method(rexafs.BackgroundMethod.AUTOBK(bkg)).calc_background().chi()
+        initial = chi()
+        bkg.clamp_lambda = 1.0
+        self.assertGreater(np.linalg.norm(chi() - initial), 1e-6)
+        bkg.clamp_lambda = 0.0
+        zero = chi()
+        bkg.nclamp = 0
+        np.testing.assert_array_equal(chi(), zero)
+        for invalid in (-1.0, float("nan"), float("inf")):
+            bkg.clamp_lambda = invalid
+            with self.assertRaisesRegex(RuntimeError, "clamp_lambda"):
+                chi()
+
     def test_unsupported_methods_are_not_replaced(self):
         spectrum = self.spectrum().set_normalization_method(rexafs.NormalizationMethod.new_mback())
         with self.assertRaisesRegex(ValueError, "MBack"):

@@ -34,6 +34,7 @@ pub struct ProjectFile {
     pub source_dir: Option<PathBuf>,
     /// Standalone spectra also need a source when there is no catalog.
     pub spectrum_file: Option<PathBuf>,
+    #[serde(default = "PipelineParams::legacy_defaults")]
     pub params: PipelineParams,
     /// Per-spectrum parameter overrides.
     pub overrides: Vec<ParamOverride>,

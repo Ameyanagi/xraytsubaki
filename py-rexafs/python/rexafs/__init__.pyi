@@ -26,6 +26,7 @@ class AUTOBK:
     nclamp: int | None
     clamp_lo: int | None
     clamp_hi: int | None
+    clamp_lambda: float | None
     nfft: int | None
     kweight: int | None
     dk: float | None

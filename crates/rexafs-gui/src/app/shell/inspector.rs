@@ -433,6 +433,8 @@ impl StudioApp {
                 [
                     self.field(ParamKey::BkgClampLo, cx),
                     self.field(ParamKey::BkgClampHi, cx),
+                    Some(self.enum_row("clamp model", EnumParam::BkgClampPolicy, cx)),
+                    self.field(ParamKey::BkgClampLambda, cx),
                     Some(self.enum_row("window", EnumParam::BkgWindow, cx)),
                     self.field(ParamKey::BkgDk, cx),
                 ]

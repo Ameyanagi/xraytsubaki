@@ -491,3 +491,50 @@ fn compact_defaults_preserve_explicit_fit_range_and_publication_settings() {
         assert!(bytes.len() < serde_json::to_vec_pretty(&value).unwrap().len() * 3 / 4);
     }
 }
+
+#[test]
+fn fixed_lambda_persists_while_missing_legacy_clamp_fields_keep_their_meaning() {
+    use rexafs::prelude::AUTOBKClampScalePolicy;
+    for json in [r#"{"version":1}"#, r#"{"version":1,"params":{}}"#] {
+        assert_eq!(
+            parse(json).unwrap().params.bkg_clamp_policy,
+            AUTOBKClampScalePolicy::Fixed
+        );
+    }
+    let modern = PipelineParams::default();
+    assert_eq!(
+        modern.bkg_clamp_policy,
+        AUTOBKClampScalePolicy::FixedPenalty
+    );
+    assert_ne!(
+        modern.fingerprint(),
+        PipelineParams::legacy_defaults().fingerprint()
+    );
+    for lambda in [None, Some(0.0), Some(0.001), Some(0.1)] {
+        let params = PipelineParams {
+            bkg_clamp_lambda: lambda,
+            ..modern.clone()
+        };
+        let original = ProjectFile {
+            version: 1,
+            params,
+            ..Default::default()
+        };
+        let bytes = compact::encode(serde_json::to_value(&original).unwrap()).unwrap();
+        let restored = parse(std::str::from_utf8(&bytes).unwrap()).unwrap();
+        assert_eq!(restored.params.bkg_clamp_lambda, lambda);
+        assert_eq!(
+            restored.params.bkg_clamp_policy,
+            AUTOBKClampScalePolicy::FixedPenalty
+        );
+        assert_eq!(restored.params.fingerprint(), original.params.fingerprint());
+        assert_ne!(
+            PipelineParams {
+                bkg_clamp_lambda: Some(0.2),
+                ..modern.clone()
+            }
+            .fingerprint(),
+            original.params.fingerprint()
+        );
+    }
+}

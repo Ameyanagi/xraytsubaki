@@ -20,9 +20,13 @@ Larch. For rbkg=1 and kmax=12 this changes nine parameters to eight. The separat
 [clamp and signal-recovery study](benchmarks/2026-09-07-clamp-study/README.md)
 records 322 configurations, measured scans, known synthetic backgrounds and
 single-solve penalty prototypes. Repeating the original standard comparison
-reduces the Ru χ(k) difference from 37.51% to 4.72%. Other model differences remain;
-clamp formulas and production defaults are unchanged. Faster processing does not
-by itself establish equivalent output or scientific accuracy.
+reduced the Ru χ(k) difference from 37.51% to 4.72% before the clamp-model change.
+New analyses now use the study's [fixed-λ model](autobk-fixed-penalty.md), with a
+configurable default λ=0.001, cubic interpolation, a floor low-R cutoff, and the
+final three endpoint samples. One column-scaled linear solve replaces the
+initial-scale/ridge-retry path. Older projects retain their legacy clamp model.
+Faster processing or agreement with Larch does not by itself establish scientific
+accuracy; the retained synthetic study measures signal recovery separately.
 
 See the [changelog](../CHANGELOG.md) and [release runbook](releasing.md) for
 distribution and validation records.

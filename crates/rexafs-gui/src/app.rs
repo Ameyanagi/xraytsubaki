@@ -103,6 +103,7 @@ pub(crate) enum ParamKey {
     BkgKweight,
     BkgClampLo,
     BkgClampHi,
+    BkgClampLambda,
     BkgDk,
     BkgNfft,
     FftKmin,
@@ -124,6 +125,7 @@ pub(crate) enum EnumParam {
     ImportMode,
     BkgWindow,
     BkgSolver,
+    BkgClampPolicy,
     FftWindow,
 }
 
@@ -165,6 +167,7 @@ fn param_step(key: ParamKey) -> f64 {
         ParamKey::BftRmin | ParamKey::BftRmax => 0.1,
         ParamKey::BkgKstep | ParamKey::FftKstep => 0.01,
         ParamKey::FftKweight => 1.0,
+        ParamKey::BkgClampLambda => 0.001,
         _ => 1.0,
     }
 }
@@ -197,6 +200,8 @@ fn copy_section(dst: &mut PipelineParams, src: &PipelineParams, section: ParamSe
             dst.bkg_kweight = src.bkg_kweight;
             dst.bkg_clamp_lo = src.bkg_clamp_lo;
             dst.bkg_clamp_hi = src.bkg_clamp_hi;
+            dst.bkg_clamp_lambda = src.bkg_clamp_lambda;
+            dst.bkg_clamp_policy = src.bkg_clamp_policy;
             dst.bkg_window = src.bkg_window;
             dst.bkg_dk = src.bkg_dk;
             dst.bkg_solver = src.bkg_solver;
@@ -269,6 +274,7 @@ fn param_field_value(key: ParamKey, p: &PipelineParams) -> Option<f64> {
         ParamKey::BkgKweight => p.bkg_kweight.map(|v| v as f64),
         ParamKey::BkgClampLo => p.bkg_clamp_lo.map(|v| v as f64),
         ParamKey::BkgClampHi => p.bkg_clamp_hi.map(|v| v as f64),
+        ParamKey::BkgClampLambda => p.bkg_clamp_lambda,
         ParamKey::BkgDk => p.bkg_dk,
         ParamKey::BkgNfft => p.bkg_nfft.map(|v| v as f64),
         ParamKey::FftKmin => p.fft_kmin,
@@ -2214,7 +2220,7 @@ impl StudioApp {
         const COL: FieldKind = FieldKind::Integer { min: Some(0) };
         const INT: FieldKind = FieldKind::Integer { min: None };
         const FLOAT: FieldKind = FieldKind::Float;
-        let specs: [(ParamKey, &str, &str, FieldKind); 33] = [
+        let specs: [(ParamKey, &str, &str, FieldKind); 34] = [
             (ParamKey::ImpEnergyCol, "energy col", "0", COL),
             (ParamKey::ImpI0Col, "I0 col", "1", COL),
             (ParamKey::ImpItCol, "It col", "2", COL),
@@ -2252,6 +2258,7 @@ impl StudioApp {
             (ParamKey::BkgKweight, "bkg k-weight", "auto (1)", INT),
             (ParamKey::BkgClampLo, "clamp lo", "auto (0)", INT),
             (ParamKey::BkgClampHi, "clamp hi", "auto (1)", INT),
+            (ParamKey::BkgClampLambda, "clamp λ", "auto (0.001)", FLOAT),
             (ParamKey::BkgDk, "window dk (Å⁻¹)", "auto (0.1)", FLOAT),
             (ParamKey::BkgNfft, "nfft", "auto (2048)", INT),
             (ParamKey::FftKmin, "fft k min (Å⁻¹)", "auto (2)", FLOAT),
@@ -2330,6 +2337,7 @@ impl StudioApp {
             ParamKey::BkgKweight => p.bkg_kweight = int,
             ParamKey::BkgClampLo => p.bkg_clamp_lo = int,
             ParamKey::BkgClampHi => p.bkg_clamp_hi = int,
+            ParamKey::BkgClampLambda => p.bkg_clamp_lambda = value,
             ParamKey::BkgDk => p.bkg_dk = value,
             ParamKey::BkgNfft => p.bkg_nfft = int,
             ParamKey::FftKmin => p.fft_kmin = value,
@@ -2388,6 +2396,13 @@ impl StudioApp {
                 "auto (Hanning)",
                 FT_WINDOWS.iter().map(|w| format!("{w:?}")).collect(),
             ),
+            EnumParam::BkgClampPolicy => {
+                return vec![
+                    "Fixed λ".into(),
+                    "Legacy fixed scale".into(),
+                    "Legacy two pass".into(),
+                ];
+            }
             EnumParam::BkgSolver => (
                 "auto (LinearDirect)",
                 AUTOBK_SOLVERS.iter().map(|v| format!("{v:?}")).collect(),
@@ -2417,8 +2432,28 @@ impl StudioApp {
             EnumParam::BkgWindow => {
                 p.bkg_window = variant.map(|i| FT_WINDOWS[i]);
             }
+            EnumParam::BkgClampPolicy => {
+                p.bkg_clamp_policy = match index {
+                    1 => rexafs::prelude::AUTOBKClampScalePolicy::Fixed,
+                    2 => rexafs::prelude::AUTOBKClampScalePolicy::TwoPass,
+                    _ => rexafs::prelude::AUTOBKClampScalePolicy::FixedPenalty,
+                };
+                if p.bkg_clamp_policy == rexafs::prelude::AUTOBKClampScalePolicy::FixedPenalty {
+                    p.bkg_solver = Some(rexafs::prelude::AUTOBKSolver::LinearDirect);
+                }
+            }
             EnumParam::BkgSolver => {
                 p.bkg_solver = variant.map(|i| AUTOBK_SOLVERS[i]);
+                if matches!(
+                    p.bkg_solver,
+                    Some(
+                        rexafs::prelude::AUTOBKSolver::LegacyLm
+                            | rexafs::prelude::AUTOBKSolver::TrustRegionDogLeg
+                    )
+                ) && p.bkg_clamp_policy == rexafs::prelude::AUTOBKClampScalePolicy::FixedPenalty
+                {
+                    p.bkg_clamp_policy = rexafs::prelude::AUTOBKClampScalePolicy::Fixed;
+                }
             }
             EnumParam::FftWindow => {
                 p.fft_window = variant.map(|i| FT_WINDOWS[i]);
@@ -2459,6 +2494,11 @@ impl StudioApp {
                 .and_then(|w| FT_WINDOWS.iter().position(|x| *x == w))
                 .map(|i| i + 1)
                 .unwrap_or(0),
+            EnumParam::BkgClampPolicy => match p.bkg_clamp_policy {
+                rexafs::prelude::AUTOBKClampScalePolicy::FixedPenalty => 0,
+                rexafs::prelude::AUTOBKClampScalePolicy::Fixed => 1,
+                rexafs::prelude::AUTOBKClampScalePolicy::TwoPass => 2,
+            },
             EnumParam::BkgSolver => p
                 .bkg_solver
                 .and_then(|v| AUTOBK_SOLVERS.iter().position(|x| *x == v))

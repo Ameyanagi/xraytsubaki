@@ -31,16 +31,8 @@ pub const TINY_ENERGY: f64 = 0.005;
 ///
 /// assert_eq!(constants::h, 6.62607015e-34);
 /// ```
-pub mod constants {
-    #![allow(non_upper_case_globals)]
-
-    pub const h: f64 = 6.62607015e-34; // Planck constant
-    pub const hbar: f64 = h / (2.0 * std::f64::consts::PI); // reduced Planck constant
-    pub const m_e: f64 = 9.1093837015e-31; // electron mass
-    pub const e: f64 = 1.602176634e-19; // elementary charge
-    pub const KTOE: f64 = 1.0e20 * hbar * hbar / (2.0 * m_e * e); // convert wavenumber to energy
-    pub const ETOK: f64 = 1.0 / KTOE; // convert energy to wavenumber
-}
+#[path = "constants.rs"]
+pub mod constants;
 
 /// Trait for xafs utilities
 /// functions for f64, Vec<f64>, and ArrayBase<OwnedRepr<f64>, Ix1>
@@ -1119,7 +1111,7 @@ mod tests {
     #[allow(non_snake_case)]
     #[test]
     fn test_KTOE() {
-        let expected_KTOE = 3.8099821161548606;
+        let expected_KTOE = 3.809982110968585;
 
         assert_abs_diff_eq!(constants::KTOE, expected_KTOE, epsilon = TEST_TOL);
     }

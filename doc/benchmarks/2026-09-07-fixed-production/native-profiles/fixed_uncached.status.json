@@ -1,0 +1,5 @@
+{
+  "returncode": 0,
+  "stderr": "Sampling process 14438 for 8 seconds with 1 millisecond of run time between samples\nSampling completed, processing symbols...\nSample analysis of process 14438 written to file doc/benchmarks/2026-09-07-fixed-production/native-profiles/fixed_uncached.native.txt\n",
+  "scope": "full pipeline on fresh spectra; 15 seconds, native sample 8 seconds"
+}

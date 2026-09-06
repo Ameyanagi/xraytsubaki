@@ -1,5 +1,10 @@
 # AUTOBK clamping: signal recovery and a single linear solve
 
+This is the retained **pre-implementation study** (floor-only candidate measured
+before commit `8d97a94`). Its rexafs timing/output rows do not measure the later
+production fixed-λ implementation. See the [fixed-λ specification](../../autobk-fixed-penalty.md)
+for the subsequently selected configurable default λ=0.001.
+
 The experiment supports retaining a direct linear solve. It does **not** establish
 a universal clamp strength or justify changing the production default yet.
 Larch's dynamic clamps and a weak, fixed penalty recover almost the same signal

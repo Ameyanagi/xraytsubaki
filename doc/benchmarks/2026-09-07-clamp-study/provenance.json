@@ -27,6 +27,15 @@
       "path": "scripts/report-autobk-clamps.py",
       "description": "Use LF CSV line endings and support reading the lossless raw archive after timing; numerical and timing methods unchanged. Profile text received whitespace normalization only.",
       "final_source_sha256": "95e95b4e2fd5d09ad2cf23232414336a270d0d5854f2d9808b4ec4e11ba6aaa4"
+    },
+    {
+      "path": "scripts/study-autobk-clamps.py",
+      "description": "Guard the zero-active-endpoint case (scale=0) following PR review. All original 322 study cases had an active high clamp, so this does not change their measured results. Production validation additionally tests both endpoints disabled.",
+      "final_source_sha256": "7d4e13d4d9180bd237892e79cc1212e2be347231391531daaae8849b56c9656e"
+    },
+    {
+      "path": "doc/benchmarks/2026-09-07-clamp-study/README.md",
+      "description": "Added a historical-scope note distinguishing this floor-only candidate study from the subsequently implemented fixed-lambda production model."
     }
   ],
   "raw_archive": {

@@ -1,7 +1,7 @@
 /** Configuration names and scalar fields mirror Rust. Setters copy the configuration. */
 export type FTWindow = "Hanning" | "Parzen" | "Welch" | "Gaussian" | "Sine" | "KaiserBessel" | "FHanning";
 export type AUTOBKSolver = "TrustRegionDogLeg" | "LegacyLm" | "LinearDirect";
-export type AUTOBKClampScalePolicy = "Fixed" | "TwoPass";
+export type AUTOBKClampScalePolicy = "FixedPenalty" | "Fixed" | "TwoPass";
 
 export class PrePostEdge {
   constructor();
@@ -27,6 +27,8 @@ export class AUTOBK {
   kstep: number | undefined;
   nclamp: number | undefined;
   clamp_lo: number | undefined;
+  /** FixedPenalty strength; default 0.001, zero disables the endpoint penalty. */
+  clamp_lambda: number | undefined;
   clamp_hi: number | undefined;
   nfft: number | undefined;
   kweight: number | undefined;

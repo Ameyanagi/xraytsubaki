@@ -4,7 +4,7 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use std::hint::black_box;
 
 use perf::FlamegraphProfiler;
-use rexafs::xafs::background::{AUTOBKSolver, AUTOBK};
+use rexafs::xafs::background::{AUTOBKClampScalePolicy, AUTOBKSolver, AUTOBK};
 use rexafs::xafs::normalization::{NormalizationMethod, PrePostEdge};
 
 pub const TOP_DIR: &str = env!("CARGO_MANIFEST_DIR");
@@ -36,6 +36,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         b.iter(|| {
             let mut autobk = AUTOBK::new();
             autobk.solver = Some(AUTOBKSolver::LegacyLm);
+            autobk.clamp_scale_policy = Some(AUTOBKClampScalePolicy::Fixed);
 
             let mut norm = normalization.clone();
             autobk.calc_background(&energy, &mu, &mut norm).unwrap();
@@ -48,6 +49,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         b.iter(|| {
             let mut autobk = AUTOBK::new();
             autobk.solver = Some(AUTOBKSolver::TrustRegionDogLeg);
+            autobk.clamp_scale_policy = Some(AUTOBKClampScalePolicy::Fixed);
 
             let mut norm = normalization.clone();
             autobk.calc_background(&energy, &mu, &mut norm).unwrap();

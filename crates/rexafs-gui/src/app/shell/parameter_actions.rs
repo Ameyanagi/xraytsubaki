@@ -36,6 +36,8 @@ settings![
     (bkg_nknots, "Spline knots", "AUTOBK"),
     (bkg_clamp_lo, "Clamp low", "Clamps & window"),
     (bkg_clamp_hi, "Clamp high", "Clamps & window"),
+    (bkg_clamp_lambda, "Clamp λ", "Clamps & window"),
+    (bkg_clamp_policy, "Clamp model", "Clamps & window"),
     (bkg_window, "Background window", "Clamps & window"),
     (bkg_dk, "Background dk (Å⁻¹)", "Clamps & window"),
     (bkg_solver, "Background solver", "Solver"),
@@ -116,6 +118,7 @@ impl ParamKey {
             Self::BkgKweight => "bkg_kweight",
             Self::BkgClampLo => "bkg_clamp_lo",
             Self::BkgClampHi => "bkg_clamp_hi",
+            Self::BkgClampLambda => "bkg_clamp_lambda",
             Self::BkgDk => "bkg_dk",
             Self::BkgNfft => "bkg_nfft",
             Self::FftKmin => "fft_kmin",
@@ -138,6 +141,7 @@ impl EnumParam {
             Self::ImportMode => "import",
             Self::BkgWindow => "bkg_window",
             Self::BkgSolver => "bkg_solver",
+            Self::BkgClampPolicy => "bkg_clamp_policy",
             Self::FftWindow => "fft_window",
         }
     }
@@ -152,6 +156,22 @@ pub(crate) fn copy_scope(dst: &mut PipelineParams, src: &PipelineParams, scope: 
     }
     *dst =
         serde_json::from_value(out).expect("typed processing settings remain valid after copying");
+    // Solver and clamp-model selections are coupled in the inspector. Scoped
+    // copies must maintain the same valid pairing as an explicit selection.
+    let copies = |key| SETTINGS.iter().any(|s| s.key == key && scope.contains(s));
+    use rexafs::prelude::{AUTOBKClampScalePolicy, AUTOBKSolver};
+    if dst.bkg_clamp_policy == AUTOBKClampScalePolicy::FixedPenalty
+        && matches!(
+            dst.bkg_solver,
+            Some(AUTOBKSolver::LegacyLm | AUTOBKSolver::TrustRegionDogLeg)
+        )
+    {
+        if copies("bkg_clamp_policy") {
+            dst.bkg_solver = Some(AUTOBKSolver::LinearDirect);
+        } else if copies("bkg_solver") {
+            dst.bkg_clamp_policy = AUTOBKClampScalePolicy::Fixed;
+        }
+    }
 }
 fn shown(v: &Value) -> String {
     match v {
@@ -621,6 +641,34 @@ mod tests {
         );
         assert_eq!(dst.fft_kweight, None);
         assert_eq!(dst.rbkg, Some(1.4));
+    }
+    #[test]
+    fn scoped_copy_keeps_fixed_lambda_and_solver_compatible() {
+        use rexafs::prelude::{AUTOBKClampScalePolicy, AUTOBKSolver};
+        let legacy = PipelineParams {
+            bkg_solver: Some(AUTOBKSolver::LegacyLm),
+            ..PipelineParams::legacy_defaults()
+        };
+        let mut current = PipelineParams::default();
+        copy_scope(&mut current, &legacy, ParamScope::Field("bkg_solver"));
+        assert_eq!(current.bkg_solver, legacy.bkg_solver);
+        assert_eq!(current.bkg_clamp_policy, AUTOBKClampScalePolicy::Fixed);
+        copy_scope(
+            &mut current,
+            &PipelineParams::default(),
+            ParamScope::Field("bkg_clamp_policy"),
+        );
+        assert_eq!(current.bkg_solver, Some(AUTOBKSolver::LinearDirect));
+        assert_eq!(
+            current.bkg_clamp_policy,
+            AUTOBKClampScalePolicy::FixedPenalty
+        );
+        let source = PipelineParams {
+            bkg_clamp_lambda: Some(0.02),
+            ..PipelineParams::default()
+        };
+        copy_scope(&mut current, &source, ParamScope::Field("bkg_clamp_lambda"));
+        assert_eq!(current.bkg_clamp_lambda, Some(0.02));
     }
     #[test]
     fn settings_registry_covers_every_persisted_parameter_once() {

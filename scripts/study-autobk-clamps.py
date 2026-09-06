@@ -209,7 +209,7 @@ class Problem:
             # mean(low-R real/imag residual squared) + lambda * mean(high-end chi squared).
             # Include only active endpoint rows in the mean (lo=0 in this study).
             active = self.nclamp * (int(self.lo != 0) + int(self.hi != 0))
-            scale = np.sqrt(penalty * len(self.h) / active)
+            scale = np.sqrt(penalty * len(self.h) / active) if active else 0.0
         y = self.y if chi_data is None else np.asarray(chi_data)
         if y.shape != self.y.shape or not np.isfinite(y).all():
             raise ValueError("Invalid affine input")

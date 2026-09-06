@@ -9,6 +9,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from release_archive import zip_bundle
+
 root = Path(__file__).resolve().parents[1]
 metadata = json.loads(subprocess.check_output(
     ["cargo", "metadata", "--locked", "--no-deps", "--format-version", "1"], cwd=root))
@@ -115,8 +117,11 @@ if system in {"Darwin", "Linux"}:
 if system == "Darwin":
     archive = out / f"{stem}.zip"
     subprocess.run(["ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", str(bundle), str(archive)], check=True)
+elif system == "Windows":
+    archive = out / f"{stem}.zip"
+    zip_bundle(bundle, archive)
 else:
-    archive = Path(shutil.make_archive(str(out / stem), "gztar" if system == "Linux" else "zip", out, stem))
+    archive = Path(shutil.make_archive(str(out / stem), "gztar", out, stem))
 # Check the extracted archive in a fresh location, not just the build tree.
 with tempfile.TemporaryDirectory(prefix="rexafs-package-") as directory:
     if system == "Darwin":

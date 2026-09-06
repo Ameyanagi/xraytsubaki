@@ -58,6 +58,7 @@ Desktop (run on the target platform):
 ```bash
 cargo test --locked --release -p rexafs-gui --no-default-features --features refeff-runner
 cargo build --locked --release -p rexafs-gui --no-default-features --features refeff-runner
+python scripts/test-release-archive.py
 python scripts/package-desktop.py
 ```
 
@@ -69,6 +70,8 @@ metadata, with an adjacent SHA-256 checksum. The script extracts the archive int
 a fresh directory and runs its executable's `--version` and `--self-check`.
 The latter processes the packaged example without relying on the source checkout.
 It does not test GPU rendering or replace an interactive launch check.
+Windows ZIP packaging clamps upstream file dates to ZIP's supported range
+(1980–2107), preserving file contents and leaving source timestamps untouched.
 
 The macOS package rejects Homebrew/local dynamic libraries; Linux rejects unresolved
 linked libraries. Inspect `linked-libraries.txt` and qualify a clean installation.

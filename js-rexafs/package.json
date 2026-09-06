@@ -1,0 +1,58 @@
+{
+  "name": "rexafs",
+  "version": "0.1.0",
+  "description": "Rust-powered X-ray absorption analysis for JavaScript and TypeScript",
+  "type": "module",
+  "license": "MIT OR Apache-2.0",
+  "homepage": "https://rexafs.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ameyanagi/xraytsubaki.git",
+    "directory": "js-rexafs"
+  },
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "browser": {
+        "types": "./index.d.ts",
+        "default": "./browser.js"
+      },
+      "node": {
+        "types": "./node.d.ts",
+        "default": "./node.js"
+      },
+      "types": "./index.d.ts",
+      "default": "./browser.js"
+    },
+    "./browser": {
+      "types": "./index.d.ts",
+      "default": "./browser.js"
+    },
+    "./node": {
+      "types": "./node.d.ts",
+      "default": "./node.js"
+    }
+  },
+  "files": [
+    "browser.js",
+    "node.js",
+    "validate.js",
+    "index.d.ts",
+    "dist",
+    "LICENSE-MIT",
+    "LICENSE-APACHE",
+    "node.d.ts",
+    "types.d.ts"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test test/*.test.mjs",
+    "prepack": "node verify-package.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -154,7 +154,7 @@ def write_plot(series: Series) -> None:
     parts.append('<style>text{font-family:Menlo,Monaco,Consolas,monospace;fill:#222}.small{font-size:12px}.axis{font-size:13px}.title{font-size:18px;font-weight:600}.sub{font-size:12px;fill:#444}</style>')
     parts.append('<rect x="0" y="0" width="100%" height="100%" fill="#fff"/>')
     subtitle = f"RMS(diff)={rms:.3e}, Max|diff|={max_abs:.3e}, contributions={len(series.contributions)}"
-    parts.append(f'<text class="title" x="{left}" y="26">{series.name}: xraytsubaki vs xraylarch</text>')
+    parts.append(f'<text class="title" x="{left}" y="26">{series.name}: rexafs vs xraylarch</text>')
     parts.append(f'<text class="sub" x="{left}" y="42">{subtitle}</text>')
 
     for xt in x_ticks:
@@ -191,7 +191,7 @@ def write_plot(series: Series) -> None:
     legend_x = left + 8
     legend_y = top + 18
     parts.append(f'<line x1="{legend_x}" y1="{legend_y}" x2="{legend_x + 26}" y2="{legend_y}" stroke="#cc3f3f" stroke-width="1.8"/>')
-    parts.append(f'<text class="small" x="{legend_x + 32}" y="{legend_y + 4}">xraytsubaki total</text>')
+    parts.append(f'<text class="small" x="{legend_x + 32}" y="{legend_y + 4}">rexafs total</text>')
     parts.append(f'<line x1="{legend_x + 170}" y1="{legend_y}" x2="{legend_x + 196}" y2="{legend_y}" stroke="#2e6fdb" stroke-width="1.8" stroke-dasharray="5,4"/>')
     parts.append(f'<text class="small" x="{legend_x + 202}" y="{legend_y + 4}">xraylarch total</text>')
     parts.append(f'<line x1="{legend_x + 330}" y1="{legend_y}" x2="{legend_x + 356}" y2="{legend_y}" stroke="#2a9d5b" stroke-width="1.4"/>')
@@ -212,7 +212,7 @@ def write_plot(series: Series) -> None:
 
 
 def write_index(series_list: List[Series]) -> None:
-    lines = ["# FEFF: xraytsubaki vs xraylarch", "", "Generated comparison plots:"]
+    lines = ["# FEFF: rexafs vs xraylarch", "", "Generated comparison plots:"]
     for s in series_list:
         lines.append(
             f"- `{s.name}`: `doc/plots/feff_vs_larch_{s.name}.svg`, `doc/plots/feff_vs_larch_{s.name}.png`"

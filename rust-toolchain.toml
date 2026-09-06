@@ -1,0 +1,6 @@
+[toolchain]
+# Latest stable verified on 2026-09-06; pin releases for reproducible builds.
+channel = "1.98.1"
+profile = "minimal"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]

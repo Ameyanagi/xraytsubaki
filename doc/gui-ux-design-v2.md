@@ -1,11 +1,13 @@
-# xraytsubaki GUI — UX / UI Design v2 (proposal)
+# rexafs GUI — UX / UI Design v2 (proposal)
+
+Historical design record. For the current interface, start at the [documentation index](README.md).
 
 Status: **proposal, 2026-09-02** — awaiting review. Supersedes the shell/workspace
 parts of `gui-ux-design.md` (2026-06-10); the scaling/async principles of that
 document still apply and are not repeated here.
 
 Interactive prototype (real Ru K-edge data from `Ru_QAS.dat`, draggable
-ranges, all six stages): see the "XrayTsubaki Studio" artifact linked from the
+ranges, all six stages): see the "rexafs Studio" artifact linked from the
 session that produced this document.
 
 ---
@@ -110,7 +112,7 @@ while you drag".
 ## 4. Shell
 
 ```
-┌ XrayTsubaki › project.xtproj                        [⌘K search actions…]  ↶ ↷ ☾ ┐
+┌ rexafs › project.rxs                        [⌘K search actions…]  ↶ ↷ ☾ ┐
 ├ 1 Data ● | 2 Normalize ● E₀… | 3 Background ● | 4 Transform ● | 5 Fit ● | 6 Series ● ┤
 ├──────────┬───────────────────────────────────────────┬──────────────────┤
 │ GROUPS   │ plot bar: current|marked · μ/norm/flat ·   │ Editing <group>  │

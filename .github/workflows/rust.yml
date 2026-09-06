@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        toolchain: [stable, beta]
+        toolchain: ["1.98.1", stable]
 
     steps:
     - uses: actions/checkout@v4
@@ -25,9 +25,9 @@ jobs:
       with:
         toolchain: ${{ matrix.toolchain }}
     - name: Build core crate
-      run: cargo build -p xraytsubaki --verbose
+      run: cargo +${{ matrix.toolchain }} build --locked -p rexafs --verbose
     - name: Run core crate tests
-      run: cargo test -p xraytsubaki --verbose
+      run: cargo +${{ matrix.toolchain }} test --locked -p rexafs --verbose
 
   strict-gates:
     name: Strict Gates (stable)
@@ -41,11 +41,11 @@ jobs:
         toolchain: stable
         components: clippy, rustfmt
     - name: Run strict clippy
-      run: cargo clippy -p xraytsubaki --all-targets -- -D warnings
+      run: cargo +stable clippy --locked -p rexafs --all-targets -- -D warnings
     - name: Check formatting
-      run: cargo fmt --all -- --check
+      run: cargo +stable fmt --all -- --check
     - name: Check Python bindings crate
-      run: cargo check --manifest-path py-xraytsubaki/Cargo.toml --verbose
+      run: cargo +stable check --locked --manifest-path py-rexafs/Cargo.toml --verbose
 
   benchmark:
     name: Benchmark Regression
@@ -59,21 +59,21 @@ jobs:
       with:
         toolchain: stable
     - name: Run single benchmark
-      run: cargo bench -p xraytsubaki --bench xas_group_benchmark_single -- --noplot
+      run: cargo bench -p rexafs --bench xas_group_benchmark_single -- --noplot
     - name: Run parallel benchmark
-      run: cargo bench -p xraytsubaki --bench xas_group_benchmark_parallel -- --noplot
+      run: cargo bench -p rexafs --bench xas_group_benchmark_parallel -- --noplot
     # baseline.json also gates autobk_stage_legacy_lm and
     # autobk_stage_linear_direct, which live in this target. Without it their
     # estimates.json never exists and the gate fails as "missing" on every push.
     - name: Run AUTOBK stage benchmark
-      run: cargo bench -p xraytsubaki --bench autobk_stage_benchmark -- --noplot
+      run: cargo bench -p rexafs --bench autobk_stage_benchmark -- --noplot
     - name: Evaluate benchmark regression (informational on PR, blocking on push)
       run: |
         MODE="informational"
         if [ "${{ github.event_name }}" = "push" ]; then
           MODE="blocking"
         fi
-        ./crates/xraytsubaki/scripts/bench_regression_gate.sh "$MODE"
+        ./crates/rexafs/scripts/bench_regression_gate.sh "$MODE"
     - name: Upload benchmark artifacts
       uses: actions/upload-artifact@v4
       with:

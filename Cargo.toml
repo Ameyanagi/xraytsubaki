@@ -5,22 +5,24 @@
 resolver = "2"
 members = [
   "crates/*",
-  "py-xraytsubaki",
+  "py-rexafs",
   # "examples/*",
 ]
 # Keep plain `cargo build`/`cargo test` on the core crate; the GUI pulls the
-# large gpui dependency tree and is built explicitly with `-p xraytsubaki-gui`.
-default-members = ["crates/xraytsubaki"]
+# large gpui dependency tree and is built explicitly with `-p rexafs-gui`.
+default-members = ["crates/rexafs"]
 exclude = [
+  "vendor/sum_tree",
   # "examples/datasets",
 ]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.98"
 authors = ["Ameyanagi <contact@ameyanagi.com>"]
-homepage = "https://github.com/Ameyanagi/xraytsubaki"
-repository = "https://github.com/Ameyanagi/xraytsubaki"
+homepage = "https://rexafs.com"
+repository = "https://github.com/ameyanagi/xraytsubaki"
 license = "MIT OR Apache-2.0"
 
 [profile.bench]
@@ -34,46 +36,51 @@ codegen-units = 256
 
 [workspace.dependencies]
 easyfft = { version = "0.4.2", features = ["serde"] }
-semver = { version = "1.0.22" }
+semver = { version = "1.0.28" }
 approx = "0.5.1"
 data_reader = "0.5.0"
 errorfunctions = "0.2.0"
-ndarray = { version = "0.15.6", features = ["approx", "serde"] }
-itertools = "0.12.0"
-lazy_static = "1.4.0"
-apex-solver = { version = "1.3.0", default-features = false }
-levenberg-marquardt = "0.13.1"
-nalgebra = { version = "0.32", features = ["serde-serialize"] }
-nalgebra-apex = { package = "nalgebra", version = "0.33" }
-num-complex = { version = "0.4.5", features = ["serde"] }
-polyfit-rs = "0.2.1"
-rusty-fitpack = "0.1.2"
-rayon = "1.8.1"
-serde = { version = "1.0.197", features = ["derive"] }
-serde_arrow = { version = "0.10.0", features = ["arrow2-0-17", "arrow-46"] }
-serde_json = "1.0.114"
-bson = "2.9.0"
+ndarray = { version = "0.17.2", features = ["approx", "serde"] }
+itertools = "0.15.0"
+lazy_static = "1.5.0"
+apex-solver = { version = "1.4.0", default-features = false }
+levenberg-marquardt = "0.15.0"
+# Latest compatible line for levenberg-marquardt 0.15's public matrix types.
+nalgebra = { version = "0.34.2", features = ["serde-serialize"] }
+# apex-solver 1.4 still exposes nalgebra 0.33 at its solver boundary.
+nalgebra-apex = { package = "nalgebra", version = "0.33.3" }
+num-complex = { version = "0.4.6", features = ["serde"] }
+polyfit-rs = "0.2.2"
+rayon = "1.12.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+bson = { version = "3.1.0", features = ["serde"] }
 version = "3.0.0"
 derivative = "2.2.0"
-flate2 = "1.0.28"
-pest = "2.7.7"
-pest_derive = "2.7.7"
-thiserror = "1.0.69"
-ruviz = { version = "0.12.2", default-features = false }
+flate2 = "1.1.10"
+pest = "2.9.1"
+pest_derive = "2.9.1"
+thiserror = "2.0.20"
+ruviz = { version = "0.13.0", default-features = false }
 # GUI stack. `gpui = "0.2.2"` (latest on crates.io) is redirected by the
 # [patch.crates-io] below to the git-pinned gpui (zed rev 3060e417...) that
 # gpui_platform also resolves to, so the whole workspace shares exactly one gpui.
 gpui = "0.2.2"
-ruviz-gpui = { version = "0.12.2", features = ["gpu", "3d"] }
-refeff = { version = "0.2.0", default-features = false, features = ["exafs"] }
+ruviz-gpui = { version = "0.13.0", features = ["gpu", "3d"] }
+refeff = { version = "0.2.2", default-features = false, features = ["exafs"] }
 
-xraytsubaki = { version = "0.1.0", path = "crates/xraytsubaki" }
+rexafs = { version = "0.1.0", path = "crates/rexafs" }
 
 [patch.crates-io]
 gpui = { git = "https://github.com/zed-industries/zed", rev = "3060e4170ea5ef0e6886b9ac1853aaead9ddd59f" }
 
+# Keep the Apache-licensed sum_tree on the same GPUI revision, replacing its
+# GPL tracing wrapper with the upstream MIT-licensed tracing API.
+[patch."https://github.com/zed-industries/zed"]
+sum_tree = { path = "vendor/sum_tree" }
+
 [workspace.dependencies.enterpolation]
-version = "0.2.1"
+version = "0.3.0"
 default-features = false
 # re-enable all wanted features
 features = ["std", "linear"]

@@ -1,0 +1,119 @@
+name: Publish reviewed release
+
+# Run this workflow on the reviewed vX.Y.Z tag after the repository rename.
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Distribution to publish (allows resuming a partial release)
+        type: choice
+        options: [crates-io, pypi, npm, github-draft]
+        required: true
+      build_run_id:
+        description: Successful Release builds run ID for this exact tag commit
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Require a matching version tag
+        env:
+          RELEASE_REF_TYPE: ${{ github.ref_type }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          test "$RELEASE_REF_TYPE" = tag
+          python scripts/check-release-version.py "$RELEASE_TAG"
+      - name: Require a successful GitHub build of this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          [[ "$BUILD_RUN_ID" =~ ^[0-9]+$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID" > build-run.json
+          python - <<'PY'
+          import json, os
+          run = json.load(open('build-run.json'))
+          assert run['conclusion'] == 'success', 'Release build must have succeeded'
+          assert run['head_sha'] == os.environ['RELEASE_SHA'], 'Build commit does not match release tag'
+          assert run['path'] == '.github/workflows/release-build.yml', 'Unexpected build workflow'
+          assert run['event'] == 'workflow_dispatch', 'Use a maintainer-dispatched release build'
+          PY
+
+  publish:
+    needs: version
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+      - name: Verify GitHub artifact checksums
+        run: python scripts/check-artifacts.py verify artifacts artifacts/release-manifest/SHA256SUMS
+      - uses: dtolnay/rust-toolchain@1.98.1
+      - name: Publish Rust library
+        if: inputs.channel == 'crates-io'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: |
+          cargo package --locked -p rexafs
+          cmp target/package/rexafs-*.crate artifacts/rust-package/rexafs-*.crate
+          cargo publish --locked -p rexafs
+      - name: Collect Python distributions
+        if: inputs.channel == 'pypi'
+        run: |
+          mkdir python-dist
+          find artifacts/wheel-* artifacts/python-sdist -type f \( -name '*.whl' -o -name '*.tar.gz' \) -exec cp {} python-dist/ \;
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        if: inputs.channel == 'pypi'
+        with:
+          packages-dir: python-dist/
+      - uses: actions/setup-node@v4
+        if: inputs.channel == 'npm'
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+      - name: Publish npm package
+        if: inputs.channel == 'npm'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          npm install --global npm@11
+          DIST_TAG=latest
+          if [[ "$RELEASE_TAG" == *-* ]]; then DIST_TAG=next; fi
+          npm publish artifacts/npm-package/*.tgz --access public --tag "$DIST_TAG"
+      - name: Create GitHub draft with reviewed artifacts
+        if: inputs.channel == 'github-draft'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          PRERELEASE=()
+          if [[ "$RELEASE_TAG" == *-* ]]; then PRERELEASE=(--prerelease); fi
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --verify-tag --draft --generate-notes --title "rexafs $RELEASE_TAG" "${PRERELEASE[@]}"
+          fi
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
+          gh release upload "$RELEASE_TAG" artifacts/release-manifest/SHA256SUMS --clobber
+          find artifacts -type f \( -name '*.zip' -o -name '*.sha256' -o -name '*.crate' -o -name '*.whl' -o -name '*.tar.gz' -o -name '*.tgz' \) -exec gh release upload "$RELEASE_TAG" {} +

@@ -1,0 +1,84 @@
+[package]
+rust-version.workspace = true
+name = "rexafs"
+version = { workspace = true }
+authors = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+readme = "README.md"
+repository = { workspace = true }
+description = "Rust-powered X-ray absorption spectroscopy analysis and EXAFS fitting"
+keywords = ["xafs", "exafs", "spectroscopy", "xray", "science"]
+categories = ["science"]
+
+[dependencies]
+semver = { workspace = true }
+approx = { workspace = true }
+data_reader = { workspace = true }
+# easyfft = { workspace = true }
+errorfunctions = { workspace = true }
+ndarray = { version = "0.17.2", features = ["approx", "serde"], optional = true }
+itertools = { workspace = true }
+lazy_static = { workspace = true }
+apex-solver = { workspace = true, optional = true }
+faer = { version = "0.24", optional = true }
+levenberg-marquardt = { workspace = true }
+nalgebra = { workspace = true }
+nalgebra-apex = { workspace = true, optional = true }
+num-complex = { workspace = true }
+polyfit-rs = { workspace = true }
+rayon = { workspace = true }
+serde = { workspace = true }
+bson = { workspace = true }
+version = { workspace = true }
+derivative = { workspace = true }
+enterpolation = { workspace = true }
+easyfft = { workspace = true }
+serde_json = { workspace = true }
+flate2 = { workspace = true }
+pest = { workspace = true }
+pest_derive = { workspace = true }
+thiserror = { workspace = true }
+ruviz = { workspace = true, optional = true, features = ["svg", "typst-math"] }
+refeff = { workspace = true, optional = true }
+feff10 = { version = "0.2.2", features = ["prebuilt"], optional = true }
+# apex-io 0.3 (via apex-solver 1.4) links sqlite3 through rusqlite 0.31.
+# Cargo permits only one libsqlite3-sys version in this workspace.
+rusqlite = { version = "0.31", features = ["bundled"], optional = true }
+ureq = { version = "3", features = ["json"], optional = true }
+base64 = "0.23.1"
+
+[features]
+default = ["trust-region"]
+trust-region = ["dep:apex-solver", "dep:nalgebra-apex", "dep:faer"]
+ndarray-compat = ["ndarray"]
+plotting = ["ruviz"]
+refeff-runner = ["dep:refeff"]
+feff10-runner = ["dep:feff10"]
+amcsd = ["dep:rusqlite"]
+# HTTP client shared by the online structure sources.
+http = ["dep:ureq"]
+materials-project = ["http"]
+cod = ["http"]
+
+[dev-dependencies]
+pprof = { version = "0.15", features = ["flamegraph"] }
+
+criterion = { version = "0.8.2", features = ["html_reports"] }
+
+[[bench]]
+name = "xas_group_benchmark_single"
+harness = false
+
+[[bench]]
+name = "xas_group_benchmark_parallel"
+harness = false
+
+[[bench]]
+name = "autobk_stage_benchmark"
+harness = false
+
+[[bench]]
+name = "feff_fitting_batch_benchmark"
+harness = false

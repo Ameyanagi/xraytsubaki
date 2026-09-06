@@ -1,4 +1,5 @@
 /target
+/vendor/sum_tree/target/
 pythontest.ipynb
 test.txt
 .DS_Store
@@ -18,3 +19,12 @@ test.txt
 /AGENTS.md
 /CLAUDE.md
 /openspec/
+
+# Distribution build products
+/js-rexafs/dist/
+/js-rexafs/*.tgz
+/py-rexafs/dist/
+/py-rexafs/.venv/
+/.venv/
+__pycache__/
+*.so

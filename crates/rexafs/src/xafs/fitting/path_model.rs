@@ -1,0 +1,472 @@
+use std::collections::BTreeMap;
+use std::path::Path;
+
+use nalgebra::DVector;
+use num_complex::Complex64;
+
+use crate::xafs::xafsutils::constants::ETOK;
+
+use super::errors::FittingError;
+use super::feffdat::parse_feff_path_file;
+use super::types::{FeffFlavor, FeffPathModel, FitVariables};
+use super::variables::resolve_path_param;
+
+const SMALL_ENERGY: f64 = 1.0e-6;
+
+#[derive(Debug, Clone)]
+pub struct FF2ChiOutput {
+    pub chi: DVector<f64>,
+    pub path_chi: Vec<(String, DVector<f64>)>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PathParams {
+    degen: f64,
+    s02: f64,
+    e0: f64,
+    ei: f64,
+    deltar: f64,
+    sigma2: f64,
+    third: f64,
+    fourth: f64,
+}
+
+pub fn feffpath<P: AsRef<Path>>(
+    path: P,
+    flavor: FeffFlavor,
+) -> Result<FeffPathModel, FittingError> {
+    let parsed = parse_feff_path_file(path.as_ref(), flavor)?;
+    let label = path
+        .as_ref()
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "path".to_string());
+    Ok(FeffPathModel::from_feffdat(label, parsed))
+}
+
+pub fn path2chi(
+    path: &FeffPathModel,
+    vars: &FitVariables,
+    k: &DVector<f64>,
+) -> Result<DVector<f64>, FittingError> {
+    let globals = vars.resolve_values()?;
+    let params = resolve_params(path, &globals)?;
+    let (_cchi, chi) = calc_path_chi(path, &params, k)?;
+    Ok(chi)
+}
+
+pub fn ff2chi(
+    paths: &[FeffPathModel],
+    vars: &FitVariables,
+    k: &DVector<f64>,
+) -> Result<FF2ChiOutput, FittingError> {
+    if paths.is_empty() {
+        return Err(FittingError::EmptyPaths);
+    }
+
+    let globals = vars.resolve_values()?;
+    let mut total = DVector::zeros(k.len());
+    let mut path_chi = Vec::with_capacity(paths.len());
+
+    for path in paths.iter().filter(|path| path.use_path) {
+        let params = resolve_params(path, &globals)?;
+        let (_cchi, chi) = calc_path_chi(path, &params, k)?;
+        total += &chi;
+        path_chi.push((path.label.clone(), chi));
+    }
+
+    if path_chi.is_empty() {
+        return Err(FittingError::EmptyPaths);
+    }
+
+    Ok(FF2ChiOutput {
+        chi: total,
+        path_chi,
+    })
+}
+
+pub(crate) fn calc_path_chi(
+    path: &FeffPathModel,
+    params: &PathParams,
+    k: &DVector<f64>,
+) -> Result<(Vec<Complex64>, DVector<f64>), FittingError> {
+    if path.feff.reff < 0.05 {
+        return Err(FittingError::InvalidFeffData {
+            reason: format!("path '{}' has invalid reff {}", path.label, path.feff.reff),
+        });
+    }
+    if k.len() < 3 {
+        return Err(FittingError::InvalidDataset {
+            reason: "k grid must contain at least 3 points".to_string(),
+        });
+    }
+    if let Some(index) = k.iter().position(|kv| !kv.is_finite()) {
+        return Err(FittingError::InvalidDataset {
+            reason: format!("k grid contains non-finite value at index {index}"),
+        });
+    }
+
+    let reff = path.feff.reff;
+    let q = k.map(|kv| {
+        let mut energy = kv * kv - params.e0 * ETOK;
+        // Preserve sign when clamping near zero so q continuity matches FEFF/Larch behavior.
+        let sign = if energy < 0.0 { -1.0 } else { 1.0 };
+        if energy.abs() < 1.5 * SMALL_ENERGY {
+            energy = sign * SMALL_ENERGY;
+        }
+        energy.signum() * energy.abs().sqrt()
+    });
+
+    let pha = interp_cubic_spline_clamped(&path.feff.k, &path.feff.pha, &q)?;
+    let amp = interp_cubic_spline_clamped(&path.feff.k, &path.feff.amp, &q)?;
+    let rep = interp_cubic_spline_clamped(&path.feff.k, &path.feff.rep, &q)?;
+    let lam = interp_cubic_spline_clamped(&path.feff.k, &path.feff.lam, &q)?;
+
+    let mut cchi: Vec<Complex64> = Vec::with_capacity(k.len());
+    for i in 0..k.len() {
+        // Avoid blow-ups when spline interpolation makes lambda very small.
+        let denom_lam = if lam[i].abs() < SMALL_ENERGY {
+            SMALL_ENERGY.copysign(lam[i])
+        } else {
+            lam[i]
+        };
+        let pp =
+            Complex64::new(rep[i], 1.0 / denom_lam).powi(2) + Complex64::new(0.0, params.ei * ETOK);
+        let p = pp.sqrt();
+
+        let sigma_term = params.sigma2 - pp * (params.fourth / 3.0);
+        let delta_term = params.deltar - 2.0 * params.sigma2 / reff - 2.0 * pp * params.third / 3.0;
+        let phase_inner = Complex64::new(2.0 * q[i] * reff + pha[i], 0.0) + 2.0 * p * delta_term;
+
+        let exponent = Complex64::new(-2.0 * reff * p.im, 0.0) - 2.0 * pp * sigma_term
+            + Complex64::new(0.0, 1.0) * phase_inner;
+
+        let denom_q = if q[i].abs() < SMALL_ENERGY {
+            SMALL_ENERGY.copysign(q[i])
+        } else {
+            q[i]
+        };
+        let denom_r = (reff + params.deltar).powi(2).max(SMALL_ENERGY);
+
+        let scale = params.degen * params.s02 * amp[i] / (denom_q * denom_r);
+        cchi.push(scale * exponent.exp());
+    }
+
+    if cchi.len() >= 3 {
+        cchi[0] = 2.0 * cchi[1] - cchi[2];
+    }
+
+    let chi = DVector::from_iterator(cchi.len(), cchi.iter().map(|value| value.im));
+    Ok((cchi, chi))
+}
+
+pub(crate) fn resolve_params(
+    path: &FeffPathModel,
+    globals: &BTreeMap<String, f64>,
+) -> Result<PathParams, FittingError> {
+    let mut locals = BTreeMap::new();
+    locals.insert("reff".to_string(), path.feff.reff);
+
+    Ok(PathParams {
+        degen: resolve_path_param(&path.degen, path.feff.degen, globals, &locals)?,
+        s02: resolve_path_param(&path.s02, 1.0, globals, &locals)?,
+        e0: resolve_path_param(&path.e0, 0.0, globals, &locals)?,
+        ei: resolve_path_param(&path.ei, 0.0, globals, &locals)?,
+        deltar: resolve_path_param(&path.deltar, 0.0, globals, &locals)?,
+        sigma2: resolve_path_param(&path.sigma2, 0.0, globals, &locals)?,
+        third: resolve_path_param(&path.third, 0.0, globals, &locals)?,
+        fourth: resolve_path_param(&path.fourth, 0.0, globals, &locals)?,
+    })
+}
+
+fn interp_cubic_spline_clamped(
+    xin: &DVector<f64>,
+    yin: &DVector<f64>,
+    xout: &DVector<f64>,
+) -> Result<DVector<f64>, FittingError> {
+    if xin.len() != yin.len() || xin.len() < 2 {
+        return Err(FittingError::InvalidFeffData {
+            reason: "interpolation requires at least 2 FEFF grid points".to_string(),
+        });
+    }
+    if let Some(index) = xin.iter().position(|value| !value.is_finite()) {
+        return Err(FittingError::InvalidFeffData {
+            reason: format!("FEFF k grid contains non-finite value at index {index}"),
+        });
+    }
+    if let Some(index) = yin.iter().position(|value| !value.is_finite()) {
+        return Err(FittingError::InvalidFeffData {
+            reason: format!("FEFF data contains non-finite value at index {index}"),
+        });
+    }
+    if let Some(index) = xout.iter().position(|value| !value.is_finite()) {
+        return Err(FittingError::InvalidDataset {
+            reason: format!("interpolation target grid contains non-finite value at index {index}"),
+        });
+    }
+
+    for i in 1..xin.len() {
+        if xin[i] < xin[i - 1] {
+            return Err(FittingError::InvalidFeffData {
+                reason: "FEFF k grid must be monotonic for interpolation".to_string(),
+            });
+        }
+    }
+
+    let order = if xin.len() > 3 { 3 } else { 1 };
+    let (knots, coefs) = crate::xafs::spline::interpolate(xin.as_slice(), yin.as_slice(), order)
+        .map_err(|reason| FittingError::InvalidFeffData { reason })?;
+    let values = crate::xafs::spline::evaluate(&knots, &coefs, order, xout.as_slice(), false);
+    Ok(DVector::from_vec(values))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::xafs::fitting::types::{FeffFlavor, PathParamSpec};
+    use crate::xafs::tests::{PARAM_LOADTXT, TOP_DIR};
+    use approx::assert_abs_diff_eq;
+    use data_reader::reader::load_txt_f64;
+
+    #[test]
+    fn test_path2chi_returns_finite_values() {
+        let pathfile = format!("{TOP_DIR}/tests/testfiles/feffcu01.dat");
+        let mut path = feffpath(pathfile, FeffFlavor::Feff85L).unwrap();
+        path.s02 = PathParamSpec::Expression("amp".to_string());
+        path.e0 = PathParamSpec::Expression("de0".to_string());
+        path.sigma2 = PathParamSpec::Expression("sig2".to_string());
+
+        let mut vars = FitVariables::new();
+        vars.insert("amp", super::super::types::FitVariable::new(0.95, true));
+        vars.insert("de0", super::super::types::FitVariable::new(1.5, true));
+        vars.insert("sig2", super::super::types::FitVariable::new(0.003, true));
+
+        let k = DVector::from_iterator(240, (0..240).map(|i| 0.05 * (i as f64 + 1.0)));
+        let chi = path2chi(&path, &vars, &k).unwrap();
+
+        assert_eq!(chi.len(), k.len());
+        assert!(chi.iter().all(|value| value.is_finite()));
+    }
+
+    #[test]
+    fn test_path2chi_rejects_non_finite_k_grid() {
+        let pathfile = format!("{TOP_DIR}/tests/testfiles/feffcu01.dat");
+        let path = feffpath(pathfile, FeffFlavor::Feff85L).unwrap();
+        let vars = FitVariables::new();
+
+        let mut k = DVector::from_iterator(240, (0..240).map(|i| 0.05 * (i as f64 + 1.0)));
+        k[10] = f64::NAN;
+
+        let err = path2chi(&path, &vars, &k).unwrap_err();
+        assert!(matches!(err, FittingError::InvalidDataset { .. }));
+    }
+
+    #[test]
+    fn test_ff2chi_combines_multiple_paths() {
+        let pathfile1 = format!("{TOP_DIR}/tests/testfiles/feffcu01.dat");
+        let pathfile2 = format!("{TOP_DIR}/tests/testfiles/feff0002.dat");
+
+        let path1 = feffpath(pathfile1, FeffFlavor::Feff85L).unwrap();
+        let path2 = feffpath(pathfile2, FeffFlavor::Feff85L).unwrap();
+
+        let vars = FitVariables::new();
+        let k = DVector::from_iterator(200, (0..200).map(|i| 0.05 * (i as f64 + 1.0)));
+
+        let out = ff2chi(&[path1, path2], &vars, &k).unwrap();
+        assert_eq!(out.chi.len(), k.len());
+        assert_eq!(out.path_chi.len(), 2);
+    }
+
+    #[test]
+    fn test_path2chi_matches_larch_reference_within_tolerance() {
+        let pathfile = format!("{TOP_DIR}/tests/testfiles/feffcu01.dat");
+        let reference_path = format!("{TOP_DIR}/tests/testfiles/feff_path_chi_larch_ref.txt");
+
+        let mut path = feffpath(pathfile, FeffFlavor::Feff85L).unwrap();
+        path.s02 = PathParamSpec::Expression("amp".to_string());
+        path.e0 = PathParamSpec::Expression("de0".to_string());
+        path.sigma2 = PathParamSpec::Expression("sig2".to_string());
+        path.deltar = PathParamSpec::Expression("dr".to_string());
+
+        let mut vars = FitVariables::new();
+        vars.insert("amp", super::super::types::FitVariable::new(0.92, false));
+        vars.insert("de0", super::super::types::FitVariable::new(1.4, false));
+        vars.insert("sig2", super::super::types::FitVariable::new(0.0031, false));
+        vars.insert("dr", super::super::types::FitVariable::new(0.011, false));
+
+        let reference = load_txt_f64(&reference_path, &PARAM_LOADTXT).unwrap();
+        let k = DVector::from_vec(reference.get_col(0));
+        let chi_expected = reference.get_col(1);
+        let chi = path2chi(&path, &vars, &k).unwrap();
+
+        for ((kv, actual), expected) in k.iter().zip(chi.iter()).zip(chi_expected.iter()) {
+            if *kv < 2.0 {
+                continue;
+            }
+            assert_abs_diff_eq!(actual, expected, epsilon = 3.0e-3);
+        }
+    }
+
+    #[test]
+    fn test_ff2chi_matches_larch_reference_within_tolerance() {
+        let pathfile1 = format!("{TOP_DIR}/tests/testfiles/feffcu01.dat");
+        let pathfile2 = format!("{TOP_DIR}/tests/testfiles/feff0002.dat");
+        let reference_path = format!("{TOP_DIR}/tests/testfiles/feff_ff2chi_larch_ref.txt");
+
+        let mut path1 = feffpath(pathfile1, FeffFlavor::Feff85L).unwrap();
+        path1.s02 = PathParamSpec::Expression("amp".to_string());
+        path1.e0 = PathParamSpec::Expression("de0".to_string());
+        path1.sigma2 = PathParamSpec::Expression("sig2".to_string());
+        path1.deltar = PathParamSpec::Expression("dr".to_string());
+
+        let mut path2 = feffpath(pathfile2, FeffFlavor::Feff85L).unwrap();
+        path2.s02 = PathParamSpec::Expression("amp2".to_string());
+        path2.e0 = PathParamSpec::Expression("de0".to_string());
+        path2.sigma2 = PathParamSpec::Expression("sig2".to_string());
+        path2.deltar = PathParamSpec::Expression("dr2".to_string());
+
+        let mut vars = FitVariables::new();
+        vars.insert("amp", super::super::types::FitVariable::new(0.92, false));
+        vars.insert("de0", super::super::types::FitVariable::new(1.4, false));
+        vars.insert("sig2", super::super::types::FitVariable::new(0.0031, false));
+        vars.insert("dr", super::super::types::FitVariable::new(0.011, false));
+        vars.insert("amp2", super::super::types::FitVariable::new(0.35, false));
+        vars.insert("dr2", super::super::types::FitVariable::new(0.0025, false));
+
+        let reference = load_txt_f64(&reference_path, &PARAM_LOADTXT).unwrap();
+        let k = DVector::from_vec(reference.get_col(0));
+        let chi_expected = reference.get_col(1);
+
+        let out = ff2chi(&[path1, path2], &vars, &k).unwrap();
+        for ((kv, actual), expected) in k.iter().zip(out.chi.iter()).zip(chi_expected.iter()) {
+            if *kv < 2.0 {
+                continue;
+            }
+            assert_abs_diff_eq!(actual, expected, epsilon = 4.0e-3);
+        }
+    }
+
+    #[test]
+    fn test_interp_cubic_spline_clamped_rejects_non_finite_target_grid() {
+        let xin = DVector::from_vec(vec![1.0, 2.0, 3.0]);
+        let yin = DVector::from_vec(vec![10.0, 20.0, 30.0]);
+        let xout = DVector::from_vec(vec![1.5, f64::NAN]);
+
+        let err = interp_cubic_spline_clamped(&xin, &yin, &xout).unwrap_err();
+        assert!(matches!(err, FittingError::InvalidDataset { .. }));
+    }
+
+    #[test]
+    fn test_interp_cubic_spline_clamped_rejects_non_finite_source_grid() {
+        let xin = DVector::from_vec(vec![1.0, f64::INFINITY, 3.0]);
+        let yin = DVector::from_vec(vec![10.0, 20.0, 30.0]);
+        let xout = DVector::from_vec(vec![1.5, 2.5]);
+
+        let err = interp_cubic_spline_clamped(&xin, &yin, &xout).unwrap_err();
+        assert!(matches!(err, FittingError::InvalidFeffData { .. }));
+    }
+
+    /// Larch `_calc_chi` evaluated directly (no spline) from pre-interpolated FEFF arrays.
+    #[allow(clippy::too_many_arguments)]
+    fn larch_cchi(
+        reff: f64,
+        degen: f64,
+        s02: f64,
+        e0: f64,
+        ei: f64,
+        deltar: f64,
+        sigma2: f64,
+        third: f64,
+        fourth: f64,
+        k: f64,
+        pha: f64,
+        amp: f64,
+        rep: f64,
+        lam: f64,
+    ) -> Complex64 {
+        let en = k * k - e0 * ETOK;
+        let q = en.signum() * en.abs().sqrt();
+        let pp = Complex64::new(rep, 1.0 / lam).powi(2) + Complex64::new(0.0, ei * ETOK);
+        let p = pp.sqrt();
+        let exponent = Complex64::new(-2.0 * reff * p.im, 0.0)
+            - 2.0 * pp * (sigma2 - pp * fourth / 3.0)
+            + Complex64::new(0.0, 1.0)
+                * (Complex64::new(2.0 * q * reff + pha, 0.0)
+                    + 2.0 * p * (deltar - 2.0 * sigma2 / reff - 2.0 * pp * third / 3.0));
+        degen * s02 * amp * exponent.exp() / (q * (reff + deltar).powi(2))
+    }
+
+    #[test]
+    fn test_cumulants_and_ei_follow_larch_formula() {
+        let pathfile = format!("{TOP_DIR}/tests/testfiles/feffcu01.dat");
+        let path = feffpath(pathfile, FeffFlavor::Feff85L).unwrap();
+        // Evaluate on the FEFF k grid so the spline interpolation is the identity and the
+        // Larch formula can be evaluated point-wise from the tabulated arrays.
+        let k = path.feff.k.clone();
+        let base = PathParams {
+            degen: 12.0,
+            s02: 0.9,
+            e0: 0.0,
+            ei: 0.0,
+            deltar: 0.01,
+            sigma2: 0.004,
+            third: 0.0,
+            fourth: 0.0,
+        };
+        let (_, chi_base) = calc_path_chi(&path, &base, &k).unwrap();
+
+        for (label, params) in [
+            (
+                "third",
+                PathParams {
+                    third: 2.0e-4,
+                    ..base
+                },
+            ),
+            (
+                "fourth",
+                PathParams {
+                    fourth: 5.0e-5,
+                    ..base
+                },
+            ),
+            ("ei", PathParams { ei: 1.5, ..base }),
+        ] {
+            let (_, chi) = calc_path_chi(&path, &params, &k).unwrap();
+            let mut max_change = 0.0_f64;
+            let mut max_err = 0.0_f64;
+            for i in 1..k.len() {
+                if k[i] < 3.0 {
+                    continue;
+                }
+                let expected = larch_cchi(
+                    path.feff.reff,
+                    params.degen,
+                    params.s02,
+                    params.e0,
+                    params.ei,
+                    params.deltar,
+                    params.sigma2,
+                    params.third,
+                    params.fourth,
+                    k[i],
+                    path.feff.pha[i],
+                    path.feff.amp[i],
+                    path.feff.rep[i],
+                    path.feff.lam[i],
+                )
+                .im;
+                max_err = max_err.max((chi[i] - expected).abs());
+                max_change = max_change.max((chi[i] - chi_base[i]).abs());
+            }
+            assert!(
+                max_err < 1.0e-6,
+                "{label}: max deviation from Larch formula {max_err}"
+            );
+            assert!(
+                max_change > 1.0e-3,
+                "{label}: parameter had no effect on chi(k)"
+            );
+        }
+    }
+}

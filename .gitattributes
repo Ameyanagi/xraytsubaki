@@ -1,0 +1,4 @@
+# Scientific inputs and compatibility snapshots must retain identical bytes on
+# every platform, including original line endings and trailing blank lines.
+crates/rexafs/tests/testfiles/** -text -whitespace
+crates/rexafs-gui/tests/fixtures/** -text -whitespace

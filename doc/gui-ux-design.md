@@ -1,4 +1,6 @@
-# xraytsubaki GUI — UX / UI Design
+# rexafs GUI — UX / UI Design
+
+Historical design record. For the current interface, start at the [documentation index](README.md).
 
 Status: agreed 2026-06-10. This document is the reference for all GUI milestones;
 the implementation plan (milestones M0–M6) builds toward this design.

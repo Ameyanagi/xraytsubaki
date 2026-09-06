@@ -1,8 +1,0 @@
-[project]
-name = "xraytsubaki-larch-fixtures"
-version = "0.1.0"
-requires-python = ">=3.11"
-dependencies = [
-    "numpy>=2.4.2",
-    "xraylarch>=2026.1.1",
-]

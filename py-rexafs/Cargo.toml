@@ -1,0 +1,21 @@
+[package]
+rust-version.workspace = true
+name = "py-rexafs"
+description = "Python bindings for rexafs X-ray absorption analysis"
+homepage.workspace = true
+repository.workspace = true
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+numpy = "0.29"
+pyo3 = { version = "0.29", features = ["extension-module"] }
+ndarray = { workspace = true }
+rexafs = { workspace = true }

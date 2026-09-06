@@ -29,6 +29,10 @@ impl StudioApp {
             .flex()
             .flex_col()
             .child(self.plot_bar(cx));
+        if let Some(weight) = self.mixed_overlay_weight {
+            column = column.child(div().px_3().py_1().text_size(px(11.5)).text_color(t.warn)
+                .child(format!("Mixed FT weights: χ(k) uses k^{weight} for all curves. R/q curves retain each group's weight (shown in the legend).")));
+        }
         if !ready {
             return column.child(
                 div()
@@ -98,7 +102,11 @@ impl StudioApp {
         let v = self.stage_view;
         let kw = self.fft_summary().3;
         let chik: SharedString = crate::plotting::chik_label(kw).into();
-        let chir: SharedString = crate::plotting::chir_label(kw).into();
+        let chir: SharedString = if self.mixed_overlay_weight.is_some() {
+            "|χ(R)| · mixed k weights".into()
+        } else {
+            crate::plotting::chir_label(kw).into()
+        };
         if let Some(i) = v.thumbnail_focus {
             return vec![match i {
                 0 => (PLOT_NORM, "normalized μ(E)".into()),

@@ -27,6 +27,19 @@ pub struct QuadTrace {
     pub active: bool,
 }
 
+pub(crate) fn mixed_kweights(traces: &[QuadTrace]) -> bool {
+    let first = traces.first().and_then(|t| t.sp.kweight()).copied();
+    traces.iter().any(|t| t.sp.kweight().copied() != first)
+}
+
+pub(crate) fn ft_trace_label(trace: &QuadTrace) -> String {
+    format!(
+        "FT kw={} · {}",
+        trace.sp.kweight().copied().unwrap_or(2.0),
+        trace.label
+    )
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum TraceLayout {
     Overlay,
@@ -507,6 +520,24 @@ pub fn build_quadrant_specs(
         .or_else(|| traces.first())
         .and_then(|t| t.sp.kweight().copied())
         .unwrap_or(2.0);
+    let mixed_weights = mixed_kweights(traces);
+    let weighted_traces: Vec<QuadTrace> = if mixed_weights {
+        traces
+            .iter()
+            .map(|trace| QuadTrace {
+                label: ft_trace_label(trace),
+                sp: trace.sp.clone(),
+                active: trace.active,
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let ft_traces = if mixed_weights {
+        &weighted_traces
+    } else {
+        traces
+    };
 
     let (mut mu_e, mu_shift) = build_multi(
         traces,
@@ -545,12 +576,16 @@ pub fn build_quadrant_specs(
         in_plot_legend,
         (&chik_label, K_AXIS, &chik_label),
         |sp| {
-            Some((
-                sp.k()
-                    .map(nalgebra::DVector::from_column_slice)
-                    .map(|v| vecs(&v))?,
-                sp.chi_kweighted().map(|v| vecs(&v))?,
-            ))
+            // One display weight makes the common axis true for every curve.
+            // Each spectrum retains its own processing and Fourier transform.
+            let k = sp.k()?;
+            let chi = sp.chi()?;
+            (k.len() == chi.len()).then(|| {
+                (
+                    k.to_vec(),
+                    k.iter().zip(chi).map(|(k, chi)| chi * k.powf(kw)).collect(),
+                )
+            })
         },
     );
     let chir_title = match (view.show_re, view.show_im) {
@@ -560,11 +595,19 @@ pub fn build_quadrant_specs(
         _ => "|χ(R)|",
     };
     let (mut chi_r, chir_shift) = build_multi(
-        traces,
+        ft_traces,
         view,
         theme,
         in_plot_legend,
-        (chir_title, R_AXIS, &chir_label(kw)),
+        (
+            chir_title,
+            R_AXIS,
+            &if mixed_weights {
+                "|χ(R)| (mixed k weights)".into()
+            } else {
+                chir_label(kw)
+            },
+        ),
         |sp| {
             let r = sp.r().map(|v| vecs(&v))?;
             let m = sp.chir_mag().map(|v| vecs(&v))?;
@@ -659,11 +702,19 @@ pub fn build_quadrant_specs(
         }
     }
     let (mut chi_q, chiq_shift) = build_multi(
-        traces,
+        ft_traces,
         view,
         theme,
         in_plot_legend,
-        ("χ(q)", "q (Å⁻¹)", "χ(q)"),
+        (
+            "χ(q)",
+            "q (Å⁻¹)",
+            if mixed_weights {
+                "χ(q) (mixed k weights)"
+            } else {
+                "χ(q)"
+            },
+        ),
         |sp| {
             let q = sp.q().map(|v| vecs(&v))?;
             let c = sp.chiq().map(|v| vecs(&v))?;
@@ -1132,6 +1183,82 @@ pub fn build_trend(values: &[f64], frames: &[f64], ylabel: &str, theme: &Theme) 
 #[cfg(test)]
 mod tests {
     use super::{chik_label, chir_label, heatmap_y_extent, middle_truncate};
+
+    #[test]
+    fn mixed_weight_overlays_share_the_k_axis_and_identify_fourier_weights() {
+        use super::*;
+        use crate::params::{PipelineParams, process_file};
+        use std::{path::Path, sync::Arc};
+        let file =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/projects/data/cu_150k.xmu");
+        let spectra: Vec<_> = [1.0, 3.0]
+            .into_iter()
+            .map(|weight| {
+                Arc::new(
+                    process_file(
+                        &file,
+                        &PipelineParams {
+                            fft_kweight: Some(weight),
+                            ..Default::default()
+                        },
+                    )
+                    .unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(spectra[0].chi(), spectra[1].chi());
+        let original_r: Vec<_> = spectra.iter().map(|sp| sp.chir_mag().unwrap()).collect();
+        for active in 0..2 {
+            let weight = [1.0, 3.0][active];
+            let traces: Vec<_> = spectra
+                .iter()
+                .enumerate()
+                .map(|(i, sp)| QuadTrace {
+                    label: format!("same spectrum {i}"),
+                    sp: sp.clone(),
+                    active: i == active,
+                })
+                .collect();
+            let specs =
+                build_quadrant_specs(&traces, &ViewOptions::default(), &Theme::dark(), true);
+            assert_eq!(specs[2].ylabel, chik_label(weight));
+            for index in 0..2 {
+                let plotted = specs[2]
+                    .series
+                    .iter()
+                    .find(|s| s.key == SeriesKey::Trace(index))
+                    .unwrap();
+                let expected: Vec<_> = spectra[index]
+                    .k()
+                    .unwrap()
+                    .iter()
+                    .zip(spectra[index].chi().unwrap())
+                    .map(|(k, chi)| chi * k.powf(weight))
+                    .collect();
+                assert_eq!(plotted.y, expected);
+                let fourier = specs[3]
+                    .series
+                    .iter()
+                    .find(|s| s.key == SeriesKey::Trace(index))
+                    .unwrap();
+                assert_eq!(
+                    fourier.y,
+                    original_r[index].iter().copied().collect::<Vec<_>>()
+                );
+                assert!(
+                    fourier
+                        .label
+                        .as_ref()
+                        .unwrap()
+                        .starts_with(&format!("FT kw={}", [1, 3][index]))
+                );
+            }
+            assert!(specs[3].ylabel.contains("mixed k weights"));
+            assert!(specs[4].ylabel.contains("mixed k weights"));
+            assert_eq!(spectra[0].kweight(), Some(&1.0));
+            assert_eq!(spectra[1].kweight(), Some(&3.0));
+        }
+    }
 
     #[test]
     fn middle_truncate_passes_short_names_through() {

@@ -2,6 +2,8 @@
 
 ## 0.1.2
 
+- Use a common χ(k) display weight for comparison overlays and explicitly label
+  mixed Fourier weights. Isolate palette input from the underlying plots.
 - Expose background k-origin E0, embedded χ standards, advanced solver settings,
   and inverse-transform q range, grid, R weight and independent right taper.
 - Correct inverse FFT frequency-bin windowing, full high-R filtering, R weighting,

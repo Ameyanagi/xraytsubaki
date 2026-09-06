@@ -1,0 +1,37 @@
+[
+  {
+    "file": "01-baseline.png",
+    "note": "Identical Cu spectra are configured with Fourier weights 1 and 3, using an isolated copied project.",
+    "state": "Window: \"rexafs\", App: rexafs overlay audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs overlay audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "02-mixed-weights-common-k.png",
+    "note": "Both Cu groups are marked. The k-space overlay uses the active k weight; Fourier plots retain the independently processed weights and state that explicitly.",
+    "state": "Window: \"rexafs\", App: rexafs overlay audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs overlay audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "03-palette-before-scroll.png",
+    "note": "Open the palette over a mixed-weight comparison before sending scroll and stage shortcuts.",
+    "state": "Window: \"rexafs\", App: rexafs overlay audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs overlay audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "04-palette-isolates-input.png",
+    "note": "Scrolling over the exposed R plot and Cmd+5 do not zoom the plot or change the Transform stage while the palette is open.",
+    "state": "Window: \"rexafs\", App: rexafs overlay audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs overlay audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "05-palette-focus-restored.png",
+    "note": "Escape closes the palette; Cmd+3 then switches to Background, demonstrating restored keyboard focus.",
+    "state": "Window: \"rexafs\", App: rexafs overlay audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs overlay audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "06-palette-opens-updates.png",
+    "note": "Executing the Updates command from the palette focuses the update dialog correctly.",
+    "state": "Window: \"rexafs\", App: rexafs overlay audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs overlay audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "07-active-weight-three.png",
+    "note": "Switching the active group to FT weight 3 changes every chi(k) display curve to k cubed; the identical spectra still coincide and the Fourier curves retain their different results.",
+    "state": "Window: \"rexafs\", App: rexafs overlay audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs overlay audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  }
+]

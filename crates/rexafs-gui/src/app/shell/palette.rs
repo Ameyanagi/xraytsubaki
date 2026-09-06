@@ -219,6 +219,18 @@ impl StudioApp {
 
     pub(crate) fn close_palette(&mut self, cx: &mut Context<Self>) {
         self.palette = None;
+        let focus = self.root_focus.clone();
+        let handle = self.main_window;
+        let view = cx.weak_entity();
+        cx.defer(move |cx| {
+            let _ = handle.update(cx, |_, window, cx| {
+                let _ = view.update(cx, |app, cx| {
+                    if app.palette.is_none() && !app.updates.open {
+                        focus.focus(window, cx);
+                    }
+                });
+            });
+        });
         cx.notify();
     }
 
@@ -231,7 +243,7 @@ impl StudioApp {
             return;
         };
         let cmd = item.cmd.clone();
-        self.palette = None;
+        self.close_palette(cx);
         self.run_palette_cmd(cmd, cx);
     }
 
@@ -311,7 +323,7 @@ impl StudioApp {
                     })
                     .hover(|d| d.bg(t.raised))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
-                        this.palette = None;
+                        this.close_palette(cx);
                         this.run_palette_cmd(cmd.clone(), cx);
                     }))
                     .child(
@@ -344,6 +356,7 @@ impl StudioApp {
         Some(
             div()
                 .id("palette-overlay")
+                .occlude()
                 .key_context("Palette")
                 .on_action(cx.listener(|this: &mut Self, _: &PaletteClose, _w, cx| {
                     this.close_palette(cx);

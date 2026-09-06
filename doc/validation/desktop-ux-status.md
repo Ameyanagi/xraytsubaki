@@ -1,12 +1,14 @@
 # Desktop UX audit status
 
-The September 2026 audit retains 123 screenshots, including intermediate defects
+The September 2026 audit retains 130 screenshots, including intermediate defects
 and their corrected states. Each gallery has captions and recorded observations:
 
 - [Selection, processing ranges and Publish — 55 captures](2026-09-07-ux-audit/index.html)
 - [Multi-file and multi-channel import — 30 captures](2026-09-07-multichannel-audit/index.html)
 - [Advanced processing controls — 22 captures](2026-09-07-advanced-processing-audit/index.html)
 - [Stable/Nightly updates — 16 captures](2026-09-07-update-audit/index.html)
+
+- [Mixed-weight overlays and palette isolation — 7 captures](2026-09-07-audit-followup/index.html)
 
 ## Addressed for 0.1.2
 
@@ -19,6 +21,7 @@ and their corrected states. Each gallery has captions and recorded observations:
 - Enforce each spectrum's Rbkg as the lower bound of its fitting R range.
 - Expose background standards, solver controls and inverse-transform parameters.
 - Export flattened spectra, full-resolution CSV data and separate channel figures.
+- Correct mixed-weight comparison labels and isolate palette scroll/keyboard input.
 - Add Stable/Nightly checks, verified downloads and signed nightly builds.
 
 ## Remaining polish

@@ -934,6 +934,7 @@ pub struct StudioApp {
     /// Shared Explore legend strip entries (truncated label, stable color),
     /// rebuilt with the quadrant plots; empty for a single trace.
     legend_entries: Vec<(SharedString, gpui::Rgba)>,
+    mixed_overlay_weight: Option<f64>,
     maximized: Option<usize>,
     data_tab: DataTab,
     file_scroll: UniformListScrollHandle,
@@ -1739,6 +1740,7 @@ impl StudioApp {
             quad_bindings: Vec::new(),
             explore_plots_dirty: false,
             legend_entries: Vec::new(),
+            mixed_overlay_weight: None,
             maximized: None,
             data_tab: DataTab::Files,
             file_scroll: UniformListScrollHandle::new(),
@@ -3841,6 +3843,7 @@ impl StudioApp {
     }
 
     fn rebuild_explore_plots(&mut self, cx: &mut Context<Self>) {
+        self.mixed_overlay_weight = None;
         // Stage-dependent view flags (also correct on a scripted first launch).
         self.view.flat = self.stage_view.e_quantity == shell::EQuantity::Flat;
         self.view.show_re = if self.stage == Stage::Fit {
@@ -3892,13 +3895,29 @@ impl StudioApp {
         }
         // The grid uses one shared legend strip; per-plot legends only when a
         // quadrant is maximized.
+        self.mixed_overlay_weight = crate::plotting::mixed_kweights(&traces).then(|| {
+            traces
+                .iter()
+                .find(|t| t.active)
+                .or_else(|| traces.first())
+                .and_then(|t| t.sp.kweight())
+                .copied()
+                .unwrap_or(2.0)
+        });
         self.legend_entries = if traces.len() > 1 {
             traces
                 .iter()
                 .enumerate()
                 .map(|(i, trace)| {
                     (
-                        SharedString::from(middle_truncate(&trace.label, 28)),
+                        SharedString::from(middle_truncate(
+                            &if self.mixed_overlay_weight.is_some() {
+                                crate::plotting::ft_trace_label(trace)
+                            } else {
+                                trace.label.clone()
+                            },
+                            36,
+                        )),
                         trace_rgba(&self.theme, i),
                     )
                 })
@@ -7959,6 +7978,8 @@ impl Render for StudioApp {
         self.viewport_w = f32::from(window.viewport_size().width);
         let key_context = if self.updates.open {
             "UpdateDialog"
+        } else if self.palette.is_some() {
+            "Palette"
         } else {
             match self.workspace {
                 Workspace::Explore => "Studio Explore",

@@ -6637,7 +6637,7 @@ checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
 name = "py-rexafs"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ndarray",
  "numpy",
@@ -7232,7 +7232,7 @@ dependencies = [
 
 [[package]]
 name = "rexafs"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "apex-solver",
  "approx",
@@ -7272,7 +7272,7 @@ dependencies = [
 
 [[package]]
 name = "rexafs-gui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -7298,7 +7298,7 @@ dependencies = [
 
 [[package]]
 name = "rexafs-wasm"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "js-sys",
  "rexafs",
@@ -7564,9 +7564,9 @@ dependencies = [
 
 [[package]]
 name = "ruviz"
-version = "0.13.0"
+version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b25006cbccff9dba8072d8b765fbca5ea2a0cece77610e78cdb18bef7be3cfb7"
+checksum = "193a3fd110d4a35f3d45f8bada0ed11ffbf7f68c28b3e1d917a8d5407dfa5096"
 dependencies = [
  "base64 0.22.1",
  "bytemuck",
@@ -7600,9 +7600,9 @@ dependencies = [
 
 [[package]]
 name = "ruviz-gpui"
-version = "0.13.0"
+version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6902aaec9de025e1a786bfc92be08efbe2d4dcf3d480102a335d606acb0bb707"
+checksum = "467bec0d3c72c6f5c6bfa76e8205efbe3edb9941db2c52a3ed7ae70b1a00e50a"
 dependencies = [
  "arboard",
  "core-foundation 0.10.0",

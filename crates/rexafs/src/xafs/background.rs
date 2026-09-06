@@ -747,7 +747,7 @@ impl AUTOBK {
                 Some(self.window),
             )?);
 
-        let mut nspl = 1 + (2.0 * rbkg * (kmax - kmin) / std::f64::consts::PI).round() as i32;
+        let mut nspl = 1 + (2.0 * rbkg * (kmax - kmin) / std::f64::consts::PI).floor() as i32;
         let irbkg = (1.0 + (nspl - 1) as f64 * std::f64::consts::PI / (2.0 * rgrid * (kmax - kmin)))
             .round() as i32;
 
@@ -1686,6 +1686,43 @@ mod tests {
         let spl_k = DVector::from_vec(vec![2.0, 2.0, 2.0, 2.0, 2.0]);
         let err = AUTOBK::build_knot_domain(&spl_k, 3).unwrap_err();
         assert!(matches!(err, BackgroundError::SplineKnotsFailed { .. }));
+    }
+
+    #[test]
+    fn test_autobk_automatic_knots_change_at_integer_boundary() -> Result<(), Box<dyn Error>> {
+        let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
+        let mut spectrum = io::load_spectrum_QAS_trans(&path)?;
+        spectrum
+            .set_normalization_method(Some(normalization::NormalizationMethod::PrePostEdge(
+                PrePostEdge::new(),
+            )))?
+            .normalize()?;
+        let energy = spectrum.energy.as_ref().unwrap();
+        let mu = spectrum.mu.as_ref().unwrap();
+
+        // At rbkg=1, the ninth spline parameter is allowed only after
+        // kmax crosses 4*pi. Compare actual fits to explicit knot counts,
+        // including the common kmax=12 case that rounding handled differently.
+        for (kmax, expected_knots) in [(12.0, 8), (12.565, 8), (12.568, 9)] {
+            let mut automatic = AUTOBK::new();
+            automatic.rbkg = Some(1.0);
+            automatic.kmin = Some(0.0);
+            automatic.kmax = Some(kmax);
+            automatic.nclamp = Some(0);
+            automatic.linear_fallback_to_lm = Some(false);
+            let mut explicit = automatic.clone();
+            explicit.nknots = Some(expected_knots);
+
+            automatic.calc_background(energy, mu, &mut spectrum.normalization.clone())?;
+            explicit.calc_background(energy, mu, &mut spectrum.normalization.clone())?;
+            let actual = automatic.get_chi().unwrap();
+            let expected = explicit.get_chi().unwrap();
+            assert_eq!(actual.len(), expected.len());
+            for (actual, expected) in actual.iter().zip(expected.iter()) {
+                assert_abs_diff_eq!(actual, expected, epsilon = 1.0e-12);
+            }
+        }
+        Ok(())
     }
 
     #[test]

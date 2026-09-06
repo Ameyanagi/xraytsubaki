@@ -1,0 +1,290 @@
+[
+  {
+    "case": "test-single-polynomial-a1-noise0-k10-r0",
+    "method": "fixed_0",
+    "total_rmse": 0.0012004672253216066,
+    "interpolation_rmse": 6.788207354717375e-08,
+    "signal_removed_rmse": 0.0011994843799457402,
+    "background_leakage_rmse": 1.9907077059207063e-06
+  },
+  {
+    "case": "test-single-polynomial-a1-noise0-k10-r0",
+    "method": "fixed_0.001",
+    "total_rmse": 0.0012001300842966168,
+    "interpolation_rmse": 6.788207354717375e-08,
+    "signal_removed_rmse": 0.0011991476435781142,
+    "background_leakage_rmse": 1.990535845390736e-06
+  },
+  {
+    "case": "test-single-polynomial-a1-noise0-k10-r0",
+    "method": "fixed_1",
+    "total_rmse": 0.00188380845127775,
+    "interpolation_rmse": 6.788207354717375e-08,
+    "signal_removed_rmse": 0.0018826105549836006,
+    "background_leakage_rmse": 2.121099977650035e-06
+  },
+  {
+    "case": "test-single-polynomial-a1-noise0-k12-r0",
+    "method": "fixed_0",
+    "total_rmse": 0.000881029789074711,
+    "interpolation_rmse": 6.047151843231894e-08,
+    "signal_removed_rmse": 0.0008816799121670224,
+    "background_leakage_rmse": 2.050868739015411e-06
+  },
+  {
+    "case": "test-single-polynomial-a1-noise0-k12-r0",
+    "method": "fixed_0.001",
+    "total_rmse": 0.0008812298283535366,
+    "interpolation_rmse": 6.047151843231894e-08,
+    "signal_removed_rmse": 0.0008818795547126192,
+    "background_leakage_rmse": 2.0506303832840433e-06
+  },
+  {
+    "case": "test-single-polynomial-a1-noise0-k12-r0",
+    "method": "fixed_1",
+    "total_rmse": 0.0012514547579767239,
+    "interpolation_rmse": 6.047151843231894e-08,
+    "signal_removed_rmse": 0.0012522968283844394,
+    "background_leakage_rmse": 2.0647315649146813e-06
+  },
+  {
+    "case": "test-single-bump-a1-noise0-k10-r0",
+    "method": "fixed_0",
+    "total_rmse": 0.0017180391156197173,
+    "interpolation_rmse": 6.788207354717375e-08,
+    "signal_removed_rmse": 0.0011994843799457402,
+    "background_leakage_rmse": 0.0007800571658798325
+  },
+  {
+    "case": "test-single-bump-a1-noise0-k10-r0",
+    "method": "fixed_0.001",
+    "total_rmse": 0.0017176679190611108,
+    "interpolation_rmse": 6.788207354717375e-08,
+    "signal_removed_rmse": 0.0011991476435781142,
+    "background_leakage_rmse": 0.0007800241796181846
+  },
+  {
+    "case": "test-single-bump-a1-noise0-k10-r0",
+    "method": "fixed_1",
+    "total_rmse": 0.002441456940680982,
+    "interpolation_rmse": 6.788207354717375e-08,
+    "signal_removed_rmse": 0.0018826105549836006,
+    "background_leakage_rmse": 0.0008299146640969007
+  },
+  {
+    "case": "test-single-bump-a1-noise0-k12-r0",
+    "method": "fixed_0",
+    "total_rmse": 0.0010653773102929848,
+    "interpolation_rmse": 6.047151843231894e-08,
+    "signal_removed_rmse": 0.0008816799121670224,
+    "background_leakage_rmse": 0.0002906176663949048
+  },
+  {
+    "case": "test-single-bump-a1-noise0-k12-r0",
+    "method": "fixed_0.001",
+    "total_rmse": 0.0010656494601088882,
+    "interpolation_rmse": 6.047151843231894e-08,
+    "signal_removed_rmse": 0.0008818795547126192,
+    "background_leakage_rmse": 0.0002906233064855433
+  },
+  {
+    "case": "test-single-bump-a1-noise0-k12-r0",
+    "method": "fixed_1",
+    "total_rmse": 0.001448510743305413,
+    "interpolation_rmse": 6.047151843231894e-08,
+    "signal_removed_rmse": 0.0012522968283844394,
+    "background_leakage_rmse": 0.0002946552423523819
+  },
+  {
+    "case": "test-double-polynomial-a1-noise0-k10-r0",
+    "method": "fixed_0",
+    "total_rmse": 0.0028951512839144487,
+    "interpolation_rmse": 1.3136451670138916e-07,
+    "signal_removed_rmse": 0.0028942227660831103,
+    "background_leakage_rmse": 1.9907077059207063e-06
+  },
+  {
+    "case": "test-double-polynomial-a1-noise0-k10-r0",
+    "method": "fixed_0.001",
+    "total_rmse": 0.002893391505699111,
+    "interpolation_rmse": 1.3136451670138916e-07,
+    "signal_removed_rmse": 0.0028924634929907295,
+    "background_leakage_rmse": 1.990535845390736e-06
+  },
+  {
+    "case": "test-double-polynomial-a1-noise0-k10-r0",
+    "method": "fixed_1",
+    "total_rmse": 0.0026433814463631233,
+    "interpolation_rmse": 1.3136451670138916e-07,
+    "signal_removed_rmse": 0.0026422672871803227,
+    "background_leakage_rmse": 2.121099977650035e-06
+  },
+  {
+    "case": "test-double-polynomial-a1-noise0-k12-r0",
+    "method": "fixed_0",
+    "total_rmse": 0.0015586809825736262,
+    "interpolation_rmse": 1.1798853057158698e-07,
+    "signal_removed_rmse": 0.0015584040041904837,
+    "background_leakage_rmse": 2.050868739015411e-06
+  },
+  {
+    "case": "test-double-polynomial-a1-noise0-k12-r0",
+    "method": "fixed_0.001",
+    "total_rmse": 0.0015574240648030453,
+    "interpolation_rmse": 1.1798853057158698e-07,
+    "signal_removed_rmse": 0.001557148239915662,
+    "background_leakage_rmse": 2.0506303832840433e-06
+  },
+  {
+    "case": "test-double-polynomial-a1-noise0-k12-r0",
+    "method": "fixed_1",
+    "total_rmse": 0.0009778242903992313,
+    "interpolation_rmse": 1.1798853057158698e-07,
+    "signal_removed_rmse": 0.0009779267269072118,
+    "background_leakage_rmse": 2.0647315649146813e-06
+  },
+  {
+    "case": "test-double-bump-a1-noise0-k10-r0",
+    "method": "fixed_0",
+    "total_rmse": 0.0033112302517849987,
+    "interpolation_rmse": 1.3136451670138916e-07,
+    "signal_removed_rmse": 0.0028942227660831103,
+    "background_leakage_rmse": 0.0007800571658798325
+  },
+  {
+    "case": "test-double-bump-a1-noise0-k10-r0",
+    "method": "fixed_0.001",
+    "total_rmse": 0.003309393353269309,
+    "interpolation_rmse": 1.3136451670138916e-07,
+    "signal_removed_rmse": 0.0028924634929907295,
+    "background_leakage_rmse": 0.0007800241796181846
+  },
+  {
+    "case": "test-double-bump-a1-noise0-k10-r0",
+    "method": "fixed_1",
+    "total_rmse": 0.0031527637227432765,
+    "interpolation_rmse": 1.3136451670138916e-07,
+    "signal_removed_rmse": 0.0026422672871803227,
+    "background_leakage_rmse": 0.0008299146640969007
+  },
+  {
+    "case": "test-double-bump-a1-noise0-k12-r0",
+    "method": "fixed_0",
+    "total_rmse": 0.0017039474210762539,
+    "interpolation_rmse": 1.1798853057158698e-07,
+    "signal_removed_rmse": 0.0015584040041904837,
+    "background_leakage_rmse": 0.0002906176663949048
+  },
+  {
+    "case": "test-double-bump-a1-noise0-k12-r0",
+    "method": "fixed_0.001",
+    "total_rmse": 0.0017027164472440976,
+    "interpolation_rmse": 1.1798853057158698e-07,
+    "signal_removed_rmse": 0.001557148239915662,
+    "background_leakage_rmse": 0.0002906233064855433
+  },
+  {
+    "case": "test-double-bump-a1-noise0-k12-r0",
+    "method": "fixed_1",
+    "total_rmse": 0.0011022330061069563,
+    "interpolation_rmse": 1.1798853057158698e-07,
+    "signal_removed_rmse": 0.0009779267269072118,
+    "background_leakage_rmse": 0.0002946552423523819
+  },
+  {
+    "case": "test-feff-polynomial-a1-noise0-k10-r0",
+    "method": "fixed_0",
+    "total_rmse": 0.014773519995043614,
+    "interpolation_rmse": 1.6054464265409362e-06,
+    "signal_removed_rmse": 0.014773119479166895,
+    "background_leakage_rmse": 1.9907077059207063e-06
+  },
+  {
+    "case": "test-feff-polynomial-a1-noise0-k10-r0",
+    "method": "fixed_0.001",
+    "total_rmse": 0.014770020942579246,
+    "interpolation_rmse": 1.6054464265409362e-06,
+    "signal_removed_rmse": 0.014769618973192766,
+    "background_leakage_rmse": 1.990535845390736e-06
+  },
+  {
+    "case": "test-feff-polynomial-a1-noise0-k10-r0",
+    "method": "fixed_1",
+    "total_rmse": 0.012870870867911648,
+    "interpolation_rmse": 1.6054464265409362e-06,
+    "signal_removed_rmse": 0.012869711563001386,
+    "background_leakage_rmse": 2.121099977650035e-06
+  },
+  {
+    "case": "test-feff-polynomial-a1-noise0-k12-r0",
+    "method": "fixed_0",
+    "total_rmse": 0.01170485537975001,
+    "interpolation_rmse": 1.4375040202127427e-06,
+    "signal_removed_rmse": 0.011704916357772417,
+    "background_leakage_rmse": 2.050868739015411e-06
+  },
+  {
+    "case": "test-feff-polynomial-a1-noise0-k12-r0",
+    "method": "fixed_0.001",
+    "total_rmse": 0.01170435992814074,
+    "interpolation_rmse": 1.4375040202127427e-06,
+    "signal_removed_rmse": 0.011704421808416526,
+    "background_leakage_rmse": 2.0506303832840433e-06
+  },
+  {
+    "case": "test-feff-polynomial-a1-noise0-k12-r0",
+    "method": "fixed_1",
+    "total_rmse": 0.011370821084471919,
+    "interpolation_rmse": 1.4375040202127427e-06,
+    "signal_removed_rmse": 0.011371480539238034,
+    "background_leakage_rmse": 2.0647315649146813e-06
+  },
+  {
+    "case": "test-feff-bump-a1-noise0-k10-r0",
+    "method": "fixed_0",
+    "total_rmse": 0.014942972430648488,
+    "interpolation_rmse": 1.6054464265409362e-06,
+    "signal_removed_rmse": 0.014773119479166895,
+    "background_leakage_rmse": 0.0007800571658798325
+  },
+  {
+    "case": "test-feff-bump-a1-noise0-k10-r0",
+    "method": "fixed_0.001",
+    "total_rmse": 0.01493996864912655,
+    "interpolation_rmse": 1.6054464265409362e-06,
+    "signal_removed_rmse": 0.014769618973192766,
+    "background_leakage_rmse": 0.0007800241796181846
+  },
+  {
+    "case": "test-feff-bump-a1-noise0-k10-r0",
+    "method": "fixed_1",
+    "total_rmse": 0.013300102963084263,
+    "interpolation_rmse": 1.6054464265409362e-06,
+    "signal_removed_rmse": 0.012869711563001386,
+    "background_leakage_rmse": 0.0008299146640969007
+  },
+  {
+    "case": "test-feff-bump-a1-noise0-k12-r0",
+    "method": "fixed_0",
+    "total_rmse": 0.011867220511958808,
+    "interpolation_rmse": 1.4375040202127427e-06,
+    "signal_removed_rmse": 0.011704916357772417,
+    "background_leakage_rmse": 0.0002906176663949048
+  },
+  {
+    "case": "test-feff-bump-a1-noise0-k12-r0",
+    "method": "fixed_0.001",
+    "total_rmse": 0.011866738070910337,
+    "interpolation_rmse": 1.4375040202127427e-06,
+    "signal_removed_rmse": 0.011704421808416526,
+    "background_leakage_rmse": 0.0002906233064855433
+  },
+  {
+    "case": "test-feff-bump-a1-noise0-k12-r0",
+    "method": "fixed_1",
+    "total_rmse": 0.011541760362269537,
+    "interpolation_rmse": 1.4375040202127427e-06,
+    "signal_removed_rmse": 0.011371480539238034,
+    "background_leakage_rmse": 0.0002946552423523819
+  }
+]

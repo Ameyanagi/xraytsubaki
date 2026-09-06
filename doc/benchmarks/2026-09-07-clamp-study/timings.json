@@ -1,0 +1,272 @@
+{
+  "environment": {
+    "utc": "2026-09-06T15:17:14Z",
+    "python": "3.12.12 (main, Dec 17 2025, 21:07:08) [Clang 21.1.4 ]",
+    "platform": "macOS-26.5.1-arm64-arm-64bit",
+    "machine": "arm64",
+    "cpu": "Apple M4",
+    "physical_cores": "10",
+    "logical_cores": 10,
+    "memory_bytes": "34359738368",
+    "versions": {
+      "rexafs": "0.1.1",
+      "xraylarch": "2026.3.1",
+      "numpy": "2.5.2",
+      "scipy": "1.18.1",
+      "lmfit": "1.3.4",
+      "threadpoolctl": "3.6.0"
+    },
+    "threadpools": [
+      {
+        "user_api": "openmp",
+        "internal_api": "openmp",
+        "num_threads": 1,
+        "prefix": "libomp",
+        "filepath": "/private/tmp/rexafs-clamp-study-20260907/lib/python3.12/site-packages/sklearn/.dylibs/libomp.dylib",
+        "version": null
+      }
+    ],
+    "thread_environment": {
+      "OPENBLAS_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1",
+      "MKL_NUM_THREADS": "1",
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "NUMEXPR_NUM_THREADS": "1",
+      "RAYON_NUM_THREADS": "1"
+    },
+    "checkout_commit": "655a5ba703329167f0a0f2c3f18557c051bac991",
+    "rexafs_binary_sha256": "c609989896da3fe474b6d4287dba8df3270c78027f9a80032d3ad18319e8c612",
+    "larch_autobk_source_sha256": "b1677ab45e12a756d2c2601e6195f5fcb6c9c6937d46624a8a0dfc3b7c7aa4aa",
+    "script_sha256": "baad0b83df1f2766e7b51a569a22ea277fd6a105414e69a25dd1dd0f321b38bb"
+  },
+  "rounds": 7,
+  "fresh_fits_per_round": 20,
+  "scope": "Background only, shared E0/edge step; fixed_0 and fixed_0.001 include model preparation. fixed_prepared excludes preparation and is not an end-to-end comparison. rexafs normalization/setup and output copying occur outside its internal stage timer.",
+  "rows": [
+    {
+      "dataset": "cu",
+      "method": "larch_dynamic",
+      "samples_ms": [
+        2.8141332999999995,
+        3.12348335,
+        3.0315646499999995,
+        2.727429049999999,
+        2.69749175,
+        2.7068667,
+        3.08508955
+      ],
+      "median_ms": 2.8141332999999995,
+      "p95_ms": 3.11196521
+    },
+    {
+      "dataset": "cu",
+      "method": "fixed_0",
+      "samples_ms": [
+        1.0715957999999999,
+        1.14496885,
+        1.0620916999999999,
+        0.9960481000000001,
+        0.97293965,
+        1.0044625999999999,
+        0.9854271000000001
+      ],
+      "median_ms": 1.0044625999999999,
+      "p95_ms": 1.122956935
+    },
+    {
+      "dataset": "cu",
+      "method": "fixed_0.001",
+      "samples_ms": [
+        0.9935082999999997,
+        1.1320209,
+        1.0930563000000002,
+        0.99222295,
+        0.9760728999999998,
+        1.0009375999999999,
+        1.11346875
+      ],
+      "median_ms": 1.0009375999999999,
+      "p95_ms": 1.126455255
+    },
+    {
+      "dataset": "cu",
+      "method": "fixed_prepared",
+      "samples_ms": [
+        0.05337070000000001,
+        0.05306875,
+        0.0531041,
+        0.04680225,
+        0.0470166,
+        0.0477895,
+        0.0468917
+      ],
+      "median_ms": 0.0477895,
+      "p95_ms": 0.05329072000000001
+    },
+    {
+      "dataset": "cu",
+      "method": "rexafs_direct",
+      "samples_ms": [
+        0.0846875,
+        0.094675,
+        0.09284795,
+        0.08319375,
+        0.083675,
+        0.08490405000000001,
+        0.08299995000000002
+      ],
+      "median_ms": 0.0846875,
+      "p95_ms": 0.094126885
+    },
+    {
+      "dataset": "ni",
+      "method": "larch_dynamic",
+      "samples_ms": [
+        4.8069,
+        4.3897627,
+        4.0483563,
+        4.0350145,
+        4.242250199999999,
+        3.6044831999999998,
+        3.7644416000000005
+      ],
+      "median_ms": 4.0483563,
+      "p95_ms": 4.68175881
+    },
+    {
+      "dataset": "ni",
+      "method": "fixed_0",
+      "samples_ms": [
+        1.713898,
+        1.9336916000000002,
+        1.3870542000000001,
+        1.3562979999999998,
+        1.4022645500000002,
+        1.6596063,
+        1.35318125
+      ],
+      "median_ms": 1.4022645500000002,
+      "p95_ms": 1.86775352
+    },
+    {
+      "dataset": "ni",
+      "method": "fixed_0.001",
+      "samples_ms": [
+        1.5822208000000002,
+        1.7970624999999998,
+        1.38271895,
+        1.3803728499999999,
+        1.4474957000000002,
+        1.7767271,
+        1.4380146500000002
+      ],
+      "median_ms": 1.4474957000000002,
+      "p95_ms": 1.7909618799999998
+    },
+    {
+      "dataset": "ni",
+      "method": "fixed_prepared",
+      "samples_ms": [
+        0.08541660000000001,
+        0.0665229,
+        0.06745625000000001,
+        0.06685405,
+        0.06776475,
+        0.08524380000000001,
+        0.06691685000000001
+      ],
+      "median_ms": 0.06745625000000001,
+      "p95_ms": 0.08536476000000001
+    },
+    {
+      "dataset": "ni",
+      "method": "rexafs_direct",
+      "samples_ms": [
+        0.123277,
+        0.12672495,
+        0.15416875000000002,
+        0.11778119999999999,
+        0.11892285,
+        0.15320419999999998,
+        0.11859795000000002
+      ],
+      "median_ms": 0.123277,
+      "p95_ms": 0.153879385
+    },
+    {
+      "dataset": "ru",
+      "method": "larch_dynamic",
+      "samples_ms": [
+        3.0296209500000004,
+        3.3620334,
+        3.940802,
+        3.25501455,
+        3.4527499000000006,
+        3.830920799999999,
+        3.10412285
+      ],
+      "median_ms": 3.3620334,
+      "p95_ms": 3.90783764
+    },
+    {
+      "dataset": "ru",
+      "method": "fixed_0",
+      "samples_ms": [
+        1.4725563,
+        1.75169795,
+        2.77333955,
+        1.7024814,
+        1.8360751,
+        1.7878875,
+        1.4247540500000002
+      ],
+      "median_ms": 1.75169795,
+      "p95_ms": 2.4921602149999993
+    },
+    {
+      "dataset": "ru",
+      "method": "fixed_0.001",
+      "samples_ms": [
+        1.4378271500000002,
+        1.53838125,
+        2.3472272,
+        2.2470584500000004,
+        1.5295083999999999,
+        1.6644145,
+        1.42459385
+      ],
+      "median_ms": 1.53838125,
+      "p95_ms": 2.317176575
+    },
+    {
+      "dataset": "ru",
+      "method": "fixed_prepared",
+      "samples_ms": [
+        0.06326035,
+        0.05902915000000001,
+        0.11096455000000001,
+        0.14783124999999997,
+        0.07814170000000001,
+        0.06897930000000001,
+        0.058808250000000006
+      ],
+      "median_ms": 0.06897930000000001,
+      "p95_ms": 0.13677123999999996
+    },
+    {
+      "dataset": "ru",
+      "method": "rexafs_direct",
+      "samples_ms": [
+        0.14320635,
+        0.1259353,
+        0.13845415,
+        0.18450625,
+        0.14405004999999999,
+        0.1382249,
+        0.12131455
+      ],
+      "median_ms": 0.13845415,
+      "p95_ms": 0.17236938999999998
+    }
+  ]
+}

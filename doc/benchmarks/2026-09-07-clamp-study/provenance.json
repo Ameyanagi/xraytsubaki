@@ -1,0 +1,38 @@
+{
+  "wheel_filename": "rexafs-0.1.1-cp312-cp312-macosx_11_0_arm64.whl",
+  "wheel_sha256": "ecba6fe9cec9e68abca539832ed46d4281ad4f1cca76f7b4cd19df06bba951cf",
+  "installed_binary_matches_wheel": true,
+  "base_commit": "655a5ba703329167f0a0f2c3f18557c051bac991",
+  "source_patch": "candidate-source.patch.gz",
+  "source_sha256": {
+    "Cargo.toml": "b90ec82d707ce0b5f3ac4c0e61b426d0797b2f875604f9a64bae63f8851de725",
+    "Cargo.lock": "90544dfccba998ca73886ef2db5b763408bef3f0888992bbf32076b4810c0472",
+    "crates/rexafs/src/xafs/background.rs": "22d6f8ad1f96a2c23e94cf1ca82b2894d6203018a3c72b7725bf7a0d77eaf8bb",
+    "scripts/study-autobk-clamps.py": "1c115c68989be3f8b69367b0025083ecb83abfc93bcd8aaa8d894bd57d589aef",
+    "scripts/report-autobk-clamps.py": "9f6e4f3468bd419c73b9f952b7dc9f660dbf1895c27e5f29f55074186ab094e1",
+    "scripts/benchmark-larch.py": "baad0b83df1f2766e7b51a569a22ea277fd6a105414e69a25dd1dd0f321b38bb",
+    "scripts/profile-larch-benchmark.py": "1002153dae649354b1b1e98f8024ff64c0ee44840e2b8d4bc781b1288f93d7c9"
+  },
+  "build_command": "maturin build --release --locked --interpreter /tmp/rexafs-larch-bench-20260906/bin/python --out /tmp/rexafs-011-floor-wheels",
+  "environment_install": "Pinned 2026-09-06-larch/requirements.txt followed by local candidate wheel --no-deps",
+  "native_demangler": "rustfilt 0.2.1; names changed, sample counts unchanged",
+  "prototype": "Python/SciPy experiment only; no production clamp changes",
+  "post_measurement_changes": [
+    {
+      "path": "crates/rexafs/src/xafs/background.rs",
+      "description": "Removed four redundant borrows in the new cfg(test) regression test after measuring; production implementation unchanged. The retained candidate-source.patch and source_sha256 describe the actual measured build.",
+      "final_source_sha256": "1d818c0adcd23f53dee20889a31c16aa0f510b654b3289009cdb1fdf02ecee66"
+    },
+    {
+      "path": "scripts/report-autobk-clamps.py",
+      "description": "Use LF CSV line endings and support reading the lossless raw archive after timing; numerical and timing methods unchanged. Profile text received whitespace normalization only.",
+      "final_source_sha256": "95e95b4e2fd5d09ad2cf23232414336a270d0d5854f2d9808b4ec4e11ba6aaa4"
+    }
+  ],
+  "raw_archive": {
+    "file": "raw-cases.zip",
+    "members": 645,
+    "contents": "study.json plus 322 original JSON/NPZ pairs",
+    "verification": "Every member is byte-identical to its original checksummed record"
+  }
+}

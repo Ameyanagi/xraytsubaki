@@ -17,7 +17,7 @@ exclude = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98"
 authors = ["Ameyanagi <contact@ameyanagi.com>"]
@@ -61,15 +61,15 @@ flate2 = "1.1.10"
 pest = "2.9.1"
 pest_derive = "2.9.1"
 thiserror = "2.0.20"
-ruviz = { version = "0.13.0", default-features = false }
+ruviz = { version = "0.13.1", default-features = false }
 # GUI stack. `gpui = "0.2.2"` (latest on crates.io) is redirected by the
 # [patch.crates-io] below to the git-pinned gpui (zed rev 3060e417...) that
 # gpui_platform also resolves to, so the whole workspace shares exactly one gpui.
 gpui = "0.2.2"
-ruviz-gpui = { version = "0.13.0", features = ["gpu", "3d"] }
+ruviz-gpui = { version = "0.13.1", features = ["gpu", "3d"] }
 refeff = { version = "0.2.2", default-features = false, features = ["exafs"] }
 
-rexafs = { version = "0.1.0", path = "crates/rexafs" }
+rexafs = { version = "0.1.1", path = "crates/rexafs" }
 
 [patch.crates-io]
 gpui = { git = "https://github.com/zed-industries/zed", rev = "3060e4170ea5ef0e6886b9ac1853aaead9ddd59f" }

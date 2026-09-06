@@ -36,6 +36,7 @@ jobs:
           python-version: '3.12'
       - run: python scripts/check-release-version.py
       - run: python scripts/test-release-maintenance.py
+      - run: python scripts/test-benchmark-tools.py
       - name: Require retained compatibility fixtures for this release
         run: python scripts/check-compatibility-fixtures.py
       - run: cargo test --locked -p rexafs

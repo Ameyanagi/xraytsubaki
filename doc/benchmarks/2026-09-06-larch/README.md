@@ -26,6 +26,8 @@ shared E0; these are not two unrelated out-of-the-box configurations.
   from these arrays, not rounded values in a table.
 - [Controlled parity experiments](baseline-0.1.0/parity-diagnostics.json) and
   their `diagnostic--*.npz` arrays.
+- [Detailed clamping investigation](clamping-0.1.0/README.md): 78 controlled fits,
+  separate scale/update/endpoint effects, and χ(k) with clamps on and off.
 - [Python and native CPU profiles](profiles-0.1.0/): `.pstats`, cumulative call
   tables, native sample status, demangled native samples compressed with gzip,
   and native top-of-stack tables. Native collection succeeded for all nine runs.

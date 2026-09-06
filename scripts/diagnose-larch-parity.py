@@ -10,6 +10,8 @@ from pathlib import Path
 spec = importlib.util.spec_from_file_location(
     "benchmark", Path(__file__).with_name("benchmark-larch.py")
 )
+if spec is None or spec.loader is None:
+    raise RuntimeError("Cannot load the adjacent benchmark-larch.py harness")
 bench = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bench)
 

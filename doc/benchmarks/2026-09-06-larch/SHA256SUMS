@@ -240,6 +240,15 @@ e9ed9b20b15a0bf2d44dc301fdd09248f5d5ae1c304605214a92613bc33ae165  baseline-0.1.0
 5fd62c6b3d2ae8a537ba0a70de1def6ac4f6cb99d86420dbfcbb90abb4d2f7cb  baseline-0.1.0/ru--standard--shipped_default.npz
 6dcb10761dbf41d511d2043557b3e55bfd73953252fcd99e41ab0b3bf13da9fc  baseline-0.1.0/stage-timing.png
 8da2f3c7ef05c144d7d1bc625c45956c4c77a6056bc083b13c2c92d4117dcb74  baseline-0.1.0/stage-timing.svg
+9fb969082649c6f05996cf594c52d0fd74050576f915f0a0f5d27df7d776c2e3  clamping-0.1.0/README.md
+e2ecca8f84a48db206463436997dfd4f4ff5803fa42208757c50e55673996ecf  clamping-0.1.0/clamp-jacobian-diagnostic.rs
+f8e3d1dc925402c82e666c6a095e4f579d9fe5d3843e5aac60bd436dab403861  clamping-0.1.0/clamp-jacobian-result.txt
+d7a915342f06ac33c09234898b2a17f6742b31ba54acbe087c6dadff1259b8d2  clamping-0.1.0/clamping.json
+d4e431b7e5c419cee67c993fdc6ea0ab3da78ae77cee50c11b63cb22f86bb833  clamping-0.1.0/clamps-on-off.png
+0029de179a843c195c1fe3aa04da3fa3b592179e2fc2156c248f02b1246e1e50  clamping-0.1.0/clamps-on-off.svg
+6f28dfdf8ec8277bb80591d1a7c9d167e9a32897373633bb97316a11fedf474c  clamping-0.1.0/cu.npz
+6952cc0ef6ba388142ed2038f883bb1bdd15804f236f33d5ee7ca4e3ce65b1d2  clamping-0.1.0/ni.npz
+b0bd53b9fc6b2cb85008adc6ba7451f9a7e7b1d6e8f852c7cb0213611e3e9986  clamping-0.1.0/ru.npz
 3affd01105d654cd1e2242ec3e9e90b52fc1ea421a353ce094f4f705d0f17b52  profiles-0.1.0/cu--fine_fft--dogleg.json
 fd1df5b987ddf57fafd37ad4ef7f865e9bde4b71c1733bcab6c1256fb629fe40  profiles-0.1.0/cu--fine_fft--dogleg.native-sample.top.txt
 7e27222ead5dabb7f4a70869cbaeeb4f40db3793d39670e22dc1b115a5883795  profiles-0.1.0/cu--fine_fft--dogleg.native-sample.txt.gz

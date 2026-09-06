@@ -1,7 +1,7 @@
 # Releasing rexafs
 
-The repository is preparing its first coordinated 0.1.0 release. Nothing in this
-runbook means the packages, website or GitHub downloads have already been published.
+The first coordinated 0.1.0 release is being published. The status below records
+which channels have completed; the website and desktop downloads have separate gates.
 The [rebranding plan](rebranding-plan.md) defines scope; [dependency notes](dependencies.md)
 record the Rust 1.98.1 toolchain and compatibility constraints.
 
@@ -18,18 +18,26 @@ Checked 2026-09-06:
   be promoted by `publish.yml`.
 - [Main CI 34013687691](https://github.com/Ameyanagi/rexafs/actions/runs/34013687691)
   passed at merge commit `df7a2d698ba1e4d39848b6a452c05bc180423937`.
-- No GitHub release or version tag exists. The crates.io, PyPI and npm package
-  endpoints for `rexafs` returned HTTP 404 at this check.
+- PR #17 was merged at `ee365067ba97a762888caf65593af213dca5b7e4`, and `v0.1.0`
+  points to that commit. [Tagged build 34025866097](https://github.com/Ameyanagi/rexafs/actions/runs/34025866097)
+  passed all 29 jobs; main Rust CI passed all four jobs.
+- crates.io and npm now contain `rexafs 0.1.0`. PyPI accepted all 20 wheels;
+  the source upload was rejected because three root license files were omitted.
+  The source-repair procedure below completes that missing asset without changing
+  existing source files, uploaded wheels, or the release tag.
+- crates.io and npm trusted publishers were registered and verified in their
+  settings: `Ameyanagi/rexafs`, `publish.yml`, environment `release` (npm permits
+  direct `npm publish`). The first uploads used the bootstrap tokens; an OIDC
+  upload for these two registries has not yet been exercised.
 - The GitHub `release` environment is configured for tags matching `v*`.
   Its `CRATES_IO_TOKEN` and `NPM_TOKEN` secret names were verified through GitHub;
   their values were not read. The maintainer confirmed the PyPI pending publisher
   for `rexafs`, repository `Ameyanagi/rexafs`, workflow `publish.yml`, environment
   `release`. Registry authentication will be exercised by the first tagged upload.
 
-Next, review the final metadata and [draft release notes](release-notes-0.1.0.md),
-tag the reviewed commit, and dispatch a new release build for that tag. Use its
-successful run ID for the initial registry uploads and GitHub draft. Complete
-platform launch qualification before public promotion of the desktop downloads.
+Next, finish the missing Python source upload, macOS notarization and
+[draft release notes](release-notes-0.1.0.md). Complete platform launch
+qualification before public promotion of the desktop downloads.
 
 ## Local checks
 
@@ -106,11 +114,55 @@ a graphical session, GTK 3, fontconfig, xkbcommon and a Vulkan-capable driver. W
 uses its native MSVC/Windows SDK toolchain. Test the actual minimum OS before
 advertising compatibility beyond the runner image.
 
-The packages have no publisher code signature. Developer ID signing/notarization
-and Windows signing require the maintainer's credentials and an extension to the
-GitHub packaging job. Sign before the final archive and checksum are generated;
-then qualify the signed download on a clean machine. Preserve the
+The build matrix produces unsigned archives. `sign-macos.yml` signs the two macOS
+archives from an existing qualified build, without rebuilding their executables.
+It checks source-run identity, original checksums and bundle metadata before using
+the signing identity. It applies Developer ID signing with Hardened Runtime and a
+timestamp, requires an accepted Apple notarization submission, staples the app,
+then builds the final ZIP and checksum. A fresh extraction must pass codesign,
+stapler, Gatekeeper, `--version` and `--self-check` checks. Windows remains unsigned.
+Qualify the signed download on a clean machine. Preserve the
 [dependency notices](distribution-notices.md) for each distribution.
+
+The `macos-signing` environment permits only `main`. Its secrets are
+`MACOS_CERTIFICATE_P12_BASE64`, `MACOS_CERTIFICATE_PASSWORD`, `APPLE_ID` and
+`APPLE_APP_SPECIFIC_PASSWORD`; its variables are `APPLE_TEAM_ID` and
+`MACOS_SIGNING_IDENTITY`. The signing workflow uses a temporary keychain and
+deletes it in a `finally` block. Only signed archives and their checksums are
+uploaded. Credentials are never release artifacts. Setup follows
+[Apple's notarization workflow](https://developer.apple.com/documentation/security/customizing-the-notarization-workflow)
+and [GitHub's certificate guidance](https://docs.github.com/en/actions/how-tos/deploy/deploy-to-third-party-platforms/sign-xcode-applications).
+
+```bash
+gh workflow run sign-macos.yml --ref main -f release_tag=v0.1.0 -f build_run_id=34025866097
+```
+
+The signing run records its own run ID, signing-tools commit, original build
+commit/run ID, unsigned archive hash and Apple submission ID inside `build.json`.
+When preparing a GitHub draft, replace both original macOS ZIPs and their checksum
+files with the signing run's outputs and regenerate `SHA256SUMS`. Record both build
+and signing runs in the release notes. Do not promote the unsigned matrix ZIPs as
+the signed downloads.
+
+### Completing the rejected 0.1.0 Python source upload
+
+`repair-pypi-sdist.yml` runs only from `main`, validates the successful tagged source
+build, and restores the missing `License-File` entries from that exact Git commit.
+It checks that existing archive members are byte-identical, checks license paths,
+installs from the repaired sdist and runs the tagged Python API tests. Its publish
+job uploads only the previously missing sdist using a separate PyPI trusted
+publisher: `Ameyanagi/rexafs`, workflow `repair-pypi-sdist.yml`, environment
+`pypi-repair`. That environment permits only `main`.
+
+```bash
+gh workflow run repair-pypi-sdist.yml --ref main -f release_tag=v0.1.0 -f build_run_id=34025866097
+```
+
+Keep the repaired source artifact/checksum from this GitHub run for the draft
+release, and record its run ID alongside the original build. Future builds include
+all three root licenses through `tool.maturin.include` and explicitly verify the
+sdist's declared license paths before upload. This repair is limited to missing
+license files in a rejected asset; source code changes require a new version.
 
 ## GitHub is the release build authority
 

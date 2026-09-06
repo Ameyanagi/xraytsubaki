@@ -30,6 +30,9 @@ module-name = "rexafs._core"
 # The sdist retains the workspace manifest, so Cargo must be able to resolve
 # its local sum_tree patch even though Python does not depend on the desktop.
 include = [
+  { path = "LICENSE", format = "sdist" },
+  { path = "LICENSE-APACHE", format = "sdist" },
+  { path = "LICENSE-MIT", format = "sdist" },
   { path = "vendor/sum_tree/Cargo.toml", format = "sdist" },
   { path = "vendor/sum_tree/src/*.rs", format = "sdist" },
   { path = "vendor/sum_tree/LICENSE-APACHE", format = "sdist" },

@@ -27,17 +27,20 @@ Rust fitting and structure APIs are not all available through those bindings.
 
 ## Distribution status before publication
 
-These notes are a draft. No release assets or registry packages have been
-published. Promote only the artifacts from a successful manual GitHub build of
-the final `v0.1.0` commit, and update this section with its run link and the
-channels actually published.
+These notes are a draft. `rexafs 0.1.0` is available on crates.io and npm, and all
+20 Python wheels are available on PyPI. The PyPI source upload needs its omitted
+root license files restored before it can be accepted. The source and binaries
+come from [tagged build 34025866097](https://github.com/Ameyanagi/rexafs/actions/runs/34025866097),
+which passed all 29 jobs at `ee365067ba97a762888caf65593af213dca5b7e4`.
 
 The preceding pull-request matrix passed Rust package checks, CPython 3.10–3.14
 wheel tests on Linux, Apple Silicon macOS, Intel macOS and Windows, Python sdist
 installation, npm/TypeScript/Chromium checks and four desktop archive self-checks.
 That run is validation evidence, not the source of final release uploads.
 
-Desktop archives are unsigned. Interactive launch qualification on Intel macOS,
+The original desktop archives are unsigned; a separate GitHub workflow signs and
+notarizes the macOS binaries from that build. Record its successful run before
+promoting those downloads. Interactive launch qualification on Intel macOS,
 Linux and Windows remains pending; automated archive self-checks do not verify GPU
 rendering. Record the final downloads' launch, import, processing, project reopen
 and ReFEFF results before advertising those targets as supported.

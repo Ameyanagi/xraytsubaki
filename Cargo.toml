@@ -17,7 +17,7 @@ exclude = [
 ]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.98"
 authors = ["Ameyanagi <contact@ameyanagi.com>"]
@@ -69,7 +69,7 @@ gpui = "0.2.2"
 ruviz-gpui = { version = "0.13.1", features = ["gpu", "3d"] }
 refeff = { version = "0.2.2", default-features = false, features = ["exafs"] }
 
-rexafs = { version = "0.1.1", path = "crates/rexafs" }
+rexafs = { version = "0.1.2", path = "crates/rexafs" }
 
 [patch.crates-io]
 gpui = { git = "https://github.com/zed-industries/zed", rev = "3060e4170ea5ef0e6886b9ac1853aaead9ddd59f" }

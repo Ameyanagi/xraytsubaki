@@ -6637,7 +6637,7 @@ checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
 name = "py-rexafs"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ndarray",
  "numpy",
@@ -7232,7 +7232,7 @@ dependencies = [
 
 [[package]]
 name = "rexafs"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "apex-solver",
  "approx",
@@ -7272,7 +7272,7 @@ dependencies = [
 
 [[package]]
 name = "rexafs-gui"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -7288,17 +7288,19 @@ dependencies = [
  "rexafs",
  "ruviz",
  "ruviz-gpui",
+ "semver",
  "serde",
  "serde_json",
  "sha2 0.11.0",
  "unicode-segmentation",
+ "ureq 3.4.0",
  "walkdir",
  "xraydb",
 ]
 
 [[package]]
 name = "rexafs-wasm"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "js-sys",
  "rexafs",

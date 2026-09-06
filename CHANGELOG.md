@@ -1,6 +1,18 @@
 # Changelog
 
-## Unreleased
+## 0.1.2
+
+- Use a common χ(k) display weight for comparison overlays and explicitly label
+  mixed Fourier weights. Isolate palette input from the underlying plots.
+- Expose background k-origin E0, embedded χ standards, advanced solver settings,
+  and inverse-transform q range, grid, R weight and independent right taper.
+- Correct inverse FFT frequency-bin windowing, full high-R filtering, R weighting,
+  resizing and exact q-grid generation in both array backends.
+- Add Stable/Nightly release discovery, checksum-verified Mac downloads and machine
+  update preferences. Build signed/notarized Nightly apps daily with a separate
+  application identity and immutable GitHub prereleases.
+- Retain linked and embedded 0.1.2 project samples with new processing controls
+  and independent reference-channel identities.
 
 - Import multiple files and folders by appending to the current session; retain
   per-file settings, detect named reference channels, and deduplicate repeated imports.

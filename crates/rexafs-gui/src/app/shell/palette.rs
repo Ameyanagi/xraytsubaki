@@ -25,6 +25,7 @@ pub enum PaletteCmd {
     OpenProject,
     OpenFolder,
     Theme,
+    Updates,
     Undo,
     Redo,
     Journal,
@@ -82,7 +83,7 @@ impl StudioApp {
                 cmd: PaletteCmd::Stage(stage),
             });
         }
-        let simple: [(&str, &'static str, &'static str, PaletteCmd); 12] = [
+        let simple: [(&str, &'static str, &'static str, PaletteCmd); 13] = [
             ("Mark all groups", "groups", "", PaletteCmd::MarkAll),
             ("Unmark all groups", "groups", "", PaletteCmd::MarkNone),
             (
@@ -108,6 +109,12 @@ impl StudioApp {
             ("Open project…", "file", "", PaletteCmd::OpenProject),
             ("Import…", "file", "", PaletteCmd::OpenFolder),
             ("Toggle theme", "view", "", PaletteCmd::Theme),
+            (
+                "Check for updates · Stable / Nightly",
+                "app",
+                "",
+                PaletteCmd::Updates,
+            ),
             ("Undo", "edit", "⌘Z", PaletteCmd::Undo),
             ("Redo", "edit", "⇧⌘Z", PaletteCmd::Redo),
         ];
@@ -212,6 +219,18 @@ impl StudioApp {
 
     pub(crate) fn close_palette(&mut self, cx: &mut Context<Self>) {
         self.palette = None;
+        let focus = self.root_focus.clone();
+        let handle = self.main_window;
+        let view = cx.weak_entity();
+        cx.defer(move |cx| {
+            let _ = handle.update(cx, |_, window, cx| {
+                let _ = view.update(cx, |app, cx| {
+                    if app.palette.is_none() && !app.updates.open {
+                        focus.focus(window, cx);
+                    }
+                });
+            });
+        });
         cx.notify();
     }
 
@@ -224,7 +243,7 @@ impl StudioApp {
             return;
         };
         let cmd = item.cmd.clone();
-        self.palette = None;
+        self.close_palette(cx);
         self.run_palette_cmd(cmd, cx);
     }
 
@@ -245,6 +264,7 @@ impl StudioApp {
             PaletteCmd::OpenProject => self.open_project(cx),
             PaletteCmd::OpenFolder => self.open_folder(cx),
             PaletteCmd::Theme => self.toggle_theme(cx),
+            PaletteCmd::Updates => self.open_updates(cx),
             PaletteCmd::Undo => self.undo(cx),
             PaletteCmd::Redo => self.redo(cx),
             PaletteCmd::Journal => {
@@ -303,7 +323,7 @@ impl StudioApp {
                     })
                     .hover(|d| d.bg(t.raised))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
-                        this.palette = None;
+                        this.close_palette(cx);
                         this.run_palette_cmd(cmd.clone(), cx);
                     }))
                     .child(
@@ -336,6 +356,7 @@ impl StudioApp {
         Some(
             div()
                 .id("palette-overlay")
+                .occlude()
                 .key_context("Palette")
                 .on_action(cx.listener(|this: &mut Self, _: &PaletteClose, _w, cx| {
                     this.close_palette(cx);

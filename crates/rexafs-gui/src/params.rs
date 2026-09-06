@@ -532,6 +532,62 @@ pub fn load_mu(
     Ok((energy, mu))
 }
 
+/// Unweighted standard χ(k), embedded in the project for reproducibility.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChiStandard {
+    pub label: String,
+    pub k: Vec<f64>,
+    pub chi: Vec<f64>,
+}
+impl ChiStandard {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.k.len() < 2
+            || self.k.len() != self.chi.len()
+            || self.k.iter().any(|k| !k.is_finite() || *k < 0.)
+            || self.chi.iter().any(|v| !v.is_finite())
+            || self.k.windows(2).any(|k| k[0] >= k[1])
+        {
+            return Err("Standard χ(k) needs matching finite arrays and a strictly increasing, nonnegative k grid.".into());
+        }
+        Ok(())
+    }
+    pub fn load(path: &std::path::Path) -> Result<Self, String> {
+        let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+        let mut rows = Vec::new();
+        for (line_number, line) in text.lines().enumerate() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with(['#', '*']) {
+                continue;
+            }
+            let values = line
+                .split(|c: char| c.is_whitespace() || c == ',')
+                .filter(|s| !s.is_empty())
+                .map(str::parse::<f64>)
+                .collect::<Result<Vec<_>, _>>();
+            match values {
+                Ok(row) if row.len() == 2 => rows.push(row),
+                _ => {
+                    return Err(format!(
+                        "Line {}: expected exactly two numeric columns, k (Å⁻¹) and unweighted χ(k). Use # for header comments.",
+                        line_number + 1
+                    ));
+                }
+            }
+        }
+        let standard = Self {
+            label: path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned(),
+            k: rows.iter().map(|r| r[0]).collect(),
+            chi: rows.iter().map(|r| r[1]).collect(),
+        };
+        standard.validate()?;
+        Ok(standard)
+    }
+}
+
 #[derive(Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PipelineParams {
@@ -573,6 +629,14 @@ pub struct PipelineParams {
     pub bkg_dk: Option<f64>,
     pub bkg_solver: Option<AUTOBKSolver>,
     pub bkg_nfft: Option<i32>,
+    pub bkg_ek0: Option<f64>,
+    pub bkg_linear_regularization: Option<f64>,
+    pub bkg_linear_condition_limit: Option<f64>,
+    pub bkg_linear_residual_ratio_limit: Option<f64>,
+    pub bkg_linear_fallback_to_lm: Option<bool>,
+    pub bkg_linear_workspace_cache: Option<bool>,
+    pub bkg_linear_fallback_solver: Option<AUTOBKSolver>,
+    pub bkg_standard: Option<ChiStandard>,
     // Forward FFT.
     pub fft_kmin: Option<f64>,
     pub fft_kmax: Option<f64>,
@@ -589,6 +653,11 @@ pub struct PipelineParams {
     pub bft_rmax: Option<f64>,
     pub bft_dr: Option<f64>,
     pub bft_window: Option<FTWindow>,
+    pub bft_qmax: Option<f64>,
+    pub bft_dr2: Option<f64>,
+    pub bft_rweight: Option<f64>,
+    pub bft_kstep: Option<f64>,
+    pub bft_nfft: Option<i32>,
 }
 
 /// Human label for a window choice (`None` = the core default).
@@ -681,6 +750,14 @@ impl PipelineParams {
             self.bft_rmin,
             self.bft_rmax,
             self.bft_dr,
+            self.bkg_ek0,
+            self.bkg_linear_regularization,
+            self.bkg_linear_condition_limit,
+            self.bkg_linear_residual_ratio_limit,
+            self.bft_qmax,
+            self.bft_dr2,
+            self.bft_rweight,
+            self.bft_kstep,
         ] {
             v.map(f64::to_bits).hash(&mut hasher);
         }
@@ -694,6 +771,7 @@ impl PipelineParams {
             self.bkg_nclamp,
             self.bkg_nfft,
             self.fft_nfft,
+            self.bft_nfft,
         ] {
             v.hash(&mut hasher);
         }
@@ -703,6 +781,16 @@ impl PipelineParams {
         )
         .hash(&mut hasher);
         format!("{:?}", self.bkg_clamp_policy).hash(&mut hasher);
+        self.bkg_linear_fallback_to_lm.hash(&mut hasher);
+        self.bkg_linear_workspace_cache.hash(&mut hasher);
+        format!("{:?}", self.bkg_linear_fallback_solver).hash(&mut hasher);
+        self.bkg_standard.is_some().hash(&mut hasher);
+        if let Some(standard) = &self.bkg_standard {
+            standard.k.len().hash(&mut hasher);
+            for value in standard.k.iter().chain(&standard.chi) {
+                value.to_bits().hash(&mut hasher);
+            }
+        }
         hasher.finish()
     }
 }
@@ -904,6 +992,24 @@ pub fn process_arrays(
     sp.normalize().map_err(|e| e.to_string())?;
 
     let mut autobk = AUTOBK::new();
+    if let Some(ek0) = params.bkg_ek0 {
+        let energy = sp.energy.as_ref().unwrap();
+        if !ek0.is_finite() || ek0 < energy[0] || ek0 > energy[energy.len() - 1] {
+            return Err("Background k-origin E₀ must lie inside the measured energy range.".into());
+        }
+        autobk.ek0 = Some(ek0);
+    }
+    autobk.linear_regularization = params.bkg_linear_regularization;
+    autobk.linear_condition_limit = params.bkg_linear_condition_limit;
+    autobk.linear_residual_ratio_limit = params.bkg_linear_residual_ratio_limit;
+    autobk.linear_fallback_to_lm = params.bkg_linear_fallback_to_lm;
+    autobk.linear_fallback_solver = params.bkg_linear_fallback_solver;
+    autobk.linear_workspace_cache = params.bkg_linear_workspace_cache;
+    if let Some(standard) = &params.bkg_standard {
+        standard.validate()?;
+        autobk.k_std = Some(nalgebra::DVector::from_vec(standard.k.clone()));
+        autobk.chi_std = Some(nalgebra::DVector::from_vec(standard.chi.clone()));
+    }
     if params.rbkg.is_some() {
         autobk.rbkg = params.rbkg;
     }
@@ -973,13 +1079,20 @@ pub fn process_arrays(
         xftf.kstep = params.fft_kstep;
     }
     if let Some(nfft) = params.fft_nfft {
-        xftf.nfft = Some(nfft.max(64) as usize);
+        xftf.nfft = Some(usize::try_from(nfft).map_err(|_| "Forward NFFT must be at least 2")?);
     }
     sp.xftf = Some(xftf);
     sp.fft().map_err(|e| e.to_string())?;
 
-    // Back transform (chi(q)); failures here never block the pipeline.
+    // Back transform (chi(q)); report invalid settings instead of silently dropping the result.
     let mut xftr = XrayFFTR::default();
+    xftr.qmax_out = params.bft_qmax.or(xftr.qmax_out);
+    xftr.dr2 = params.bft_dr2;
+    xftr.rweight = params.bft_rweight.or(xftr.rweight);
+    xftr.kstep = params.bft_kstep;
+    if let Some(nfft) = params.bft_nfft {
+        xftr.nfft = Some(usize::try_from(nfft).map_err(|_| "Inverse NFFT must be at least 2")?);
+    }
     if params.bft_rmin.is_some() {
         xftr.rmin = params.bft_rmin;
     }
@@ -993,9 +1106,7 @@ pub fn process_arrays(
         xftr.window = params.bft_window;
     }
     sp.xftr = Some(xftr);
-    if sp.ifft().is_err() {
-        sp.xftr = None;
-    }
+    sp.ifft().map_err(|e| format!("Inverse transform: {e}"))?;
 
     Ok(sp)
 }
@@ -1028,6 +1139,113 @@ pub fn resample_chik(sp: &XASSpectrum, grid: &[f64]) -> Option<Vec<f64>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn advanced_processing_preserves_standard_and_controls_actual_transforms() {
+        let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../rexafs/tests/testfiles/xraylarch_d867/xafsdata/cu_150k.xmu");
+        let base = process_file(&file, &PipelineParams::default()).unwrap();
+        let standard = ChiStandard {
+            label: "Cu standard".into(),
+            k: base.k().unwrap().to_vec(),
+            chi: base.chi().unwrap().iter().map(|v| v * 0.8).collect(),
+        };
+        let p = PipelineParams {
+            bkg_ek0: Some(base.e0().unwrap() + 0.5),
+            bkg_standard: Some(standard.clone()),
+            bkg_linear_condition_limit: Some(1e9),
+            bkg_linear_workspace_cache: Some(false),
+            bkg_linear_regularization: Some(0.02),
+            bkg_linear_residual_ratio_limit: Some(1.1),
+            bkg_linear_fallback_to_lm: Some(false),
+            bkg_linear_fallback_solver: Some(AUTOBKSolver::LegacyLm),
+            bft_rmin: Some(1.),
+            bft_rmax: Some(3.),
+            bft_dr2: Some(0.25),
+            bft_rweight: Some(2.),
+            bft_qmax: Some(10.13),
+            bft_nfft: Some(4096),
+            ..Default::default()
+        };
+        let restored: PipelineParams =
+            serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
+        assert_eq!(restored.fingerprint(), p.fingerprint());
+        let spectrum = process_file(&file, &restored).unwrap();
+        assert_eq!(
+            spectrum.e0(),
+            base.e0(),
+            "background E0 must not move the normalization edge"
+        );
+        let Some(BackgroundMethod::AUTOBK(a)) = &spectrum.background else {
+            panic!("AUTOBK missing")
+        };
+        assert_eq!(a.ek0, p.bkg_ek0);
+        assert_eq!(a.k_std.as_ref().unwrap().as_slice(), standard.k);
+        assert_eq!(a.chi_std.as_ref().unwrap().as_slice(), standard.chi);
+        assert_eq!(a.linear_condition_limit, p.bkg_linear_condition_limit);
+        assert_eq!(a.linear_workspace_cache, Some(false));
+        assert_eq!(a.linear_regularization, p.bkg_linear_regularization);
+        assert_eq!(
+            a.linear_residual_ratio_limit,
+            p.bkg_linear_residual_ratio_limit
+        );
+        assert_eq!(a.linear_fallback_solver, p.bkg_linear_fallback_solver);
+        assert_eq!(a.linear_fallback_to_lm, Some(false));
+        assert_eq!(a.solver, Some(AUTOBKSolver::LinearDirect));
+        let inverse = spectrum.xftr.as_ref().unwrap();
+        assert_eq!(inverse.dr2, Some(0.25));
+        assert_eq!(inverse.rweight, Some(2.));
+        assert_eq!(inverse.nfft, Some(4096));
+        let q = spectrum.q().unwrap();
+        assert!((q[1] - 0.025).abs() < 1e-12);
+        assert!((q[q.len() - 1] - 10.125).abs() < 1e-12);
+        assert_eq!(q.len(), spectrum.chiq().unwrap().len());
+        let mut incompatible = p.clone();
+        incompatible.bft_kstep = Some(0.05);
+        assert!(
+            process_file(&file, &incompatible)
+                .err()
+                .unwrap()
+                .contains("kstep/nfft")
+        );
+        let mut changed = p.clone();
+        changed.bkg_standard.as_mut().unwrap().chi[1] += 0.1;
+        assert_ne!(changed.fingerprint(), p.fingerprint());
+        assert_eq!(changed.raw_fingerprint(), p.raw_fingerprint());
+        let mut no_standard = p.clone();
+        no_standard.bkg_standard = None;
+        let without = process_file(&file, &no_standard).unwrap();
+        assert!(
+            spectrum
+                .chi()
+                .unwrap()
+                .iter()
+                .zip(without.chi().unwrap())
+                .any(|(a, b)| (a - b).abs() > 1e-6)
+        );
+    }
+
+    #[test]
+    fn standard_import_rejects_malformed_rows_without_silent_truncation() {
+        let file =
+            std::env::temp_dir().join(format!("rexafs-chi-standard-{}.dat", std::process::id()));
+        for text in [
+            "0 1\n1 2 3\n",
+            "0 1\n1 broken\n2 3\n",
+            "0 1\n0 2\n",
+            "0 1\n1 NaN\n",
+            "0 1\n",
+            "-1 2\n0 1\n",
+        ] {
+            std::fs::write(&file, text).unwrap();
+            assert!(ChiStandard::load(&file).is_err(), "accepted {text:?}");
+        }
+        std::fs::write(&file, "# k chi\n0,0.25\n0.05,-0.125\n").unwrap();
+        let loaded = ChiStandard::load(&file).unwrap();
+        assert_eq!(loaded.k, vec![0., 0.05]);
+        assert_eq!(loaded.chi, vec![0.25, -0.125]);
+        std::fs::remove_file(file).unwrap();
+    }
 
     #[test]
     fn available_channels_require_named_evidence_and_keep_qas_reference_separate() {

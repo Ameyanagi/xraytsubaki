@@ -1,0 +1,159 @@
+name: Nightly desktop
+
+on:
+  schedule:
+    - cron: '23 18 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-desktop
+  cancel-in-progress: false
+
+jobs:
+  source:
+    if: github.ref == 'refs/heads/main' && github.repository == 'Ameyanagi/rexafs'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      version: ${{ steps.plan.outputs.version }}
+      commit: ${{ steps.plan.outputs.commit }}
+      built_at: ${{ steps.plan.outputs.built_at }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/nightly-release.py plan
+
+  checks:
+    needs: source
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python scripts/check-release-version.py
+      - run: python scripts/test-release-maintenance.py
+      - run: python scripts/test-desktop-channels.py
+      - run: cargo test --locked -p rexafs
+      - run: cargo test --locked -p rexafs --features ndarray-compat
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          rust-version: '1.98.1'
+          command: check licenses
+          arguments: --locked --all-features
+
+  build:
+    needs: source
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            target: aarch64-apple-darwin
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    env:
+      REXAFS_BUILD_CHANNEL: nightly
+      REXAFS_BUILD_TAG: ${{ needs.source.outputs.tag }}
+      REXAFS_BUILD_UTC: ${{ needs.source.outputs.built_at }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: nightly-${{ matrix.target }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: cargo test --locked --release -p rexafs-gui --no-default-features --features refeff-runner
+      - run: python scripts/test-release-archive.py
+      - run: cargo build --locked --release -p rexafs-gui --no-default-features --features refeff-runner
+      - run: python scripts/package-desktop.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nightly-unsigned-${{ matrix.target }}
+          path: |
+            target/distributions/*.zip
+            target/distributions/*.sha256
+          if-no-files-found: error
+
+  sign:
+    needs: [source, checks, build]
+    environment: macos-signing
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            target: aarch64-apple-darwin
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: nightly-unsigned-${{ matrix.target }}
+          path: unsigned
+      - name: Sign, notarize, staple and verify nightly
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          MACOS_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
+          RELEASE_VERSION: ${{ needs.source.outputs.version }}
+          RELEASE_COMMIT: ${{ needs.source.outputs.commit }}
+          RELEASE_TAG: ${{ needs.source.outputs.tag }}
+          RELEASE_TARGET: ${{ matrix.target }}
+        run: >-
+          python scripts/sign-macos-release.py unsigned/*.zip unsigned/*.zip.sha256 signed
+          --version "$RELEASE_VERSION" --commit "$RELEASE_COMMIT"
+          --build-run-id "$GITHUB_RUN_ID" --target "$RELEASE_TARGET"
+          --channel nightly --release-tag "$RELEASE_TAG"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nightly-signed-${{ matrix.target }}
+          path: signed/*
+          if-no-files-found: error
+
+  publish:
+    needs: [source, sign]
+    runs-on: ubuntu-latest
+    environment: nightly
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: nightly-signed-*
+          path: signed
+      - name: Verify both architectures and publish immutable prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.source.outputs.tag }}
+        run: python scripts/nightly-release.py publish --directory signed --tag "$RELEASE_TAG"

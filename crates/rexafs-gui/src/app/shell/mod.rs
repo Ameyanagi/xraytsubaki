@@ -33,6 +33,7 @@ mod structure_depth;
 pub mod structure_view;
 pub mod thumbnails;
 pub mod tools;
+pub(crate) mod updates_view;
 
 use gpui::{
     ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, div, prelude::*, px,
@@ -395,6 +396,7 @@ impl StudioApp {
             .children(self.palette_overlay(cx))
             .children(self.parameter_menu_overlay(cx))
             .children(self.parameter_context_overlay(cx))
+            .children(self.updates_overlay(cx))
     }
 
     /// Brand · project · actions (open folder / project, theme).
@@ -443,7 +445,7 @@ impl StudioApp {
                     .gap_2()
                     .font_weight(gpui::FontWeight::SEMIBOLD)
                     .child(div().w(px(16.)).h(px(16.)).rounded_sm().bg(t.accent))
-                    .child("rexafs"),
+                    .child(crate::updates::application_name()),
             )
             .child(div().text_color(t.text_muted).child("›"))
             .child(
@@ -521,5 +523,14 @@ impl StudioApp {
             .child(action("theme-toggle", "Theme", |this, cx| {
                 this.toggle_theme(cx)
             }))
+            .child(action(
+                "updates",
+                if self.updates.result.as_ref().is_some_and(|r| r.available) {
+                    "Update available"
+                } else {
+                    "Updates"
+                },
+                |this, cx| this.open_updates(cx),
+            ))
     }
 }

@@ -10,6 +10,7 @@ are not supported or retained as compatibility fixtures.
 | `rexafs-0.1.0-links.rxs` | Relative sources, metadata, overrides, bounds, derived data, joint assignments, history and publication settings/captions |
 | `rexafs-0.1.0-embedded.rxs` | The same state with compressed originals and duplicate-payload deduplication |
 | `rexafs-0.1.1-links.rxs`, `rexafs-0.1.1-embedded.rxs` | Saved and reopened through the 0.1.1 writer from the 0.1.0 linked fixture; same format and complete state in both storage modes |
+| `rexafs-0.1.2-links.rxs`, `rexafs-0.1.2-embedded.rxs` | Saved and reopened through the 0.1.2 writer; stable reference-group identity, independent processing, embedded synthetic χ standard and explicit inverse grid |
 | `future-version.rxs` | Future format: reject without modification |
 | `truncated.rxs` | Corrupt/incomplete input: reject without modification |
 | `data/*.xmu`, `feff/*.dat` | Real inputs for relocation, byte recovery and processing checks |
@@ -33,3 +34,5 @@ Run `python scripts/check-compatibility-fixtures.py` with Python 3.12+ and the
 desktop tests in the [compatibility policy](../../../../../doc/project-compatibility.md).
 GitHub runs these checks across release platforms. A version bump without both
 fixture modes fails the release gate.
+
+The 0.1.2 reference source `data/Ru_QAS.dat` is copied unchanged from the repository public test fixture `crates/rexafs/tests/testfiles/Ru_QAS.dat`. Its channel is linked by group ID 27. The embedded χ standard is a synthetic persistence example, not a recommended background standard.

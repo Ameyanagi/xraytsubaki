@@ -1,5 +1,5 @@
 use derivative::Derivative;
-use easyfft::prelude::{DynRealFft, DynRealIfft};
+use easyfft::prelude::DynRealFft;
 use easyfft::{dyn_size::realfft::DynRealDft, num_complex::Complex};
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
@@ -321,25 +321,36 @@ impl XrayFFTR {
         r: &DVector<f64>,
         chir: &DynRealDft<f64>,
     ) -> Result<&mut Self, FFTError> {
+        super::inverse_fft::validate(r.as_slice(), self)?;
         self.fill_parameter(r);
-
-        let win =
-            ftwindow(r, self.rmin, self.rmax, self.dr, self.dr2, self.window).map_err(|e| {
-                FFTError::WindowCalculationFailed {
-                    reason: e.to_string(),
-                }
-            })?;
-
-        let mut chir_scaled = chir.clone();
-        for (i, bin) in chir_scaled.get_frequency_bins_mut().iter_mut().enumerate() {
-            if i < win.len() {
-                *bin *= win[i];
+        let rstep = std::f64::consts::PI / self.kstep.unwrap() / self.nfft.unwrap() as f64;
+        let full_r = DVector::from_iterator(chir.len(), (0..chir.len()).map(|i| i as f64 * rstep));
+        let mut win = ftwindow(
+            &full_r,
+            self.rmin,
+            self.rmax,
+            self.dr,
+            self.dr2,
+            self.window,
+        )
+        .map_err(|e| FFTError::WindowCalculationFailed {
+            reason: e.to_string(),
+        })?;
+        let weight = self.rweight.unwrap();
+        if weight > 0.0 {
+            for (window, radius) in win.iter_mut().zip(full_r.iter()) {
+                *window *= radius.powf(weight);
             }
         }
-
+        // The multiplication covers DC, all positive bins and Nyquist, at
+        // their actual R positions. Display rmax_out never truncates the filter.
+        let chir_scaled = chir * win.as_slice();
         let out = xftr_fast_nalgebra(&chir_scaled, self.nfft.unwrap(), self.kstep.unwrap());
-        let q_len = (1.05 + self.qmax_out.unwrap() / self.kstep.unwrap()) as usize;
-        self.q = Some(linspace(0.0, self.qmax_out.unwrap(), q_len));
+        self.q = Some(DVector::from_vec(super::inverse_fft::q_grid(
+            self.qmax_out.unwrap(),
+            self.kstep.unwrap(),
+            out.len(),
+        )));
         self.rwin = Some(win);
         self.chiq = Some(out);
 
@@ -390,17 +401,7 @@ pub fn xftf_fast_nalgebra(chi: &DVector<f64>, nfft: usize, kstep: f64) -> DynRea
 }
 
 pub fn xftr_fast_nalgebra(chir: &DynRealDft<f64>, nfft: usize, kstep: f64) -> DVector<f64> {
-    let cchi = if chir.len() < nfft / 2 + 1 {
-        let mut freq_bin = vec![Complex::new(0.0, 0.0); nfft - 1];
-        freq_bin[..chir.len() - 1].copy_from_slice(chir.get_frequency_bins());
-        DynRealDft::new(*chir.get_offset(), &freq_bin, nfft)
-    } else {
-        chir.clone()
-    };
-
-    let mut chi = DVector::from(cchi.real_ifft().to_vec());
-    chi *= std::f64::consts::PI.sqrt() / kstep / nfft as f64;
-    chi
+    DVector::from_vec(super::inverse_fft::inverse(chir, nfft, kstep))
 }
 
 pub trait XFFT {

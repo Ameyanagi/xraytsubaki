@@ -120,6 +120,15 @@ pub(crate) enum ParamKey {
     BftRmin,
     BftRmax,
     BftDr,
+    BkgEk0,
+    BkgRegularization,
+    BkgCondition,
+    BkgResidualRatio,
+    BftQmax,
+    BftDr2,
+    BftRweight,
+    BftKstep,
+    BftNfft,
 }
 
 /// Enum-valued parameters edited with cycling chips.
@@ -131,6 +140,9 @@ pub(crate) enum EnumParam {
     BkgClampPolicy,
     FftWindow,
     BftWindow,
+    BkgFallback,
+    BkgCache,
+    BkgFallbackSolver,
 }
 
 /// Import role edited by a detected-column picker.
@@ -158,7 +170,7 @@ pub(crate) enum ParamSection {
 /// wave-numbers, R and dk in tenths, counts in ones.
 fn param_step(key: ParamKey) -> f64 {
     match key {
-        ParamKey::E0 => 0.5,
+        ParamKey::E0 | ParamKey::BkgEk0 => 0.5,
         ParamKey::EdgeStep => 0.01,
         ParamKey::PreEdgeStart
         | ParamKey::PreEdgeEnd
@@ -169,8 +181,12 @@ fn param_step(key: ParamKey) -> f64 {
         ParamKey::Rbkg | ParamKey::BkgDk | ParamKey::FftDk | ParamKey::FftDk2 | ParamKey::BftDr => {
             0.1
         }
-        ParamKey::BftRmin | ParamKey::BftRmax => 0.1,
-        ParamKey::BkgKstep | ParamKey::FftKstep => 0.01,
+        ParamKey::BftRmin | ParamKey::BftRmax | ParamKey::BftDr2 => 0.1,
+        ParamKey::BkgKstep | ParamKey::FftKstep | ParamKey::BftKstep => 0.01,
+        ParamKey::BftQmax => 0.5,
+        ParamKey::BkgRegularization => 0.0001,
+        ParamKey::BkgCondition => 1e7,
+        ParamKey::BkgResidualRatio => 0.01,
         ParamKey::FftKweight => 1.0,
         ParamKey::BkgClampLambda => 0.001,
         _ => 1.0,
@@ -213,6 +229,14 @@ fn copy_section(dst: &mut PipelineParams, src: &PipelineParams, section: ParamSe
             dst.bkg_dk = src.bkg_dk;
             dst.bkg_solver = src.bkg_solver;
             dst.bkg_nfft = src.bkg_nfft;
+            dst.bkg_ek0 = src.bkg_ek0;
+            dst.bkg_linear_regularization = src.bkg_linear_regularization;
+            dst.bkg_linear_condition_limit = src.bkg_linear_condition_limit;
+            dst.bkg_linear_residual_ratio_limit = src.bkg_linear_residual_ratio_limit;
+            dst.bkg_linear_fallback_to_lm = src.bkg_linear_fallback_to_lm;
+            dst.bkg_linear_workspace_cache = src.bkg_linear_workspace_cache;
+            dst.bkg_linear_fallback_solver = src.bkg_linear_fallback_solver;
+            dst.bkg_standard = src.bkg_standard.clone();
         }
         ParamSection::Fft => {
             dst.fft_kmin = src.fft_kmin;
@@ -228,6 +252,11 @@ fn copy_section(dst: &mut PipelineParams, src: &PipelineParams, section: ParamSe
             dst.bft_rmax = src.bft_rmax;
             dst.bft_dr = src.bft_dr;
             dst.bft_window = src.bft_window;
+            dst.bft_qmax = src.bft_qmax;
+            dst.bft_dr2 = src.bft_dr2;
+            dst.bft_rweight = src.bft_rweight;
+            dst.bft_kstep = src.bft_kstep;
+            dst.bft_nfft = src.bft_nfft;
         }
     }
 }
@@ -297,6 +326,15 @@ fn param_field_value(key: ParamKey, p: &PipelineParams) -> Option<f64> {
         ParamKey::BftRmin => p.bft_rmin,
         ParamKey::BftRmax => p.bft_rmax,
         ParamKey::BftDr => p.bft_dr,
+        ParamKey::BkgEk0 => p.bkg_ek0,
+        ParamKey::BkgRegularization => p.bkg_linear_regularization,
+        ParamKey::BkgCondition => p.bkg_linear_condition_limit,
+        ParamKey::BkgResidualRatio => p.bkg_linear_residual_ratio_limit,
+        ParamKey::BftQmax => p.bft_qmax,
+        ParamKey::BftDr2 => p.bft_dr2,
+        ParamKey::BftRweight => p.bft_rweight,
+        ParamKey::BftKstep => p.bft_kstep,
+        ParamKey::BftNfft => p.bft_nfft.map(|v| v as f64),
     }
 }
 
@@ -826,6 +864,7 @@ pub struct StudioApp {
     view_offset_field: Option<Entity<NumericField>>,
     filter_input: Option<Entity<TextInput>>,
     filter_text: String,
+    root_focus: FocusHandle,
     data_focus: FocusHandle,
     operando_focus: FocusHandle,
     /// Per-section "advanced parameters" fold state (Norm, Bkg, FFT, Import).
@@ -895,6 +934,7 @@ pub struct StudioApp {
     /// Shared Explore legend strip entries (truncated label, stable color),
     /// rebuilt with the quadrant plots; empty for a single trace.
     legend_entries: Vec<(SharedString, gpui::Rgba)>,
+    mixed_overlay_weight: Option<f64>,
     maximized: Option<usize>,
     data_tab: DataTab,
     file_scroll: UniformListScrollHandle,
@@ -955,6 +995,7 @@ pub struct StudioApp {
     project_generation: u64,
     project_load_generation: u64,
     project_saving: bool,
+    updates: shell::updates_view::UpdateState,
     pub(crate) structure: shell::structure_view::StructureState,
     feff_running: bool,
     feff_gen: u64,
@@ -1661,6 +1702,7 @@ impl StudioApp {
             filter_text: String::new(),
             filtered: None,
             filter_gen: 0,
+            root_focus: cx.focus_handle(),
             data_focus: cx.focus_handle(),
             operando_focus: cx.focus_handle(),
             adv_open: [false; 4],
@@ -1698,6 +1740,7 @@ impl StudioApp {
             quad_bindings: Vec::new(),
             explore_plots_dirty: false,
             legend_entries: Vec::new(),
+            mixed_overlay_weight: None,
             maximized: None,
             data_tab: DataTab::Files,
             file_scroll: UniformListScrollHandle::new(),
@@ -1748,6 +1791,7 @@ impl StudioApp {
             project_generation: 0,
             project_load_generation: 0,
             project_saving: false,
+            updates: Default::default(),
             feff_running: false,
             feff_gen: 0,
             batch_fit: None,
@@ -1870,6 +1914,15 @@ impl StudioApp {
             };
         }
         app.structure_search(cx);
+        app.root_focus.focus(_window, cx);
+        if app
+            .structure
+            .settings
+            .check_updates_on_startup
+            .unwrap_or(true)
+        {
+            app.check_for_updates(cx);
+        }
         if let Ok(file) = crate::settings::env_var("IMPORT_CIF") {
             app.structure_import_cif_path(PathBuf::from(file), cx);
         }
@@ -2306,7 +2359,7 @@ impl StudioApp {
         const COL: FieldKind = FieldKind::Integer { min: Some(0) };
         const INT: FieldKind = FieldKind::Integer { min: None };
         const FLOAT: FieldKind = FieldKind::Float;
-        let specs: [(ParamKey, &str, &str, FieldKind); 36] = [
+        let specs = [
             (ParamKey::ImpEnergyCol, "energy col", "0", COL),
             (ParamKey::ImpI0Col, "I0 col", "1", COL),
             (ParamKey::ImpItCol, "It col", "2", COL),
@@ -2360,6 +2413,35 @@ impl StudioApp {
             (ParamKey::BftRmin, "R min (Å)", "auto (0)", FLOAT),
             (ParamKey::BftRmax, "R max (Å)", "auto (20)", FLOAT),
             (ParamKey::BftDr, "dR (Å)", "auto (1)", FLOAT),
+            (
+                ParamKey::BkgEk0,
+                "k origin E₀ (eV)",
+                "auto (edge E₀)",
+                FLOAT,
+            ),
+            (
+                ParamKey::BkgRegularization,
+                "legacy ridge",
+                "auto (0.0001)",
+                FLOAT,
+            ),
+            (
+                ParamKey::BkgCondition,
+                "condition limit",
+                "auto (1e8)",
+                FLOAT,
+            ),
+            (
+                ParamKey::BkgResidualRatio,
+                "residual ratio limit",
+                "auto (1.05)",
+                FLOAT,
+            ),
+            (ParamKey::BftQmax, "q max (Å⁻¹)", "auto (10)", FLOAT),
+            (ParamKey::BftDr2, "dR high (Å)", "auto (dR)", FLOAT),
+            (ParamKey::BftRweight, "R weight", "auto (0)", INT),
+            (ParamKey::BftKstep, "q step (Å⁻¹)", "auto (R grid)", FLOAT),
+            (ParamKey::BftNfft, "inverse NFFT", "auto (2048)", INT),
         ];
         specs
             .into_iter()
@@ -2441,6 +2523,15 @@ impl StudioApp {
             ParamKey::BftRmin => p.bft_rmin = value,
             ParamKey::BftRmax => p.bft_rmax = value,
             ParamKey::BftDr => p.bft_dr = value,
+            ParamKey::BkgEk0 => p.bkg_ek0 = value,
+            ParamKey::BkgRegularization => p.bkg_linear_regularization = value,
+            ParamKey::BkgCondition => p.bkg_linear_condition_limit = value,
+            ParamKey::BkgResidualRatio => p.bkg_linear_residual_ratio_limit = value,
+            ParamKey::BftQmax => p.bft_qmax = value,
+            ParamKey::BftDr2 => p.bft_dr2 = value,
+            ParamKey::BftRweight => p.bft_rweight = value,
+            ParamKey::BftKstep => p.bft_kstep = value,
+            ParamKey::BftNfft => p.bft_nfft = int,
         }
         let after = self.ui_params().clone();
         let shown = match value {
@@ -2501,6 +2592,13 @@ impl StudioApp {
                 "auto (KaiserBessel)",
                 FT_WINDOWS.iter().map(|w| format!("{w:?}")).collect(),
             ),
+            EnumParam::BkgFallback | EnumParam::BkgCache => {
+                ("auto (on)", vec!["On".into(), "Off".into()])
+            }
+            EnumParam::BkgFallbackSolver => (
+                "auto (Dog-leg)",
+                vec!["Dog-leg".into(), "Levenberg–Marquardt".into()],
+            ),
             EnumParam::BftWindow => (
                 "auto (KaiserBessel)",
                 FT_WINDOWS.iter().map(|w| format!("{w:?}")).collect(),
@@ -2515,6 +2613,12 @@ impl StudioApp {
     fn set_enum_param(&mut self, which: EnumParam, index: usize, cx: &mut Context<Self>) {
         let variant = index.checked_sub(1);
         let target = self.override_target();
+        if target.is_some_and(|ix| self.frozen.contains(&ix)) {
+            self.status = "This group is frozen — thaw it to edit its parameters.".into();
+            self.open_enum = None;
+            cx.notify();
+            return;
+        }
         let before = self.ui_params().clone();
         let p = self.edit_params();
         match which {
@@ -2551,6 +2655,17 @@ impl StudioApp {
             }
             EnumParam::FftWindow => {
                 p.fft_window = variant.map(|i| FT_WINDOWS[i]);
+            }
+            EnumParam::BkgFallback => p.bkg_linear_fallback_to_lm = variant.map(|i| i == 0),
+            EnumParam::BkgCache => p.bkg_linear_workspace_cache = variant.map(|i| i == 0),
+            EnumParam::BkgFallbackSolver => {
+                p.bkg_linear_fallback_solver = variant.map(|i| {
+                    if i == 0 {
+                        rexafs::prelude::AUTOBKSolver::TrustRegionDogLeg
+                    } else {
+                        rexafs::prelude::AUTOBKSolver::LegacyLm
+                    }
+                })
             }
             EnumParam::BftWindow => {
                 p.bft_window = variant.map(|i| FT_WINDOWS[i]);
@@ -2605,6 +2720,24 @@ impl StudioApp {
                 .fft_window
                 .and_then(|w| FT_WINDOWS.iter().position(|x| *x == w))
                 .map(|i| i + 1)
+                .unwrap_or(0),
+            EnumParam::BkgFallback => p
+                .bkg_linear_fallback_to_lm
+                .map(|on| if on { 1 } else { 2 })
+                .unwrap_or(0),
+            EnumParam::BkgCache => p
+                .bkg_linear_workspace_cache
+                .map(|on| if on { 1 } else { 2 })
+                .unwrap_or(0),
+            EnumParam::BkgFallbackSolver => p
+                .bkg_linear_fallback_solver
+                .map(|v| {
+                    if v == rexafs::prelude::AUTOBKSolver::TrustRegionDogLeg {
+                        1
+                    } else {
+                        2
+                    }
+                })
                 .unwrap_or(0),
             EnumParam::BftWindow => p
                 .bft_window
@@ -3710,6 +3843,7 @@ impl StudioApp {
     }
 
     fn rebuild_explore_plots(&mut self, cx: &mut Context<Self>) {
+        self.mixed_overlay_weight = None;
         // Stage-dependent view flags (also correct on a scripted first launch).
         self.view.flat = self.stage_view.e_quantity == shell::EQuantity::Flat;
         self.view.show_re = if self.stage == Stage::Fit {
@@ -3761,13 +3895,29 @@ impl StudioApp {
         }
         // The grid uses one shared legend strip; per-plot legends only when a
         // quadrant is maximized.
+        self.mixed_overlay_weight = crate::plotting::mixed_kweights(&traces).then(|| {
+            traces
+                .iter()
+                .find(|t| t.active)
+                .or_else(|| traces.first())
+                .and_then(|t| t.sp.kweight())
+                .copied()
+                .unwrap_or(2.0)
+        });
         self.legend_entries = if traces.len() > 1 {
             traces
                 .iter()
                 .enumerate()
                 .map(|(i, trace)| {
                     (
-                        SharedString::from(middle_truncate(&trace.label, 28)),
+                        SharedString::from(middle_truncate(
+                            &if self.mixed_overlay_weight.is_some() {
+                                crate::plotting::ft_trace_label(trace)
+                            } else {
+                                trace.label.clone()
+                            },
+                            36,
+                        )),
                         trace_rgba(&self.theme, i),
                     )
                 })
@@ -7507,23 +7657,30 @@ impl StudioApp {
                 .px_3()
                 .py_0p5()
                 .flex()
-                .items_center()
-                .gap_2()
+                .flex_col()
+                .gap_1()
                 .child(
                     div()
-                        .flex_1()
-                        .text_sm()
-                        .text_color(t.text_muted)
-                        .child(label),
+                        .w_full()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            div()
+                                .flex_1()
+                                .text_sm()
+                                .text_color(t.text_muted)
+                                .child(label),
+                        )
+                        .children(self.parameter_badge(
+                            shell::parameter_actions::ParamScope::Field(which.setting_key()),
+                            cx,
+                        )),
                 )
-                .children(self.parameter_badge(
-                    shell::parameter_actions::ParamScope::Field(which.setting_key()),
-                    cx,
-                ))
                 .child(
                     div()
                         .id(SharedString::from(format!("enum-{label}-{which:?}")))
-                        .w(px(96.))
+                        .w_full()
                         .px_2()
                         .py_0p5()
                         .rounded_sm()
@@ -7819,13 +7976,20 @@ impl StudioApp {
 impl Render for StudioApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.viewport_w = f32::from(window.viewport_size().width);
-        let key_context = match self.workspace {
-            Workspace::Explore => "Studio Explore",
-            Workspace::Operando => "Studio OperandoWorkspace",
-            Workspace::Fit => "Studio FitWorkspace",
+        let key_context = if self.updates.open {
+            "UpdateDialog"
+        } else if self.palette.is_some() {
+            "Palette"
+        } else {
+            match self.workspace {
+                Workspace::Explore => "Studio Explore",
+                Workspace::Operando => "Studio OperandoWorkspace",
+                Workspace::Fit => "Studio FitWorkspace",
+            }
         };
         div()
             .id("root")
+            .track_focus(&self.root_focus)
             .key_context(key_context)
             .on_action(cx.listener(|this: &mut Self, _: &StageData, _window, cx| {
                 this.set_stage(Stage::Data, cx);

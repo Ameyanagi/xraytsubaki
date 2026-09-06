@@ -26,6 +26,7 @@ pub mod background;
 pub mod bessel_i0;
 pub mod errors;
 pub mod fitting;
+mod inverse_fft;
 pub mod io;
 pub mod lmutils;
 #[cfg(feature = "ndarray-compat")]

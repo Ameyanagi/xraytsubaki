@@ -12,6 +12,7 @@ import shlex
 import subprocess
 import tempfile
 from zipfile import ZipFile
+from desktop_channels import app_name
 
 
 def digest(path):
@@ -19,7 +20,8 @@ def digest(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
-def check_source(archive, manifest, version, commit, run_id, target):
+def check_source(archive, manifest, version, commit, run_id, target, channel="stable", release_tag=None):
+    app_name(channel)
     expected_name = f"rexafs-{version}-{target}.zip"
     if archive.name != expected_name:
         raise ValueError("Unexpected desktop archive name")
@@ -37,6 +39,10 @@ def check_source(archive, manifest, version, commit, run_id, target):
                 "target": target, "dirty": False, "signed": False, "notarized": False}
     if any(metadata.get(key) != value for key, value in expected.items()):
         raise ValueError("Desktop build metadata does not match the source run")
+    if metadata.get("channel", "stable") != channel:
+        raise ValueError("Desktop build channel does not match")
+    if release_tag is not None and metadata.get("release_tag") != release_tag:
+        raise ValueError("Desktop build tag does not match")
     return metadata
 
 
@@ -104,7 +110,8 @@ def sign_archive(archive, output, metadata, keychain, directory):
     unpacked = directory / "unpacked"
     run(["ditto", "-x", "-k", archive, unpacked])
     bundle = unpacked / archive.stem
-    app = bundle / "rexafs.app"
+    application_name = app_name(metadata.get("channel", "stable"))
+    app = bundle / application_name
     identity, team = os.environ["MACOS_SIGNING_IDENTITY"], os.environ["APPLE_TEAM_ID"]
     run(["codesign", "--force", "--sign", identity, "--keychain", keychain,
          "--options", "runtime", "--timestamp", app])
@@ -135,7 +142,7 @@ def sign_archive(archive, output, metadata, keychain, directory):
     run(["ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", bundle, final])
     fresh = directory / "verified"
     run(["ditto", "-x", "-k", final, fresh])
-    extracted = fresh / archive.stem / "rexafs.app"
+    extracted = fresh / archive.stem / application_name
     verify_app(extracted, team)
     for option in ["--version", "--self-check"]:
         subprocess.run([str(extracted / "Contents/MacOS/rexafs"), option], cwd=fresh, check=True)
@@ -148,10 +155,12 @@ if __name__ == "__main__":
         parser.add_argument(name, type=Path)
     for name in ["version", "commit", "build-run-id", "target"]:
         parser.add_argument("--" + name, required=True)
+    parser.add_argument("--channel", choices=["stable", "nightly"], default="stable")
+    parser.add_argument("--release-tag")
     args = parser.parse_args()
     if platform.system() != "Darwin":
         raise SystemExit("Signing requires macOS")
-    metadata = check_source(args.archive, args.manifest, args.version, args.commit, args.build_run_id, args.target)
+    metadata = check_source(args.archive, args.manifest, args.version, args.commit, args.build_run_id, args.target, args.channel, args.release_tag)
     with tempfile.TemporaryDirectory(prefix="rexafs-signing-") as temporary:
         directory = Path(temporary)
         with signing_keychain(directory) as keychain:

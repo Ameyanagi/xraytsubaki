@@ -1,0 +1,19 @@
+<!doctype html><meta charset="utf-8"><title>rexafs overlay and palette audit</title>
+<style>body{font:16px system-ui;max-width:1200px;margin:40px auto;padding:0 20px;background:#f5f6fa;color:#202533}article{background:white;padding:20px;margin:24px 0;border-radius:12px}img{width:100%;height:auto}p{line-height:1.5}nav a{display:block;margin:7px 0}</style>
+<h1>rexafs overlay and palette audit · 7 September 2026</h1>
+<p>The 0.1.2 candidate with follow-up overlay and palette corrections on macOS ARM. Captions distinguish observed failures, corrections and passing checks. See README.md for validation status.</p><nav>
+<a href="#step-1">01. 01-baseline.png</a>
+<a href="#step-2">02. 02-mixed-weights-common-k.png</a>
+<a href="#step-3">03. 03-palette-before-scroll.png</a>
+<a href="#step-4">04. 04-palette-isolates-input.png</a>
+<a href="#step-5">05. 05-palette-focus-restored.png</a>
+<a href="#step-6">06. 06-palette-opens-updates.png</a>
+<a href="#step-7">07. 07-active-weight-three.png</a>
+</nav>
+<article id="step-1"><h2>01. 01-baseline.png</h2><p>Identical Cu spectra are configured with Fourier weights 1 and 3, using an isolated copied project.</p><a href="01-baseline.png"><img loading="lazy" src="01-baseline.png" alt="Identical Cu spectra are configured with Fourier weights 1 and 3, using an isolated copied project."></a></article>
+<article id="step-2"><h2>02. 02-mixed-weights-common-k.png</h2><p>Both Cu groups are marked. The k-space overlay uses the active k weight; Fourier plots retain the independently processed weights and state that explicitly.</p><a href="02-mixed-weights-common-k.png"><img loading="lazy" src="02-mixed-weights-common-k.png" alt="Both Cu groups are marked. The k-space overlay uses the active k weight; Fourier plots retain the independently processed weights and state that explicitly."></a></article>
+<article id="step-3"><h2>03. 03-palette-before-scroll.png</h2><p>Open the palette over a mixed-weight comparison before sending scroll and stage shortcuts.</p><a href="03-palette-before-scroll.png"><img loading="lazy" src="03-palette-before-scroll.png" alt="Open the palette over a mixed-weight comparison before sending scroll and stage shortcuts."></a></article>
+<article id="step-4"><h2>04. 04-palette-isolates-input.png</h2><p>Scrolling over the exposed R plot and Cmd+5 do not zoom the plot or change the Transform stage while the palette is open.</p><a href="04-palette-isolates-input.png"><img loading="lazy" src="04-palette-isolates-input.png" alt="Scrolling over the exposed R plot and Cmd+5 do not zoom the plot or change the Transform stage while the palette is open."></a></article>
+<article id="step-5"><h2>05. 05-palette-focus-restored.png</h2><p>Escape closes the palette; Cmd+3 then switches to Background, demonstrating restored keyboard focus.</p><a href="05-palette-focus-restored.png"><img loading="lazy" src="05-palette-focus-restored.png" alt="Escape closes the palette; Cmd+3 then switches to Background, demonstrating restored keyboard focus."></a></article>
+<article id="step-6"><h2>06. 06-palette-opens-updates.png</h2><p>Executing the Updates command from the palette focuses the update dialog correctly.</p><a href="06-palette-opens-updates.png"><img loading="lazy" src="06-palette-opens-updates.png" alt="Executing the Updates command from the palette focuses the update dialog correctly."></a></article>
+<article id="step-7"><h2>07. 07-active-weight-three.png</h2><p>Switching the active group to FT weight 3 changes every chi(k) display curve to k cubed; the identical spectra still coincide and the Fourier curves retain their different results.</p><a href="07-active-weight-three.png"><img loading="lazy" src="07-active-weight-three.png" alt="Switching the active group to FT weight 3 changes every chi(k) display curve to k cubed; the identical spectra still coincide and the Fourier curves retain their different results."></a></article>

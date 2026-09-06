@@ -43,6 +43,8 @@ futures = "0.3"
 rayon = { workspace = true }
 lru = "0.18"
 walkdir = "2.5"
+ureq = { version = "3", features = ["json"] }
+semver = { workspace = true }
 unicode-segmentation = "1"
 # Same nalgebra as the core crate (XASSpectrum exposes DVector<f64>).
 nalgebra = { workspace = true }

@@ -1,0 +1,8 @@
+Rust finite-difference diagnostic on unchanged v0.1.0 background.rs
+background.rs sha256: 54ac3c0c9129325d18286c4bc0008b0a8b467b62330a4f0bd293890db53c91a8
+central difference step: 1e-6
+synthetic spline, not measured Cu/Ni/Ru input
+fixed=true fft_head_relative_error=6.300395435899e-11 clamp_relative_error=7.944833650497e-11
+fixed=false fft_head_relative_error=6.300395435899e-11 clamp_relative_error=4.226965424235e-1
+test xafs::background::clamp_chain_rule_diagnostic::compare_clamp_jacobian_to_finite_differences ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 174 filtered out; finished in 0.00s

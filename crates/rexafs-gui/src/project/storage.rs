@@ -115,7 +115,7 @@ fn relative(path: &Path, base: &Path) -> Result<PathBuf, String> {
     Ok(out)
 }
 
-fn resolved_location(path: &Path) -> PathBuf {
+pub(super) fn resolved_location(path: &Path) -> PathBuf {
     let mut parent = path;
     let mut tail = Vec::new();
     loop {

@@ -1,0 +1,92 @@
+[
+  {
+    "dataset": "cu",
+    "diagnostic": "same_settings",
+    "larch_rbkg": 1.0,
+    "larch_nknots": 8,
+    "larch_irbkg": 30,
+    "chi_relative_l2_vs_rexafs_no_clamp": 0.04087152042441037
+  },
+  {
+    "dataset": "cu",
+    "diagnostic": "matched_knots_and_cutoff",
+    "larch_rbkg": 1.05,
+    "larch_nknots": 9,
+    "larch_irbkg": 35,
+    "chi_relative_l2_vs_rexafs_no_clamp": 0.015377981754807438
+  },
+  {
+    "dataset": "cu",
+    "diagnostic": "matched_knots_cutoff_and_resampling",
+    "larch_rbkg": 1.05,
+    "larch_nknots": 9,
+    "larch_irbkg": 35,
+    "chi_relative_l2_vs_rexafs_no_clamp": 3.076255414553489e-05
+  },
+  {
+    "dataset": "cu",
+    "diagnostic": "identical_chi_fft_window_domain",
+    "public_xftf_relative_l2": 0.05356538165085423,
+    "matched_window_domain_relative_l2": 7.458229608570312e-16
+  },
+  {
+    "dataset": "ni",
+    "diagnostic": "same_settings",
+    "larch_rbkg": 1.0,
+    "larch_nknots": 8,
+    "larch_irbkg": 30,
+    "chi_relative_l2_vs_rexafs_no_clamp": 0.09085465111729327
+  },
+  {
+    "dataset": "ni",
+    "diagnostic": "matched_knots_and_cutoff",
+    "larch_rbkg": 1.05,
+    "larch_nknots": 9,
+    "larch_irbkg": 35,
+    "chi_relative_l2_vs_rexafs_no_clamp": 0.00959839203971116
+  },
+  {
+    "dataset": "ni",
+    "diagnostic": "matched_knots_cutoff_and_resampling",
+    "larch_rbkg": 1.05,
+    "larch_nknots": 9,
+    "larch_irbkg": 35,
+    "chi_relative_l2_vs_rexafs_no_clamp": 7.127313738295396e-05
+  },
+  {
+    "dataset": "ni",
+    "diagnostic": "identical_chi_fft_window_domain",
+    "public_xftf_relative_l2": 0.04225127031938202,
+    "matched_window_domain_relative_l2": 6.1331890142553e-16
+  },
+  {
+    "dataset": "ru",
+    "diagnostic": "same_settings",
+    "larch_rbkg": 1.0,
+    "larch_nknots": 8,
+    "larch_irbkg": 30,
+    "chi_relative_l2_vs_rexafs_no_clamp": 0.44249321655654983
+  },
+  {
+    "dataset": "ru",
+    "diagnostic": "matched_knots_and_cutoff",
+    "larch_rbkg": 1.05,
+    "larch_nknots": 9,
+    "larch_irbkg": 35,
+    "chi_relative_l2_vs_rexafs_no_clamp": 0.015882486120200007
+  },
+  {
+    "dataset": "ru",
+    "diagnostic": "matched_knots_cutoff_and_resampling",
+    "larch_rbkg": 1.05,
+    "larch_nknots": 9,
+    "larch_irbkg": 35,
+    "chi_relative_l2_vs_rexafs_no_clamp": 0.004008749577672443
+  },
+  {
+    "dataset": "ru",
+    "diagnostic": "identical_chi_fft_window_domain",
+    "public_xftf_relative_l2": 0.14783369073643546,
+    "matched_window_domain_relative_l2": 7.664668638942388e-16
+  }
+]

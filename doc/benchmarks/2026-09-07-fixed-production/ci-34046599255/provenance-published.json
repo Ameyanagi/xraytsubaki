@@ -1,0 +1,59 @@
+{
+  "rexafs_version": "0.1.0",
+  "scipy_version": "1.18.1",
+  "larch_version": "2026.3.1",
+  "python": "3.12.14 (main, Aug 13 2026, 02:47:42) [GCC 13.3.0]",
+  "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+  "threadpools": [
+    {
+      "user_api": "blas",
+      "internal_api": "openblas",
+      "num_threads": 1,
+      "prefix": "libscipy_openblas",
+      "filepath": "/home/runner/work/rexafs/rexafs/.benchmark-env/lib/python3.12/site-packages/numpy.libs/libscipy_openblas64_-61654e39.so",
+      "version": "0.3.34.0.0",
+      "threading_layer": "pthreads",
+      "architecture": "Haswell"
+    },
+    {
+      "user_api": "blas",
+      "internal_api": "mkl",
+      "num_threads": 1,
+      "prefix": "libmkl_rt",
+      "filepath": "/home/runner/work/rexafs/rexafs/.benchmark-env/lib/libmkl_rt.so.3",
+      "version": "2026.1-Product",
+      "threading_layer": "intel"
+    },
+    {
+      "user_api": "blas",
+      "internal_api": "openblas",
+      "num_threads": 1,
+      "prefix": "libscipy_openblas",
+      "filepath": "/home/runner/work/rexafs/rexafs/.benchmark-env/lib/python3.12/site-packages/scipy.libs/libscipy_openblas-5f890258.so",
+      "version": "0.3.31.dev",
+      "threading_layer": "pthreads",
+      "architecture": "Haswell"
+    },
+    {
+      "user_api": "openmp",
+      "internal_api": "openmp",
+      "num_threads": 1,
+      "prefix": "libgomp",
+      "filepath": "/home/runner/work/rexafs/rexafs/.benchmark-env/lib/python3.12/site-packages/scikit_learn.libs/libgomp-e985bcbb.so.1.0.0",
+      "version": null
+    },
+    {
+      "user_api": "openmp",
+      "internal_api": "openmp",
+      "num_threads": 1,
+      "prefix": "libiomp",
+      "filepath": "/home/runner/work/rexafs/rexafs/.benchmark-env/lib/libiomp5.so",
+      "version": null
+    }
+  ],
+  "extension_sha256": "92ed230f9cac2954a7b9a17b96b50dd04e0aac180247c0ffff5f790744cabeb9",
+  "extension_path": "/home/runner/work/rexafs/rexafs/.benchmark-env/lib/python3.12/site-packages/rexafs/_core.cpython-312-x86_64-linux-gnu.so",
+  "script_sha256": "2cdc248cad9571b988604f5e2533f01d2820246fdf6a612a292ffb12a89694e9",
+  "head": "2c3bf87b8675441a06239099a50f6eac1fbce47a",
+  "source_sha256": null
+}

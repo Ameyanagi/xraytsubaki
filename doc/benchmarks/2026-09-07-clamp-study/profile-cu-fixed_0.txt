@@ -1,0 +1,41 @@
+         347401 function calls in 0.520 seconds
+
+   Ordered by: cumulative time
+   List reduced from 135 to 35 due to restriction <35>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      300    0.003    0.000    0.520    0.002 report-autobk-clamps.py:304(run)
+      300    0.013    0.000    0.483    0.002 study-autobk-clamps.py:112(__init__)
+     3000    0.009    0.000    0.224    0.000 autobk.py:23(spline_eval)
+     3000    0.005    0.000    0.135    0.000 _fitpack2.py:560(__init__)
+      300    0.001    0.000    0.131    0.000 study-autobk-clamps.py:80(call_larch)
+      300    0.000    0.000    0.129    0.000 larchlib.py:549(wrapper)
+      300    0.014    0.000    0.129    0.000 autobk.py:48(autobk)
+     2700    0.005    0.000    0.109    0.000 study-autobk-clamps.py:177(head)
+     3000    0.010    0.000    0.091    0.000 _fitpack2.py:53(_curfit)
+     6000    0.021    0.000    0.074    0.000 _fitpack_impl.py:304(splev)
+     2700    0.011    0.000    0.068    0.000 xafsft.py:328(xftf_fast)
+     3300    0.063    0.000    0.063    0.000 {built-in method scipy.interpolate._fitpack.curfit}
+     2700    0.002    0.000    0.054    0.000 _basic.py:12(fft)
+     2700    0.005    0.000    0.052    0.000 basic.py:11(c2c)
+     6000    0.044    0.000    0.044    0.000 {built-in method scipy.interpolate._fitpack.splev}
+     3000    0.003    0.000    0.041    0.000 _fitpack2.py:720(__call__)
+     3000    0.002    0.000    0.038    0.000 _fitpack_py.py:309(splev)
+     2700    0.037    0.000    0.037    0.000 {built-in method scipy.fft._duccfft.pyduccfft.c2c}
+     2700    0.018    0.000    0.036    0.000 utils.py:74(realimag)
+     5700    0.036    0.000    0.036    0.000 {built-in method builtins.min}
+     3000    0.011    0.000    0.036    0.000 _fitpack2.py:574(validate_input)
+      300    0.010    0.000    0.035    0.000 study-autobk-clamps.py:203(fixed)
+      300    0.001    0.000    0.027    0.000 utils.py:170(remove_dups)
+     6600    0.025    0.000    0.025    0.000 {built-in method builtins.max}
+      600    0.003    0.000    0.024    0.000 utils.py:32(index_of)
+    12600    0.018    0.000    0.018    0.000 {built-in method numpy.array}
+      300    0.011    0.000    0.015    0.000 _linalg.py:2417(lstsq)
+     3300    0.013    0.000    0.014    0.000 _function_base_impl.py:1413(diff)
+      300    0.006    0.000    0.014    0.000 xafsft.py:45(ftwindow)
+    15000    0.014    0.000    0.014    0.000 {built-in method numpy.zeros}
+      900    0.008    0.000    0.011    0.000 _shape_base_impl.py:607(column_stack)
+     3000    0.002    0.000    0.008    0.000 fromnumeric.py:2586(all)
+     3900    0.006    0.000    0.008    0.000 numeric.py:170(ones)
+     2400    0.005    0.000    0.007    0.000 utils.py:52(index_nearest)
+     3300    0.004    0.000    0.007    0.000 fromnumeric.py:86(_wrapreduction_any_all)

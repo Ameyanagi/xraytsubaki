@@ -1,0 +1,22 @@
+{
+  "rexafs_version": "0.1.0",
+  "scipy_version": "1.18.1",
+  "larch_version": "2026.3.1",
+  "python": "3.12.12 (main, Dec 17 2025, 21:07:08) [Clang 21.1.4 ]",
+  "platform": "macOS-26.5.1-arm64-arm-64bit",
+  "threadpools": [
+    {
+      "user_api": "openmp",
+      "internal_api": "openmp",
+      "num_threads": 1,
+      "prefix": "libomp",
+      "filepath": "/private/tmp/rexafs-larch-bench-20260906/lib/python3.12/site-packages/sklearn/.dylibs/libomp.dylib",
+      "version": null
+    }
+  ],
+  "extension_sha256": "f7b596e07bf81109d587543170f3fd4fd355c85de9918c896c66ef2c4a107a38",
+  "extension_path": "/tmp/rexafs-larch-bench-20260906/lib/python3.12/site-packages/rexafs/_core.cpython-312-darwin.so",
+  "script_sha256": "2cdc248cad9571b988604f5e2533f01d2820246fdf6a612a292ffb12a89694e9",
+  "head": "8d97a9419f6196aea6808f4b0adbd951663937c6",
+  "source_sha256": null
+}

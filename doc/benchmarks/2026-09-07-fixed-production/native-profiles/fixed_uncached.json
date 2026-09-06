@@ -1,0 +1,47 @@
+{
+  "environment": {
+    "utc": "2026-09-06T16:31:57Z",
+    "python": "3.12.12 (main, Dec 17 2025, 21:07:08) [Clang 21.1.4 ]",
+    "platform": "macOS-26.5.1-arm64-arm-64bit",
+    "machine": "arm64",
+    "cpu": "Apple M4",
+    "physical_cores": "10",
+    "logical_cores": 10,
+    "memory_bytes": "34359738368",
+    "versions": {
+      "rexafs": "0.1.1",
+      "xraylarch": "2026.3.1",
+      "numpy": "2.5.2",
+      "scipy": "1.18.1",
+      "lmfit": "1.3.4",
+      "threadpoolctl": "3.6.0"
+    },
+    "threadpools": [
+      {
+        "user_api": "openmp",
+        "internal_api": "openmp",
+        "num_threads": 1,
+        "prefix": "libomp",
+        "filepath": "/private/tmp/rexafs-fixed-20260907/lib/python3.12/site-packages/sklearn/.dylibs/libomp.dylib",
+        "version": null
+      }
+    ],
+    "thread_environment": {
+      "OPENBLAS_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1",
+      "MKL_NUM_THREADS": "1",
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "NUMEXPR_NUM_THREADS": "1",
+      "RAYON_NUM_THREADS": "1"
+    },
+    "checkout_commit": "8d97a9419f6196aea6808f4b0adbd951663937c6",
+    "rexafs_binary_sha256": "86e352789960dbd5815d7444b1f3723e20c7e30b95c0fe5e26560f8a0a40bc64",
+    "larch_autobk_source_sha256": "b1677ab45e12a756d2c2601e6195f5fcb6c9c6937d46624a8a0dfc3b7c7aa4aa",
+    "script_sha256": "baad0b83df1f2766e7b51a569a22ea277fd6a105414e69a25dd1dd0f321b38bb"
+  },
+  "dataset": "cu",
+  "config": "fixed_uncached",
+  "setup": "standard",
+  "iterations": 31836,
+  "profile_seconds": 15
+}

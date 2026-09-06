@@ -12,16 +12,8 @@ use super::mathutils::{index_nearest_sorted, MathUtils};
 
 pub const TINY_ENERGY: f64 = 0.005;
 
-pub mod constants {
-    #![allow(non_upper_case_globals)]
-
-    pub const h: f64 = 6.62607015e-34;
-    pub const hbar: f64 = h / (2.0 * std::f64::consts::PI);
-    pub const m_e: f64 = 9.1093837015e-31;
-    pub const e: f64 = 1.602176634e-19;
-    pub const KTOE: f64 = 1.0e20 * hbar * hbar / (2.0 * m_e * e);
-    pub const ETOK: f64 = 1.0 / KTOE;
-}
+#[path = "constants.rs"]
+pub mod constants;
 
 pub trait XAFSUtils {
     fn etok(&self) -> Self;

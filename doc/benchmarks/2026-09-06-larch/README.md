@@ -1,8 +1,9 @@
 # XrayLarch and rexafs: timing, output agreement and CPU profiles
 
 Measured on 2026-09-06 with the published **rexafs 0.1.0** Python wheel and
-**XrayLarch 2026.3.1**. The plotting fix in rexafs 0.1.1 does not change the
-scientific algorithms measured here. These are measurements of specific public
+**XrayLarch 2026.3.1**. These results describe the published 0.1.0 algorithms;
+the subsequent [knot-count and clamp study](../2026-09-07-clamp-study/README.md)
+records the local 0.1.1 candidate separately. These are measurements of specific public
 API calls, not a claim that the two implementations do identical work or that
 agreement with Larch establishes scientific accuracy.
 
@@ -28,6 +29,8 @@ shared E0; these are not two unrelated out-of-the-box configurations.
   their `diagnostic--*.npz` arrays.
 - [Detailed clamping investigation](clamping-0.1.0/README.md): 78 controlled fits,
   separate scale/update/endpoint effects, and χ(k) with clamps on and off.
+- [Larch, rexafs and IFEFFIT source comparison](source-comparison.md), including
+  verified IFEFFIT 1.2.13 references and distinct parameter-count formulas.
 - [Python and native CPU profiles](profiles-0.1.0/): `.pstats`, cumulative call
   tables, native sample status, demangled native samples compressed with gzip,
   and native top-of-stack tables. Native collection succeeded for all nine runs.

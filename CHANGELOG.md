@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.1.1
+
+- Fix duplicate stationary spectra exposed during fast desktop plot pans by
+  upgrading ruviz and ruviz-gpui to 0.13.1. The adapter clears the plot interior
+  before compositing the translated preview, including transparent backgrounds.
+- Retain linked and embedded 0.1.1 project samples, saved and reopened with the
+  current writer; existing format-1 projects preserve their state.
+- Use floor when selecting the automatic AUTOBK spline parameter count. For
+  rbkg=1 and kmax=12 this selects eight parameters instead of nine. Explicit
+  parameter counts remain configurable.
+- Use a single linear solve with a configurable [fixed endpoint penalty](doc/autobk-fixed-penalty.md)
+  for new AUTOBK analyses (`clamp_lambda = 0.001`, zero disables clamping).
+  Match the study's cubic interpolation, floor cutoff, and final endpoint.
+  Expose λ in Rust, Python, JavaScript and the desktop inspector. Existing saved
+  projects retain their legacy clamp model; new projects persist the new model.
+- Update energy/k conversion to CODATA 2022 and share the constants between
+  array backends and Athena export.
+- Add reproducible [Larch/rexafs benchmark matrices and CPU profiles](doc/benchmarks/2026-09-06-larch/README.md),
+  including numerical output comparisons and controlled explanations of AUTOBK
+  and Fourier-window differences. Retain a separate [clamp study with known
+  synthetic backgrounds](doc/benchmarks/2026-09-07-clamp-study/README.md), direct
+  penalty prototypes, profiles and validation of the knot-count change.
+
 ## 0.1.0 — release preparation
 
 - Adopt **rexafs** for the Rust crate, Python import, npm package, desktop binary

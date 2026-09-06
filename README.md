@@ -72,6 +72,10 @@ npm --prefix js-rexafs test
 
 ## Spectrum API
 
+AUTOBK uses a configurable fixed endpoint penalty (`clamp_lambda = 0.001`) and
+one linear solve for new analyses. See the [clamp definition](doc/autobk-fixed-penalty.md)
+and [production comparisons](doc/benchmarks/2026-09-07-fixed-production/README.md).
+
 Each language uses the same normalization → AUTOBK → Fourier pipeline. Inputs are
 finite, equal-length arrays with strictly increasing energy in eV.
 

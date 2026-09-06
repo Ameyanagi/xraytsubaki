@@ -1,0 +1,27 @@
+{
+  "rexafs_version": "0.1.1",
+  "scipy_version": "1.18.1",
+  "larch_version": "2026.3.1",
+  "python": "3.12.12 (main, Dec 17 2025, 21:07:08) [Clang 21.1.4 ]",
+  "platform": "macOS-26.5.1-arm64-arm-64bit",
+  "threadpools": [
+    {
+      "user_api": "openmp",
+      "internal_api": "openmp",
+      "num_threads": 1,
+      "prefix": "libomp",
+      "filepath": "/private/tmp/rexafs-fixed-20260907/lib/python3.12/site-packages/sklearn/.dylibs/libomp.dylib",
+      "version": null
+    }
+  ],
+  "extension_sha256": "86e352789960dbd5815d7444b1f3723e20c7e30b95c0fe5e26560f8a0a40bc64",
+  "extension_path": "/tmp/rexafs-fixed-20260907/lib/python3.12/site-packages/rexafs/_core.cpython-312-darwin.so",
+  "script_sha256": "2cdc248cad9571b988604f5e2533f01d2820246fdf6a612a292ffb12a89694e9",
+  "head": "8d97a9419f6196aea6808f4b0adbd951663937c6",
+  "source_sha256": {
+    "crates/rexafs/src/xafs/background.rs": "9d31f4990e3170eebe68cf7ae6bf9e8e81fa0751830ef99609e695fc575fbe2b",
+    "crates/rexafs/src/xafs/background/fixed.rs": "3d83ce2d166b366cfea1d068164e21febd9a762ef760fccaa25b5b7371895e34",
+    "crates/rexafs/src/xafs/spline.rs": "13605c165a0aa3168fda4c3259ab88f11634ff2e2b1e68062524ad473f180cac",
+    "crates/rexafs/src/xafs/constants.rs": "eb47dd33dab49cc327e7c40b59e808dcae3487f4465de2fc49f4cc490a723bbb"
+  }
+}

@@ -93,3 +93,39 @@ test("browser glue initializes from bytes and matches Node", async () => {
   const spectrum = BrowserSpectrum.from_arrays(energy, mu).fft();
   verify(spectrum); spectrum.free();
 });
+
+test("fixed lambda matches the independent Larch-model reference", async () => {
+  const cases = JSON.parse(await readFile(new URL("../../crates/rexafs/tests/testfiles/autobk_fixed_reference.json", import.meta.url), "utf8"));
+  for (const data of cases) {
+    const norm = new PrePostEdge(); norm.e0 = data.settings.ek0; norm.edge_step = data.edge_step;
+    const bkg = new AUTOBK();
+    assert.equal(bkg.clamp_scale_policy, "FixedPenalty");
+    assert.equal(bkg.clamp_lambda, 0.001);
+    for (const [key, value] of Object.entries(data.settings)) bkg[key] = value;
+    const n = NormalizationMethod.PrePostEdge(norm);
+    for (const [index, lambda] of [0, 0.001, 1].entries()) {
+      bkg.clamp_lambda = lambda;
+      const b = BackgroundMethod.AUTOBK(bkg);
+      const s = new Spectrum(Float64Array.from(data.energy), Float64Array.from(data.mu))
+        .set_e0(data.settings.ek0).set_normalization_method(n).set_background_method(b).calc_background();
+      const actual = s.chi(), expected = data.chi[index];
+      assert.equal(actual.length, expected.length);
+      // Same fixed objective; absolute floor protects comparisons at zero crossings.
+      actual.forEach((value, i) => assert.ok(Math.abs(value - expected[i]) <= 1e-12 + 1e-11 * Math.abs(expected[i]), `${data.name} lambda=${lambda} chi[${i}]`));
+      s.free(); b.free();
+    }
+    norm.free(); n.free(); bkg.free();
+  }
+});
+
+test("legacy clamp mode retains the earlier native reference", async () => {
+  const previous = JSON.parse(await readFile(new URL("ru-reference-0.1.0.json", import.meta.url), "utf8"));
+  const bkg = new AUTOBK(); bkg.clamp_scale_policy = "Fixed";
+  const b = BackgroundMethod.AUTOBK(bkg);
+  const s = new Spectrum(energy, mu).set_background_method(b).fft();
+  for (const [key, values] of Object.entries(previous.samples)) {
+    const actual = s[getters[key]]();
+    [0, 20, 50, 100].forEach((j, i) => assert.ok(Math.abs(actual[j] - values[i]) < 1e-7, `${key}[${j}]`));
+  }
+  s.free(); b.free(); bkg.free();
+});

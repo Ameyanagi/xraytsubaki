@@ -2,6 +2,7 @@
 //! library auto-determine ("auto" in the UI). The fingerprint keys the
 //! processed-spectrum cache so edits invalidate exactly what they change.
 
+use rexafs::prelude::AUTOBKClampScalePolicy;
 use std::hash::{Hash, Hasher};
 
 use rexafs::prelude::*;
@@ -519,6 +520,11 @@ pub struct PipelineParams {
     pub bkg_kweight: Option<i32>,
     pub bkg_clamp_lo: Option<i32>,
     pub bkg_clamp_hi: Option<i32>,
+    /// Missing fields in v1 projects retain the historical clamp model.
+    #[serde(default = "legacy_bkg_clamp_policy")]
+    pub bkg_clamp_policy: AUTOBKClampScalePolicy,
+    /// None selects the fixed penalty default (0.001); zero disables it.
+    pub bkg_clamp_lambda: Option<f64>,
     pub bkg_window: Option<FTWindow>,
     pub bkg_dk: Option<f64>,
     pub bkg_solver: Option<AUTOBKSolver>,
@@ -572,7 +578,18 @@ pub const AUTOBK_SOLVERS: [AUTOBKSolver; 3] = [
     AUTOBKSolver::LegacyLm,
 ];
 
+fn legacy_bkg_clamp_policy() -> AUTOBKClampScalePolicy {
+    AUTOBKClampScalePolicy::Fixed
+}
+
 impl PipelineParams {
+    pub fn legacy_defaults() -> Self {
+        Self {
+            bkg_clamp_policy: legacy_bkg_clamp_policy(),
+            ..Self::default()
+        }
+    }
+
     /// Fingerprint of the import + alignment settings only: two parameter
     /// sets with the same raw fingerprint read the same (energy, mu) from a
     /// file, so the raw arrays can be cached across pipeline-only edits.
@@ -608,6 +625,7 @@ impl PipelineParams {
             self.bkg_kmax,
             self.bkg_kstep,
             self.bkg_dk,
+            self.bkg_clamp_lambda,
             self.fft_kmin,
             self.fft_kmax,
             self.fft_dk,
@@ -638,6 +656,7 @@ impl PipelineParams {
             self.bkg_window, self.bkg_solver, self.fft_window, self.bft_window
         )
         .hash(&mut hasher);
+        format!("{:?}", self.bkg_clamp_policy).hash(&mut hasher);
         hasher.finish()
     }
 }
@@ -833,6 +852,8 @@ pub fn process_arrays(
     if params.bkg_clamp_hi.is_some() {
         autobk.clamp_hi = params.bkg_clamp_hi;
     }
+    autobk.clamp_scale_policy = Some(params.bkg_clamp_policy);
+    autobk.clamp_lambda = params.bkg_clamp_lambda;
     if let Some(window) = params.bkg_window {
         autobk.window = window;
     }

@@ -48,16 +48,13 @@ use nalgebra::DVector;
 use crate::xafs::background::{BackgroundMethod, AUTOBK};
 use crate::xafs::errors::{DataError, IOError};
 use crate::xafs::normalization::{NormalizationMethod, PrePostEdge};
-use crate::xafs::xafsutils::FTWindow;
+use crate::xafs::xafsutils::{constants::ETOK, FTWindow};
 use crate::xafs::xasspectrum::XASSpectrum;
 use crate::xafs::xrayfft::{XrayFFTF, XrayFFTR};
 use crate::xafs::XAFSError;
 
 /// Demeter version written in the header of files we create.
 pub const DEFAULT_DEMETER_VERSION: &str = "0.9.26";
-
-/// `k = sqrt(ETOK * (E - E0))`, same constant as Larch/Ifeffit.
-const ETOK: f64 = 0.262_468_291_7;
 
 // ---------------------------------------------------------------------------
 // Raw values

@@ -167,6 +167,14 @@ impl WasmAUTOBK {
         self.inner.clamp_hi = value;
     }
     #[wasm_bindgen(getter)]
+    pub fn clamp_lambda(&self) -> Option<f64> {
+        self.inner.clamp_lambda
+    }
+    #[wasm_bindgen(setter)]
+    pub fn set_clamp_lambda(&mut self, value: Option<f64>) {
+        self.inner.clamp_lambda = value;
+    }
+    #[wasm_bindgen(getter)]
     pub fn nfft(&self) -> Option<i32> {
         self.inner.nfft
     }
@@ -296,6 +304,7 @@ impl WasmAUTOBK {
     pub fn set_clamp_scale_policy(&mut self, value: Option<String>) -> Result<(), JsValue> {
         let parsed = match value.as_deref() {
             None => None,
+            Some("FixedPenalty") => Some(rexafs::prelude::AUTOBKClampScalePolicy::FixedPenalty),
             Some("Fixed") => Some(rexafs::prelude::AUTOBKClampScalePolicy::Fixed),
             Some("TwoPass") => Some(rexafs::prelude::AUTOBKClampScalePolicy::TwoPass),
             Some(value) => {

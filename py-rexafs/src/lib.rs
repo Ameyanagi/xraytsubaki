@@ -194,6 +194,14 @@ impl PyAUTOBK {
         self.inner.clamp_hi = value;
     }
     #[getter]
+    fn clamp_lambda(&self) -> Option<f64> {
+        self.inner.clamp_lambda
+    }
+    #[setter]
+    fn set_clamp_lambda(&mut self, value: Option<f64>) {
+        self.inner.clamp_lambda = value;
+    }
+    #[getter]
     fn nfft(&self) -> Option<i32> {
         self.inner.nfft
     }
@@ -329,6 +337,7 @@ impl PyAUTOBK {
     fn set_clamp_scale_policy(&mut self, value: Option<String>) -> PyResult<()> {
         let parsed = match value.as_deref() {
             None => None,
+            Some("FixedPenalty") => Some(rexafs::prelude::AUTOBKClampScalePolicy::FixedPenalty),
             Some("Fixed") => Some(rexafs::prelude::AUTOBKClampScalePolicy::Fixed),
             Some("TwoPass") => Some(rexafs::prelude::AUTOBKClampScalePolicy::TwoPass),
             Some(value) => {

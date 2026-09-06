@@ -38,6 +38,11 @@ use super::xafsutils::FTWindow;
 use super::xrayfft::{FFTUtils, XFFTReverse, XFFT};
 use super::{xafsutils, xrayfft};
 
+mod fixed;
+
+/// Weak, constant endpoint penalty for the mean-square fixed AUTOBK objective.
+pub const DEFAULT_CLAMP_LAMBDA: f64 = 0.001;
+
 const DEFAULT_LINEAR_REGULARIZATION: f64 = 1.0e-4;
 const DEFAULT_LINEAR_CONDITION_LIMIT: f64 = 1.0e8;
 const DEFAULT_LINEAR_RESIDUAL_RATIO_LIMIT: f64 = 1.05;
@@ -60,10 +65,18 @@ fn default_autobk_fallback_solver() -> AUTOBKSolver {
     AUTOBKSolver::LegacyLm
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum AUTOBKClampScalePolicy {
+    /// One linear solve of mean(low-R residual²) + lambda * mean(active endpoint χ²).
+    #[default]
+    FixedPenalty,
+    /// Legacy scale frozen from the initial spline, with ridge retries/fallback.
     Fixed,
     TwoPass,
+}
+
+fn legacy_clamp_policy() -> Option<AUTOBKClampScalePolicy> {
+    Some(AUTOBKClampScalePolicy::Fixed)
 }
 
 #[derive(Debug, Clone)]
@@ -178,15 +191,20 @@ pub struct AUTOBK {
     pub dk: Option<f64>,
     /// Solver backend for AUTOBK spline optimization.
     pub solver: Option<AUTOBKSolver>,
-    /// Clamp scaling policy used by direct solver.
+    /// Clamp model. FixedPenalty requires LinearDirect; Fixed and TwoPass select legacy behavior.
+    #[serde(default = "legacy_clamp_policy")]
     pub clamp_scale_policy: Option<AUTOBKClampScalePolicy>,
-    /// Ridge (Tikhonov) regularization magnitude for the direct solver's augmented least-squares system.
+    /// FixedPenalty strength (LinearDirect only). Default = 0.001; zero disables
+    /// endpoint penalties. Must be finite and nonnegative. No dynamic rescaling.
+    pub clamp_lambda: Option<f64>,
+    /// Ridge magnitude for legacy Fixed/TwoPass direct solves; unused by FixedPenalty.
     pub linear_regularization: Option<f64>,
     /// Condition proxy threshold used to reject unstable direct solves.
     pub linear_condition_limit: Option<f64>,
-    /// Maximum accepted solved/base residual norm ratio for direct solver.
+    /// Maximum solved/base residual norm ratio for legacy Fixed/TwoPass direct solves.
     pub linear_residual_ratio_limit: Option<f64>,
-    /// Deprecated name: if true, direct-solver failures fall back to `linear_fallback_solver`.
+    /// Legacy Fixed/TwoPass only: if true, failures fall back to `linear_fallback_solver`.
+    /// FixedPenalty always returns a failed solve as an error.
     pub linear_fallback_to_lm: Option<bool>,
     /// Nonlinear solver used when the direct linear solver is rejected. Default = TrustRegionDogLeg
     /// when the `trust-region` feature is enabled, LegacyLm otherwise.
@@ -222,7 +240,8 @@ impl Default for AUTOBK {
             window: FTWindow::Hanning,
             dk: Some(0.1),
             solver: Some(AUTOBKSolver::LinearDirect),
-            clamp_scale_policy: Some(AUTOBKClampScalePolicy::Fixed),
+            clamp_scale_policy: Some(AUTOBKClampScalePolicy::FixedPenalty),
+            clamp_lambda: Some(DEFAULT_CLAMP_LAMBDA),
             linear_regularization: Some(DEFAULT_LINEAR_REGULARIZATION),
             linear_condition_limit: Some(DEFAULT_LINEAR_CONDITION_LIMIT),
             linear_residual_ratio_limit: Some(DEFAULT_LINEAR_RESIDUAL_RATIO_LIMIT),
@@ -286,7 +305,11 @@ impl AUTOBK {
         }
 
         if self.clamp_scale_policy.is_none() {
-            self.clamp_scale_policy = Some(AUTOBKClampScalePolicy::Fixed);
+            self.clamp_scale_policy = Some(AUTOBKClampScalePolicy::FixedPenalty);
+        }
+
+        if self.clamp_lambda.is_none() {
+            self.clamp_lambda = Some(DEFAULT_CLAMP_LAMBDA);
         }
 
         if self.linear_regularization.is_none() {
@@ -579,6 +602,15 @@ impl AUTOBK {
         // Fill in default values for parameters that are not set
         self.fill_parameter()?;
         Self::validate_input_vectors(energy, mu)?;
+        let fixed_penalty = self.clamp_scale_policy == Some(AUTOBKClampScalePolicy::FixedPenalty);
+        if fixed_penalty {
+            if self.solver != Some(AUTOBKSolver::LinearDirect) {
+                return Err(BackgroundError::DirectSolverFailed {
+                    reason: "FixedPenalty requires LinearDirect; select Fixed or TwoPass for legacy solvers".into(),
+                });
+            }
+            fixed::validate(self)?;
+        }
 
         let rbkg = self.rbkg.ok_or_else(|| DataError::MissingData {
             field: "rbkg".to_string(),
@@ -676,7 +708,16 @@ impl AUTOBK {
                 message: format!("edge_step is not finite: {}", edge_step),
             });
         }
-        let edge_step = edge_step.max(1.0e-12);
+        if fixed_penalty && edge_step <= 0.0 {
+            return Err(BackgroundError::Other {
+                message: "FixedPenalty requires a positive edge step".into(),
+            });
+        }
+        let edge_step = if fixed_penalty {
+            edge_step
+        } else {
+            edge_step.max(1.0e-12)
+        };
         // Rbkg Algorithm
         let energy_slice = energy.as_slice();
         let iek0 = mathutils::index_of_sorted(energy_slice, &ek0)?;
@@ -747,9 +788,13 @@ impl AUTOBK {
                 Some(self.window),
             )?);
 
-        let mut nspl = 1 + (2.0 * rbkg * (kmax - kmin) / std::f64::consts::PI).round() as i32;
-        let irbkg = (1.0 + (nspl - 1) as f64 * std::f64::consts::PI / (2.0 * rgrid * (kmax - kmin)))
-            .round() as i32;
+        let mut nspl = 1 + (2.0 * rbkg * (kmax - kmin) / std::f64::consts::PI).floor() as i32;
+        let cutoff = 1.0 + (nspl - 1) as f64 * std::f64::consts::PI / (2.0 * rgrid * (kmax - kmin));
+        let irbkg = if fixed_penalty {
+            cutoff.floor()
+        } else {
+            cutoff.round()
+        } as i32;
 
         if let Some(nknots) = self.nknots {
             nspl = nknots;
@@ -773,13 +818,26 @@ impl AUTOBK {
         let order = 3;
         // Validate knot-domain construction used for AUTOBK bounds reasoning.
         let _knot_domain = Self::build_knot_domain(&spl_k, order)?;
-        let (knots, coefs) = spline::interpolate(spl_k.as_slice(), spl_y.as_slice(), order)
-            .map_err(|message| BackgroundError::Other { message })?;
+        let (knots, coefs) = if fixed_penalty {
+            let knots = spline::cubic_knots(spl_k.as_slice())
+                .map_err(|message| BackgroundError::Other { message })?;
+            (knots, vec![0.0; nspl as usize])
+        } else {
+            spline::interpolate(spl_k.as_slice(), spl_y.as_slice(), order)
+                .map_err(|message| BackgroundError::Other { message })?
+        };
 
         // Calculate the mu interpolated to the k grid
         let kraw_fit = kraw.rows(0, iemax - iek0 + 1).into_owned();
         let mu_fit = mu.rows(iek0, iemax - iek0 + 1).into_owned();
-        let mu_out = kout.interpolate(kraw_fit.as_slice(), mu_fit.as_slice())?;
+        let mu_out = if fixed_penalty {
+            DVector::from_vec(
+                spline::cubic_resample(kraw_fit.as_slice(), mu_fit.as_slice(), kout.as_slice())
+                    .map_err(|message| BackgroundError::Other { message })?,
+            ) / edge_step
+        } else {
+            kout.interpolate(kraw_fit.as_slice(), mu_fit.as_slice())?
+        };
 
         // Built once here rather than on every LM iteration: the basis depends
         // only on knots, order and evaluation points, all fixed for the
@@ -818,6 +876,19 @@ impl AUTOBK {
             kstep,
             ..Default::default()
         };
+
+        if fixed_penalty {
+            let (bkg, chi) = fixed::solve(&spline_opt, self)?;
+            let mut obkg = mu.clone();
+            for (i, value) in bkg.iter().enumerate() {
+                obkg[iek0 + i] = value * edge_step;
+            }
+            self.chie = Some((mu - &obkg) / edge_step);
+            self.bkg = Some(obkg);
+            self.k = Some(kout);
+            self.chi = Some(chi);
+            return Ok(self);
+        }
 
         let fit_result = self.solve_spline_problem(spline_opt)?;
 
@@ -1689,6 +1760,43 @@ mod tests {
     }
 
     #[test]
+    fn test_autobk_automatic_knots_change_at_integer_boundary() -> Result<(), Box<dyn Error>> {
+        let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
+        let mut spectrum = io::load_spectrum_QAS_trans(&path)?;
+        spectrum
+            .set_normalization_method(Some(normalization::NormalizationMethod::PrePostEdge(
+                PrePostEdge::new(),
+            )))?
+            .normalize()?;
+        let energy = spectrum.energy.as_ref().unwrap();
+        let mu = spectrum.mu.as_ref().unwrap();
+
+        // At rbkg=1, the ninth spline parameter is allowed only after
+        // kmax crosses 4*pi. Compare actual fits to explicit knot counts,
+        // including the common kmax=12 case that rounding handled differently.
+        for (kmax, expected_knots) in [(12.0, 8), (12.565, 8), (12.568, 9)] {
+            let mut automatic = AUTOBK::new();
+            automatic.rbkg = Some(1.0);
+            automatic.kmin = Some(0.0);
+            automatic.kmax = Some(kmax);
+            automatic.nclamp = Some(0);
+            automatic.linear_fallback_to_lm = Some(false);
+            let mut explicit = automatic.clone();
+            explicit.nknots = Some(expected_knots);
+
+            automatic.calc_background(energy, mu, &mut spectrum.normalization.clone())?;
+            explicit.calc_background(energy, mu, &mut spectrum.normalization.clone())?;
+            let actual = automatic.get_chi().unwrap();
+            let expected = explicit.get_chi().unwrap();
+            assert_eq!(actual.len(), expected.len());
+            for (actual, expected) in actual.iter().zip(expected.iter()) {
+                assert_abs_diff_eq!(actual, expected, epsilon = 1.0e-12);
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
     fn test_autobk_direct_solver_parity_with_legacy_lm() -> Result<(), Box<dyn Error>> {
         let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
         let mut spectrum = io::load_spectrum_QAS_trans(&path)?;
@@ -1707,6 +1815,7 @@ mod tests {
 
         let mut legacy = AUTOBK::new();
         legacy.solver = Some(AUTOBKSolver::LegacyLm);
+        legacy.clamp_scale_policy = Some(AUTOBKClampScalePolicy::Fixed);
         legacy.calc_background(&energy, &mu, &mut legacy_norm)?;
 
         let mut direct = AUTOBK::new();
@@ -1749,10 +1858,12 @@ mod tests {
 
         let mut legacy = AUTOBK::new();
         legacy.solver = Some(AUTOBKSolver::LegacyLm);
+        legacy.clamp_scale_policy = Some(AUTOBKClampScalePolicy::Fixed);
         legacy.calc_background(&energy, &mu, &mut legacy_norm)?;
 
         let mut trust_region = AUTOBK::new();
         trust_region.solver = Some(AUTOBKSolver::TrustRegionDogLeg);
+        trust_region.clamp_scale_policy = Some(AUTOBKClampScalePolicy::Fixed);
         trust_region.calc_background(&energy, &mu, &mut trust_region_norm)?;
 
         let legacy_chi = legacy.get_chi().unwrap();
@@ -1787,6 +1898,7 @@ mod tests {
         let mut normalization = spectrum.normalization.clone();
 
         let mut autobk = AUTOBK::new();
+        autobk.clamp_scale_policy = Some(AUTOBKClampScalePolicy::Fixed);
         autobk.solver = Some(AUTOBKSolver::LinearDirect);
         autobk.linear_condition_limit = Some(1.0);
         autobk.linear_fallback_to_lm = Some(true);
@@ -1811,6 +1923,7 @@ mod tests {
         let mut normalization = spectrum.normalization.clone();
 
         let mut autobk = AUTOBK::new();
+        autobk.clamp_scale_policy = Some(AUTOBKClampScalePolicy::Fixed);
         autobk.solver = Some(AUTOBKSolver::LinearDirect);
         autobk.linear_condition_limit = Some(1.0);
         autobk.linear_fallback_to_lm = Some(true);

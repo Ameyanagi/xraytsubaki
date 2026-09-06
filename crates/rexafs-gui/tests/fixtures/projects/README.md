@@ -9,6 +9,7 @@ are not supported or retained as compatibility fixtures.
 | `format-v1-defaults.json` | Frozen meaning of omitted format-1 fields; additive fields may be introduced without changing existing defaults |
 | `rexafs-0.1.0-links.rxs` | Relative sources, metadata, overrides, bounds, derived data, joint assignments, history and publication settings/captions |
 | `rexafs-0.1.0-embedded.rxs` | The same state with compressed originals and duplicate-payload deduplication |
+| `rexafs-0.1.1-links.rxs`, `rexafs-0.1.1-embedded.rxs` | Saved and reopened through the 0.1.1 writer from the 0.1.0 linked fixture; same format and complete state in both storage modes |
 | `future-version.rxs` | Future format: reject without modification |
 | `truncated.rxs` | Corrupt/incomplete input: reject without modification |
 | `data/*.xmu`, `feff/*.dat` | Real inputs for relocation, byte recovery and processing checks |

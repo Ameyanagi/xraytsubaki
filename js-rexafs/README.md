@@ -50,3 +50,9 @@ npm pack
 The package includes Node and browser Wasm/glue and TypeScript declarations.
 There is no native filesystem, FEFF subprocess, structure-download or fitting API
 in this binding. Licensed under MIT OR Apache-2.0.
+
+New AUTOBK objects use a single linear solve with `clamp_lambda = 0.001`.
+Set `clamp_lambda` to `0` to disable the endpoint penalty. The low-end weight
+is `clamp_lo = 0`, the high-end weight is `clamp_hi = 1`, and `nclamp = 3`.
+The `FixedPenalty` model does not add a separate ridge penalty on coefficients.
+See the [full definition](../doc/autobk-fixed-penalty.md).

@@ -481,7 +481,7 @@ impl StudioApp {
             )
             .child(action("undo", "↶", |this, cx| this.undo(cx)))
             .child(action("redo", "↷", |this, cx| this.redo(cx)))
-            .child(action("open-folder", "Open folder…", |this, cx| {
+            .child(action("open-folder", "Import…", |this, cx| {
                 this.open_folder(cx)
             }))
             .child(action("open-project", "Open project…", |this, cx| {

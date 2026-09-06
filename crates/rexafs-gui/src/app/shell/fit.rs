@@ -778,9 +778,7 @@ impl StudioApp {
 
     pub(super) fn fit_settings_section(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
-        let resolved = self
-            .fit_ranges
-            .resolved(self.joint_params(&self.current_path).fft_kweight);
+        let resolved = self.fit_ranges.resolved(self.ui_params().fft_kweight);
         let r = &resolved;
         let mut rows: Vec<gpui::AnyElement> = Vec::new();
         let floor = self.fit_background_floor(None);
@@ -818,17 +816,13 @@ impl StudioApp {
                             } else {
                                 "☐"
                             },
-                            self.joint_params(&self.current_path)
-                                .fft_kweight
-                                .unwrap_or(2.)
+                            self.ui_params().fft_kweight.unwrap_or(2.)
                         ),
                         self.fit_ranges.follow_transform,
                     )
                     .on_click(cx.listener(|this, _, _, cx| {
                         let follow = !this.fit_ranges.follow_transform;
-                        this.fit_ranges = this
-                            .fit_ranges
-                            .resolved(this.joint_params(&this.current_path).fft_kweight);
+                        this.fit_ranges = this.fit_ranges.resolved(this.ui_params().fft_kweight);
                         this.fit_ranges.follow_transform = follow;
                         this.fit_model_changed(cx);
                     })),
@@ -875,9 +869,7 @@ impl StudioApp {
                             .hover(|d| d.bg(t.raised))
                     })
                     .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
-                        this.fit_ranges = this
-                            .fit_ranges
-                            .resolved(this.joint_params(&this.current_path).fft_kweight);
+                        this.fit_ranges = this.fit_ranges.resolved(this.ui_params().fft_kweight);
                         this.fit_ranges.toggle_kweight(kw);
                         let plot_kw = this.fit_ranges.kweight;
                         if !this.fit_ranges.kweights.contains(&plot_kw) {

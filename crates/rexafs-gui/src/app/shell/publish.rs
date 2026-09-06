@@ -35,42 +35,78 @@ impl PublishState {
 }
 impl StudioApp {
     pub(crate) fn analysis_snapshot(&self) -> Snapshot {
+        let mut indices = self.selection.clone();
+        indices.extend(self.selected);
         let mut paths = std::collections::BTreeSet::new();
-        if !self.current_path.as_os_str().is_empty() {
+        let mut missing = Vec::new();
+        if !self.selected.is_some_and(|ix| ix >= DERIVED_BASE)
+            && !self.current_path.as_os_str().is_empty()
+        {
             paths.insert(self.current_path.clone());
         }
-        paths.extend(self.joint.config.datasets.iter().map(|d| d.file.clone()));
+        for dataset in &self.joint.config.datasets {
+            if let Some(id) = dataset.group_id {
+                if let Some(i) = self.derived.iter().position(|d| d.id == id) {
+                    indices.insert(DERIVED_BASE + i);
+                } else {
+                    missing.push(SpectrumInput {
+                        label: dataset.label.clone(),
+                        path: dataset.file.clone(),
+                        source_error: Some(format!(
+                            "{}: source group {id} is missing.",
+                            dataset.label
+                        )),
+                        ..Default::default()
+                    });
+                }
+            } else {
+                paths.insert(dataset.file.clone());
+            }
+        }
         paths.extend(
-            self.selection
+            indices
                 .iter()
-                .filter(|&&ix| ix < self.catalog.len() && ix < DERIVED_BASE)
+                .filter(|&&ix| ix < self.catalog.len())
                 .map(|&ix| self.catalog.path(ix)),
         );
         let mut spectra: Vec<_> = paths
             .into_iter()
-            .map(|path| {
-                let params = self.joint_params(&path);
-                SpectrumInput {
-                    path,
-                    params,
-                    data: None,
-                }
+            .map(|path| SpectrumInput {
+                params: self.joint_params(&path),
+                path,
+                ..Default::default()
             })
             .collect();
-        // Keep the active spectrum first, including a derived spectrum's actual arrays.
         spectra.sort_by_key(|s| s.path != self.current_path);
-        if self.selected.is_some_and(|ix| ix >= DERIVED_BASE) {
-            if let Some(sp) = &self.spectrum {
-                spectra.insert(
-                    0,
-                    SpectrumInput {
-                        path: self.spectrum_path.clone(),
-                        params: self.ui_params().clone(),
-                        data: Some(sp.clone()),
-                    },
-                );
-            }
+        let mut additional: Vec<_> = indices
+            .into_iter()
+            .filter(|&ix| ix >= DERIVED_BASE && self.valid_group_index(ix))
+            .collect();
+        additional.sort_by_key(|&ix| Some(ix) != self.selected);
+        for ix in additional.into_iter().rev() {
+            let group = self.derived[ix - DERIVED_BASE].clone();
+            spectra.insert(
+                0,
+                SpectrumInput {
+                    path: group.source.clone().unwrap_or_default(),
+                    label: self.entry_label(ix),
+                    params: self.effective_params(ix).clone(),
+                    group: Some(group),
+                    data: None,
+                    source_error: None,
+                },
+            );
         }
+        let active_group = self
+            .selected
+            .filter(|&ix| ix >= DERIVED_BASE)
+            .and_then(|ix| self.derived.get(ix - DERIVED_BASE))
+            .map(|d| d.id);
+        spectra.sort_by_key(|s| {
+            !(s.group.as_ref().map(|d| d.id) == active_group
+                && (active_group.is_some() || s.path == self.current_path))
+        });
+        spectra.extend(missing);
         let mut results = self.fit_history_results.clone();
         if let Some(r) = &self.fit_result {
             if !results.values().any(|v| std::sync::Arc::ptr_eq(v, r)) {

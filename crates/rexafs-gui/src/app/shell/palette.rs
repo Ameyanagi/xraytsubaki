@@ -106,7 +106,7 @@ impl StudioApp {
             ),
             ("Save project…", "file", "", PaletteCmd::SaveProject),
             ("Open project…", "file", "", PaletteCmd::OpenProject),
-            ("Open folder…", "file", "", PaletteCmd::OpenFolder),
+            ("Import…", "file", "", PaletteCmd::OpenFolder),
             ("Toggle theme", "view", "", PaletteCmd::Theme),
             ("Undo", "edit", "⌘Z", PaletteCmd::Undo),
             ("Redo", "edit", "⇧⌘Z", PaletteCmd::Redo),

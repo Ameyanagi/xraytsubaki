@@ -174,6 +174,7 @@ pub struct ScanGroup {
 pub struct Catalog {
     dirs: Vec<Arc<str>>,
     dir_ids: HashMap<Arc<str>, u32>,
+    directory_runs: Vec<Vec<usize>>,
     entries: Arc<Vec<EntryMeta>>,
     sealed_names: Vec<Arc<[Box<str>]>>,
     tail_names: Vec<Box<str>>,
@@ -197,11 +198,13 @@ impl Catalog {
                 None => {
                     let id = self.dirs.len() as u32;
                     self.dirs.push(file.dir.clone());
+                    self.directory_runs.push(Vec::new());
                     self.dir_ids.insert(file.dir, id);
                     id
                 }
             };
             let ix = self.entries.len();
+            let continues_sorted_run = ix > 0 && self.name(ix - 1) < file.name.as_ref();
             Arc::make_mut(&mut self.entries).push(EntryMeta {
                 dir: dir_id,
                 size: file.size,
@@ -212,8 +215,9 @@ impl Catalog {
                     .push(std::mem::take(&mut self.tail_names).into());
             }
             match self.scans.last_mut() {
-                Some(scan) if scan.dir == dir_id => scan.len += 1,
+                Some(scan) if scan.dir == dir_id && continues_sorted_run => scan.len += 1,
                 _ => {
+                    self.directory_runs[dir_id as usize].push(self.scans.len());
                     let dir_path = &self.dirs[dir_id as usize];
                     let label = std::path::Path::new(&**dir_path)
                         .file_name()
@@ -261,11 +265,33 @@ impl Catalog {
                 .get(canonical.to_string_lossy().as_ref())
                 .copied()
         })?;
-        self.scans
+        self.find_in_directory(dir_id, &name)
+    }
+
+    /// Scanner paths are already canonical, so deduplication needs no disk I/O.
+    pub fn find_by_canonical_path(&self, path: &Path) -> Option<usize> {
+        let dir_id = *self
+            .dir_ids
+            .get(path.parent()?.to_string_lossy().as_ref())?;
+        self.find_in_directory(dir_id, &path.file_name()?.to_string_lossy())
+    }
+
+    fn find_in_directory(&self, dir_id: u32, name: &str) -> Option<usize> {
+        self.directory_runs[dir_id as usize]
             .iter()
-            .filter(|scan| scan.dir == dir_id)
-            .flat_map(|scan| scan.start..scan.start + scan.len)
-            .find(|&ix| self.name(ix) == name)
+            .map(|&i| &self.scans[i])
+            .find_map(|scan| {
+                let (mut lo, mut hi) = (scan.start, scan.start + scan.len);
+                while lo < hi {
+                    let mid = lo + (hi - lo) / 2;
+                    match self.name(mid).cmp(name) {
+                        std::cmp::Ordering::Less => lo = mid + 1,
+                        std::cmp::Ordering::Greater => hi = mid,
+                        std::cmp::Ordering::Equal => return Some(mid),
+                    }
+                }
+                None
+            })
     }
 
     pub fn names_snapshot(&self) -> NameSnapshot {
@@ -510,6 +536,39 @@ mod tests {
             name: name.into(),
             size: 0,
         }
+    }
+
+    #[test]
+    fn append_preserves_indices_and_finds_files_across_sorted_runs() {
+        let mut catalog = Catalog::default();
+        let dir: Arc<str> = Arc::from("/catalog-append-test");
+        catalog.extend(
+            (0..NAME_CHUNK + 2)
+                .map(|i| meta(&dir, &format!("scan-{i:06}.dat")))
+                .collect(),
+        );
+        assert_eq!(
+            catalog.scans.len(),
+            1,
+            "name chunk boundaries must not split a series"
+        );
+        catalog.extend(vec![meta(&dir, "earlier.dat"), meta(&dir, "later.dat")]);
+        for (name, expected) in [
+            ("scan-000000.dat", 0),
+            ("scan-004097.dat", 4097),
+            ("earlier.dat", 4098),
+            ("later.dat", 4099),
+        ] {
+            assert_eq!(
+                catalog.find_by_path(&Path::new(dir.as_ref()).join(name)),
+                Some(expected)
+            );
+        }
+        assert!(
+            catalog
+                .find_by_path(&Path::new(dir.as_ref()).join("missing.dat"))
+                .is_none()
+        );
     }
 
     #[test]

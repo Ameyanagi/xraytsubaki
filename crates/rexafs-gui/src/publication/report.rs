@@ -200,15 +200,7 @@ impl Snapshot {
             tables.push(Table::new(
                 tables.len() + 1,
                 "processing",
-                format!(
-                    "Spectrum {}: {}",
-                    index + 1,
-                    spectrum
-                        .path
-                        .file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                ),
+                format!("Spectrum {}: {}", index + 1, spectrum.label()),
                 settings,
                 &["Setting", "Unit", "Requested", "Used"],
                 rows,
@@ -349,6 +341,9 @@ mod tests {
             project,
             current: "Cu.xmu".into(),
             spectra: vec![SpectrumInput {
+                source_error: None,
+                label: String::new(),
+                group: None,
                 path: "Cu.xmu".into(),
                 params: PipelineParams::default(),
                 data: None,

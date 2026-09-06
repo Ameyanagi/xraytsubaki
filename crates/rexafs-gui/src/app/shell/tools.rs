@@ -572,6 +572,9 @@ impl StudioApp {
                     label: label.clone(),
                     energy: energy.iter().copied().collect(),
                     mu: mu.iter().copied().collect(),
+                    id: self.next_group_id(),
+                    params: Some(self.ui_params().clone()),
+                    ..Default::default()
                 };
                 self.record(
                     format!("tool: {label}"),

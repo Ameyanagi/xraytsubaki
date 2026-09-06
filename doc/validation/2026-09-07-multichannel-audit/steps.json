@@ -1,0 +1,182 @@
+[
+  {
+    "screenshot": "01-existing-project.png",
+    "note": "Existing three-file project reopened before appending.",
+    "time": "2026-09-06T20:02:50.422Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "02-multi-file-folder-picker.png",
+    "note": "Native picker selects two spectrum files and one folder in a single import.",
+    "time": "2026-09-06T20:03:16.733Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"Open\".\nThe focused UI element is 47 outline Description: list view, ID: ListView"
+  },
+  {
+    "screenshot": "03-append-result.png",
+    "note": "After one mixed-selection import: previous files and active spectrum are retained; named QAS reference appears as an additional group.",
+    "time": "2026-09-06T20:03:25.741Z",
+    "accessibility": "The following is a diff from the previous accessibility tree for Window: \"rexafs\" with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 9-95\n~7 standard window rexafs, Secondary Actions: Raise\n~\t8 close button\n+\t9 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n+\t10 minimize button\n+\t11 text rexafs\nThe focused UI element is 7 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "04-reference-background.png",
+    "note": "Reference channel selected independently; inspect its background parameters before changing Rbkg.",
+    "time": "2026-09-06T20:03:52.619Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 7 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "05-reference-rbkg-override.png",
+    "note": "Reference Rbkg changed to 1.3 \u00c5 as a per-channel override.",
+    "time": "2026-09-06T20:04:03.150Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 7 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "06-sample-unchanged.png",
+    "note": "Primary spectrum from the same QAS file retains Auto Rbkg = 1.0 \u00c5 after editing the reference to 1.3 \u00c5.",
+    "time": "2026-09-06T20:04:12.430Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 7 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "07-available-channels.png",
+    "note": "Inspect available additional channels for the primary QAS spectrum.",
+    "time": "2026-09-06T20:04:13.578Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 7 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "08-fluorescence-added.png",
+    "note": "Add fluorescence as a third independently processed channel from the same QAS file.",
+    "time": "2026-09-06T20:04:24.800Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 7 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "09-publish-extra-channels.png",
+    "note": "Publish with reference and fluorescence marked, including channels other than the active spectrum.",
+    "time": "2026-09-06T20:04:27.327Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 7 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "10-flattened-fluorescence.png",
+    "note": "Flattened fluorescence spectrum is separately selectable in Publish.",
+    "time": "2026-09-06T20:04:43.027Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 7 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "11-channel-bundle-exported.png",
+    "note": "Export completed: verified 12 figures (six per marked channel), each with PNG/SVG/CSV and separate group identity; both flattened spectra are present.",
+    "time": "2026-09-06T20:05:47.975Z",
+    "accessibility": "The following is a diff from the previous accessibility tree for Window: \"rexafs\" with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 9-18\n~7 standard window rexafs, Secondary Actions: Raise\n~\t8 close button\n+\t9 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n+\t10 minimize button\n+\t11 text rexafs\nThe focused UI element is 7 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "12-project-saved.png",
+    "note": "Saved the six-file/two-additional-channel session with fluorescence active and reference Rbkg 1.3 \u00c5.",
+    "time": "2026-09-06T20:06:05.927Z",
+    "accessibility": "The following is a diff from the previous accessibility tree for Window: \"rexafs\" with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 9-18\n~7 standard window rexafs, Secondary Actions: Raise\n~\t8 close button\n+\t9 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n+\t10 minimize button\n+\t11 text rexafs\nThe focused UI element is 7 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "13-project-reopened.png",
+    "note": "Reopened saved project; verify all six source files and both additional channels survive, with fluorescence selected.",
+    "time": "2026-09-06T20:06:47.185Z",
+    "accessibility": "The following is a diff from the previous accessibility tree for Window: \"rexafs\" with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 9-85\n~7 standard window rexafs, Secondary Actions: Raise\n~\t8 close button\n+\t9 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n+\t10 minimize button\n+\t11 text rexafs\nThe focused UI element is 7 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "14-reference-restored.png",
+    "note": "Reference channel after reopen retains its independent Rbkg 1.3 \u00c5.",
+    "time": "2026-09-06T20:06:49.988Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 7 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "15-duplicate-import.png",
+    "note": "Repeating the same multi-file/folder import adds zero files and zero channels, preserving the active reference and its Rbkg override.",
+    "time": "2026-09-06T20:07:29.721Z",
+    "accessibility": "The following is a diff from the previous accessibility tree for Window: \"rexafs\" with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 9-95\n~7 standard window rexafs, Secondary Actions: Raise\n~\t8 close button\n+\t9 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n+\t10 minimize button\n+\t11 text rexafs\nThe focused UI element is 7 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "16-joint-fit-channel-setup.png",
+    "note": "Prepare a joint fit using the two marked channels from one file.",
+    "time": "2026-09-06T20:07:32.240Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 7 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "17-joint-fit-controls.png",
+    "note": "Fit model controls for the reference channel, before enabling multi-spectrum fitting.",
+    "time": "2026-09-06T20:07:40.151Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 7 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "18-joint-reference-added.png",
+    "note": "Enabling multi-spectrum fit adds the active reference channel by stable group identity.",
+    "time": "2026-09-06T20:07:47.694Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 7 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "19-joint-two-channels.png",
+    "note": "Add marked channels: same source file now yields two separate joint-fit datasets. Reference floor is 1.3 \u00c5.",
+    "time": "2026-09-06T20:07:55.437Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 7 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "20-joint-reference-floor.png",
+    "note": "Reference dataset rejects R min 1.2 \u00c5 because its Rbkg is 1.3 \u00c5.",
+    "time": "2026-09-06T20:07:57.054Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 7 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "21-joint-fluorescence-floor.png",
+    "note": "Fluorescence from the same file resolves its own Rbkg = 1.0 \u00c5 and displays its own fit preview.",
+    "time": "2026-09-06T20:08:10.816Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 7 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "22-joint-fluorescence-range.png",
+    "note": "The fluorescence dataset accepts R min 1.2 \u00c5 above its own 1.0 \u00c5 Rbkg.",
+    "time": "2026-09-06T20:08:12.258Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 7 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "23-missing-joint-source.png",
+    "note": "Removing the reference group leaves the fit assignment visible and blocks the fit as a missing source; it must not silently use the sample or fluorescence channel.",
+    "time": "2026-09-06T20:08:35.301Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 7 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "24-undo-restores-channel.png",
+    "note": "Undo restores the reference group and its stable fit identity.",
+    "time": "2026-09-06T20:08:36.584Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 7 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "25-channel-labels-final.png",
+    "note": "Final build: visible Reference/Fluorescence prefixes, Data counts groups, and the top action says Import. Additional groups use a virtualized list. This intermediate build still clipped row controls; corrected in the following bounded-row screenshot.",
+    "time": "2026-09-06T20:16:42.730Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "26-bounded-channel-rows.png",
+    "note": "Corrected virtualized row width: channel prefixes and remove buttons remain visible.",
+    "time": "2026-09-06T20:19:48.785Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "27-channel-keyboard-select-all.png",
+    "note": "After selecting a channel row, Cmd+A marks all eight groups rather than editing a previously focused numeric field.",
+    "time": "2026-09-06T20:19:49.931Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "28-channel-invert-all.png",
+    "note": "Invert clears all eight marks, including additional channels.",
+    "time": "2026-09-06T20:19:50.659Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "29-joint-range-valid-final.png",
+    "note": "Reference joint-fit R min set to 1.5 \u00c5, above Rbkg 1.3 \u00c5.",
+    "time": "2026-09-06T20:20:09.967Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "screenshot": "30-joint-range-rejection-final.png",
+    "note": "Final rejection behavior: entering 1.2 \u00c5 restores the prior model value 1.5 \u00c5 and displays the 1.3 \u00c5 Rbkg requirement.",
+    "time": "2026-09-06T20:20:17.939Z",
+    "accessibility": "There has been no change in the accessibility tree for Window: \"rexafs\".\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  }
+]

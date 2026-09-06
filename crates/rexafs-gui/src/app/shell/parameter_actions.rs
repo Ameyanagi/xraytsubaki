@@ -1,7 +1,7 @@
 //! Scoped copying and comparison of requested processing settings.
 use super::{PlotScope, Stage, button, journal::UndoOp};
 use crate::{
-    app::{DERIVED_BASE, EnumParam, ParamKey, StudioApp},
+    app::{EnumParam, ParamKey, StudioApp},
     params::PipelineParams,
 };
 use gpui::{
@@ -192,7 +192,7 @@ impl StudioApp {
         indices.extend(self.selected);
         indices
             .into_iter()
-            .filter(|&ix| ix < self.catalog.len() && ix < DERIVED_BASE)
+            .filter(|&ix| self.valid_group_index(ix))
             .collect()
     }
     pub(crate) fn differing_settings(&self, scope: ParamScope) -> Vec<Setting> {
@@ -264,8 +264,7 @@ impl StudioApp {
             .iter()
             .copied()
             .filter(|&ix| {
-                ix < self.catalog.len()
-                    && ix < DERIVED_BASE
+                self.valid_group_index(ix)
                     && Some(ix) != self.selected
                     && !self.frozen.contains(&ix)
             })
@@ -277,21 +276,14 @@ impl StudioApp {
             .count();
         let mut changes = Vec::new();
         for ix in targets {
-            let before = self.overrides.get(&ix).cloned();
+            let before = self.custom_params(ix).cloned();
             let mut next = self.effective_params(ix).clone();
             copy_scope(&mut next, &source, scope);
             let after = (next != self.params).then_some(next);
             if before == after {
                 continue;
             }
-            match &after {
-                Some(p) => {
-                    self.overrides.insert(ix, p.clone());
-                }
-                None => {
-                    self.overrides.remove(&ix);
-                }
-            }
+            self.set_custom_params(ix, after.clone());
             changes.push((ix, before, after));
         }
         let n = changes.len();
@@ -353,8 +345,7 @@ impl StudioApp {
             .selection
             .iter()
             .filter(|&&ix| {
-                ix < self.catalog.len()
-                    && ix < DERIVED_BASE
+                self.valid_group_index(ix)
                     && Some(ix) != self.selected
                     && !self.frozen.contains(&ix)
             })
@@ -509,8 +500,7 @@ impl StudioApp {
             .selection
             .iter()
             .filter(|&&ix| {
-                ix < self.catalog.len()
-                    && ix < DERIVED_BASE
+                self.valid_group_index(ix)
                     && Some(ix) != self.selected
                     && !self.frozen.contains(&ix)
             })

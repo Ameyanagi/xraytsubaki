@@ -3,7 +3,6 @@ use super::{FitView, chip, fit_workspace::FitStep};
 use crate::{
     app::StudioApp,
     fitting::{FitRanges, FitSpaceSpec},
-    params::process_file,
     plotting::{chik_label, chir_label, trace_color},
 };
 use gpui::{Context, Entity, ParentElement, Styled, div, prelude::*, px};
@@ -154,14 +153,13 @@ impl StudioApp {
                 d.ranges
                     .as_ref()
                     .unwrap_or(&self.fit_ranges)
-                    .resolved(self.joint_params(&d.file).fft_kweight),
+                    .resolved(self.joint_dataset_params(d).and_then(|p| p.fft_kweight)),
             );
         }
         (
             self.current_path.clone(),
             self.current_group_label().to_string(),
-            self.fit_ranges
-                .resolved(self.joint_params(&self.current_path).fft_kweight),
+            self.fit_ranges.resolved(self.ui_params().fft_kweight),
         )
     }
     pub(super) fn select_fit_space_view(&mut self, space: FitSpaceSpec, cx: &mut Context<Self>) {
@@ -178,9 +176,26 @@ impl StudioApp {
     }
     fn ensure_fit_preview(&mut self, cx: &mut Context<Self>) {
         let (file, label, ranges) = self.preview_source();
-        let params = self.joint_params(&file);
+        let source = match self
+            .model_preview_dataset_id()
+            .and_then(|id| self.joint.config.datasets.iter().find(|d| d.id == id))
+        {
+            Some(dataset) => self.joint_dataset_input(dataset),
+            None => Ok(self.current_spectrum_input()),
+        };
+        let source = match source {
+            Ok(source) => source,
+            Err(e) => {
+                self.fit_preview.error = Some(e);
+                self.fit_preview.loading = false;
+                self.fit_preview.data = None;
+                return;
+            }
+        };
+        let params = &source.params;
         let mut hash = DefaultHasher::new();
         file.hash(&mut hash);
+        source.group.as_ref().map(|g| g.id).hash(&mut hash);
         params.fingerprint().hash(&mut hash);
         if let Ok(m) = std::fs::metadata(&file) {
             m.len().hash(&mut hash);
@@ -224,7 +239,7 @@ impl StudioApp {
                 let input = match cached {
                     Some(input) => input,
                     None => {
-                        let sp = process_file(&file, &params).map_err(|e| e.to_string())?;
+                        let sp = source.process()?;
                         Arc::new(
                             sp.k()
                                 .map(nalgebra::DVector::from_column_slice)

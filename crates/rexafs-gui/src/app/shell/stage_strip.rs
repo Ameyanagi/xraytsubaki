@@ -261,7 +261,7 @@ impl StudioApp {
                     (
                         d.ranges.as_ref().unwrap_or(&self.fit_ranges),
                         d.paths.len(),
-                        self.joint_params(&d.file).fft_kweight,
+                        self.joint_dataset_params(d).and_then(|p| p.fft_kweight),
                     )
                 } else {
                     (
@@ -333,9 +333,9 @@ impl StudioApp {
                 (
                     status,
                     if series > 0 {
-                        format!("{groups} files · {series} scans")
+                        format!("{groups} groups · {series} scans")
                     } else {
-                        format!("{groups} files")
+                        format!("{groups} groups")
                     },
                 )
             }

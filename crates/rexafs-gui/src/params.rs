@@ -26,6 +26,18 @@ pub enum DetectionMode {
     MuColumn,
 }
 
+impl DetectionMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "Auto",
+            Self::Transmission => "Transmission",
+            Self::Fluorescence => "Fluorescence",
+            Self::Reference => "Reference",
+            Self::MuColumn => "μ column",
+        }
+    }
+}
+
 /// Configure-once import applied to every file in the catalog. `None` and
 /// [`DetectionMode::Auto`] resolve independently from each file's content.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -82,6 +94,34 @@ pub struct ImportPreview {
     pub resolved: ResolvedImport,
     /// Original XDI metadata, comments and units for the import inspector.
     pub xdi: Option<XdiHeader>,
+}
+
+impl ImportPreview {
+    /// Only named detector channels are offered automatically. Positional
+    /// fallbacks for unnamed data are not evidence of a reference detector.
+    pub fn available_channels(&self) -> Vec<DetectionMode> {
+        let Some(names) = &self.names else {
+            return vec![self.resolved.mode];
+        };
+        let named = |synonyms: &[&str]| names.iter().any(|n| name_matches(n, synonyms));
+        let mut channels = Vec::new();
+        if named(I0_NAMES) && named(IT_NAMES) {
+            channels.push(DetectionMode::Transmission);
+        }
+        if named(I0_NAMES) && names.iter().any(|n| fluorescence_name_matches(n)) {
+            channels.push(DetectionMode::Fluorescence);
+        }
+        if (named(IT_NAMES) && named(IR_NAMES)) || named(REF_MU_NAMES) {
+            channels.push(DetectionMode::Reference);
+        }
+        if named(MU_NAMES) {
+            channels.push(DetectionMode::MuColumn);
+        }
+        if channels.is_empty() {
+            channels.push(self.resolved.mode);
+        }
+        channels
+    }
 }
 
 #[derive(Debug)]
@@ -695,13 +735,33 @@ pub fn load_raw(
     Ok((energy, mu))
 }
 
-/// A spectrum created in the app (e.g. the average of a selection) rather
-/// than loaded from a file.
-#[derive(Clone, Serialize, Deserialize)]
+/// An additional spectrum: an in-memory result or an independently processed
+/// channel of a source file. File channels remain lazy; no raw arrays need to
+/// be retained until the group is viewed or analyzed.
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct DerivedSpectrum {
     pub label: String,
     pub energy: Vec<f64>,
     pub mu: Vec<f64>,
+    #[serde(default)]
+    pub id: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<std::path::PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub params: Option<PipelineParams>,
+}
+
+impl DerivedSpectrum {
+    pub fn process(&self, params: &PipelineParams) -> Result<XASSpectrum, String> {
+        let (energy, mu) = self.raw(params)?;
+        process_arrays(energy, mu, params)
+    }
+    pub fn raw(&self, params: &PipelineParams) -> Result<(Vec<f64>, Vec<f64>), String> {
+        match &self.source {
+            Some(source) => load_raw(source, params),
+            None => Ok((self.energy.clone(), self.mu.clone())),
+        }
+    }
 }
 
 /// Running average over spectra streamed one at a time, so merging N files
@@ -968,6 +1028,50 @@ pub fn resample_chik(sp: &XASSpectrum, grid: &[f64]) -> Option<Vec<f64>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn available_channels_require_named_evidence_and_keep_qas_reference_separate() {
+        let qas = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../rexafs/tests/testfiles/Ru_QAS.dat");
+        let preview = preview_import(&qas, &ImportConfig::default()).unwrap();
+        assert_eq!(
+            preview.available_channels(),
+            vec![
+                DetectionMode::Transmission,
+                DetectionMode::Fluorescence,
+                DetectionMode::Reference
+            ]
+        );
+        let raw = preview.rows[0].clone();
+        let sample = process_file(&qas, &PipelineParams::default()).unwrap();
+        let params = PipelineParams {
+            import: ImportConfig {
+                mode: DetectionMode::Reference,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let reference = DerivedSpectrum {
+            source: Some(qas),
+            params: Some(params.clone()),
+            ..Default::default()
+        }
+        .process(&params)
+        .unwrap();
+        assert!((sample.mu.as_ref().unwrap()[0] - (raw[1] / raw[2]).ln()).abs() < 1e-14);
+        assert!((reference.mu.as_ref().unwrap()[0] - (raw[2] / raw[3]).ln()).abs() < 1e-14);
+        assert_ne!(sample.mu, reference.mu);
+        let mut unnamed = preview.clone();
+        unnamed.names = None;
+        assert_eq!(unnamed.available_channels(), vec![preview.resolved.mode]);
+        let mut precomputed = preview;
+        precomputed.names = Some(vec!["energy".into(), "mutrans".into(), "murefer".into()]);
+        assert!(
+            precomputed
+                .available_channels()
+                .contains(&DetectionMode::Reference)
+        );
+    }
 
     #[test]
     fn gui_edge_step_override_reaches_normalization_and_invalidates_cache() {

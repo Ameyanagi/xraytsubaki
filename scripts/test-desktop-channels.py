@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 from zipfile import ZipFile
 from desktop_channels import app_name, identity
 
@@ -88,6 +89,70 @@ class DesktopChannels(unittest.TestCase):
             file.write_bytes(file.read_bytes() + b"tampered")
             with self.assertRaises(ValueError):
                 macos.check_source(*args, channel="nightly", release_tag=TAG)
+
+    def test_draft_lookup_uses_its_database_id_and_checks_identity(self):
+        resolved = dict(databaseId=17, isDraft=True, tagName=TAG)
+        remote = dict(id=17, draft=True, tag_name=TAG, assets=[])
+        def lookup(command, **kwargs):
+            if command[:3] == ["gh", "release", "view"]:
+                return json.dumps(resolved)
+            self.assertEqual(command, ["gh", "api", f"repos/{nightly.REPOSITORY}/releases/17"])
+            return json.dumps(remote)
+        with patch.object(nightly.subprocess, "check_output", side_effect=lookup):
+            self.assertEqual(nightly.get_draft_release(TAG), remote)
+            for invalid in [dict(isDraft=False), dict(tagName="another-tag"), dict(databaseId=0), dict(databaseId=True)]:
+                original = resolved.copy()
+                resolved.update(invalid)
+                with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                    nightly.get_draft_release(TAG)
+                resolved.clear()
+                resolved.update(original)
+            for invalid in [dict(id=18), dict(draft=False), dict(tag_name="another-tag")]:
+                original = remote.copy()
+                remote.update(invalid)
+                with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                    nightly.get_draft_release(TAG)
+                remote.clear()
+                remote.update(original)
+
+    def test_draft_publication_requires_the_exact_uploaded_asset_set(self):
+        for mismatch in [None, "digest", "missing", "extra"]:
+            with self.subTest(mismatch=mismatch), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                for target in sorted(nightly.TARGETS):
+                    self.archive(root, target)
+                calls = []
+                def run(command, **kwargs):
+                    calls.append(command)
+                    if command[:2] == ["gh", "api"]:
+                        stdout = json.dumps(dict(object=dict(type="commit", sha="abc")))
+                    elif command[:3] == ["gh", "release", "view"]:
+                        stdout = json.dumps(dict(isDraft=True))
+                    else:
+                        stdout = ""
+                    return nightly.subprocess.CompletedProcess(command, 0, stdout=stdout)
+                def lookup(command, **kwargs):
+                    if command[:3] == ["gh", "release", "view"]:
+                        return json.dumps(dict(databaseId=17, isDraft=True, tagName=TAG))
+                    self.assertEqual(command, ["gh", "api", f"repos/{nightly.REPOSITORY}/releases/17"])
+                    assets = [dict(name=p.name, digest="sha256:" + nightly.sha256(p))
+                              for p in root.iterdir() if p.name != "nightly-notes.md"]
+                    if mismatch == "digest":
+                        assets[0]["digest"] = "sha256:wrong"
+                    elif mismatch == "missing":
+                        assets.pop()
+                    elif mismatch == "extra":
+                        assets.append(dict(name="unexpected.zip", digest="sha256:unexpected"))
+                    return json.dumps(dict(id=17, draft=True, tag_name=TAG, assets=assets))
+                with patch.object(nightly.subprocess, "run", side_effect=run), \
+                        patch.object(nightly.subprocess, "check_output", side_effect=lookup):
+                    if mismatch:
+                        with self.assertRaisesRegex(ValueError, "Uploaded release checksums"):
+                            nightly.publish(root, "0.1.2", "abc", "123", TAG)
+                    else:
+                        nightly.publish(root, "0.1.2", "abc", "123", TAG)
+                promotions = [c for c in calls if c[:3] == ["gh", "release", "edit"]]
+                self.assertEqual(len(promotions), 0 if mismatch else 1)
 
 
 if __name__ == "__main__":

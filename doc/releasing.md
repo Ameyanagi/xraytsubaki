@@ -1,7 +1,7 @@
 # Releasing rexafs
 
-The first coordinated 0.1.0 release is being published. The status below records
-which channels have completed; the website and desktop downloads have separate gates.
+The first coordinated 0.1.0 release is published. The status below records
+the completed channels and remaining platform qualification.
 The [rebranding plan](rebranding-plan.md) defines scope; [dependency notes](dependencies.md)
 record the Rust 1.98.1 toolchain and compatibility constraints.
 
@@ -30,15 +30,23 @@ Checked 2026-09-06:
   settings: `Ameyanagi/rexafs`, `publish.yml`, environment `release` (npm permits
   direct `npm publish`). The first uploads used the bootstrap tokens; an OIDC
   upload for these two registries has not yet been exercised.
+- [GitHub release v0.1.0](https://github.com/Ameyanagi/rexafs/releases/tag/v0.1.0)
+  became public on 2026-09-06 with 30 verified assets. Both macOS archives were
+  signed and notarized by [run 34032364680](https://github.com/Ameyanagi/rexafs/actions/runs/34032364680),
+  using Developer ID team `XXN44W8X56`. The signed Apple Silicon app passed local
+  plot rendering and project save/reopen checks; the Intel app passed launch,
+  plot rendering and project reopen under Rosetta. Native Intel graphical
+  hardware was not tested locally. Windows/Linux desktop archives remain in CI
+  pending graphical qualification, and are excluded from the public release.
 - The GitHub `release` environment is configured for tags matching `v*`.
   Its `CRATES_IO_TOKEN` and `NPM_TOKEN` secret names were verified through GitHub;
   their values were not read. The maintainer confirmed the PyPI pending publisher
   for `rexafs`, repository `Ameyanagi/rexafs`, workflow `publish.yml`, environment
   `release`. Registry authentication will be exercised by the first tagged upload.
 
-Next, finish macOS notarization and
-[draft release notes](release-notes-0.1.0.md). Complete platform launch
-qualification before public promotion of the desktop downloads.
+Next, qualify Windows/Linux desktop launches before adding those downloads.
+The [release notes](release-notes-0.1.0.md) record the published distributions and
+the exact scope of desktop validation. Website/domain deployment remains separate.
 
 ## Local checks
 
@@ -314,7 +322,7 @@ finite positive uncertainties. AUTOBK's direct solver is unchanged.
 The table above records **local** results. The subsequent GitHub pull-request
 matrix passed, as recorded in the current launch status, and the repository rename
 is complete. Automated archive self-checks do not qualify interactive Intel macOS,
-Linux or Windows launches. Registries remain unpublished and domain deployment
-is pending. The first public release still requires a successful manual build of
-the final tag, credentials/publisher setup for registry channels, and final
-download qualification, including each platform's notices.
+Linux or Windows launches. Registries and the signed macOS desktop release are
+now published, as recorded above; domain deployment is pending. Future releases
+require a successful manual build of their final tag and qualification of the
+actual downloads, including each platform's notices.

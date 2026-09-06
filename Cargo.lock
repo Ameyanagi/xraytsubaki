@@ -7288,10 +7288,12 @@ dependencies = [
  "rexafs",
  "ruviz",
  "ruviz-gpui",
+ "semver",
  "serde",
  "serde_json",
  "sha2 0.11.0",
  "unicode-segmentation",
+ "ureq 3.4.0",
  "walkdir",
  "xraydb",
 ]

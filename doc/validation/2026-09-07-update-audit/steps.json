@@ -1,0 +1,81 @@
+[
+  {
+    "file": "01-startup.png",
+    "note": "Fresh update preferences use Stable and perform the background release check while the project opens.",
+    "ax": "Window: \"rexafs\", App: rexafs updates audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs updates audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "02-stable-release-check.png",
+    "note": "Stable channel discovers the official v0.1.1 release and correct ARM Mac archive, with startup checks enabled by default.",
+    "ax": "Window: \"rexafs\", App: rexafs updates audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs updates audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "03-download-in-progress.png",
+    "note": "Download starts without blocking the project window; the updater shows SHA-256 verification in progress.",
+    "ax": "Window: \"rexafs\", App: rexafs updates audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs updates audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "04-download-verified.png",
+    "note": "The official ARM Mac ZIP downloaded successfully and passed size and SHA-256 verification. Installation remains a separate explicit action.",
+    "ax": "Window: \"rexafs\", App: rexafs updates audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs updates audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "05-finder-download.png",
+    "note": "Show download in Finder reveals the verified 22.7 MB ARM ZIP. Finder is shown in list view to keep the capture scoped to the release folder."
+  },
+  {
+    "file": "06-nightly-opt-in.png",
+    "note": "Nightly is an explicit update-channel choice. Before the first nightly publication, the app reports that none are available.",
+    "ax": "Window: \"rexafs\", App: rexafs updates audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs updates audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "07-startup-check-disabled.png",
+    "note": "Startup checks can be disabled while retaining Nightly as the saved preference.",
+    "ax": "Window: \"rexafs\", App: rexafs updates audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs updates audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "08-modal-background-input.png",
+    "note": "Intermediate defect: clicking behind the update overlay marked a spectrum. Fixed by occluding pointer input and moving keyboard focus into the dialog; see the later corrected check.",
+    "ax": "Window: \"rexafs\", App: rexafs updates audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs updates audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "09-preferences-restored.png",
+    "note": "After restarting, Nightly remains selected and startup checks remain disabled. Opening Updates performs a manual check.",
+    "ax": "Window: \"rexafs\", App: rexafs updates audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs updates audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "10-modal-input-fixed.png",
+    "note": "Corrected dialog blocks clicks and Cmd+A/Cmd+5 from reaching the project. Escape closes it; the original stage and zero marks are unchanged.",
+    "ax": "Window: \"rexafs\", App: rexafs updates audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs updates audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "11-palette-update-command.png",
+    "note": "Intermediate defect: the command palette did not reopen after closing Updates because the dialog retained keyboard focus. Corrected by restoring focus to the app root; see the following checks.",
+    "ax": "Window: \"rexafs\", App: rexafs updates audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs updates audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "12-palette-command-fixed.png",
+    "note": "The root now has initial keyboard focus; Cmd+K finds the Stable/Nightly update command.",
+    "ax": "Window: \"rexafs\", App: rexafs updates audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs updates audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "13-palette-opens-updates.png",
+    "note": "Selecting the palette command opens Updates and transfers focus to the dialog.",
+    "ax": "Window: \"rexafs\", App: rexafs updates audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs updates audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "14-keyboard-restored-after-close.png",
+    "note": "After closing Updates with Escape, Cmd+K works again. Underlying stage and group marks remain unchanged.",
+    "ax": "Window: \"rexafs\", App: rexafs updates audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs updates audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "15-nightly-return-to-stable.png",
+    "note": "The active Nightly QA build displays its build tag and offers the Stable release when the user explicitly switches channels. This QA build is not published.",
+    "ax": "Window: \"rexafs Nightly\", App: rexafs Nightly audit.\n0 standard window rexafs Nightly, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs Nightly\n5 menu bar\n\t6 rexafs Nightly audit\n\nThe focused UI element is 0 standard window rexafs Nightly, Secondary Actions: Raise"
+  },
+  {
+    "file": "16-nightly-branding.png",
+    "note": "Nightly title and application brand stay visible outside the updater. The normal project and controls remain usable.",
+    "ax": "Window: \"rexafs Nightly\", App: rexafs Nightly audit.\n0 standard window rexafs Nightly, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs Nightly\n5 menu bar\n\t6 rexafs Nightly audit\n\nThe focused UI element is 0 standard window rexafs Nightly, Secondary Actions: Raise"
+  }
+]

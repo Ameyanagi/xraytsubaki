@@ -864,6 +864,7 @@ pub struct StudioApp {
     view_offset_field: Option<Entity<NumericField>>,
     filter_input: Option<Entity<TextInput>>,
     filter_text: String,
+    root_focus: FocusHandle,
     data_focus: FocusHandle,
     operando_focus: FocusHandle,
     /// Per-section "advanced parameters" fold state (Norm, Bkg, FFT, Import).
@@ -993,6 +994,7 @@ pub struct StudioApp {
     project_generation: u64,
     project_load_generation: u64,
     project_saving: bool,
+    updates: shell::updates_view::UpdateState,
     pub(crate) structure: shell::structure_view::StructureState,
     feff_running: bool,
     feff_gen: u64,
@@ -1699,6 +1701,7 @@ impl StudioApp {
             filter_text: String::new(),
             filtered: None,
             filter_gen: 0,
+            root_focus: cx.focus_handle(),
             data_focus: cx.focus_handle(),
             operando_focus: cx.focus_handle(),
             adv_open: [false; 4],
@@ -1786,6 +1789,7 @@ impl StudioApp {
             project_generation: 0,
             project_load_generation: 0,
             project_saving: false,
+            updates: Default::default(),
             feff_running: false,
             feff_gen: 0,
             batch_fit: None,
@@ -1908,6 +1912,15 @@ impl StudioApp {
             };
         }
         app.structure_search(cx);
+        app.root_focus.focus(_window, cx);
+        if app
+            .structure
+            .settings
+            .check_updates_on_startup
+            .unwrap_or(true)
+        {
+            app.check_for_updates(cx);
+        }
         if let Ok(file) = crate::settings::env_var("IMPORT_CIF") {
             app.structure_import_cif_path(PathBuf::from(file), cx);
         }
@@ -7944,13 +7957,18 @@ impl StudioApp {
 impl Render for StudioApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.viewport_w = f32::from(window.viewport_size().width);
-        let key_context = match self.workspace {
-            Workspace::Explore => "Studio Explore",
-            Workspace::Operando => "Studio OperandoWorkspace",
-            Workspace::Fit => "Studio FitWorkspace",
+        let key_context = if self.updates.open {
+            "UpdateDialog"
+        } else {
+            match self.workspace {
+                Workspace::Explore => "Studio Explore",
+                Workspace::Operando => "Studio OperandoWorkspace",
+                Workspace::Fit => "Studio FitWorkspace",
+            }
         };
         div()
             .id("root")
+            .track_focus(&self.root_focus)
             .key_context(key_context)
             .on_action(cx.listener(|this: &mut Self, _: &StageData, _window, cx| {
                 this.set_stage(Stage::Data, cx);

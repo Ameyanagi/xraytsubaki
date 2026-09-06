@@ -19,6 +19,7 @@ mod settings;
 mod spectrum_interest;
 mod structure;
 mod theme;
+mod updates;
 mod widgets;
 
 use std::path::PathBuf;
@@ -30,7 +31,14 @@ use crate::app::StudioApp;
 fn main() {
     match std::env::args().nth(1).as_deref() {
         Some("--version") => {
-            println!("rexafs {}", env!("CARGO_PKG_VERSION"));
+            println!("rexafs {}", updates::installed_label());
+            return;
+        }
+        Some("--build-info") => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&updates::build_info()).unwrap()
+            );
             return;
         }
         Some("--self-check") => {
@@ -65,7 +73,7 @@ fn main() {
         cx.open_window(
             WindowOptions {
                 titlebar: Some(gpui::TitlebarOptions {
-                    title: Some("rexafs".into()),
+                    title: Some(updates::application_name().into()),
                     ..Default::default()
                 }),
                 window_bounds: Some(WindowBounds::Windowed(bounds)),

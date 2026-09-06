@@ -25,6 +25,7 @@ pub enum PaletteCmd {
     OpenProject,
     OpenFolder,
     Theme,
+    Updates,
     Undo,
     Redo,
     Journal,
@@ -82,7 +83,7 @@ impl StudioApp {
                 cmd: PaletteCmd::Stage(stage),
             });
         }
-        let simple: [(&str, &'static str, &'static str, PaletteCmd); 12] = [
+        let simple: [(&str, &'static str, &'static str, PaletteCmd); 13] = [
             ("Mark all groups", "groups", "", PaletteCmd::MarkAll),
             ("Unmark all groups", "groups", "", PaletteCmd::MarkNone),
             (
@@ -108,6 +109,12 @@ impl StudioApp {
             ("Open project…", "file", "", PaletteCmd::OpenProject),
             ("Import…", "file", "", PaletteCmd::OpenFolder),
             ("Toggle theme", "view", "", PaletteCmd::Theme),
+            (
+                "Check for updates · Stable / Nightly",
+                "app",
+                "",
+                PaletteCmd::Updates,
+            ),
             ("Undo", "edit", "⌘Z", PaletteCmd::Undo),
             ("Redo", "edit", "⇧⌘Z", PaletteCmd::Redo),
         ];
@@ -245,6 +252,7 @@ impl StudioApp {
             PaletteCmd::OpenProject => self.open_project(cx),
             PaletteCmd::OpenFolder => self.open_folder(cx),
             PaletteCmd::Theme => self.toggle_theme(cx),
+            PaletteCmd::Updates => self.open_updates(cx),
             PaletteCmd::Undo => self.undo(cx),
             PaletteCmd::Redo => self.redo(cx),
             PaletteCmd::Journal => {

@@ -36,6 +36,9 @@ pub struct UserSettings {
     pub amcsd_db: Option<PathBuf>,
     /// Materials Project API key (kept out of project files on purpose).
     pub mp_api_key: String,
+    pub update_channel: crate::updates::UpdateChannel,
+    /// None uses the default: check automatically on startup, without installing.
+    pub check_updates_on_startup: Option<bool>,
 }
 
 /// `~/.rexafs` (created on demand, owner-only on Unix because it
@@ -278,6 +281,8 @@ mod tests {
             cif_library: Some(PathBuf::from("/tmp/cifs")),
             amcsd_db: None,
             mp_api_key: "abc".into(),
+            update_channel: crate::updates::UpdateChannel::Nightly,
+            check_updates_on_startup: Some(false),
         };
         s.save_to(&path).unwrap();
         assert_eq!(UserSettings::load_from(&path).unwrap(), s);

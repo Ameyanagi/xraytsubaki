@@ -10,11 +10,15 @@ import tempfile
 from pathlib import Path
 
 from release_archive import zip_bundle
+from desktop_channels import app_name, identity
 
 root = Path(__file__).resolve().parents[1]
 metadata = json.loads(subprocess.check_output(
     ["cargo", "metadata", "--locked", "--no-deps", "--format-version", "1"], cwd=root))
 version = next(p["version"] for p in metadata["packages"] if p["name"] == "rexafs-gui")
+build_identity = identity(version, os.environ)
+nightly = build_identity["channel"] == "nightly"
+application_name = app_name(build_identity["channel"])
 target = subprocess.check_output(["rustc", "-vV"], text=True).split("host: ")[1].splitlines()[0]
 system = platform.system()
 if system not in {"Darwin", "Linux", "Windows"}:
@@ -25,11 +29,17 @@ bundle = out / stem
 if bundle.exists():
     shutil.rmtree(bundle)
 binary_name = "rexafs.exe" if system == "Windows" else "rexafs"
-binary_relative = Path("rexafs.app/Contents/MacOS/rexafs") if system == "Darwin" else Path(binary_name)
+binary_relative = Path(application_name) / "Contents/MacOS/rexafs" if system == "Darwin" else Path(binary_name)
 binary = bundle / binary_relative
 binary.parent.mkdir(parents=True, exist_ok=True)
 shutil.copy2(Path(metadata["target_directory"]) / "release" / binary_name, binary)
-resources = bundle / ("rexafs.app/Contents/Resources" if system == "Darwin" else "resources")
+resources = bundle / (f"{application_name}/Contents/Resources" if system == "Darwin" else "resources")
+compiled_identity = json.loads(subprocess.check_output([str(binary), "--build-info"], text=True))
+for key, value in {"version": version, **build_identity}.items():
+    if compiled_identity.get(key) != value:
+        raise SystemExit(f"Compiled desktop has the wrong {key}")
+if os.environ.get("GITHUB_SHA") and compiled_identity.get("commit") != os.environ["GITHUB_SHA"]:
+    raise SystemExit("Compiled desktop does not match the CI source commit")
 resources.mkdir(parents=True, exist_ok=True)
 shutil.copy2(root / "assets/brand/rexafs-icon.png", resources / "rexafs-icon.png")
 if system == "Darwin":
@@ -42,12 +52,12 @@ fixtures = root / "crates/rexafs/tests/testfiles/xraylarch_d867"
 shutil.copy2(fixtures / "xafsdata/cu_150k.xmu", examples / "cu_150k.xmu")
 shutil.copy2(fixtures / "README.md", examples / "PROVENANCE.md")
 if system == "Darwin":
-    with (bundle / "rexafs.app/Contents/Info.plist").open("wb") as f:
+    with (bundle / application_name / "Contents/Info.plist").open("wb") as f:
         plistlib.dump({
-            "CFBundleExecutable": "rexafs", "CFBundleIdentifier": "com.rexafs.desktop",
-            "CFBundleName": "rexafs", "CFBundleDisplayName": "rexafs", "CFBundlePackageType": "APPL",
+            "CFBundleExecutable": "rexafs", "CFBundleIdentifier": "com.rexafs.nightly" if nightly else "com.rexafs.desktop",
+            "CFBundleName": "rexafs Nightly" if nightly else "rexafs", "CFBundleDisplayName": "rexafs Nightly" if nightly else "rexafs", "CFBundlePackageType": "APPL",
             "CFBundleIconFile": "rexafs.icns",
-            "CFBundleShortVersionString": version, "CFBundleVersion": version.split("-")[0],
+            "CFBundleShortVersionString": version.split("-")[0], "CFBundleVersion": version.split("-")[0],
             "NSHighResolutionCapable": True,
             "CFBundleDocumentTypes": [{"CFBundleTypeName": "rexafs project",
                 "CFBundleTypeExtensions": ["rxs"], "CFBundleTypeRole": "Editor"}],
@@ -88,9 +98,9 @@ for package_id in sorted(included):
             shutil.copy2(source, dest)
 (bundle / "dependencies.json").write_text(json.dumps(inventory, indent=2) + "\n")
 (bundle / "README.txt").write_text(
-    f"rexafs {version}\nRust-powered X-ray absorption analysis\nhttps://rexafs.com\n\n"
+    f"rexafs {version} · {build_identity['channel']} · {build_identity['release_tag']}\nRust-powered X-ray absorption analysis\nhttps://rexafs.com\n\n"
     "Built with ReFEFF. Keep the extracted directory together; it contains the example and notices.\n"
-    "Open rexafs.app on macOS or run rexafs / rexafs.exe on Linux / Windows.\n"
+    f"Open {application_name} on macOS or run rexafs / rexafs.exe on Linux / Windows.\n"
     "This archive has no publisher code signature; macOS notarization is not included.\n"
     "Linux requires a graphical session, Vulkan-capable driver, GTK 3, fontconfig and xkbcommon.\n"
     "Save .rxs projects with relative source paths (default), or select Raw: embedded for portable originals.\n"
@@ -107,7 +117,7 @@ if system in {"Darwin", "Linux"}:
             raise SystemExit(f"Non-system dynamic library:\n{linked}")
     (bundle / "linked-libraries.txt").write_text(linked)
 (bundle / "build.json").write_text(json.dumps({
-    "version": version, "target": target, "features": ["refeff-runner"],
+    "version": version, "target": target, "features": ["refeff-runner"], **build_identity,
     "rustc": subprocess.check_output(["rustc", "--version"], text=True).strip(),
     "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
     "dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=root)),

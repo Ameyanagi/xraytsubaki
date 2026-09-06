@@ -47,7 +47,10 @@ impl StudioApp {
         if let Some(id) = dataset_id
             && let Some(dataset) = self.joint.config.datasets.iter().find(|d| d.id == id)
         {
-            return self.joint_params(&dataset.file).rbkg.unwrap_or(1.0);
+            return self
+                .joint_dataset_params(dataset)
+                .and_then(|p| p.rbkg)
+                .unwrap_or(1.0);
         }
         if self.joint.config.enabled {
             return self
@@ -56,7 +59,11 @@ impl StudioApp {
                 .datasets
                 .iter()
                 .filter(|d| d.ranges.is_none())
-                .map(|d| self.joint_params(&d.file).rbkg.unwrap_or(1.0))
+                .map(|d| {
+                    self.joint_dataset_params(d)
+                        .and_then(|p| p.rbkg)
+                        .unwrap_or(1.0)
+                })
                 .fold(0.0, f64::max);
         }
         self.ui_params().rbkg.unwrap_or(1.0)

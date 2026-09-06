@@ -408,6 +408,7 @@ fn replacements_keep_exact_backup_and_partial_writes_leave_previous_file() {
             label: "retained".into(),
             energy: vec![1.0],
             mu: vec![2.0],
+            ..Default::default()
         }],
         ..Default::default()
     };
@@ -456,6 +457,7 @@ fn compact_writer_preserves_all_finite_double_bits_and_opaque_metadata() {
             label: "Cu μ\n  keep spacing ".into(),
             energy: samples.clone(),
             mu: samples.clone(),
+            ..Default::default()
         }],
         extensions: [(
             "metadata".into(),
@@ -536,5 +538,68 @@ fn fixed_lambda_persists_while_missing_legacy_clamp_fields_keep_their_meaning() 
             .fingerprint(),
             original.params.fingerprint()
         );
+    }
+}
+
+#[test]
+fn independent_channels_roundtrip_linked_and_embedded_with_one_raw_source() {
+    use crate::params::{DetectionMode, ImportConfig};
+    for mode in [DataStorage::Paths, DataStorage::Embedded] {
+        let temp = Temp::new();
+        let source = temp.join("channels.dat");
+        let raw = b"# energy i0 it ir\n100 100 50 10\n101 100 40 8\n102 100 30 6\n";
+        std::fs::write(&source, raw).unwrap();
+        let reference = PipelineParams {
+            import: ImportConfig {
+                mode: DetectionMode::Reference,
+                ..Default::default()
+            },
+            rbkg: Some(1.3),
+            ..Default::default()
+        };
+        let project = ProjectFile {
+            version: 1,
+            spectrum_file: Some(source.clone()),
+            raw_files: vec![source.clone()],
+            active_derived: Some(12),
+            derived: vec![DerivedSpectrum {
+                id: 12,
+                label: "reference".into(),
+                source: Some(source.clone()),
+                params: Some(reference.clone()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let path = temp.join("channels.rxs");
+        save_with_storage(&path, &project, mode).unwrap();
+        if mode == DataStorage::Embedded {
+            std::fs::remove_file(source).unwrap();
+        }
+        let loaded = load(&path).unwrap();
+        assert_eq!(loaded.active_derived, Some(12));
+        assert_eq!(loaded.derived[0].id, 12);
+        assert!(loaded.derived[0].params.as_ref() == Some(&reference));
+        assert_eq!(
+            std::fs::read(loaded.derived[0].source.as_ref().unwrap()).unwrap(),
+            raw
+        );
+        assert_eq!(loaded.raw_files.len(), 1);
+        assert_eq!(loaded.derived[0].source, loaded.spectrum_file);
+    }
+}
+
+#[test]
+fn invalid_channel_ids_are_rejected_and_legacy_groups_get_stable_ids() {
+    let base = json!({"version":1,"derived":[{"label":"A","energy":[],"mu":[]},{"label":"B","energy":[],"mu":[]}]});
+    let mut parsed = parse(&base.to_string()).unwrap();
+    parsed.assign_group_ids();
+    assert_ne!(parsed.derived[0].id, parsed.derived[1].id);
+    assert!(parsed.derived.iter().all(|d| d.id > 0));
+    for id in [1, u64::MAX] {
+        let mut bad = base.clone();
+        bad["derived"][0]["id"] = id.into();
+        bad["derived"][1]["id"] = id.into();
+        assert!(parse(&bad.to_string()).is_err());
     }
 }

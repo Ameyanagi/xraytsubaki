@@ -129,7 +129,7 @@ impl StudioApp {
     pub(crate) fn groups_panel(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
         let footer: SharedString = if self.catalog.is_empty() && !self.catalog.scanning {
-            "single file · open a folder for a catalog".into()
+            "Use + Import to add files or folders".into()
         } else if let Some(filtered) = &self.filtered {
             format!("{} of {} files", filtered.len(), self.catalog.len()).into()
         } else {
@@ -287,27 +287,21 @@ impl StudioApp {
                             cx,
                         ),
                     )
-                    .children(self.derived_rows(cx))
+                    .child(self.derived_list(cx))
                     .into_any_element()
             } else {
                 let list = match self.data_tab {
                     DataTab::Files => self.file_list(cx).into_any_element(),
                     DataTab::Scans => self.scan_list(cx).into_any_element(),
                 };
-                let mut column = div().flex_1().min_h_0().flex().flex_col();
-                let derived = self.derived_rows(cx);
-                if !derived.is_empty() {
-                    column = column.child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .py_1()
-                            .border_b_1()
-                            .border_color(t.border)
-                            .children(derived),
-                    );
-                }
-                column.child(list).into_any_element()
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
+                    .child(self.derived_list(cx))
+                    .child(list)
+                    .into_any_element()
             })
             .child(
                 div()
@@ -430,12 +424,29 @@ impl StudioApp {
     }
 
     /// Derived (merged / tool output) groups, indented under their sources.
-    fn derived_rows(&self, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
+    fn derived_list(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let entity = cx.entity();
+        uniform_list(
+            "additional-groups",
+            self.derived.len(),
+            move |range, _, app| entity.update(app, |this, cx| this.derived_rows(range, cx)),
+        )
+        .track_scroll(&self.derived_scroll)
+        .w_full()
+        .min_w_0()
+        .h(px(self.derived.len().min(6) as f32 * 27.))
+        .flex_none()
+    }
+
+    fn derived_rows(
+        &self,
+        range: std::ops::Range<usize>,
+        cx: &mut Context<Self>,
+    ) -> Vec<gpui::AnyElement> {
         let t = self.theme;
         let colors = self.plotted_color_index();
-        self.derived
-            .iter()
-            .enumerate()
+        range
+            .filter_map(|i| self.derived.get(i).map(|d| (i, d)))
             .map(|(i, d)| {
                 let ix = DERIVED_BASE + i;
                 let is_active = self.selected == Some(ix);
@@ -444,8 +455,12 @@ impl StudioApp {
                     .iter()
                     .find(|(k, _)| *k == ix)
                     .map(|(_, c)| trace_rgba(&t, *c));
-                let label: SharedString = format!("↳ {}", d.label).into();
-                let meta = format!("{} pts", d.energy.len());
+                let label: SharedString = format!("↳ {}", self.entry_label(ix)).into();
+                let meta = if d.source.is_some() {
+                    String::new()
+                } else {
+                    format!("{} pts", d.energy.len())
+                };
                 self.group_row(
                     ("derived", i).into(),
                     ix,
@@ -481,7 +496,8 @@ impl StudioApp {
         div()
             .id(id)
             .h(px(27.))
-            .mx_1p5()
+            .w_full()
+            .min_w_0()
             .px_1p5()
             .flex()
             .items_center()
@@ -495,7 +511,8 @@ impl StudioApp {
                 })
             })
             .when(!is_active, |d| d.hover(|d| d.bg(t.raised)))
-            .on_click(cx.listener(move |this, ev: &ClickEvent, _window, cx| {
+            .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
+                window.focus(&this.data_focus, cx);
                 if real {
                     this.click_group(ix, ev.modifiers(), cx);
                 }
@@ -504,8 +521,9 @@ impl StudioApp {
                 div()
                     .id("mark")
                     .flex_none()
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                         cx.stop_propagation();
+                        window.focus(&this.data_focus, cx);
                         if real {
                             this.toggle_mark(ix, cx);
                         }

@@ -43,6 +43,7 @@ pub struct ProjectFile {
     pub fit_ranges: FitRanges,
     pub feff_workspace: Option<PathBuf>,
     pub derived: Vec<DerivedSpectrum>,
+    pub active_derived: Option<u64>,
     /// Completed fits (model snapshot + statistics), oldest first.
     pub fit_history: Vec<FitHistoryEntry>,
     pub joint: crate::joint_fitting::JointConfig,
@@ -62,6 +63,21 @@ pub struct ProjectFile {
     pub source_origins: std::collections::BTreeMap<PathBuf, PathBuf>,
     #[serde(skip)]
     pub data_storage: DataStorage,
+}
+
+impl ProjectFile {
+    /// Assign identities only when a legacy project enters an editable session.
+    /// Decoding/validating archives itself remains a lossless operation.
+    pub fn assign_group_ids(&mut self) -> u64 {
+        let mut next = self.derived.iter().map(|d| d.id).max().unwrap_or(0) + 1;
+        for group in &mut self.derived {
+            if group.id == 0 {
+                group.id = next;
+                next += 1;
+            }
+        }
+        next
+    }
 }
 
 /// Independent of the application version. Optional additions keep this version;
@@ -155,6 +171,14 @@ fn parse(json: &str) -> Result<ProjectFile, String> {
     let value: serde_json::Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
     version(&value)?;
     let mut project: ProjectFile = serde_json::from_value(value).map_err(|e| e.to_string())?;
+    let mut ids = std::collections::BTreeSet::new();
+    for group in &project.derived {
+        if group.id != 0
+            && (!ids.insert(group.id) || group.id >= u64::MAX - project.derived.len() as u64 - 1)
+        {
+            return Err("Additional spectrum IDs must be unique and within range.".into());
+        }
+    }
     project.version = PROJECT_VERSION;
     Ok(project)
 }

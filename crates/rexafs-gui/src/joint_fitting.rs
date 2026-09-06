@@ -24,6 +24,8 @@ pub(crate) struct JointConfig {
 pub(crate) struct JointDataset {
     pub id: usize,
     pub file: PathBuf,
+    /// Additional channel or in-memory group; absent means the primary file.
+    pub group_id: Option<u64>,
     pub label: String,
     /// Stable file identity, never an index into the path table.
     pub paths: Vec<PathBuf>,
@@ -123,8 +125,14 @@ pub(crate) fn prepare(
     let mut ids = BTreeSet::new();
     let mut files = BTreeSet::new();
     for d in &config.datasets {
-        if !ids.insert(d.id) || !files.insert(&d.file) {
-            return Err("Each joint-fit spectrum must have a unique ID and file.".into());
+        let source = match d.group_id {
+            Some(id) => (Some(id), None),
+            None => (None, Some(&d.file)),
+        };
+        if !ids.insert(d.id) || !files.insert(source) {
+            return Err(
+                "Each joint-fit spectrum must have a unique ID and spectrum source.".into(),
+            );
         }
         if d.paths.is_empty() {
             return Err(format!("{} has no assigned paths.", d.label));
@@ -350,6 +358,22 @@ mod tests {
             .unwrap();
         assert!(error.starts_with("B:"), "{error}");
         assert!(error.contains("Rbkg"), "{error}");
+    }
+
+    #[test]
+    fn channels_of_one_file_are_distinct_joint_datasets() {
+        let (mut config, paths, vars) = fixture();
+        config.datasets[1].file = config.datasets[0].file.clone();
+        assert!(prepare(&config, &paths, &vars).is_err());
+        config.datasets[1].group_id = Some(7);
+        assert!(prepare(&config, &paths, &vars).is_ok());
+        config.datasets[0].group_id = Some(7);
+        assert!(prepare(&config, &paths, &vars).is_err());
+        config.datasets[1].file = "another-file.dat".into();
+        assert!(
+            prepare(&config, &paths, &vars).is_err(),
+            "a group ID identifies one spectrum independently of file spelling"
+        );
     }
 
     fn fixture() -> (JointConfig, Vec<FitPathSpec>, Vec<FitVarSpec>) {

@@ -56,6 +56,7 @@ use crate::theme::Theme;
 use crate::widgets::numeric_field::{FieldEvent, FieldKind, NumericField};
 use crate::widgets::text_input::{InputEvent, TextInput};
 
+mod importing;
 mod shell;
 use shell::{Stage, StageView, handles::HandleState, thumbnails::ThumbData, tools::ToolState};
 
@@ -547,6 +548,7 @@ pub(crate) enum TrendSource {
 #[derive(Clone)]
 struct FitProvenance {
     label: SharedString,
+    group_id: Option<u64>,
     path: PathBuf,
     params_fingerprint: u64,
     model_fingerprint: u64,
@@ -816,6 +818,8 @@ pub struct StudioApp {
     selection: BTreeSet<usize>,
     /// Merged/averaged spectra (virtual indices DERIVED_BASE + i).
     derived: Vec<DerivedSpectrum>,
+    next_derived_id: u64,
+    pending_derived: Option<u64>,
     compare_gen: u64,
     compare_running: bool,
     view: ViewOptions,
@@ -894,6 +898,7 @@ pub struct StudioApp {
     maximized: Option<usize>,
     data_tab: DataTab,
     file_scroll: UniformListScrollHandle,
+    derived_scroll: UniformListScrollHandle,
     scan_scroll: UniformListScrollHandle,
     /// At most one scan is expanded, keeping row-to-member mapping O(1)
     /// even when that scan has a million members.
@@ -1646,6 +1651,8 @@ impl StudioApp {
             selected: None,
             selection: BTreeSet::new(),
             derived: Vec::new(),
+            next_derived_id: 1,
+            pending_derived: None,
             compare_gen: 0,
             compare_running: false,
             view: ViewOptions::default(),
@@ -1694,6 +1701,7 @@ impl StudioApp {
             maximized: None,
             data_tab: DataTab::Files,
             file_scroll: UniformListScrollHandle::new(),
+            derived_scroll: UniformListScrollHandle::new(),
             scan_scroll: UniformListScrollHandle::new(),
             expanded_scan: None,
             active_scan: None,
@@ -1916,12 +1924,54 @@ impl StudioApp {
     /// other spectra are marked for comparison. Bulk copying is explicit.
     fn override_target(&self) -> Option<usize> {
         let ix = self.selected?;
-        (ix < DERIVED_BASE).then_some(ix)
+        self.valid_group_index(ix).then_some(ix)
+    }
+
+    fn valid_group_index(&self, ix: usize) -> bool {
+        ix < self.catalog.len() || (ix >= DERIVED_BASE && ix - DERIVED_BASE < self.derived.len())
+    }
+
+    fn custom_params(&self, ix: usize) -> Option<&PipelineParams> {
+        if ix >= DERIVED_BASE {
+            self.derived.get(ix - DERIVED_BASE)?.params.as_ref()
+        } else {
+            self.overrides.get(&ix)
+        }
+    }
+
+    fn set_custom_params(&mut self, ix: usize, params: Option<PipelineParams>) {
+        if ix >= DERIVED_BASE {
+            if let Some(group) = self.derived.get_mut(ix - DERIVED_BASE) {
+                group.params = params;
+            }
+        } else if ix < self.catalog.len() {
+            match params {
+                Some(params) => {
+                    self.overrides.insert(ix, params);
+                }
+                None => {
+                    self.overrides.remove(&ix);
+                }
+            }
+        }
+    }
+
+    fn active_group_id(&self) -> Option<u64> {
+        self.selected
+            .filter(|&ix| ix >= DERIVED_BASE)
+            .and_then(|ix| self.derived.get(ix - DERIVED_BASE))
+            .map(|d| d.id)
+    }
+
+    fn next_group_id(&mut self) -> u64 {
+        let id = self.next_derived_id;
+        self.next_derived_id += 1;
+        id
     }
 
     /// Effective params for an entry: its override, else the global set.
     fn effective_params(&self, ix: usize) -> &PipelineParams {
-        self.overrides.get(&ix).unwrap_or(&self.params)
+        self.custom_params(ix).unwrap_or(&self.params)
     }
 
     fn effective_fingerprint(&self, ix: usize) -> u64 {
@@ -1948,6 +1998,9 @@ impl StudioApp {
     /// goes to the global set.
     fn edit_params(&mut self) -> &mut PipelineParams {
         match self.override_target() {
+            Some(ix) if ix >= DERIVED_BASE => self.derived[ix - DERIVED_BASE]
+                .params
+                .get_or_insert_with(|| self.params.clone()),
             Some(ix) => self
                 .overrides
                 .entry(ix)
@@ -1960,7 +2013,7 @@ impl StudioApp {
     /// (drives the section-header chip).
     fn section_overridden(&self, section: ParamSection) -> bool {
         self.override_target()
-            .and_then(|ix| self.overrides.get(&ix))
+            .and_then(|ix| self.custom_params(ix))
             .is_some_and(|ov| section_differs(ov, &self.params, section))
     }
 
@@ -1971,13 +2024,11 @@ impl StudioApp {
             return;
         };
         let global = self.params.clone();
-        let Some(ov) = self.overrides.get_mut(&ix) else {
+        let Some(mut ov) = self.custom_params(ix).cloned() else {
             return;
         };
-        copy_section(ov, &global, section);
-        if *ov == global {
-            self.overrides.remove(&ix);
-        }
+        copy_section(&mut ov, &global, section);
+        self.set_custom_params(ix, (ov != global).then_some(ov));
         self.sync_param_fields(cx);
         self.schedule_recompute(cx);
         cx.notify();
@@ -2037,6 +2088,12 @@ impl StudioApp {
     }
 
     fn restore_project_selection(&mut self, cx: &mut Context<Self>) {
+        if let Some(id) = self.pending_derived.take() {
+            if let Some(i) = self.derived.iter().position(|d| d.id == id) {
+                self.select_entry(DERIVED_BASE + i, cx);
+                return;
+            }
+        }
         let Some(path) = self.pending_project_spectrum.take() else {
             return;
         };
@@ -2060,7 +2117,9 @@ impl StudioApp {
                 .unwrap_or_default()
                 .hash(&mut hasher);
             for d in &self.joint.config.datasets {
-                self.joint_params(&d.file).fingerprint().hash(&mut hasher);
+                self.joint_dataset_params(d)
+                    .map(|p| p.fingerprint())
+                    .hash(&mut hasher);
             }
         }
         for row in &self.fit_paths {
@@ -2106,6 +2165,7 @@ impl StudioApp {
                 || provenance.model_fingerprint != self.fit_model_fingerprint();
         }
         self.spectrum.is_none()
+            || provenance.group_id != self.active_group_id()
             || provenance.label != self.spectrum_label
             || provenance.path != self.current_path
             || provenance.path != self.spectrum_path
@@ -2176,6 +2236,7 @@ impl StudioApp {
         self.quad_bindings.clear();
         self.maximized = None;
         self.file_scroll = UniformListScrollHandle::new();
+        self.derived_scroll = UniformListScrollHandle::new();
         self.scan_scroll = UniformListScrollHandle::new();
         self.expanded_scan = None;
         self.active_scan = None;
@@ -2192,6 +2253,14 @@ impl StudioApp {
 
     fn cancel_long_jobs(&mut self, cx: &mut Context<Self>) {
         let mut cancelled = false;
+        if self.catalog.scanning || self.verify_running {
+            self.catalog_gen += 1;
+            self.catalog.scanning = false;
+            self.verify_running = false;
+            self.resolve_pending_overrides(cx);
+            self.restore_project_selection(cx);
+            cancelled = true;
+        }
         if self.operando_running {
             self.operando_gen += 1;
             if let Some(cancel) = self.operando_cancel.take() {
@@ -2845,19 +2914,18 @@ impl StudioApp {
         let raw = self.raw_cache.get(&raw_key).cloned();
         let processed_path = path.clone();
         let load = cx.background_executor().spawn(async move {
-            match derived {
-                Some(d) => process_arrays(d.energy, d.mu, &params).map(|sp| (sp, None)),
-                None => match raw {
-                    // Pipeline-only edit: reuse the raw arrays, skip the file.
-                    Some(raw) => {
-                        process_arrays(raw.0.clone(), raw.1.clone(), &params).map(|sp| (sp, None))
-                    }
-                    None => {
-                        let (energy, mu) = load_raw(&path, &params)?;
-                        let sp = process_arrays(energy.clone(), mu.clone(), &params)?;
-                        Ok((sp, Some(Arc::new((energy, mu)))))
-                    }
-                },
+            match raw {
+                Some(raw) => {
+                    process_arrays(raw.0.clone(), raw.1.clone(), &params).map(|sp| (sp, None))
+                }
+                None => {
+                    let (energy, mu) = match derived {
+                        Some(group) => group.raw(&params)?,
+                        None => load_raw(&path, &params)?,
+                    };
+                    let sp = process_arrays(energy.clone(), mu.clone(), &params)?;
+                    Ok((sp, Some(Arc::new((energy, mu)))))
+                }
             }
         });
         cx.spawn(async move |this, cx| {
@@ -3596,7 +3664,7 @@ impl StudioApp {
                 .map(|(ix, fingerprint, source, params)| {
                     let result = match source {
                         Ok(path) => process_file(path, params),
-                        Err(d) => process_arrays(d.energy.clone(), d.mu.clone(), params),
+                        Err(d) => d.process(params),
                     };
                     (*ix, *fingerprint, result)
                 })
@@ -3819,16 +3887,15 @@ impl StudioApp {
 
     fn open_folder(&mut self, cx: &mut Context<Self>) {
         let rx = cx.prompt_for_paths(PathPromptOptions {
-            files: false,
+            files: true,
             directories: true,
-            multiple: false,
-            prompt: None,
+            multiple: true,
+            prompt: Some("Import files or folders".into()),
         });
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(paths))) = rx.await {
-                for root in paths {
-                    this.update(cx, |app, cx| app.scan_folder(root, cx)).ok();
-                }
+                this.update(cx, |app, cx| app.append_import(paths, false, cx))
+                    .ok();
             }
         })
         .detach();
@@ -4139,6 +4206,7 @@ impl StudioApp {
                             if first
                                 && app.selected.is_none()
                                 && app.pending_project_spectrum.is_none()
+                                && app.pending_derived.is_none()
                             {
                                 app.select_entry(0, cx);
                             }
@@ -4423,6 +4491,9 @@ impl StudioApp {
                             label: label.clone(),
                             energy,
                             mu,
+                            id: app.next_group_id(),
+                            params: Some(app.params.clone()),
+                            ..Default::default()
                         };
                         app.record(
                             format!("merge → {}", merged.label),
@@ -4454,22 +4525,13 @@ impl StudioApp {
     }
 
     fn remove_derived(&mut self, i: usize, cx: &mut Context<Self>) {
-        if i >= self.derived.len() {
+        let Some(spectrum) = self.take_derived(i, cx) else {
             return;
-        }
-        let spectrum = self.derived.remove(i);
+        };
         self.record(
             format!("remove {}", spectrum.label),
             Some(shell::journal::UndoOp::DerivedRemove { index: i, spectrum }),
         );
-        // Virtual indices shift; drop selections/cache touching derived.
-        self.selection.retain(|&ix| ix < DERIVED_BASE);
-        if self.selected.is_some_and(|ix| ix >= DERIVED_BASE) {
-            self.selected = None;
-        }
-        self.cache.clear();
-        self.invalidate_explore_plots(cx);
-        self.sync_param_fields(cx);
         cx.notify();
     }
 
@@ -4487,7 +4549,17 @@ impl StudioApp {
         if ix >= DERIVED_BASE {
             self.derived
                 .get(ix - DERIVED_BASE)
-                .map(|d| d.label.clone())
+                .map(|d| {
+                    if d.source.is_some() {
+                        format!(
+                            "{} · {}",
+                            self.effective_params(ix).import.mode.label(),
+                            d.label
+                        )
+                    } else {
+                        d.label.clone()
+                    }
+                })
                 .unwrap_or_else(|| "merged".into())
         } else {
             self.catalog.name(ix).to_string()
@@ -4496,15 +4568,21 @@ impl StudioApp {
 
     fn select_entry(&mut self, ix: usize, cx: &mut Context<Self>) {
         self.pending_project_spectrum = None;
+        self.pending_derived = None;
         if ix >= DERIVED_BASE {
             if ix - DERIVED_BASE >= self.derived.len() {
                 return;
             }
             self.selected = Some(ix);
+            self.derived_scroll
+                .scroll_to_item(ix - DERIVED_BASE, ScrollStrategy::Nearest);
             let label: SharedString = self.entry_label(ix).into();
-            self.current_path = PathBuf::new();
+            self.current_path = self.derived[ix - DERIVED_BASE]
+                .source
+                .clone()
+                .unwrap_or_default();
             self.sync_param_fields(cx);
-            self.load_spectrum(ix, PathBuf::new(), label, cx);
+            self.load_spectrum(ix, self.current_path.clone(), label, cx);
             return;
         }
         if ix >= self.catalog.len() {
@@ -4970,6 +5048,7 @@ impl StudioApp {
         self.fit_gen += 1;
         let generation = self.fit_gen;
         let provenance = FitProvenance {
+            group_id: self.active_group_id(),
             label: self.spectrum_label.clone(),
             path: self.spectrum_path.clone(),
             params_fingerprint: self.spectrum_fingerprint,
@@ -4981,9 +5060,7 @@ impl StudioApp {
         cx.notify();
         let paths: Vec<FitPathSpec> = self.fit_paths.iter().map(|r| r.spec.clone()).collect();
         let vars: Vec<FitVarSpec> = self.fit_vars.iter().map(|v| v.spec.clone()).collect();
-        let ranges = self
-            .fit_ranges
-            .resolved(self.joint_params(&self.spectrum_path).fft_kweight);
+        let ranges = self.fit_ranges.resolved(self.ui_params().fft_kweight);
         let started = Instant::now();
         let history_inputs = (paths.clone(), vars.clone(), ranges.clone());
         let job = cx
@@ -5122,6 +5199,7 @@ impl StudioApp {
         if let Some(result) = self.fit_history_results.get(&id).cloned() {
             self.fit_result = Some(result);
             self.fit_provenance = Some(FitProvenance {
+                group_id: None,
                 label: entry.group.clone().into(),
                 path: self.spectrum_path.clone(),
                 params_fingerprint: self.spectrum_fingerprint,
@@ -6219,6 +6297,11 @@ impl StudioApp {
             fit_ranges: self.fit_ranges.clone(),
             feff_workspace: self.feff_workspace.clone(),
             derived: self.derived.clone(),
+            active_derived: self
+                .selected
+                .filter(|&ix| ix >= DERIVED_BASE)
+                .and_then(|ix| self.derived.get(ix - DERIVED_BASE))
+                .map(|d| d.id),
             fit_history: self.fit_history.clone(),
             joint: self.joint.config.clone(),
             publication: self.publish.settings.clone(),
@@ -6359,8 +6442,10 @@ impl StudioApp {
         cx.notify();
     }
 
-    fn apply_project(&mut self, project: ProjectFile, cx: &mut Context<Self>) {
+    fn apply_project(&mut self, mut project: ProjectFile, cx: &mut Context<Self>) {
+        self.next_derived_id = project.assign_group_ids();
         self.project_generation += 1;
+        self.journal = Default::default();
         self.project_path = project.origin.clone();
         self.project_storage = project
             .header
@@ -6428,6 +6513,7 @@ impl StudioApp {
         self.fit_history_results.clear();
         self.sync_range_fields(cx);
         self.derived = project.derived;
+        self.pending_derived = project.active_derived;
 
         // Reopen the data source. Per-spectrum overrides wait path-keyed
         // until the (re)scanned catalog can resolve them to indices; with
@@ -6439,14 +6525,14 @@ impl StudioApp {
         } else {
             self.reset_catalog_state(cx);
             self.source_dir = None;
-            if let Some(path) = project.spectrum_file {
-                let label = path
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .to_string();
-                self.current_path = path.clone();
-                self.load_spectrum(NO_ENTRY, path, label.into(), cx);
+            self.pending_overrides = project.overrides;
+            self.pending_project_spectrum = project.spectrum_file.clone();
+            let mut files = project.raw_files;
+            files.extend(project.spectrum_file);
+            if files.is_empty() {
+                self.restore_project_selection(cx);
+            } else {
+                self.append_import(files, true, cx);
             }
         }
         if !self.fit_paths.is_empty() {
@@ -6976,6 +7062,26 @@ impl StudioApp {
                     );
                 }
                 sections = sections.child(list);
+            }
+            if let Some(preview) = &self.import_preview {
+                let mut channels = div().px_3().py_1().flex().flex_wrap().gap_1();
+                for mode in preview.available_channels() {
+                    if mode == preview.resolved.mode {
+                        continue;
+                    }
+                    channels = channels.child(
+                        shell::button(
+                            &t,
+                            SharedString::from(format!("add-channel-{mode:?}")),
+                            format!("+ {}", mode.label()),
+                            false,
+                        )
+                        .on_click(cx.listener(
+                            move |this, _: &ClickEvent, _, cx| this.add_import_channel(mode, cx),
+                        )),
+                    );
+                }
+                sections = sections.child(channels).child(div().px_3().pb_1().text_xs().text_color(t.text_muted).child("Add a channel as a separate group; each group keeps its own processing settings."));
             }
             // The preview stays compact but shows enough real rows to verify
             // delimiter/header detection and the role assignments at a glance.
@@ -7659,7 +7765,12 @@ impl StudioApp {
                     }))
                     .child(format!("errors:{errors}")),
             );
-        if self.operando_running || self.batch_running || self.merge_running {
+        if self.catalog.scanning
+            || self.verify_running
+            || self.operando_running
+            || self.batch_running
+            || self.merge_running
+        {
             bar = bar.child(
                 div()
                     .id("cancel-jobs")

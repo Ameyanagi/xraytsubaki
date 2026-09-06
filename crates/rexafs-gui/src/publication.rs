@@ -11,10 +11,40 @@ use std::{
     sync::Arc,
 };
 
+#[derive(Default)]
 pub(crate) struct SpectrumInput {
+    pub source_error: Option<String>,
+    pub label: String,
+    pub group: Option<crate::params::DerivedSpectrum>,
     pub path: PathBuf,
     pub params: PipelineParams,
     pub data: Option<Arc<XASSpectrum>>,
+}
+impl SpectrumInput {
+    pub fn label(&self) -> String {
+        if self.label.is_empty() {
+            self.path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned()
+        } else {
+            self.label.clone()
+        }
+    }
+    pub fn process(&self) -> Result<Arc<XASSpectrum>, String> {
+        if let Some(error) = &self.source_error {
+            return Err(error.clone());
+        }
+        if let Some(data) = &self.data {
+            return Ok(data.clone());
+        }
+        match &self.group {
+            Some(group) => group.process(&self.params),
+            None => crate::params::process_file(&self.path, &self.params),
+        }
+        .map(Arc::new)
+    }
 }
 pub(crate) struct Snapshot {
     pub project: ProjectFile,
@@ -52,7 +82,7 @@ impl Snapshot {
             "software":{"name":"rexafs","version":env!("CARGO_PKG_VERSION")},
             "current_spectrum":self.current, "screen":self.screen,
             "project":self.project,
-            "effective_processing":self.spectra.iter().map(|s|json!({"file":s.path,"requested":s.params,"source_comments":source_comments(&s.path)})).collect::<Vec<_>>(),
+            "effective_processing":self.spectra.iter().map(|s|json!({"file":s.path,"group":s.label(),"group_id":s.group.as_ref().map(|g|g.id),"requested":s.params,"source_comments":source_comments(&s.path)})).collect::<Vec<_>>(),
             "analysis":self.analysis, "batch_results_stale":self.batch_stale, "journal":self.journal,
             "semantics":{"null_processing_value":"Auto; resolved numbers are in processed-spectrum JSON when available", "fit_history":"Historical inputs and values; not necessarily the currently edited model", "path_distance":"R_eff + deltaR; for multiple scattering, half the total scattering path length", "stderr":"One standard error from the fit covariance, not total experimental uncertainty"}
         })
@@ -69,7 +99,7 @@ impl Snapshot {
             text.push_str(&format!(
                 "## Spectrum {} — {}\n\nSource: `{}`\n\n{}\n",
                 i + 1,
-                cell(s.path.file_name().unwrap_or_default().to_string_lossy()),
+                cell(s.label()),
                 cell(s.path.display().to_string()),
                 table.next().unwrap().markdown()
             ));
@@ -221,10 +251,7 @@ pub(crate) fn export(mut snapshot: Snapshot, destination: &Path) -> Result<PathB
     );
     for (i, s) in snapshot.spectra.iter_mut().enumerate() {
         let id = format!("spectrum-{:03}", i + 1);
-        let result = match &s.data {
-            Some(data) => Ok(data.clone()),
-            None => crate::params::process_file(&s.path, &s.params).map(Arc::new),
-        };
+        let result = s.process();
         match result {
             Ok(sp) => {
                 s.data = Some(sp.clone());
@@ -243,12 +270,9 @@ pub(crate) fn export(mut snapshot: Snapshot, destination: &Path) -> Result<PathB
                     "```json\n{}\n```\n\n",
                     serde_json::to_string_pretty(&resolved_settings(&sp)).unwrap()
                 ));
-                for figure in figures::spectrum_figures(
-                    sp,
-                    &s.path.file_name().unwrap_or_default().to_string_lossy(),
-                ) {
+                for figure in figures::spectrum_figures(sp, &s.label()) {
                     let filename = format!("{id}-{}.png", figure.key);
-                    match save_figure(&figure,&snapshot.project.publication,&figs.join(&filename)) {Ok(())=>assets.push(json!({"file":format!("figures/{filename}"),"svg":format!("figures/{}",filename.replace(".png",".svg")),"csv":format!("figures/{}",filename.replace(".png",".csv")),"source":s.path,"kind":figure.key,"number":assets.len()+1,"caption":format!("Spectrum {} ({}). {}",i+1,s.path.file_name().unwrap_or_default().to_string_lossy(),figure.caption(&snapshot.project.publication.options(figure.key)))})),Err(e)=>errors.push(format!("{filename}: {e}"))}
+                    match save_figure(&figure,&snapshot.project.publication,&figs.join(&filename)) {Ok(())=>assets.push(json!({"file":format!("figures/{filename}"),"svg":format!("figures/{}",filename.replace(".png",".svg")),"csv":format!("figures/{}",filename.replace(".png",".csv")),"source":s.path,"group":s.label(),"group_id":s.group.as_ref().map(|g|g.id),"kind":figure.key,"number":assets.len()+1,"caption":format!("Spectrum {} ({}). {}",i+1,s.label(),figure.caption(&snapshot.project.publication.options(figure.key)))})),Err(e)=>errors.push(format!("{filename}: {e}"))}
                 }
             }
             Err(e) => errors.push(format!("{}: {e}", s.path.display())),
@@ -328,6 +352,20 @@ const BIBTEX: &str = "@article{Newville1993, author={M. Newville and P. Livins a
 mod tests {
     use super::*;
     #[test]
+    fn missing_channel_never_falls_back_to_primary_file() {
+        let input = SpectrumInput {
+            source_error: Some("Reference: source group is missing".into()),
+            path: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../rexafs/tests/testfiles/Ru_QAS.dat"),
+            ..Default::default()
+        };
+        assert_eq!(
+            input.process().err().as_deref(),
+            Some("Reference: source group is missing")
+        );
+    }
+
+    #[test]
     fn copper_export_has_resolved_settings_arrays_and_readable_pngs() {
         let file = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../rexafs/tests/testfiles/xraylarch_d867/xafsdata/cu_150k.xmu");
@@ -356,6 +394,9 @@ mod tests {
             project,
             current: file.clone(),
             spectra: vec![SpectrumInput {
+                source_error: None,
+                group: None,
+                label: String::new(),
                 path: file,
                 params: PipelineParams::default(),
                 data: None,
@@ -461,6 +502,9 @@ mod tests {
             current: "Cu.xdi".into(),
             spectra: vec![
                 SpectrumInput {
+                    source_error: None,
+                    group: None,
+                    label: String::new(),
                     path: "Cu.xdi".into(),
                     params: PipelineParams {
                         fft_kweight: Some(1.),
@@ -469,6 +513,9 @@ mod tests {
                     data: None,
                 },
                 SpectrumInput {
+                    source_error: None,
+                    group: None,
+                    label: String::new(),
                     path: "Ni.xdi".into(),
                     params: PipelineParams {
                         fft_kweight: Some(3.),

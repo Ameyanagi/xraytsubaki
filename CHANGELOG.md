@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Import multiple files and folders by appending to the current session; retain
+  per-file settings, detect named reference channels, and deduplicate repeated imports.
+- Keep sample, fluorescence and reference channels as separate lazy groups with
+  independent processing settings, project identities and joint-fit assignments.
+  Include all marked additional groups in publication exports with channel provenance.
+
 - Add visible Select all, Deselect all and Invert group controls, with scoped
   keyboard shortcuts and explicit overlay scope.
 - Restore per-spectrum project settings across directory aliases and catalog

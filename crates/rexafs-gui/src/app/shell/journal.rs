@@ -110,34 +110,75 @@ impl StudioApp {
     fn apply_params_to(&mut self, target: Option<usize>, params: PipelineParams) {
         match target {
             Some(ix) => {
-                if params == self.params {
-                    self.overrides.remove(&ix);
-                } else {
-                    self.overrides.insert(ix, params);
-                }
+                self.set_custom_params(ix, (params != self.params).then_some(params));
             }
             None => self.params = params,
         }
     }
 
+    fn remap_derived_indices(&mut self, index: usize, insert: bool) {
+        let map = |ix: usize| {
+            if ix < DERIVED_BASE || ix - DERIVED_BASE < index {
+                Some(ix)
+            } else if insert {
+                Some(ix + 1)
+            } else if ix - DERIVED_BASE == index {
+                None
+            } else {
+                Some(ix - 1)
+            }
+        };
+        self.selection = self.selection.iter().copied().filter_map(map).collect();
+        self.frozen = self.frozen.iter().copied().filter_map(map).collect();
+        self.selected = self.selected.and_then(map);
+        // An in-flight result carries its old vector index. Retire it before
+        // inserting/removing groups so it cannot populate another group's cache.
+        self.generation += 1;
+        self.compare_gen += 1;
+        self.load_running = false;
+        self.compare_running = false;
+        self.cache.clear();
+        self.raw_cache.clear();
+        self.thumbs = None;
+    }
     fn insert_derived(&mut self, index: usize, spectrum: DerivedSpectrum, cx: &mut Context<Self>) {
         let index = index.min(self.derived.len());
+        self.remap_derived_indices(index, true);
         self.derived.insert(index, spectrum);
-        self.cache.clear();
         self.select_entry(DERIVED_BASE + index, cx);
         self.sync_param_fields(cx);
     }
 
-    fn take_derived(&mut self, index: usize, cx: &mut Context<Self>) -> Option<DerivedSpectrum> {
+    pub(crate) fn take_derived(
+        &mut self,
+        index: usize,
+        cx: &mut Context<Self>,
+    ) -> Option<DerivedSpectrum> {
         if index >= self.derived.len() {
             return None;
         }
+        let was_active = self.selected == Some(DERIVED_BASE + index);
+        self.remap_derived_indices(index, false);
         let spectrum = self.derived.remove(index);
-        self.selection.retain(|&ix| ix < DERIVED_BASE);
-        if self.selected.is_some_and(|ix| ix >= DERIVED_BASE) {
-            self.selected = None;
+        if was_active {
+            self.current_path.clear();
+            self.spectrum_path.clear();
+            self.spectrum = None;
+            self.spectrum_label = "no spectrum".into();
+            self.stale_plots = None;
+            self.quadrants.clear();
+            self.quad_bindings.clear();
+            self.import_preview = None;
+            self.import_preview_gen += 1;
         }
-        self.cache.clear();
+        if let Some(ix) = self.selected {
+            self.select_entry(ix, cx);
+        } else if !self.catalog.is_empty() {
+            self.select_entry(0, cx);
+        } else if !self.derived.is_empty() {
+            self.select_entry(DERIVED_BASE, cx);
+        }
+        self.ensure_compare_loaded(cx);
         self.invalidate_explore_plots(cx);
         self.sync_param_fields(cx);
         Some(spectrum)
@@ -171,14 +212,7 @@ impl StudioApp {
             }
             UndoOp::Params { changes } => {
                 for (ix, before, _) in &changes {
-                    match before {
-                        Some(p) => {
-                            self.overrides.insert(*ix, p.clone());
-                        }
-                        None => {
-                            self.overrides.remove(ix);
-                        }
-                    }
+                    self.set_custom_params(*ix, before.clone());
                 }
                 self.after_param_undo(cx);
                 UndoOp::Params { changes }
@@ -228,14 +262,7 @@ impl StudioApp {
             }
             UndoOp::Params { changes } => {
                 for (ix, _, before) in &changes {
-                    match before {
-                        Some(p) => {
-                            self.overrides.insert(*ix, p.clone());
-                        }
-                        None => {
-                            self.overrides.remove(ix);
-                        }
-                    }
+                    self.set_custom_params(*ix, before.clone());
                 }
                 self.after_param_undo(cx);
                 UndoOp::Params { changes }

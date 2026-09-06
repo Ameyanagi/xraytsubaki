@@ -7,7 +7,7 @@ use gpui::{
 };
 
 use super::{MONO, Stage, button, section_label};
-use crate::app::{DERIVED_BASE, EnumParam, ParamKey, ParamSection, StudioApp};
+use crate::app::{EnumParam, ParamKey, ParamSection, StudioApp};
 
 impl StudioApp {
     pub(crate) fn inspector(&mut self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -56,7 +56,7 @@ impl StudioApp {
         let marked = self
             .selection
             .iter()
-            .filter(|&&ix| ix < DERIVED_BASE && Some(ix) != self.selected)
+            .filter(|&&ix| self.valid_group_index(ix) && Some(ix) != self.selected)
             .count();
         let mut header = div()
             .flex_none()

@@ -91,7 +91,19 @@ impl StudioApp {
                 Edit::Range(id, axis) => {
                     let floor = this.fit_background_floor(Some(*id));
                     if *axis == 2 && number.unwrap() < floor {
-                        field.update(cx, |f, cx| f.set_error(true, cx));
+                        let previous = this
+                            .joint
+                            .config
+                            .datasets
+                            .iter()
+                            .find(|d| d.id == *id)
+                            .and_then(|d| d.ranges.as_ref())
+                            .unwrap_or(&this.fit_ranges)
+                            .rmin;
+                        field.update(cx, |f, cx| {
+                            f.set_text(previous.to_string(), cx);
+                            f.set_error(true, cx);
+                        });
                         this.status = format!(
                             "Fit R min must be at least this spectrum's Rbkg ({floor:.4} Å)."
                         )
@@ -138,7 +150,7 @@ impl StudioApp {
     ) -> impl IntoElement + use<> {
         let t = self.theme;
         let id = d.id;
-        let kw = self.joint_params(&d.file).fft_kweight;
+        let kw = self.joint_dataset_params(d).and_then(|p| p.fft_kweight);
         let r = d.ranges.as_ref().unwrap_or(&self.fit_ranges).resolved(kw);
         let mut row = div().flex().flex_wrap().items_center().gap_2();
         for (i, (label, v)) in [
@@ -619,11 +631,8 @@ impl StudioApp {
                     .gap_1()
                     .pb_2()
                     .child(
-                        button(&t, "add-current", "+ Current", false).on_click(cx.listener(
-                            |this, _, _, cx| {
-                                this.add_joint_files(vec![this.current_path.clone()], cx)
-                            },
-                        )),
+                        button(&t, "add-current", "+ Current", false)
+                            .on_click(cx.listener(|this, _, _, cx| this.add_joint_current(cx))),
                     )
                     .child(
                         button(
@@ -633,13 +642,7 @@ impl StudioApp {
                             false,
                         )
                         .on_click(cx.listener(|this, _, _, cx| {
-                            let files = this
-                                .selection
-                                .iter()
-                                .filter(|&&i| i < this.catalog.len())
-                                .map(|&i| this.catalog.path(i))
-                                .collect();
-                            this.add_joint_files(files, cx);
+                            this.add_joint_groups(this.selection.iter().copied().collect(), cx);
                         })),
                     ),
             );

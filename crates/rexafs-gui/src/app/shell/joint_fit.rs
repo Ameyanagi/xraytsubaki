@@ -4,7 +4,7 @@ use crate::{
     app::{FitProvenance, StudioApp},
     fitting::{FitHistoryEntry, FitPathSpec, FitVarSpec},
     joint_fitting::{self, JointConfig, JointDataset},
-    params::{PipelineParams, process_file},
+    params::PipelineParams,
 };
 use gpui::{Context, IntoElement, ParentElement, Styled, div, prelude::*, px};
 use std::{
@@ -68,16 +68,104 @@ impl StudioApp {
             .unwrap_or(&self.params)
             .clone()
     }
-    pub(super) fn add_joint_files(&mut self, files: Vec<PathBuf>, cx: &mut Context<Self>) {
+    pub(crate) fn joint_dataset_params(&self, dataset: &JointDataset) -> Option<PipelineParams> {
+        match dataset.group_id {
+            Some(id) => self
+                .derived
+                .iter()
+                .find(|d| d.id == id)
+                .map(|d| d.params.as_ref().unwrap_or(&self.params).clone()),
+            None => Some(self.joint_params(&dataset.file)),
+        }
+    }
+    pub(crate) fn joint_dataset_input(
+        &self,
+        dataset: &JointDataset,
+    ) -> Result<crate::publication::SpectrumInput, String> {
+        let params = self.joint_dataset_params(dataset).ok_or_else(|| {
+            format!(
+                "{}: source group is missing. Restore it or remove this fit dataset.",
+                dataset.label
+            )
+        })?;
+        Ok(crate::publication::SpectrumInput {
+            source_error: None,
+            label: dataset.label.clone(),
+            path: dataset.file.clone(),
+            params,
+            group: dataset
+                .group_id
+                .and_then(|id| self.derived.iter().find(|d| d.id == id).cloned()),
+            data: None,
+        })
+    }
+    pub(crate) fn current_spectrum_input(&self) -> crate::publication::SpectrumInput {
+        crate::publication::SpectrumInput {
+            source_error: None,
+            label: self.current_group_label().to_string(),
+            path: self.current_path.clone(),
+            params: self.ui_params().clone(),
+            group: self
+                .selected
+                .filter(|&ix| ix >= crate::app::DERIVED_BASE)
+                .and_then(|ix| self.derived.get(ix - crate::app::DERIVED_BASE))
+                .cloned(),
+            data: None,
+        }
+    }
+    pub(super) fn add_joint_groups(&mut self, indices: Vec<usize>, cx: &mut Context<Self>) {
+        let inputs: Vec<_> = indices
+            .into_iter()
+            .filter(|&ix| self.valid_group_index(ix))
+            .map(|ix| {
+                if ix >= crate::app::DERIVED_BASE {
+                    let group = &self.derived[ix - crate::app::DERIVED_BASE];
+                    (
+                        group.source.clone().unwrap_or_default(),
+                        Some(group.id),
+                        self.entry_label(ix),
+                    )
+                } else {
+                    let file = self.catalog.path(ix);
+                    let label = self.entry_label(ix);
+                    (file, None, label)
+                }
+            })
+            .collect();
+        self.add_joint_sources(inputs, cx);
+    }
+    pub(super) fn add_joint_current(&mut self, cx: &mut Context<Self>) {
+        if let Some(ix) = self.selected {
+            self.add_joint_groups(vec![ix], cx);
+        } else if !self.current_path.as_os_str().is_empty() {
+            self.add_joint_sources(
+                vec![(
+                    self.current_path.clone(),
+                    None,
+                    self.current_group_label().to_string(),
+                )],
+                cx,
+            );
+        }
+    }
+    fn add_joint_sources(
+        &mut self,
+        sources: Vec<(PathBuf, Option<u64>, String)>,
+        cx: &mut Context<Self>,
+    ) {
         let paths: Vec<_> = self
             .fit_paths
             .iter()
             .filter(|p| p.spec.enabled)
             .map(|p| p.spec.file.clone())
             .collect();
-        for file in files {
-            if file.as_os_str().is_empty()
-                || self.joint.config.datasets.iter().any(|d| d.file == file)
+        for (file, group_id, label) in sources {
+            if self
+                .joint
+                .config
+                .datasets
+                .iter()
+                .any(|d| d.file == file && d.group_id == group_id)
             {
                 continue;
             }
@@ -90,14 +178,10 @@ impl StudioApp {
                 .max()
                 .unwrap_or(0)
                 + 1;
-            let label = file
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned();
             self.joint.config.datasets.push(JointDataset {
                 id,
                 file,
+                group_id,
                 label,
                 paths: paths.clone(),
                 ..Default::default()
@@ -108,6 +192,15 @@ impl StudioApp {
         cx.notify();
     }
     pub(crate) fn joint_blocker(&self) -> Option<&'static str> {
+        if self
+            .joint
+            .config
+            .datasets
+            .iter()
+            .any(|d| self.joint_dataset_params(d).is_none())
+        {
+            return Some("A fit source group is missing. Restore it or remove that dataset.");
+        }
         if self.fit_running {
             return Some("Fitting spectra…");
         }
@@ -130,7 +223,11 @@ impl StudioApp {
             d.ranges
                 .as_ref()
                 .unwrap_or(&self.fit_ranges)
-                .validate_background(self.joint_params(&d.file).rbkg.unwrap_or(1.0))
+                .validate_background(
+                    self.joint_dataset_params(d)
+                        .and_then(|p| p.rbkg)
+                        .unwrap_or(1.0),
+                )
                 .is_err()
         }) {
             return Some("Each spectrum's fit R min must be at least its background Rbkg.");
@@ -177,7 +274,7 @@ impl StudioApp {
                                         .extend(crate::fitting::expr_identifiers(expr));
                                 }
                             }
-                            this.add_joint_files(vec![this.current_path.clone()], cx);
+                            this.add_joint_current(cx);
                         }
                         this.fit_model_changed(cx);
                         cx.notify();
@@ -255,7 +352,7 @@ impl StudioApp {
         let inputs: Vec<_> = config
             .datasets
             .iter()
-            .map(|d| (d.file.clone(), self.joint_params(&d.file), d.label.clone()))
+            .map(|d| self.joint_dataset_input(d))
             .collect();
         let paths: Vec<FitPathSpec> = self.fit_paths.iter().map(|p| p.spec.clone()).collect();
         let vars: Vec<FitVarSpec> = self.fit_vars.iter().map(|v| v.spec.clone()).collect();
@@ -265,11 +362,12 @@ impl StudioApp {
                 d.ranges
                     .as_ref()
                     .unwrap_or(&ranges)
-                    .resolved(self.joint_params(&d.file).fft_kweight),
+                    .resolved(self.joint_dataset_params(d).and_then(|p| p.fft_kweight)),
             );
         }
         let saved = (config.clone(), paths.clone(), vars.clone(), ranges.clone());
         let provenance = FitProvenance {
+            group_id: None,
             label: format!("Multiple spectra · {} spectra", config.datasets.len()).into(),
             path: PathBuf::new(),
             params_fingerprint: 0,
@@ -284,9 +382,12 @@ impl StudioApp {
         let started = std::time::Instant::now();
         let job = cx.background_executor().spawn(async move {
             let mut data = vec![];
-            for (file, params, label) in inputs {
-                let sp = process_file(&file, &params).map_err(|e| format!("{label}: {e}"))?;
-                data.push(sp);
+            for input in inputs {
+                let input = input?;
+                let sp = input
+                    .process()
+                    .map_err(|e| format!("{}: {e}", input.label()))?;
+                data.push((*sp).clone());
             }
             joint_fitting::run_processed(&config, &data, &paths, &vars, &ranges)
         });

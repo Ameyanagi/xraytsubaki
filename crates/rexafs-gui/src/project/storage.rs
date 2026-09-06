@@ -196,6 +196,9 @@ pub(super) fn map_paths(
     for p in &mut project.overrides {
         p.path = f(&p.path)?;
     }
+    for group in &mut project.derived {
+        option(&mut group.source, f)?;
+    }
     for p in &mut project.raw_files {
         *p = f(p)?;
     }
@@ -224,6 +227,11 @@ fn inputs(
             files.insert(p.to_owned(), SourceKind::Spectrum);
         }
     };
+    for group in &project.derived {
+        if let Some(path) = &group.source {
+            raw(path);
+        }
+    }
     if mode == DataStorage::Embedded || project.source_dir.is_none() {
         for p in &project.raw_files {
             raw(p);

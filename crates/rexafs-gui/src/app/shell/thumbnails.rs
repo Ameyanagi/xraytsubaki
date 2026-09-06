@@ -31,20 +31,24 @@ fn vecs(v: &nalgebra::DVector<f64>) -> Vec<f64> {
 pub fn thumb_data(sp: &XASSpectrum, _fit_r: (f64, f64)) -> [ThumbData; 4] {
     let energy = sp.energy.as_ref().map(vecs).unwrap_or_default();
     let norm = sp
-        .get_norm()
-        .or_else(|| sp.get_flat())
+        .norm()
+        .or_else(|| sp.flat())
         .map(|v| vecs(&v))
         .unwrap_or_default();
-    let k = sp.get_k().map(|v| vecs(&v)).unwrap_or_default();
-    let chi = sp.get_chi_kweighted().map(|v| vecs(&v)).unwrap_or_default();
-    let r = sp.get_r().map(|v| vecs(&v)).unwrap_or_default();
-    let mag = sp.get_chir_mag().map(|v| vecs(&v)).unwrap_or_default();
+    let k = sp
+        .k()
+        .map(nalgebra::DVector::from_column_slice)
+        .map(|v| vecs(&v))
+        .unwrap_or_default();
+    let chi = sp.chi_kweighted().map(|v| vecs(&v)).unwrap_or_default();
+    let r = sp.r().map(|v| vecs(&v)).unwrap_or_default();
+    let mag = sp.chir_mag().map(|v| vecs(&v)).unwrap_or_default();
     let mut win_series = vec![ThumbSeries {
         x: k.clone(),
         y: chi.clone(),
         muted: false,
     }];
-    if let Some(kwin) = sp.get_kwin() {
+    if let Some(kwin) = sp.kwin() {
         let peak = chi.iter().fold(0.0f64, |m, v| m.max(v.abs())).max(1e-12);
         let n = k.len().min(kwin.len());
         win_series.push(ThumbSeries {

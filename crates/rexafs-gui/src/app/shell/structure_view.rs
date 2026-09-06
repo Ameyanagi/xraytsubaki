@@ -2119,7 +2119,7 @@ impl StudioApp {
     fn spectrum_interest(&self) -> Option<crate::spectrum_interest::SpectrumInterest> {
         let header = self.import_preview.as_ref().and_then(|p| p.xdi.as_ref());
         let e0 = (self.spectrum_path == self.current_path)
-            .then(|| self.spectrum.as_ref().and_then(|s| s.get_e0()))
+            .then(|| self.spectrum.as_ref().and_then(|s| s.e0()))
             .flatten();
         crate::spectrum_interest::SpectrumInterest::infer(header, e0)
     }

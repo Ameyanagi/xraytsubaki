@@ -223,16 +223,16 @@ fn embedded_project_is_lossless_self_contained_and_can_be_saved_again() {
     let after =
         crate::params::process_file(reopened.spectrum_file.as_ref().unwrap(), &reopened.params)
             .unwrap();
-    assert_eq!(before.get_e0(), after.get_e0());
+    assert_eq!(before.e0(), after.e0());
     assert_eq!(
         before
-            .get_chi()
+            .chi()
             .unwrap()
             .iter()
             .map(|v| v.to_bits())
             .collect::<Vec<_>>(),
         after
-            .get_chi()
+            .chi()
             .unwrap()
             .iter()
             .map(|v| v.to_bits())

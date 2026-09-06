@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 // load dependencies
 use super::background;
-use super::errors::DataError;
+use super::errors::{DataError, NormalizationError};
 use super::io;
 use super::lmutils;
 use super::mathutils;
@@ -60,6 +60,9 @@ pub struct XASSpectrum {
     pub mu_stddev: Option<DVector<f64>>,
     /// Whether `energy`/`mu` are the result of `rebin`.
     pub rebinned: bool,
+    /// Explicit normalization scale, distinct from the scale inferred by a stage.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    normalization_edge_step_override: Option<f64>,
 }
 
 impl XASSpectrum {
@@ -190,8 +193,14 @@ impl XASSpectrum {
         }
         self.energy = self.raw_energy.clone();
         self.mu = self.raw_mu.clone();
-
-        self
+        self.e0 = None;
+        if let Some(method) = self.normalization.as_mut() {
+            method.set_e0(None);
+        }
+        if let Some(background::BackgroundMethod::AUTOBK(method)) = self.background.as_mut() {
+            method.ek0 = None;
+        }
+        self.invalidate_derived()
     }
 
     pub fn interpolate_spectrum<T: Into<DVector<f64>>>(
@@ -220,12 +229,18 @@ impl XASSpectrum {
             })?;
         self.mu = Some(interpolated);
 
-        Ok(self)
+        Ok(self.invalidate_derived())
     }
 
     pub fn set_e0<S: Into<f64>>(&mut self, e0: S) -> &mut Self {
+        self.invalidate_derived();
         self.e0 = Some(e0.into());
-
+        if let Some(method) = self.normalization.as_mut() {
+            method.set_e0(self.e0);
+        }
+        if let Some(background::BackgroundMethod::AUTOBK(method)) = self.background.as_mut() {
+            method.ek0 = self.e0;
+        }
         self
     }
 
@@ -237,9 +252,8 @@ impl XASSpectrum {
             field: "mu".to_string(),
         })?;
         Self::validate_energy_mu_inputs(energy, mu)?;
-        self.e0 = Some(xafsutils::find_e0(energy, mu)?);
-
-        Ok(self)
+        let e0 = xafsutils::find_e0(energy, mu)?;
+        Ok(self.set_e0(e0))
     }
 
     fn find_energy_step(
@@ -283,6 +297,7 @@ impl XASSpectrum {
         &mut self,
         method: Option<normalization::NormalizationMethod>,
     ) -> Result<&mut Self, XAFSError> {
+        self.invalidate_derived();
         if let Some(method) = method {
             self.normalization = Some(method);
         } else {
@@ -292,9 +307,23 @@ impl XASSpectrum {
             ));
         }
 
-        let e0 = self.e0;
+        self.normalization_edge_step_override =
+            self.normalization.as_ref().and_then(|m| m.get_edge_step());
+        let e0 = self
+            .normalization
+            .as_ref()
+            .and_then(|m| m.get_e0())
+            .or(self.e0);
+        if e0 != self.e0 {
+            if let Some(background::BackgroundMethod::AUTOBK(method)) = self.background.as_mut() {
+                method.ek0 = e0;
+            }
+        }
+        self.e0 = e0;
         if let Some(normalization_method) = self.normalization.as_mut() {
-            normalization_method.set_e0(e0);
+            if e0.is_some() {
+                normalization_method.set_e0(e0);
+            }
         } else {
             return Err(DataError::MissingData {
                 field: "normalization method".to_string(),
@@ -305,9 +334,23 @@ impl XASSpectrum {
         Ok(self)
     }
 
+    /// Normalize using the selected method, resolving E0 and defaults as needed.
+    /// Recomputing this stage invalidates background and Fourier results.
     pub fn normalize(&mut self) -> Result<&mut Self, XAFSError> {
+        // Capture explicitly configured edge_step before the algorithm fills it.
+        if let Some(method) = &self.normalization {
+            if method.get_norm().is_none() {
+                self.normalization_edge_step_override = method.get_edge_step();
+            }
+        }
+        self.invalidate_derived();
         if self.normalization.is_none() {
             self.set_normalization_method(None)?;
+        }
+
+        let configured_e0 = self.normalization.as_ref().and_then(|m| m.get_e0());
+        if self.e0.is_none() && configured_e0.is_none() {
+            self.find_e0()?;
         }
 
         let energy = self.energy.as_ref().ok_or_else(|| DataError::MissingData {
@@ -318,13 +361,31 @@ impl XASSpectrum {
         })?;
         Self::validate_energy_mu_inputs(energy, mu)?;
 
-        self.normalization
-            .as_mut()
+        if let Some(e0) = self.e0.or(configured_e0) {
+            let data_min = energy[0];
+            let data_max = energy[energy.len() - 1];
+            if !e0.is_finite() || e0 <= data_min || e0 >= data_max {
+                return Err(NormalizationError::E0OutOfRange {
+                    e0,
+                    data_min,
+                    data_max,
+                }
+                .into());
+            }
+        }
+
+        let mut method = self
+            .normalization
+            .clone()
             .ok_or_else(|| DataError::MissingData {
                 field: "normalization method".to_string(),
-            })?
-            .normalize(energy, mu)?;
-
+            })?;
+        if let Err(error) = method.normalize(energy, mu) {
+            self.invalidate_derived();
+            return Err(error.into());
+        }
+        self.normalization = Some(method);
+        self.e0 = self.normalization.as_ref().and_then(|m| m.get_e0());
         Ok(self)
     }
 
@@ -332,6 +393,7 @@ impl XASSpectrum {
         &mut self,
         method: Option<background::BackgroundMethod>,
     ) -> Result<&mut Self, XAFSError> {
+        self.invalidate_background();
         if let Some(method) = method {
             self.background = Some(method);
         } else {
@@ -342,7 +404,17 @@ impl XASSpectrum {
         Ok(self)
     }
 
+    /// Remove the background using the selected method; normalize first if needed.
     pub fn calc_background(&mut self) -> Result<&mut Self, XAFSError> {
+        self.invalidate_background();
+        if self
+            .normalization
+            .as_ref()
+            .and_then(|m| m.get_norm())
+            .is_none()
+        {
+            self.normalize()?;
+        }
         if self.background.is_none() {
             self.set_background_method(None)?;
         }
@@ -365,28 +437,44 @@ impl XASSpectrum {
         Ok(self)
     }
 
+    /// Configure the forward transform and invalidate its dependent results.
+    pub fn set_fft(&mut self, parameters: xrayfft::XrayFFTF) -> &mut Self {
+        self.xftf = Some(parameters);
+        self.invalidate_fft();
+        self
+    }
+
+    /// Forward transform, computing missing normalization/background stages.
     pub fn fft(&mut self) -> Result<&mut Self, XAFSError> {
-        let mut xftf = self.xftf.take().unwrap_or_default();
+        self.invalidate_fft();
+        if self.k().is_none() || self.chi().is_none() {
+            self.calc_background()?;
+        }
+        // Work on a copy so errors retain the caller's transform parameters.
+        let mut xftf = self.xftf.clone().unwrap_or_default();
 
         #[cfg(feature = "ndarray-compat")]
         {
-            let k = self.get_k_view().ok_or_else(|| DataError::MissingData {
+            let k = self.k_view().ok_or_else(|| DataError::MissingData {
                 field: "k (need to calculate background first)".to_string(),
             })?;
-            let chi = self.get_chi_view().ok_or_else(|| DataError::MissingData {
+            let chi = self.chi_view().ok_or_else(|| DataError::MissingData {
                 field: "chi (need to calculate background first)".to_string(),
             })?;
             xftf.xftf(k, chi)?;
         }
         #[cfg(not(feature = "ndarray-compat"))]
         {
-            let k = self.get_k().ok_or_else(|| DataError::MissingData {
+            let k = self.k().ok_or_else(|| DataError::MissingData {
                 field: "k (need to calculate background first)".to_string(),
             })?;
-            let chi = self.get_chi().ok_or_else(|| DataError::MissingData {
+            let chi = self.chi().ok_or_else(|| DataError::MissingData {
                 field: "chi (need to calculate background first)".to_string(),
             })?;
-            xftf.xftf(&k, &chi)?;
+            xftf.xftf(
+                &DVector::from_column_slice(k),
+                &DVector::from_column_slice(chi),
+            )?;
         }
 
         self.xftf = Some(xftf);
@@ -394,11 +482,8 @@ impl XASSpectrum {
     }
 
     pub fn ifft(&mut self) -> Result<&mut Self, XAFSError> {
-        if self.xftf.is_none() {
-            return Err(DataError::MissingData {
-                field: "xftf (need to run fft() first)".to_string(),
-            }
-            .into());
+        if self.chir().is_none() {
+            self.fft()?;
         }
 
         let xftf = self.xftf.as_ref().ok_or_else(|| DataError::MissingData {
@@ -450,17 +535,11 @@ impl XASSpectrum {
     /// background, χ(k), χ(R), χ(q)) while keeping the stage parameters, so
     /// the pipeline recomputes from the modified data.
     pub fn invalidate_derived(&mut self) -> &mut Self {
-        self.k = None;
-        self.chi = None;
-        self.chi_kweighted = None;
-        self.chi_r = None;
-        self.chi_r_mag = None;
-        self.chi_r_re = None;
-        self.chi_r_im = None;
-        self.q = None;
         match self.normalization.as_mut() {
             Some(normalization::NormalizationMethod::PrePostEdge(p)) => {
-                p.edge_step = None;
+                if p.norm.is_some() {
+                    p.edge_step = self.normalization_edge_step_override;
+                }
                 p.pre_edge = None;
                 p.post_edge = None;
                 p.norm = None;
@@ -469,18 +548,37 @@ impl XASSpectrum {
                 p.norm_coefficients = None;
             }
             Some(normalization::NormalizationMethod::MBack(m)) => {
-                m.edge_step = None;
+                if m.norm.is_some() {
+                    m.edge_step = self.normalization_edge_step_override;
+                }
                 m.norm = None;
                 m.flat = None;
             }
             None => {}
         }
+        self.invalidate_background();
+        self
+    }
+
+    fn invalidate_background(&mut self) {
+        self.k = None;
+        self.chi = None;
+        self.chi_kweighted = None;
         if let Some(background::BackgroundMethod::AUTOBK(a)) = self.background.as_mut() {
             a.bkg = None;
             a.chie = None;
             a.k = None;
             a.chi = None;
         }
+        self.invalidate_fft();
+    }
+
+    fn invalidate_fft(&mut self) {
+        self.chi_r = None;
+        self.chi_r_mag = None;
+        self.chi_r_re = None;
+        self.chi_r_im = None;
+        self.q = None;
         if let Some(f) = self.xftf.as_mut() {
             f.r = None;
             f.chir = None;
@@ -492,7 +590,6 @@ impl XASSpectrum {
             r.chiq = None;
             r.rwin = None;
         }
-        self
     }
 
     fn working_pair(&self) -> Result<(&DVector<f64>, &DVector<f64>), XAFSError> {
@@ -551,13 +648,13 @@ impl XASSpectrum {
                     Some(e0) => e0,
                     None => tools::derivative_max_energy(energy, mu)?,
                 };
-                let flat = match self.get_flat() {
+                let flat = match self.flat() {
                     Some(flat) if flat.len() == energy.len() => flat,
                     _ => {
                         let mut tmp = self.clone();
                         tmp.invalidate_derived();
                         tmp.normalize()?;
-                        tmp.get_flat().ok_or_else(|| DataError::MissingData {
+                        tmp.flat().ok_or_else(|| DataError::MissingData {
                             field: "flat".to_string(),
                         })?
                     }
@@ -787,19 +884,11 @@ impl XASSpectrum {
         Ok(self.invalidate_derived())
     }
 
-    pub fn get_e0(&self) -> Option<f64> {
+    pub fn e0(&self) -> Option<f64> {
         self.e0
     }
 
-    pub fn get_k(&self) -> Option<DVector<f64>> {
-        self.background.as_ref()?.get_k()
-    }
-
-    pub fn get_chi(&self) -> Option<DVector<f64>> {
-        self.background.as_ref()?.get_chi()
-    }
-
-    pub fn get_norm(&self) -> Option<DVector<f64>> {
+    pub fn norm(&self) -> Option<DVector<f64>> {
         #[cfg(feature = "ndarray-compat")]
         {
             self.normalization
@@ -813,7 +902,7 @@ impl XASSpectrum {
         }
     }
 
-    pub fn get_flat(&self) -> Option<DVector<f64>> {
+    pub fn flat(&self) -> Option<DVector<f64>> {
         #[cfg(feature = "ndarray-compat")]
         {
             self.normalization
@@ -827,7 +916,7 @@ impl XASSpectrum {
         }
     }
 
-    pub fn get_pre_edge(&self) -> Option<DVector<f64>> {
+    pub fn pre_edge(&self) -> Option<DVector<f64>> {
         let normalization = self.normalization.as_ref()?;
         match normalization {
             normalization::NormalizationMethod::PrePostEdge(prepost) => {
@@ -846,7 +935,7 @@ impl XASSpectrum {
         }
     }
 
-    pub fn get_post_edge(&self) -> Option<DVector<f64>> {
+    pub fn post_edge(&self) -> Option<DVector<f64>> {
         let normalization = self.normalization.as_ref()?;
         match normalization {
             normalization::NormalizationMethod::PrePostEdge(prepost) => {
@@ -866,32 +955,32 @@ impl XASSpectrum {
     }
 
     #[cfg(feature = "ndarray-compat")]
-    pub fn get_k_view(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
+    pub fn k_view(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
         self.background.as_ref()?.get_k_view()
     }
 
     #[cfg(feature = "ndarray-compat")]
-    pub fn get_chi_view(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
+    pub fn chi_view(&self) -> Option<ArrayBase<ViewRepr<&f64>, Ix1>> {
         self.background.as_ref()?.get_chi_view()
     }
 
-    pub fn get_kweight(&self) -> Option<&f64> {
+    pub fn kweight(&self) -> Option<&f64> {
         self.xftf.as_ref()?.get_kweight()
     }
 
-    pub fn get_chi_kweighted(&self) -> Option<DVector<f64>> {
-        let k = self.get_k()?;
-        let chi = self.get_chi()?;
-        let kweight = self.get_kweight()?;
+    pub fn chi_kweighted(&self) -> Option<DVector<f64>> {
+        let k = DVector::from_column_slice(self.k()?);
+        let chi = DVector::from_column_slice(self.chi()?);
+        let kweight = self.kweight()?;
 
         Some(chi.component_mul(&k.map(|x| x.powf(kweight.to_owned()))))
     }
 
-    pub fn get_chir(&self) -> Option<&DynRealDft<f64>> {
+    pub fn chir(&self) -> Option<&DynRealDft<f64>> {
         self.xftf.as_ref()?.get_chir()
     }
 
-    pub fn get_chir_mag(&self) -> Option<DVector<f64>> {
+    pub fn chir_mag(&self) -> Option<DVector<f64>> {
         #[cfg(feature = "ndarray-compat")]
         {
             self.xftf
@@ -905,7 +994,7 @@ impl XASSpectrum {
         }
     }
 
-    pub fn get_kwin(&self) -> Option<DVector<f64>> {
+    pub fn kwin(&self) -> Option<DVector<f64>> {
         #[cfg(feature = "ndarray-compat")]
         {
             self.xftf
@@ -919,7 +1008,7 @@ impl XASSpectrum {
         }
     }
 
-    pub fn get_chir_real(&self) -> Option<DVector<f64>> {
+    pub fn chir_real(&self) -> Option<DVector<f64>> {
         #[cfg(feature = "ndarray-compat")]
         {
             self.xftf
@@ -933,7 +1022,7 @@ impl XASSpectrum {
         }
     }
 
-    pub fn get_chir_imag(&self) -> Option<DVector<f64>> {
+    pub fn chir_imag(&self) -> Option<DVector<f64>> {
         #[cfg(feature = "ndarray-compat")]
         {
             self.xftf
@@ -947,7 +1036,7 @@ impl XASSpectrum {
         }
     }
 
-    pub fn get_r(&self) -> Option<DVector<f64>> {
+    pub fn r(&self) -> Option<DVector<f64>> {
         #[cfg(feature = "ndarray-compat")]
         {
             self.xftf
@@ -961,7 +1050,7 @@ impl XASSpectrum {
         }
     }
 
-    pub fn get_q(&self) -> Option<DVector<f64>> {
+    pub fn q(&self) -> Option<DVector<f64>> {
         #[cfg(feature = "ndarray-compat")]
         {
             self.xftr
@@ -975,7 +1064,7 @@ impl XASSpectrum {
         }
     }
 
-    pub fn get_chiq(&self) -> Option<DVector<f64>> {
+    pub fn chiq(&self) -> Option<DVector<f64>> {
         #[cfg(feature = "ndarray-compat")]
         {
             self.xftr
@@ -1162,28 +1251,28 @@ pub mod tests {
 
     #[test]
     #[cfg(feature = "ndarray-compat")]
-    fn test_borrowed_k_chi_views_match_owned_getters() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_k_chi_slices_match_ndarray_views() -> Result<(), Box<dyn std::error::Error>> {
         let path = String::from(TOP_DIR) + "/tests/testfiles/Ru_QAS.dat";
         let mut spectrum = io::load_spectrum_QAS_trans(&path)?;
         spectrum.calc_background()?;
 
-        let k_owned = spectrum.get_k().unwrap();
-        let chi_owned = spectrum.get_chi().unwrap();
-        let k_view = spectrum.get_k_view().unwrap();
-        let chi_view = spectrum.get_chi_view().unwrap();
+        let k_slice = spectrum.k().unwrap();
+        let chi_slice = spectrum.chi().unwrap();
+        let k_view = spectrum.k_view().unwrap();
+        let chi_view = spectrum.chi_view().unwrap();
 
-        assert_eq!(k_owned.len(), k_view.len());
-        assert_eq!(chi_owned.len(), chi_view.len());
+        assert_eq!(k_slice.len(), k_view.len());
+        assert_eq!(chi_slice.len(), chi_view.len());
 
-        for (owned, view) in k_owned.iter().zip(k_view.iter()) {
-            assert_abs_diff_eq!(owned, view, epsilon = TEST_TOL);
+        for (slice, view) in k_slice.iter().zip(k_view.iter()) {
+            assert_abs_diff_eq!(slice, view, epsilon = TEST_TOL);
         }
-        for (owned, view) in chi_owned.iter().zip(chi_view.iter()) {
-            assert_abs_diff_eq!(owned, view, epsilon = TEST_TOL_LESS_ACC);
+        for (slice, view) in chi_slice.iter().zip(chi_view.iter()) {
+            assert_abs_diff_eq!(slice, view, epsilon = TEST_TOL_LESS_ACC);
         }
 
         spectrum.fft()?;
-        assert!(spectrum.get_chir_mag().is_some());
+        assert!(spectrum.chir_mag().is_some());
         Ok(())
     }
 }

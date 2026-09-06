@@ -794,8 +794,14 @@ mod tests {
         let mut vars = project.fit_vars.clone();
         for attempt in 0..3 {
             let result = run_fit(
-                spectrum.get_k().unwrap(),
-                spectrum.get_chi().unwrap(),
+                spectrum
+                    .k()
+                    .map(nalgebra::DVector::from_column_slice)
+                    .unwrap(),
+                spectrum
+                    .chi()
+                    .map(nalgebra::DVector::from_column_slice)
+                    .unwrap(),
                 &project.fit_paths,
                 &vars,
                 &project.fit_ranges,
@@ -852,8 +858,14 @@ mod tests {
                 p.file = workspace.join(p.file.file_name().unwrap());
             }
             let result = run_fit(
-                spectrum.get_k().unwrap(),
-                spectrum.get_chi().unwrap(),
+                spectrum
+                    .k()
+                    .map(nalgebra::DVector::from_column_slice)
+                    .unwrap(),
+                spectrum
+                    .chi()
+                    .map(nalgebra::DVector::from_column_slice)
+                    .unwrap(),
                 &paths,
                 &project.fit_vars,
                 &project.fit_ranges,
@@ -1032,8 +1044,14 @@ mod tests {
                     .collect::<Vec<_>>();
                 assert_eq!(vars.len(), 4, "fcc first-shell template");
                 let fit = run_fit(
-                    spectrum.get_k().unwrap(),
-                    spectrum.get_chi().unwrap(),
+                    spectrum
+                        .k()
+                        .map(nalgebra::DVector::from_column_slice)
+                        .unwrap(),
+                    spectrum
+                        .chi()
+                        .map(nalgebra::DVector::from_column_slice)
+                        .unwrap(),
                     &paths,
                     &vars,
                     &ranges,

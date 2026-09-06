@@ -278,8 +278,9 @@ impl StudioApp {
             for (file, params, label) in inputs {
                 let sp = process_file(&file, &params).map_err(|e| format!("{label}: {e}"))?;
                 data.push(
-                    sp.get_k()
-                        .zip(sp.get_chi())
+                    sp.k()
+                        .map(nalgebra::DVector::from_column_slice)
+                        .zip(sp.chi().map(nalgebra::DVector::from_column_slice))
                         .ok_or_else(|| format!("{label}: no processed χ(k)."))?,
                 );
             }

@@ -81,7 +81,7 @@ fn athena_read_ru_qas_project() {
 
     let mut spectrum = group.to_spectrum().unwrap();
     assert_eq!(spectrum.name.as_deref(), Some("Ru_QAS.dat"));
-    assert_eq!(spectrum.get_e0(), Some(22118.8));
+    assert_eq!(spectrum.e0(), Some(22118.8));
     spectrum.normalize().unwrap();
     let norm = spectrum.normalization.as_ref().unwrap();
     assert_eq!(norm.get_e0(), Some(22118.8));
@@ -227,7 +227,7 @@ fn athena_export_from_scratch() {
     assert_eq!(args_map(rg), args_map(g));
 
     let spectra = reread.to_spectra().unwrap();
-    assert_eq!(spectra[0].get_e0(), Some(e0));
+    assert_eq!(spectra[0].e0(), Some(e0));
     assert_eq!(spectra[0].raw_energy, spectrum.raw_energy);
 }
 

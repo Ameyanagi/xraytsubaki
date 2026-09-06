@@ -176,7 +176,7 @@ impl StudioApp {
         let p = self.ui_params();
         match (self.stage, plot) {
             (Stage::Normalize, PLOT_MU | PLOT_NORM) => {
-                let Some(e0) = p.e0.or_else(|| sp.get_e0()) else {
+                let Some(e0) = p.e0.or_else(|| sp.e0()) else {
                     return (Vec::new(), Vec::new());
                 };
                 let ppe = match sp.normalization.as_ref() {
@@ -585,7 +585,7 @@ impl StudioApp {
         let e0 = self
             .ui_params()
             .e0
-            .or_else(|| self.spectrum.as_ref().and_then(|s| s.get_e0()))
+            .or_else(|| self.spectrum.as_ref().and_then(|s| s.e0()))
             .unwrap_or(0.0);
         // Never drag a handle past the data: a range outside the spectrum
         // (or E₀ off the edge) only produces a degenerate normalization.
@@ -727,10 +727,16 @@ impl StudioApp {
                 }
             }
             HandleKey::FftKmin | HandleKey::FftKmax | HandleKey::FitKmin | HandleKey::FitKmax => {
-                Some((0.0, sp.get_k().as_ref().and_then(last)?))
+                Some((
+                    0.0,
+                    sp.k()
+                        .map(nalgebra::DVector::from_column_slice)
+                        .as_ref()
+                        .and_then(last)?,
+                ))
             }
             HandleKey::Rbkg | HandleKey::FitRmin | HandleKey::FitRmax => {
-                Some((0.0, sp.get_r().as_ref().and_then(last)?))
+                Some((0.0, sp.r().as_ref().and_then(last)?))
             }
         }
     }

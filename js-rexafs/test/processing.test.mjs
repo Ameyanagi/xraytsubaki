@@ -1,56 +1,90 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import init, { process } from "../node.js";
-import browserInit, { process as browserProcess } from "../browser.js";
-
+import init, * as api from "../node.js";
+import browserInit, { Spectrum as BrowserSpectrum } from "../browser.js";
+const { Spectrum, PrePostEdge, AUTOBK, XrayFFTF, NormalizationMethod, BackgroundMethod } = api;
 const text = await readFile(new URL("../../crates/rexafs/tests/testfiles/Ru_QAS.dat", import.meta.url), "utf8");
 const rows = text.split(/\r?\n/).filter(line => line.trim() && !line.trim().startsWith("#")).map(line => line.trim().split(/\s+/).map(Number));
 const energy = Float64Array.from(rows, row => row[0]);
 const mu = Float64Array.from(rows, row => Math.log(row[1] / row[2]));
 const reference = JSON.parse(await readFile(new URL("ru-reference.json", import.meta.url), "utf8"));
-
-function verify(output) {
-  assert.equal(output.e0, reference.e0);
-  assert.equal(output.k.length, reference.k_length);
-  assert.equal(output.chi.length, reference.k_length);
-  assert.equal(output.r.length, reference.r_length);
+const getters = { k: "k", chi: "chi", r: "r", chir_mag: "chir_mag", chir_re: "chir_real", chir_im: "chir_imag" };
+function verify(spectrum) {
+  assert.equal(spectrum.e0(), reference.e0);
+  assert.equal(spectrum.k().length, reference.k_length);
+  assert.equal(spectrum.r().length, reference.r_length);
   for (const [key, values] of Object.entries(reference.samples)) {
-    assert.ok(output[key] instanceof Float64Array);
-    [0, 20, 50, 100].forEach((index, i) => {
-      assert.ok(Math.abs(output[key][index] - values[i]) <= 1e-7 * Math.max(1, Math.abs(values[i])), `${key}[${index}] differs from native pipeline`);
-    });
-  }
-  for (let i = 0; i < output.r.length; i++) {
-    assert.ok(Number.isFinite(output.chir_mag[i]));
-    assert.ok(Math.abs(output.chir_mag[i] - Math.hypot(output.chir_re[i], output.chir_im[i])) < 1e-10);
+    const output = spectrum[getters[key]]();
+    assert.ok(output instanceof Float64Array);
+    [0, 20, 50, 100].forEach((index, i) => assert.ok(Math.abs(output[index] - values[i]) <= 1e-7 * Math.max(1, Math.abs(values[i])), `${key}[${index}] differs from native pipeline`));
   }
 }
 
-test("Node pipeline agrees with native Ru fixture", async () => {
+test("terminal stage matches native fixture and explicit chain", async () => {
   await init();
   const saved = energy.slice();
-  const output = process(energy, mu);
-  verify(output);
+  const spectrum = Spectrum.from_arrays(energy, mu);
+  assert.equal(spectrum.chi(), undefined);
+  assert.equal(spectrum.fft(), spectrum);
+  verify(spectrum);
+  const explicit = new Spectrum(energy, mu).find_e0().normalize().calc_background().fft();
+  verify(explicit);
   assert.deepEqual(energy, saved);
-  assert.equal(process(energy, mu, { e0: reference.e0 + 0.25 }).e0, reference.e0 + 0.25);
-  // A second calculation must not invalidate earlier result memory.
-  verify(output);
+  const copy = spectrum.chi();
+  copy.fill(0);
+  verify(spectrum);
+  spectrum.free(); explicit.free();
+  assert.equal("process" in api, false);
 });
 
-test("invalid inputs throw JS errors rather than trapping Wasm", () => {
-  assert.throws(() => process([1, 2], [1, 2]), TypeError);
-  for (const [e, m] of [[[], []], [[2, 1, 3], [1]], [[1, 2, 2], [1, 2, 3]], [[1, NaN, 3], [1, 2, 3]]]) {
-    assert.throws(() => process(Float64Array.from(e), Float64Array.from(m)), Error);
+test("parameters, stage invalidation, and selected methods", () => {
+  const norm = new PrePostEdge(); norm.pre_edge_start = -200; norm.pre_edge_end = -65;
+  const bkg = new AUTOBK(); bkg.rbkg = 1.2;
+  const n = NormalizationMethod.PrePostEdge(norm), b = BackgroundMethod.AUTOBK(bkg);
+  const ft = new XrayFFTF(); ft.kweight = 1;
+  const s = new Spectrum(energy, mu).set_normalization_method(n).set_background_method(b).set_fft(ft).fft();
+  const chi = s.chi(), r = s.chir_mag();
+  ft.kweight = 3;
+  s.set_fft(ft);
+  assert.equal(s.r(), undefined);
+  s.fft();
+  assert.deepEqual(s.chi(), chi);
+  assert.notDeepEqual(s.chir_mag(), r);
+  s.set_e0(reference.e0 + 0.25);
+  assert.equal(s.chi(), undefined); assert.equal(s.norm(), undefined);
+  assert.equal(s.fft().e0(), reference.e0 + 0.25);
+  const unavailable = NormalizationMethod.new_mback();
+  assert.throws(() => s.set_normalization_method(unavailable).fft(), /MBack/);
+  const unsupported = BackgroundMethod.new_ilpbkg();
+  assert.throws(() => s.set_normalization_method().set_background_method(unsupported).fft(), /ILPBkg/);
+  assert.equal(s.r(), undefined);
+  s.set_background_method().fft();
+  for (const value of [s,n,b,norm,bkg,ft,unavailable,unsupported]) value.free();
+});
+
+test("invalid inputs and FFT settings throw errors and allow recovery", () => {
+  assert.throws(() => new Spectrum([1, 2], [1, 2]), TypeError);
+  for (const [e,m] of [[[],[]],[[2,1,3],[1]],[[1,2,2],[1,2,3]],[[1,NaN,3],[1,2,3]]]) {
+    assert.throws(() => new Spectrum(Float64Array.from(e), Float64Array.from(m)), Error);
   }
-  assert.throws(() => process(energy, mu, { e0: NaN }), TypeError);
-  assert.throws(() => process(energy, mu, { typo: 2 }), TypeError);
-  verify(process(energy, mu));
+  const s = new Spectrum(energy, mu);
+  assert.throws(() => s.set_e0(NaN).fft(), /e0|E0/);
+  s.set_e0(reference.e0).fft();
+  const ft = new XrayFFTF(); ft.nfft = 0;
+  assert.throws(() => s.set_fft(ft).fft(), /nfft/);
+  assert.equal(s.r(), undefined);
+  ft.nfft = 2048;
+  verify(s.set_fft(ft).fft());
+  s.set_spectrum(energy, mu);
+  assert.equal(s.e0(), undefined); assert.equal(s.chi(), undefined);
+  verify(s.fft());
+  s.free(); ft.free();
 });
 
 test("browser glue initializes from bytes and matches Node", async () => {
-  assert.throws(() => browserProcess(energy, mu), /init/);
-  const bytes = await readFile(new URL("../dist/web/rexafs_wasm_bg.wasm", import.meta.url));
-  await browserInit(bytes);
-  verify(browserProcess(energy, mu));
+  assert.throws(() => new BrowserSpectrum(energy, mu), /init/);
+  await browserInit(await readFile(new URL("../dist/web/rexafs_wasm_bg.wasm", import.meta.url)));
+  const spectrum = BrowserSpectrum.from_arrays(energy, mu).fft();
+  verify(spectrum); spectrum.free();
 });

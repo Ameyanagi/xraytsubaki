@@ -136,10 +136,7 @@ impl StudioApp {
                 add("Marked", self.selection.len().to_string());
             }
             Stage::Normalize => {
-                add(
-                    "E₀",
-                    number_value(p.e0, sp.and_then(|s| s.get_e0()), "eV", 2),
-                );
+                add("E₀", number_value(p.e0, sp.and_then(|s| s.e0()), "eV", 2));
                 add(
                     "Edge step",
                     sp.and_then(|_| self.edge_step())
@@ -177,7 +174,7 @@ impl StudioApp {
                     number_value(p.rbkg, bkg.and_then(|b| b.rbkg), "Å", 2),
                 );
                 let kmax = bkg.and_then(|b| b.kmax).or_else(|| {
-                    sp.and_then(|s| s.get_k())
+                    sp.and_then(|s| s.k())
                         .and_then(|k| k.iter().next_back().copied())
                 });
                 add(
@@ -346,7 +343,7 @@ impl StudioApp {
                 let Some(sp) = sp else {
                     return (StageStatus::Idle, "—".into());
                 };
-                let e0 = sp.get_e0().map(|v| format!("{v:.1}")).unwrap_or("?".into());
+                let e0 = sp.e0().map(|v| format!("{v:.1}")).unwrap_or("?".into());
                 let step = self
                     .edge_step()
                     .map(|v| format!("{v:.3}"))
@@ -361,7 +358,7 @@ impl StudioApp {
             Stage::Background => {
                 let rbkg = p.rbkg.unwrap_or(1.0);
                 let kw = p.bkg_kweight.unwrap_or(1);
-                let status = if sp.is_some_and(|s| s.get_chi().is_some()) {
+                let status = if sp.is_some_and(|s| s.chi().is_some()) {
                     if p.rbkg.is_none() {
                         StageStatus::Auto
                     } else {
@@ -374,7 +371,7 @@ impl StudioApp {
             }
             Stage::Transform => {
                 let (kmin, kmax, win, kw) = self.fft_summary();
-                let status = if sp.is_some_and(|s| s.get_chir_mag().is_some()) {
+                let status = if sp.is_some_and(|s| s.chir_mag().is_some()) {
                     StageStatus::Ok
                 } else {
                     StageStatus::Idle
@@ -418,7 +415,7 @@ impl StudioApp {
             .or_else(|| {
                 self.spectrum
                     .as_ref()
-                    .and_then(|s| s.get_k())
+                    .and_then(|s| s.k())
                     .and_then(|k| k.iter().next_back().copied())
             })
             .unwrap_or(15.0);

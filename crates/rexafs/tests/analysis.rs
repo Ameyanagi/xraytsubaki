@@ -411,7 +411,7 @@ fn analysis_lcf_larch_parity() {
         write_xy(
             &dir.join(format!("{name}.dat")),
             s.energy.as_ref().unwrap(),
-            &s.get_norm().unwrap(),
+            &s.norm().unwrap(),
         );
     }
     let script = dir.join("lcf_parity.py");

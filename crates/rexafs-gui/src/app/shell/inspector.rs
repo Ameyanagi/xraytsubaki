@@ -306,7 +306,7 @@ impl StudioApp {
             ),
             (
                 "E₀".into(),
-                sp.and_then(|s| s.get_e0())
+                sp.and_then(|s| s.e0())
                     .map(|v| format!("{v:.1} eV"))
                     .unwrap_or("—".into()),
             ),
@@ -341,10 +341,10 @@ impl StudioApp {
 
     fn normalize_inspector(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let sp = self.spectrum.as_deref();
-        let e0 = sp.and_then(|s| s.get_e0());
+        let e0 = sp.and_then(|s| s.e0());
         let step = self.edge_step();
         let whiteline = sp
-            .and_then(|s| s.get_norm())
+            .and_then(|s| s.norm())
             .map(|n| n.iter().copied().fold(f64::NEG_INFINITY, f64::max));
         let fmt = |v: Option<f64>, d: usize, unit: &str| {
             v.map(|v| format!("{v:.d$}{unit}")).unwrap_or("—".into())
@@ -467,8 +467,8 @@ impl StudioApp {
     fn transform_inspector(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let sp = self.spectrum.as_deref();
         let peak = sp.and_then(|s| {
-            let r = s.get_r()?;
-            let m = s.get_chir_mag()?;
+            let r = s.r()?;
+            let m = s.chir_mag()?;
             let n = r.len().min(m.len());
             (0..n)
                 .filter(|&i| r[i] > 0.5)

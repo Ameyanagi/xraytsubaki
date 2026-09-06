@@ -47,6 +47,4 @@ pub use crate::xafs::tools::{
     RebinConfig, RebinMethod, RebinOutput,
 };
 pub use crate::xafs::xafsutils::ConvolveForm;
-pub use crate::{
-    process, process_with_options, Group, ProcessOptions, ProcessedSpectrum, Spectrum,
-};
+pub use crate::{Group, PrePostEdge, Spectrum};

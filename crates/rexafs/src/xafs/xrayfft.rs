@@ -91,6 +91,35 @@ impl XrayFFTF {
     }
 
     pub fn xftf(&mut self, k: &DVector<f64>, chi: &DVector<f64>) -> Result<&mut Self, FFTError> {
+        if self.nfft.is_some_and(|n| n < 2) {
+            return Err(FFTError::InvalidParameter {
+                parameter: "nfft".into(),
+                reason: "must be at least 2".into(),
+            });
+        }
+        for (name, value, strictly_positive) in [
+            ("kstep", self.kstep, true),
+            ("kweight", self.kweight, false),
+            ("dk", self.dk, false),
+            ("dk2", self.dk2, false),
+            ("rmax_out", self.rmax_out, false),
+        ] {
+            if value.is_some_and(|v| !v.is_finite() || v < 0.0 || (strictly_positive && v == 0.0)) {
+                return Err(FFTError::InvalidParameter {
+                    parameter: name.into(),
+                    reason: "must be finite and nonnegative (kstep must be positive)".into(),
+                });
+            }
+        }
+        if self.kmin.is_some_and(|v| !v.is_finite())
+            || self.kmax.is_some_and(|v| !v.is_finite())
+            || self.kmin.zip(self.kmax).is_some_and(|(lo, hi)| lo >= hi)
+        {
+            return Err(FFTError::InvalidParameter {
+                parameter: "kmin/kmax".into(),
+                reason: "must be finite with kmin < kmax".into(),
+            });
+        }
         if k.len() != chi.len() {
             return Err(FFTError::InterpolationFailed {
                 reason: "k/chi length mismatch".to_string(),

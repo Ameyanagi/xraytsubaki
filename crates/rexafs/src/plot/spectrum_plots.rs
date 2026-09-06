@@ -8,21 +8,21 @@ use crate::xafs::xasspectrum::XASSpectrum;
 use nalgebra::DVector;
 
 fn ensure_background(spectrum: &mut XASSpectrum) -> Result<(), PlotError> {
-    if spectrum.get_k().is_none() || spectrum.get_chi().is_none() {
+    if spectrum.k().is_none() || spectrum.chi().is_none() {
         spectrum.calc_background()?;
     }
     Ok(())
 }
 
 fn ensure_norm(spectrum: &mut XASSpectrum) -> Result<(), PlotError> {
-    if spectrum.get_norm().is_none() {
+    if spectrum.norm().is_none() {
         spectrum.normalize()?;
     }
     Ok(())
 }
 
 fn ensure_fft(spectrum: &mut XASSpectrum) -> Result<(), PlotError> {
-    if spectrum.get_r().is_none() || spectrum.get_chir_mag().is_none() {
+    if spectrum.r().is_none() || spectrum.chir_mag().is_none() {
         ensure_background(spectrum)?;
         spectrum.fft()?;
     }
@@ -78,12 +78,12 @@ pub(crate) fn extract_spectrum_panel_data(
 
             let mut ylabel = PanelKind::Mu.ylabel(DEFAULT_KWEIGHT);
 
-            let y_values = if let Some(flat) = spectrum.get_flat() {
+            let y_values = if let Some(flat) = spectrum.flat() {
                 flat
             } else {
                 let mut flattened = None;
                 if energy.len() >= 8 && ensure_norm(spectrum).is_ok() {
-                    flattened = spectrum.get_flat();
+                    flattened = spectrum.flat();
                 }
 
                 if let Some(flat) = flattened {
@@ -111,7 +111,7 @@ pub(crate) fn extract_spectrum_panel_data(
                 .clone()
                 .ok_or(PlotError::MissingData { field: "energy" })?;
             let norm = spectrum
-                .get_norm()
+                .norm()
                 .ok_or(PlotError::MissingData { field: "norm" })?;
 
             let (x, y) = truncate_pair(&energy, &norm);
@@ -123,11 +123,11 @@ pub(crate) fn extract_spectrum_panel_data(
             )];
 
             if panel.edges {
-                if let Some(pre_edge) = spectrum.get_pre_edge() {
+                if let Some(pre_edge) = spectrum.pre_edge() {
                     let (x_pre, y_pre) = truncate_pair(&energy, &pre_edge);
                     traces.push(TraceData::new(x_pre, y_pre, "pre-edge", true));
                 }
-                if let Some(post_edge) = spectrum.get_post_edge() {
+                if let Some(post_edge) = spectrum.post_edge() {
                     let (x_post, y_post) = truncate_pair(&energy, &post_edge);
                     traces.push(TraceData::new(x_post, y_post, "post-edge", true));
                 }
@@ -143,10 +143,12 @@ pub(crate) fn extract_spectrum_panel_data(
             ensure_background(spectrum)?;
 
             let k = spectrum
-                .get_k()
+                .k()
+                .map(nalgebra::DVector::from_column_slice)
                 .ok_or(PlotError::MissingData { field: "k" })?;
             let chi = spectrum
-                .get_chi()
+                .chi()
+                .map(nalgebra::DVector::from_column_slice)
                 .ok_or(PlotError::MissingData { field: "chi" })?;
             let kweight = panel.kweight.unwrap_or(DEFAULT_KWEIGHT);
 
@@ -169,7 +171,7 @@ pub(crate) fn extract_spectrum_panel_data(
             }
 
             if panel.window_fn {
-                if let Some(window) = spectrum.get_kwin() {
+                if let Some(window) = spectrum.kwin() {
                     let (xw, mut yw) = truncate_pair(&k, &window);
                     yw *= max_abs;
                     traces.push(TraceData::new(xw, yw, "window fn", true));
@@ -202,15 +204,13 @@ pub(crate) fn extract_spectrum_panel_data(
         }
         PanelKind::R => {
             ensure_fft(spectrum)?;
-            let r = spectrum
-                .get_r()
-                .ok_or(PlotError::MissingData { field: "r" })?;
-            let kweight = spectrum.get_kweight().copied().unwrap_or(DEFAULT_KWEIGHT);
+            let r = spectrum.r().ok_or(PlotError::MissingData { field: "r" })?;
+            let kweight = spectrum.kweight().copied().unwrap_or(DEFAULT_KWEIGHT);
             let mut traces = Vec::new();
 
             if panel.include_r_mag() {
                 let chir_mag = spectrum
-                    .get_chir_mag()
+                    .chir_mag()
                     .ok_or(PlotError::MissingData { field: "chi_r_mag" })?;
                 let (x, y) = truncate_pair_in_xrange(&r, &chir_mag, 0.0, DEFAULT_R_XMAX);
                 traces.push(TraceData::new(x, y, spectrum_label(spectrum), false));
@@ -218,7 +218,7 @@ pub(crate) fn extract_spectrum_panel_data(
 
             if panel.r_real {
                 let chir_re = spectrum
-                    .get_chir_real()
+                    .chir_real()
                     .ok_or(PlotError::MissingData { field: "chi_r_re" })?;
                 let (x_re, y_re) = truncate_pair_in_xrange(&r, &chir_re, 0.0, DEFAULT_R_XMAX);
                 traces.push(TraceData::new(x_re, y_re, "Re[chi(R)]", true));
@@ -226,7 +226,7 @@ pub(crate) fn extract_spectrum_panel_data(
 
             if panel.r_imag {
                 let chir_im = spectrum
-                    .get_chir_imag()
+                    .chir_imag()
                     .ok_or(PlotError::MissingData { field: "chi_r_im" })?;
                 let (x_im, y_im) = truncate_pair_in_xrange(&r, &chir_im, 0.0, DEFAULT_R_XMAX);
                 traces.push(TraceData::new(x_im, y_im, "Im[chi(R)]", true));
@@ -251,13 +251,13 @@ mod tests {
     fn r_panel_triggers_compute_chain() {
         let path = format!("{}/tests/testfiles/Ru_QAS.dat", env!("CARGO_MANIFEST_DIR"));
         let mut spectrum = load_spectrum_QAS_trans(path).expect("fixture should load");
-        assert!(spectrum.get_r().is_none());
+        assert!(spectrum.r().is_none());
 
         let panel = PanelSpec::new(PanelKind::R);
         let data = extract_spectrum_panel_data(&mut spectrum, &panel).expect("panel should build");
         assert!(!data.traces.is_empty());
         assert_eq!(data.xlim, Some((0.0, DEFAULT_R_XMAX)));
-        assert!(spectrum.get_r().is_some());
+        assert!(spectrum.r().is_some());
     }
 
     #[test]
@@ -278,7 +278,7 @@ mod tests {
 
         let panel = PanelSpec::new(PanelKind::Mu);
         let data = extract_spectrum_panel_data(&mut spectrum, &panel).expect("panel should build");
-        let flat = spectrum.get_flat().expect("flat must be computed");
+        let flat = spectrum.flat().expect("flat must be computed");
         let trace = data.traces.first().expect("trace should exist");
 
         assert_eq!(data.ylabel, "Flattened $mu(E)$");

@@ -428,7 +428,7 @@ fn dashed(key: SeriesKey, x: Vec<f64>, y: Vec<f64>, color: Color, label: &str) -
 /// waterfall offset so the trendlines sit on the curve they belong to.
 fn add_mu_diagnostics(spec: &mut QuadrantSpec, sp: &XASSpectrum, view: &ViewOptions, shift: f64) {
     if view.show_pre
-        && let (Some(energy), Some(pre)) = (sp.energy.as_ref(), sp.get_pre_edge())
+        && let (Some(energy), Some(pre)) = (sp.energy.as_ref(), sp.pre_edge())
     {
         let x = vecs(energy);
         let y: Vec<f64> = pre.iter().map(|v| v + shift).collect();
@@ -436,7 +436,7 @@ fn add_mu_diagnostics(spec: &mut QuadrantSpec, sp: &XASSpectrum, view: &ViewOpti
             .push(dashed(SeriesKey::PreEdge, x, y, TREND, "pre-edge"));
     }
     if view.show_post
-        && let (Some(energy), Some(post)) = (sp.energy.as_ref(), sp.get_post_edge())
+        && let (Some(energy), Some(post)) = (sp.energy.as_ref(), sp.post_edge())
     {
         let x = vecs(energy);
         let y: Vec<f64> = post.iter().map(|v| v + shift).collect();
@@ -461,7 +461,7 @@ fn add_mu_diagnostics(spec: &mut QuadrantSpec, sp: &XASSpectrum, view: &ViewOpti
             label: Some("background μ₀(E)".to_string()),
         });
     }
-    let e0 = sp.get_e0();
+    let e0 = sp.e0();
     if view.show_e0
         && let Some(e0) = e0
     {
@@ -497,7 +497,7 @@ pub fn build_quadrant_specs(
         .iter()
         .find(|t| t.active)
         .or_else(|| traces.first())
-        .and_then(|t| t.sp.get_kweight().copied())
+        .and_then(|t| t.sp.kweight().copied())
         .unwrap_or(2.0);
 
     let (mut mu_e, mu_shift) = build_multi(
@@ -522,9 +522,9 @@ pub fn build_quadrant_specs(
         (norm_label, "Energy (eV)", norm_label),
         move |sp| {
             let y = if flat {
-                sp.get_flat().or_else(|| sp.get_norm())
+                sp.flat().or_else(|| sp.norm())
             } else {
-                sp.get_norm().or_else(|| sp.get_flat())
+                sp.norm().or_else(|| sp.flat())
             };
             Some((sp.energy.as_ref().map(vecs)?, y.map(|v| vecs(&v))?))
         },
@@ -538,8 +538,10 @@ pub fn build_quadrant_specs(
         (&chik_label, K_AXIS, &chik_label),
         |sp| {
             Some((
-                sp.get_k().map(|v| vecs(&v))?,
-                sp.get_chi_kweighted().map(|v| vecs(&v))?,
+                sp.k()
+                    .map(nalgebra::DVector::from_column_slice)
+                    .map(|v| vecs(&v))?,
+                sp.chi_kweighted().map(|v| vecs(&v))?,
             ))
         },
     );
@@ -556,8 +558,8 @@ pub fn build_quadrant_specs(
         in_plot_legend,
         (chir_title, R_AXIS, &chir_label(kw)),
         |sp| {
-            let r = sp.get_r().map(|v| vecs(&v))?;
-            let m = sp.get_chir_mag().map(|v| vecs(&v))?;
+            let r = sp.r().map(|v| vecs(&v))?;
+            let m = sp.chir_mag().map(|v| vecs(&v))?;
             let n = r.len().min(m.len());
             Some((r[..n].to_vec(), m[..n].to_vec()))
         },
@@ -566,14 +568,14 @@ pub fn build_quadrant_specs(
     if let Some(active) = traces.iter().find(|t| t.active).or_else(|| traces.first()) {
         add_mu_diagnostics(&mut mu_e, &active.sp, view, mu_shift);
         if view.show_e0
-            && let Some(e0) = active.sp.get_e0()
+            && let Some(e0) = active.sp.e0()
         {
             norm.vlines.push((e0, E0_COLOR, 1.2, true));
         }
         if view.show_deriv
             && let (Some(e), Some(n)) = (
                 active.sp.energy.as_ref(),
-                active.sp.get_norm().or_else(|| active.sp.get_flat()),
+                active.sp.norm().or_else(|| active.sp.flat()),
             )
         {
             // dμ/dE scaled so its peak reaches half the edge, as Athena does.
@@ -602,9 +604,9 @@ pub fn build_quadrant_specs(
         // shifted onto the active trace in waterfall mode.
         if view.show_kwin
             && let (Some(k), Some(kwin), Some(chi)) = (
-                active.sp.get_k(),
-                active.sp.get_kwin(),
-                active.sp.get_chi_kweighted(),
+                active.sp.k().map(nalgebra::DVector::from_column_slice),
+                active.sp.kwin(),
+                active.sp.chi_kweighted(),
             )
         {
             let peak = chi.iter().fold(0.0f64, |m, v| m.max(v.abs())).max(1e-12);
@@ -625,7 +627,7 @@ pub fn build_quadrant_specs(
         // Re part of chi(R) for phase-agreement checks (doc: "|χ(R)| (+Re
         // part toggle)"), aligned to the active trace's waterfall offset.
         if view.show_re
-            && let (Some(r), Some(re)) = (active.sp.get_r(), active.sp.get_chir_real())
+            && let (Some(r), Some(re)) = (active.sp.r(), active.sp.chir_real())
         {
             let r = vecs(&r);
             let n = r.len().min(re.len());
@@ -635,7 +637,7 @@ pub fn build_quadrant_specs(
                 .push(dashed(SeriesKey::Re, r[..n].to_vec(), y, TREND, "Re"));
         }
         if view.show_im
-            && let (Some(r), Some(im)) = (active.sp.get_r(), active.sp.get_chir_imag())
+            && let (Some(r), Some(im)) = (active.sp.r(), active.sp.chir_imag())
         {
             let n = r.len().min(im.len());
             let y = im.iter().take(n).map(|v| v + chir_shift).collect();
@@ -655,14 +657,17 @@ pub fn build_quadrant_specs(
         in_plot_legend,
         ("χ(q)", "q (Å⁻¹)", "χ(q)"),
         |sp| {
-            let q = sp.get_q().map(|v| vecs(&v))?;
-            let c = sp.get_chiq().map(|v| vecs(&v))?;
+            let q = sp.q().map(|v| vecs(&v))?;
+            let c = sp.chiq().map(|v| vecs(&v))?;
             let n = q.len().min(c.len());
             Some((q[..n].to_vec(), c[..n].to_vec()))
         },
     );
     if let Some(active) = traces.iter().find(|t| t.active).or_else(|| traces.first())
-        && let (Some(k), Some(chi)) = (active.sp.get_k(), active.sp.get_chi_kweighted())
+        && let (Some(k), Some(chi)) = (
+            active.sp.k().map(nalgebra::DVector::from_column_slice),
+            active.sp.chi_kweighted(),
+        )
     {
         let x = vecs(&k);
         let n = x.len().min(chi.len());

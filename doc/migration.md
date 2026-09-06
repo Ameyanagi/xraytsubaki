@@ -15,15 +15,32 @@ ReFEFF is an upstream calculation engine and keeps its name.
 | Python codename imports | `import rexafs` |
 
 `Spectrum`/`Group` are concise aliases; `XASSpectrum`/`XASGroup` remain accessible
-under the new crate. The simple processing facade is additive. No old-name crate,
-Python package or npm shim is published as part of this migration.
+under the new crate. No old-name crate, Python package or npm shim is published.
 
-Python now has an importable `rexafs._core` extension and a typed
-`rexafs.process` result. Compatibility function names remain under `rexafs`.
-`run_batch_qas_trans` counts **successful complete pipelines**, continues after
-failed inputs, and reports original input indices. It no longer counts failed
-spectra as processed. The new processing facade rejects unsorted/duplicate energy;
-legacy Rust setters retain their prior behavior.
+## Spectrum processing
+
+The standalone `process`, `process_with_options`, `ProcessOptions` and
+`ProcessedSpectrum` APIs have been removed. Python's legacy free pipeline/batch
+wrappers are removed too. Use the Rust spectrum workflow in every language:
+
+- Rust: `Spectrum::from_arrays(&energy, &mu)?.fft()?` (keep an owned spectrum to inspect results).
+- Python/TypeScript: `Spectrum.from_arrays(energy, mu).fft()`.
+- Optional explicit stages: `normalize()`, `calc_background()`, `fft()`.
+- Edge override: `set_e0(value)` before requesting a stage.
+- Outputs: `chi()`, `r()`, `chir_mag()` and other spectrum getters.
+- Python QAS files: `rexafs.io.read_qas_transmission(path).fft()`.
+
+The terminal stage computes missing prerequisites with configured algorithms and
+defaults. Configure stages through Rust-named configuration types and spectrum
+setters; see the [API guide](api.md). Checked constructors reject unsorted or
+duplicate energy values; the legacy Rust setter retains sorting behavior.
+
+Spectrum result accessors now omit `get_`: for example, `get_e0()` becomes `e0()`
+and `get_chir_mag()` becomes `chir_mag()`. Use `k()` and `chi()` in place of
+`get_k()` and `get_chi()`; in Rust these borrow slices, so use `.to_vec()` or
+`DVector::from_column_slice(...)` when an owned result is needed. Python and
+TypeScript continue to return independent arrays. `set_xftf(parameters)` is now
+`set_fft(parameters)`. `calc_background()` and the other setters keep their names.
 
 ## Existing desktop data
 

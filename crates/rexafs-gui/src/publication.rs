@@ -227,10 +227,10 @@ pub(crate) fn export(mut snapshot: Snapshot, destination: &Path) -> Result<PathB
                 resolved.push_str(&format!(
                     "## {}\n\nE₀: {} eV. Transform k-weight: {}.\n\n",
                     cell(s.path.display().to_string()),
-                    sp.get_e0()
+                    sp.e0()
                         .map(|v| format!("{v:.6}"))
                         .unwrap_or("Unavailable".into()),
-                    sp.get_kweight()
+                    sp.kweight()
                         .map(|v| v.to_string())
                         .unwrap_or("Unavailable".into())
                 ));

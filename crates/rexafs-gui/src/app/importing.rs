@@ -110,6 +110,62 @@ fn start_import(
 }
 
 impl StudioApp {
+    pub(super) fn set_chi_standard(
+        &mut self,
+        standard: Option<crate::params::ChiStandard>,
+        cx: &mut Context<Self>,
+    ) {
+        let target = self.override_target();
+        if target.is_some_and(|ix| self.frozen.contains(&ix)) {
+            self.status = "This group is frozen — thaw it to edit its parameters.".into();
+            cx.notify();
+            return;
+        }
+        let before = self.ui_params().clone();
+        self.edit_params().bkg_standard = standard;
+        self.record_param_edit(
+            target,
+            None,
+            before,
+            self.ui_params().clone(),
+            "Set AUTOBK standard χ(k)".into(),
+        );
+        self.schedule_recompute(cx);
+        cx.notify();
+    }
+
+    pub(super) fn choose_chi_standard(&mut self, cx: &mut Context<Self>) {
+        let generation = self.project_generation;
+        let path = self.current_path.clone();
+        let group = self.active_group_id();
+        let fingerprint = self.ui_params().fingerprint();
+        let rx = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: None,
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = rx.await && let Some(file) = paths.into_iter().next() {
+                let result = cx.background_executor().spawn(async move {
+                    crate::params::ChiStandard::load(&file)
+                }).await;
+                this.update(cx, |app, cx| {
+                    if app.project_generation != generation || app.current_path != path
+                        || app.active_group_id() != group || app.ui_params().fingerprint() != fingerprint {
+                        app.status = "Standard not applied because the active group or its settings changed. Load it again for the intended group.".into();
+                        cx.notify();
+                        return;
+                    }
+                    match result {
+                        Ok(standard) => app.set_chi_standard(Some(standard), cx),
+                        Err(e) => { app.status = format!("Standard χ(k): {e}").into(); cx.notify(); }
+                    }
+                }).ok();
+            }
+        }).detach();
+    }
+
     pub(super) fn append_import(
         &mut self,
         mut paths: Vec<PathBuf>,
@@ -161,6 +217,8 @@ impl StudioApp {
                                     // A reference edge must resolve independently of sample overrides.
                                     reference_params.e0 = None;
                                     reference_params.edge_step = None;
+                                    reference_params.bkg_ek0 = None;
+                                    reference_params.bkg_standard = None;
                                     let group = DerivedSpectrum {
                                         id: app.next_group_id(),
                                         label: path.file_name().unwrap_or_default().to_string_lossy().into_owned(),
@@ -201,6 +259,8 @@ impl StudioApp {
         params.import.mode = mode;
         params.e0 = None;
         params.edge_step = None;
+        params.bkg_ek0 = None;
+        params.bkg_standard = None;
         if let Some(i) = self.derived.iter().position(|d| {
             d.source.as_ref() == Some(&path)
                 && d.params.as_ref().is_some_and(|p| p.import == params.import)

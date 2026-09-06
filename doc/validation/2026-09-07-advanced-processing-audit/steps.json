@@ -1,0 +1,112 @@
+[
+  {
+    "file": "01-restored-project.png",
+    "note": "Advanced build opened the saved six-file/two-channel project with its active fluorescence group.",
+    "ax": "Window: \"rexafs\", App: rexafs advanced audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs advanced audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "02-background-standard-control.png",
+    "note": "Background inspector includes the separate k-origin E0 and an optional unweighted chi(k) standard.",
+    "ax": "Window: \"rexafs\", App: rexafs advanced audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs advanced audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "03-standard-picker.png",
+    "note": "Native standard picker restricted to one file in the isolated test folder.",
+    "ax": "Window: \"Open\", App: rexafs advanced audit.\n0 standard window Open, ID: open-panel, Secondary Actions: Raise\n\t1 split group\n\t\t2 scroll area Secondary Actions: Scroll Up, Scroll Down\n\t\t\t3 outline sidebar\n\t\t\t\t4 row (selectable) Description: clock, Value: Recents\n\t\t\t\t5 row (selectable) Description: Shared Folder, Value: Shared\n\t\t\t\t6 row (selectable, expanded) Value: Favorites, Secondary Actions: Collapse\n\t\t\t\t7 row (selectable) Applications\n\t\t\t\t8 row (selectable) Desktop\n\t\t\t\t9 row (selectable) Description: document, Value: Documents\n\t\t\t\t10 row (selectable) Description: Arrow Down Circle, Value: Downloads\n\t\t\t\t11 row (selectable) Description: move, Value: slid\n\t\t\t\t12 row (selectable, expanded) Value: Locations, Secondary Actions: Collapse\n\t\t\t\t13 row (selectable) Description: iCloud, Value: iCloud Drive\n\t\t\t\t14 row (selectable) Description: home, Value: ryuichi\n\t\t\t\t15 row (selectable) Macintosh HD\n\t\t\t\t16 row (selectable) Eject, Description: eject, Value: T3 Code (Alpha) 0.0.33-arm64\n\t\t\t\t17 row (selectable) Eject, Description: eject, Value: Claude Science\n\t\t\t\t18 row (selectable) Network\n\t\t\t\t19 row (selectable, expanded) Value: Tags, Secondary Actions: Collapse\n\t\t\t\t20 row (selectable) Important\n\t\t\t\t21 row (selectable) Gray\n\t\t\t\t22 row (selectable) Home\n\t\t\t\t23 row (selectable) Yellow\n\t\t\t\t24 row (selectable) Blue\n\t\t\t\t25 row (selectable) Green\n\t\t\t\t26 row (selectable) Orange\n\t\t\t\t27 row (selectable) All Tags…\n\t\t\t\t28 row (selectable, expanded) Value: Media, Secondary Actions: Collapse\n\t\t\t\t29 row (selectable) Music\n\t\t\t\t30 row (selectable) Description: photo, Value: Photos\n\t\t\t\t31 row (selectable) Description: movie, Value: Movies\n\t\t\t32 scroll bar (settable, float) 0\n\t\t\t\t33 value indicator (settable, float) 0\n\t\t\t\t34 increment arrow button\n\t\t\t\t35 decrement arrow button\n\t\t\t\t36 increment page button\n\t\t\t\t37 decrement page button\n\t\t38 splitter (disabled, settable, float) 167\n\t\t39 scroll area\n\t\t\t40 outline Description: list view, ID: ListView\n\t\t\t\t41 row (selectable) Description: go up, Value: Name\nSize\nKind\nDate Added\n\t\t\t\t42 row (selectable)\n\t\t\t\t\t43 cell\n\t\t\t\t\t\t44 image\n\t\t\t\t\t\t45 text field (settable) URL: file:///private/tmp/rexafs-advanced-qa/app.log, Value: app.log, Secondary Actions: Open Finder item\n\t\t\t\t\t46 cell\n\t\t\t\t\t\t47 text Zero bytes\n\t\t\t\t\t48 cell\n\t\t\t\t\t\t49 text Log File\n\t\t\t\t\t50 cell\n\t\t\t\t\t\t51 text Today at 5:48\n\t\t\t\t52 row (selected)\n\t\t\t\t\t53 cell (selected)\n\t\t\t\t\t\t54 image\n\t\t\t\t\t\t55 text field (selected, settable) URL: file:///private/tmp/rexafs-advanced-qa/bad-standard.dat, Value: bad-standard.dat, Secondary Actions: Open Finder item\n\t\t\t\t\t56 cell (selected)\n\t\t\t\t\t\t57 text 25 bytes\n\t\t\t\t\t58 cell (selected)\n\t\t\t\t\t\t59 text Zed Document\n\t\t\t\t\t60 cell (selected)\n\t\t\t\t\t\t61 text Today at 5:48\n\t\t\t\t62 row (selectable)\n\t\t\t\t\t63 cell\n\t\t\t\t\t\t64 image\n\t\t\t\t\t\t65 text field (settable) URL: file:///private/tmp/rexafs-advanced-qa/rexafs-advanced.app/, Value: rexafs-advanced, Secondary Actions: Open Finder item\n\t\t\t\t\t66 cell\n\t\t\t\t\t\t67 text 210 MB\n\t\t\t\t\t68 cell\n\t\t\t\t\t\t69 text Application\n\t\t\t\t\t70 cell\n\t\t\t\t\t\t71 text Today at 5:48\n\t\t\t\t72 row (selectable)\n\t\t\t\t\t73 cell\n\t\t\t\t\t\t74 image\n\t\t\t\t\t\t75 text field (settable) URL: file:///private/tmp/rexafs-advanced-qa/session.json, Value: session.json, Secondary Actions: Open Finder item\n\t\t\t\t\t76 cell\n\t\t\t\t\t\t77 text 74 bytes\n\t\t\t\t\t78 cell\n\t\t\t\t\t\t79 text JSON Document\n\t\t\t\t\t80 cell\n\t\t\t\t\t\t81 text Today at 5:48\n\t\t\t\t82 row (selectable)\n\t\t\t\t\t83 cell\n\t\t\t\t\t\t84 image\n\t\t\t\t\t\t85 text field (settable) URL: file:///private/tmp/rexafs-advanced-qa/standard.dat, Value: standard.dat, Secondary Actions: Open Finder item\n\t\t\t\t\t86 cell\n\t\t\t\t\t\t87 text 14 KB\n\t\t\t\t\t88 cell\n\t\t\t\t\t\t89 text Zed Document\n\t\t\t\t\t90 cell\n\t\t\t\t\t\t91 text Today at 5:48\n\t\t\t\t92 container\n\t\t\t\t\t93 sort button Name\n\t\t\t\t\t94 sort button Size\n\t\t\t\t\t95 sort button Kind\n\t\t\t\t\t96 sort button Date Added\n\t\t97 container\n\t\t\t98 button back\n\t\t\t99 button (disabled) forward\n\t\t100 menu button Description: List, Help: Show as Icons, List, or Columns, and hide/show the sidebar, ID: View Options\n\t\t101 menu button Help: Change the item grouping (hold down Option to change the sort), ID: Group or Sort By\n\t\t102 pop up button Where:, Value: rexafs-advanced-qa, ID: where popup\n\t\t103 search text field Search\n\t\t\t104 button search\n\t\t105 button New Folder, ID: NewFolderButton\n\t\t106 button Cancel, ID: CancelButton\n\t\t107 button Open, ID: OKButton\n108 menu bar\n\t109 rexafs advanced audit\n\nSelected:\n\t52 row (selected)\n\nNote: Pay special attention to the content selected by the user. If the user asks a question or refers to the content they are looking at on-screen, they might be referring to the selected content (but they might be referring to something else that's visible, too)."
+  },
+  {
+    "file": "04-bad-standard-rejected.png",
+    "note": "Malformed standard line 3 is rejected with an explicit error; no standard is attached.",
+    "ax": "Window: \"rexafs\", App: rexafs advanced audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs advanced audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "05-standard-attached.png",
+    "note": "Native picker before file selection completed; the standard is not attached in this intermediate screenshot.",
+    "ax": "Window: \"Open\", App: rexafs advanced audit.\n0 standard window Open, ID: open-panel, Secondary Actions: Raise\n\t1 split group\n\t\t2 scroll area Secondary Actions: Scroll Up, Scroll Down\n\t\t\t3 outline sidebar\n\t\t\t\t4 row (selectable) Description: clock, Value: Recents\n\t\t\t\t5 row (selectable) Description: Shared Folder, Value: Shared\n\t\t\t\t6 row (selectable, expanded) Value: Favorites, Secondary Actions: Collapse\n\t\t\t\t7 row (selectable) Applications\n\t\t\t\t8 row (selectable) Desktop\n\t\t\t\t9 row (selectable) Description: document, Value: Documents\n\t\t\t\t10 row (selectable) Description: Arrow Down Circle, Value: Downloads\n\t\t\t\t11 row (selectable) Description: move, Value: slid\n\t\t\t\t12 row (selectable, expanded) Value: Locations, Secondary Actions: Collapse\n\t\t\t\t13 row (selectable) Description: iCloud, Value: iCloud Drive\n\t\t\t\t14 row (selectable) Description: home, Value: ryuichi\n\t\t\t\t15 row (selectable) Macintosh HD\n\t\t\t\t16 row (selectable) Eject, Description: eject, Value: T3 Code (Alpha) 0.0.33-arm64\n\t\t\t\t17 row (selectable) Eject, Description: eject, Value: Claude Science\n\t\t\t\t18 row (selectable) Network\n\t\t\t\t19 row (selectable, expanded) Value: Tags, Secondary Actions: Collapse\n\t\t\t\t20 row (selectable) Important\n\t\t\t\t21 row (selectable) Gray\n\t\t\t\t22 row (selectable) Home\n\t\t\t\t23 row (selectable) Yellow\n\t\t\t\t24 row (selectable) Blue\n\t\t\t\t25 row (selectable) Green\n\t\t\t\t26 row (selectable) Orange\n\t\t\t\t27 row (selectable) All Tags…\n\t\t\t\t28 row (selectable, expanded) Value: Media, Secondary Actions: Collapse\n\t\t\t\t29 row (selectable) Music\n\t\t\t\t30 row (selectable) Description: photo, Value: Photos\n\t\t\t\t31 row (selectable) Description: movie, Value: Movies\n\t\t\t32 scroll bar (settable, float) 0\n\t\t\t\t33 value indicator (settable, float) 0\n\t\t\t\t34 increment arrow button\n\t\t\t\t35 decrement arrow button\n\t\t\t\t36 increment page button\n\t\t\t\t37 decrement page button\n\t\t38 splitter (disabled, settable, float) 167\n\t\t39 scroll area\n\t\t\t40 outline Description: list view, ID: ListView\n\t\t\t\t41 row (selectable) Description: go up, Value: Name\nSize\nKind\nDate Added\n\t\t\t\t42 row (selectable)\n\t\t\t\t\t43 cell\n\t\t\t\t\t\t44 image\n\t\t\t\t\t\t45 text field (settable) URL: file:///private/tmp/rexafs-advanced-qa/app.log, Value: app.log, Secondary Actions: Open Finder item\n\t\t\t\t\t46 cell\n\t\t\t\t\t\t47 text Zero bytes\n\t\t\t\t\t48 cell\n\t\t\t\t\t\t49 text Log File\n\t\t\t\t\t50 cell\n\t\t\t\t\t\t51 text Today at 5:48\n\t\t\t\t52 row (selectable)\n\t\t\t\t\t53 cell\n\t\t\t\t\t\t54 image\n\t\t\t\t\t\t55 text field (settable) URL: file:///private/tmp/rexafs-advanced-qa/bad-standard.dat, Value: bad-standard.dat, Secondary Actions: Open Finder item\n\t\t\t\t\t56 cell\n\t\t\t\t\t\t57 text 25 bytes\n\t\t\t\t\t58 cell\n\t\t\t\t\t\t59 text Zed Document\n\t\t\t\t\t60 cell\n\t\t\t\t\t\t61 text Today at 5:48\n\t\t\t\t62 row (selectable)\n\t\t\t\t\t63 cell\n\t\t\t\t\t\t64 image\n\t\t\t\t\t\t65 text field (settable) URL: file:///private/tmp/rexafs-advanced-qa/rexafs-advanced.app/, Value: rexafs-advanced, Secondary Actions: Open Finder item\n\t\t\t\t\t66 cell\n\t\t\t\t\t\t67 text 210 MB\n\t\t\t\t\t68 cell\n\t\t\t\t\t\t69 text Application\n\t\t\t\t\t70 cell\n\t\t\t\t\t\t71 text Today at 5:48\n\t\t\t\t72 row (selectable)\n\t\t\t\t\t73 cell\n\t\t\t\t\t\t74 image\n\t\t\t\t\t\t75 text field (settable) URL: file:///private/tmp/rexafs-advanced-qa/session.json, Value: session.json, Secondary Actions: Open Finder item\n\t\t\t\t\t76 cell\n\t\t\t\t\t\t77 text 74 bytes\n\t\t\t\t\t78 cell\n\t\t\t\t\t\t79 text JSON Document\n\t\t\t\t\t80 cell\n\t\t\t\t\t\t81 text Today at 5:48\n\t\t\t\t82 row (selectable)\n\t\t\t\t\t83 cell\n\t\t\t\t\t\t84 image\n\t\t\t\t\t\t85 text field (settable) URL: file:///private/tmp/rexafs-advanced-qa/standard.dat, Value: standard.dat, Secondary Actions: Open Finder item\n\t\t\t\t\t86 cell\n\t\t\t\t\t\t87 text 14 KB\n\t\t\t\t\t88 cell\n\t\t\t\t\t\t89 text Zed Document\n\t\t\t\t\t90 cell\n\t\t\t\t\t\t91 text Today at 5:48\n\t\t\t\t92 container\n\t\t\t\t\t93 sort button Name\n\t\t\t\t\t94 sort button Size\n\t\t\t\t\t95 sort button Kind\n\t\t\t\t\t96 sort button Date Added\n\t\t97 container\n\t\t\t98 button (disabled) back\n\t\t\t99 button (disabled) forward\n\t\t100 menu button Description: List, Help: Show as Icons, List, or Columns, and hide/show the sidebar, ID: View Options\n\t\t101 menu button Help: Change the item grouping (hold down Option to change the sort), ID: Group or Sort By\n\t\t102 pop up button Where:, Value: rexafs-advanced-qa, ID: where popup\n\t\t103 search text field Search\n\t\t\t104 button search\n\t\t105 button New Folder, ID: NewFolderButton\n\t\t106 button Cancel, ID: CancelButton\n\t\t107 button (disabled) Open, ID: OKButton\n108 menu bar\n\t109 rexafs advanced audit\n\nThe focused UI element is 40 outline Description: list view, ID: ListView"
+  },
+  {
+    "file": "06-valid-standard-attached.png",
+    "note": "Valid 401-point standard is attached to the fluorescence group and recomputed successfully.",
+    "ax": "Window: \"rexafs\", App: rexafs advanced audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs advanced audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "07-fixed-solver-controls.png",
+    "note": "Fixed lambda exposes condition limit and cache; legacy ridge and iterative fallback are explicitly inactive. Dropdown values now use full inspector width.",
+    "ax": "Window: \"rexafs\", App: rexafs advanced audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs advanced audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "08-standard-persisted-in-group.png",
+    "note": "Loaded standard filename and 401-point count are visible in the group inspector.",
+    "ax": "Window: \"rexafs\", App: rexafs advanced audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs advanced audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "09-independent-background-e0.png",
+    "note": "Background k-origin set to 22114 eV while normalization remains at 22113 eV.",
+    "ax": "Window: \"rexafs\", App: rexafs advanced audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs advanced audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "10-fixed-settings-layout.png",
+    "note": "Scrolled fixed-penalty settings remain readable at the standard window size.",
+    "ax": "Window: \"rexafs\", App: rexafs advanced audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs advanced audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "11-clamp-options.png",
+    "note": "Clamp menu provides Fixed lambda and both legacy policies without clipping their labels.",
+    "ax": "Window: \"rexafs\", App: rexafs advanced audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs advanced audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "12-legacy-controls.png",
+    "note": "Legacy Fixed exposes ridge, residual-ratio acceptance, fallback enable, and fallback solver. Fixed lambda is retained separately for switching back.",
+    "ax": "Window: \"rexafs\", App: rexafs advanced audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs advanced audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "13-inverse-controls.png",
+    "note": "Transform inspector exposes asymmetric R tapers, R weight, q maximum, inverse NFFT, and q step.",
+    "ax": "Window: \"rexafs\", App: rexafs advanced audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs advanced audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "14-custom-inverse-grid.png",
+    "note": "Inverse transform set to R 1–3 Å, high taper 0.25 Å, R weight 2, q max 10.13 Å⁻¹ and NFFT 4096; chi(q) renders successfully.",
+    "ax": "Window: \"rexafs\", App: rexafs advanced audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs advanced audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "15-inverse-grid-error.png",
+    "note": "Explicit q step 0.05 conflicts with the current R grid and NFFT 4096, so processing reports an error. This intermediate screenshot also exposes that the previous curve remains visible after an invalid edit.",
+    "ax": "Window: \"rexafs\", App: rexafs advanced audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs advanced audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "16-inverse-auto-restored.png",
+    "note": "Clearing q step returns to a compatible automatic grid and clears the processing-error banner.",
+    "ax": "Window: \"rexafs\", App: rexafs advanced audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs advanced audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "17-advanced-project-saved.png",
+    "note": "Saved advanced-controls.rxs with standard arrays, background E0 and inverse settings. JSON verification confirms only fluorescence has these overrides; reference remains unchanged.",
+    "ax": "Window: \"rexafs\", App: rexafs advanced audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs advanced audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "18-reopened-advanced-project.png",
+    "note": "Reopened saved project retains the custom inverse NFFT, q limit, R weight and tapers on the fluorescence group.",
+    "ax": "Window: \"rexafs\", App: rexafs advanced audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs advanced audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "19-standard-restored.png",
+    "note": "The project restores the embedded 401-point standard and background E0 = 22114 eV.",
+    "ax": "Window: \"rexafs\", App: rexafs advanced audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs advanced audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "20-standard-cleared.png",
+    "note": "Clear standard removes it from the current group and recomputes.",
+    "ax": "Window: \"rexafs\", App: rexafs advanced audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs advanced audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "21-standard-undo-restores.png",
+    "note": "Undo restores the exact standard arrays and the processed result.",
+    "ax": "Window: \"rexafs\", App: rexafs advanced audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs advanced audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  },
+  {
+    "file": "22-reference-unchanged.png",
+    "note": "Reference retains its independent Rbkg 1.3 Å, automatic background E0, and no standard after sample edits and project restore.",
+    "ax": "Window: \"rexafs\", App: rexafs advanced audit.\n0 standard window rexafs, Secondary Actions: Raise\n\t1 close button\n\t2 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window\n\t3 minimize button\n\t4 text rexafs\n5 menu bar\n\t6 rexafs advanced audit\n\nThe focused UI element is 0 standard window rexafs, Secondary Actions: Raise"
+  }
+]

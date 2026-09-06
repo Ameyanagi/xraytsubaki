@@ -45,6 +45,23 @@ settings![
     (bkg_solver, "Background solver", "Solver"),
     (bkg_kstep, "Background k step (Å⁻¹)", "Solver"),
     (bkg_nfft, "Background NFFT", "Solver"),
+    (bkg_ek0, "k origin E₀ (eV)", "AUTOBK"),
+    (bkg_linear_regularization, "legacy ridge", "Solver"),
+    (bkg_linear_condition_limit, "condition limit", "Solver"),
+    (
+        bkg_linear_residual_ratio_limit,
+        "residual ratio limit",
+        "Solver"
+    ),
+    (bft_qmax, "q max (Å⁻¹)", "Back FT  R → q"),
+    (bft_dr2, "dR high (Å)", "Back FT  R → q"),
+    (bft_rweight, "R weight", "Back FT  R → q"),
+    (bft_kstep, "q step (Å⁻¹)", "Back FT  R → q"),
+    (bft_nfft, "inverse NFFT", "Back FT  R → q"),
+    (bkg_linear_fallback_to_lm, "legacy fallback", "Solver"),
+    (bkg_linear_workspace_cache, "matrix cache", "Solver"),
+    (bkg_linear_fallback_solver, "fallback solver", "Solver"),
+    (bkg_standard, "Standard χ(k)", "AUTOBK"),
     (fft_kmin, "FT k min (Å⁻¹)", "Forward FT  k → R"),
     (fft_kmax, "FT k max (Å⁻¹)", "Forward FT  k → R"),
     (fft_dk, "FT dk (Å⁻¹)", "Forward FT  k → R"),
@@ -136,6 +153,15 @@ impl ParamKey {
             Self::BftRmin => "bft_rmin",
             Self::BftRmax => "bft_rmax",
             Self::BftDr => "bft_dr",
+            Self::BkgEk0 => "bkg_ek0",
+            Self::BkgRegularization => "bkg_linear_regularization",
+            Self::BkgCondition => "bkg_linear_condition_limit",
+            Self::BkgResidualRatio => "bkg_linear_residual_ratio_limit",
+            Self::BftQmax => "bft_qmax",
+            Self::BftDr2 => "bft_dr2",
+            Self::BftRweight => "bft_rweight",
+            Self::BftKstep => "bft_kstep",
+            Self::BftNfft => "bft_nfft",
         }
     }
 }
@@ -148,6 +174,9 @@ impl EnumParam {
             Self::BkgClampPolicy => "bkg_clamp_policy",
             Self::FftWindow => "fft_window",
             Self::BftWindow => "bft_window",
+            Self::BkgFallback => "bkg_linear_fallback_to_lm",
+            Self::BkgCache => "bkg_linear_workspace_cache",
+            Self::BkgFallbackSolver => "bkg_linear_fallback_solver",
         }
     }
 }
@@ -182,6 +211,13 @@ fn shown(v: &Value) -> String {
     match v {
         Value::Null => "Auto".into(),
         Value::String(s) => s.clone(),
+        Value::Object(map) if map.contains_key("chi") && map.contains_key("k") => format!(
+            "{} · {} points",
+            map.get("label")
+                .and_then(Value::as_str)
+                .unwrap_or("Standard χ(k)"),
+            map.get("k").and_then(Value::as_array).map_or(0, Vec::len)
+        ),
         _ => v.to_string(),
     }
 }

@@ -1,7 +1,7 @@
 // Standard library dependencies
 
 // External dependencies
-use easyfft::prelude::{DynRealFft, DynRealIfft};
+use easyfft::prelude::DynRealFft;
 use easyfft::{dyn_size::realfft::DynRealDft, num_complex::Complex};
 use nalgebra::{DVector, Owned};
 use ndarray::{
@@ -357,35 +357,26 @@ impl XrayFFTR {
         r: ArrayBase<ViewRepr<&f64>, Ix1>,
         chir: &DynRealDft<f64>,
     ) -> Result<(DynRealDft<f64>, ArrayBase<OwnedRepr<f64>, Ix1>), FFTError> {
+        super::inverse_fft::validate(&r.to_vec(), self)?;
         self.fill_parameter(r);
-        let rweight = self.rweight.unwrap() as i32;
-        let nfft = self.nfft.unwrap();
-        let r_len = chir.len();
-        let rstep = std::f64::consts::PI / self.kstep.unwrap() / nfft as f64;
-
-        let r_ = Array1::range(0.0, r_len as f64 * rstep, rstep);
-
-        let win = if rweight == 0 {
-            ftwindow(&r_, self.rmin, self.rmax, self.dr, self.dr2, self.window).map_err(|e| {
-                FFTError::WindowCalculationFailed {
-                    reason: e.to_string(),
-                }
-            })?
-        } else {
-            ftwindow(&r_, self.rmin, self.rmax, self.dr, self.dr2, self.window).map_err(|e| {
-                FFTError::WindowCalculationFailed {
-                    reason: e.to_string(),
-                }
-            })? * &r_.map(|x| x.powi(rweight))
-        };
-
-        let chir_win = chir
-            .iter()
-            .zip(win.iter())
-            .map(|(x, y)| x * y)
-            .collect::<Vec<Complex<f64>>>();
-
-        let chir_win = DynRealDft::new(*chir.get_offset(), &chir_win[1..], nfft);
+        let rstep = std::f64::consts::PI / self.kstep.unwrap() / self.nfft.unwrap() as f64;
+        let full_r = Array1::from_iter((0..chir.len()).map(|i| i as f64 * rstep));
+        let mut win = ftwindow(
+            &full_r,
+            self.rmin,
+            self.rmax,
+            self.dr,
+            self.dr2,
+            self.window,
+        )
+        .map_err(|e| FFTError::WindowCalculationFailed {
+            reason: e.to_string(),
+        })?;
+        let weight = self.rweight.unwrap();
+        if weight > 0.0 {
+            win *= &full_r.mapv(|radius| radius.powf(weight));
+        }
+        let chir_win = chir * win.as_slice().expect("owned contiguous inverse window");
 
         Ok((chir_win, win))
     }
@@ -399,11 +390,11 @@ impl XrayFFTR {
         let nfft = self.nfft.unwrap();
         let out = xftr_fast(&chir_win, nfft, self.kstep.unwrap());
 
-        let q = Array1::linspace(
-            0.0,
+        let q = Array1::from_vec(super::inverse_fft::q_grid(
             self.qmax_out.unwrap(),
-            (1.05 + self.qmax_out.unwrap() / self.kstep.unwrap()) as usize,
-        );
+            self.kstep.unwrap(),
+            out.len(),
+        ));
 
         self.q = Some(q);
         self.rwin = Some(win);
@@ -466,19 +457,7 @@ pub fn xftr_fast(
     nfft: usize,
     kstep: f64,
 ) -> ArrayBase<OwnedRepr<f64>, Ix1> {
-    let cchi = if chir.len() < nfft / 2 + 1 {
-        let mut freq_bin = vec![Complex::new(0.0, 0.0); nfft - 1];
-        freq_bin[..chir.len() - 1].copy_from_slice(chir.get_frequency_bins());
-        DynRealDft::new(*chir.get_offset(), &freq_bin, nfft)
-    } else {
-        chir.clone()
-    };
-
-    let mut chi = Array1::from(cchi.real_ifft());
-
-    chi *= std::f64::consts::PI.sqrt() / kstep / nfft as f64;
-
-    chi
+    Array1::from_vec(super::inverse_fft::inverse(chir, nfft, kstep))
 }
 
 pub fn xftf_fast_nalgebra(chi: &DVector<f64>, nfft: usize, kstep: f64) -> DynRealDft<f64> {
@@ -494,19 +473,7 @@ pub fn xftf_fast_nalgebra(chi: &DVector<f64>, nfft: usize, kstep: f64) -> DynRea
 }
 
 pub fn xftr_fast_nalgebra(chir: &DynRealDft<f64>, nfft: usize, kstep: f64) -> DVector<f64> {
-    let cchi = if chir.len() < nfft / 2 + 1 {
-        let mut freq_bin = vec![Complex::new(0.0, 0.0); nfft - 1];
-        freq_bin[..chir.len() - 1].copy_from_slice(chir.get_frequency_bins());
-        DynRealDft::new(*chir.get_offset(), &freq_bin, nfft)
-    } else {
-        chir.clone()
-    };
-
-    let mut chi = DVector::from(cchi.real_ifft().to_vec());
-
-    chi *= (std::f64::consts::PI).sqrt() / kstep / nfft as f64;
-
-    chi
+    DVector::from_vec(super::inverse_fft::inverse(chir, nfft, kstep))
 }
 
 pub trait XFFT {

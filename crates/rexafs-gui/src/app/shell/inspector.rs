@@ -410,6 +410,65 @@ impl StudioApp {
             Some(rexafs::prelude::BackgroundMethod::AUTOBK(a)) => a.nknots,
             _ => None,
         });
+        let p = self.ui_params();
+        let linear = p
+            .bkg_solver
+            .is_none_or(|s| s == rexafs::prelude::AUTOBKSolver::LinearDirect);
+        let fixed = p.bkg_clamp_policy == rexafs::prelude::AUTOBKClampScalePolicy::FixedPenalty;
+        let mut solver = vec![self.enum_row("method", EnumParam::BkgSolver, cx)];
+        solver.extend(
+            [
+                self.field(ParamKey::BkgKstep, cx),
+                self.field(ParamKey::BkgNfft, cx),
+            ]
+            .into_iter()
+            .flatten(),
+        );
+        if linear {
+            solver.extend(self.field(ParamKey::BkgCondition, cx));
+            solver.push(self.enum_row("matrix cache", EnumParam::BkgCache, cx));
+            if fixed {
+                solver.push(self.note("Fixed λ uses one linear solve. The condition limit controls the SVD cutoff; legacy ridge and iterative fallback are inactive.").into_any_element());
+            } else {
+                solver.extend(
+                    [
+                        self.field(ParamKey::BkgRegularization, cx),
+                        self.field(ParamKey::BkgResidualRatio, cx),
+                    ]
+                    .into_iter()
+                    .flatten(),
+                );
+                solver.push(self.enum_row("fallback", EnumParam::BkgFallback, cx));
+                if p.bkg_linear_fallback_to_lm != Some(false) {
+                    solver.push(self.enum_row("fallback solver", EnumParam::BkgFallbackSolver, cx));
+                }
+                solver.push(self.note("Legacy models can use ridge regularization and retry with the selected iterative solver when the direct solve fails its checks.").into_any_element());
+            }
+        } else {
+            solver.push(self.note("Linear matrix controls apply to LinearDirect. Select Fixed λ for the single-solve method.").into_any_element());
+        }
+        solver.push(
+            self.result_card(vec![(
+                "Spline knots".into(),
+                knots.map(|k| k.to_string()).unwrap_or("auto".into()),
+            )])
+            .into_any_element(),
+        );
+        let mut standard = div().px_3().py_1().flex().flex_col().gap_1()
+            .child(self.note("Optional standard: two columns, k (Å⁻¹) and unweighted χ(k). Its values are saved in the project."))
+            .child(button(&self.theme, "load-chi-standard", "Load standard…", false).on_click(cx.listener(|this, _, _, cx| this.choose_chi_standard(cx))));
+        if let Some(s) = &p.bkg_standard {
+            standard = standard
+                .child(div().text_xs().text_color(self.theme.text).child(format!(
+                    "{} · {} points",
+                    s.label,
+                    s.k.len()
+                )))
+                .child(
+                    button(&self.theme, "clear-chi-standard", "Clear standard", false)
+                        .on_click(cx.listener(|this, _, _, cx| this.set_chi_standard(None, cx))),
+                );
+        }
         div()
             .flex()
             .flex_col()
@@ -423,6 +482,9 @@ impl StudioApp {
                     Some(self.note("On the χ(k) plot, drag the shaded window's left or right edge to set k min or k max. Clear the numeric value for Auto.").into_any_element()),
                     self.field(ParamKey::BkgKweight, cx),
                     self.field(ParamKey::BkgNknots, cx),
+                    self.field(ParamKey::BkgEk0, cx),
+                    Some(self.note("k origin E₀ defaults to the normalization edge energy. An override changes the energy-to-k conversion only.").into_any_element()),
+                    Some(standard.into_any_element()),
                 ]
                 .into_iter()
                 .flatten()
@@ -454,21 +516,7 @@ impl StudioApp {
             .child(self.section(
                 "Solver",
                 None,
-                [
-                    Some(self.enum_row("method", EnumParam::BkgSolver, cx)),
-                    self.field(ParamKey::BkgKstep, cx),
-                    self.field(ParamKey::BkgNfft, cx),
-                    Some(
-                        self.result_card(vec![(
-                            "Spline knots".into(),
-                            knots.map(|k| k.to_string()).unwrap_or("auto".into()),
-                        )])
-                        .into_any_element(),
-                    ),
-                ]
-                .into_iter()
-                .flatten()
-                .collect(),
+                solver,
                 cx,
             ))
             .child(self.note("Rbkg: drag the shaded region edge on |χ(R)|. Rbkg too large removes the first shell; slightly small is harmless."))
@@ -523,7 +571,13 @@ impl StudioApp {
                     self.field(ParamKey::BftRmin, cx),
                     self.field(ParamKey::BftRmax, cx),
                     self.field(ParamKey::BftDr, cx),
+                    self.field(ParamKey::BftDr2, cx),
                     Some(self.enum_row("window", EnumParam::BftWindow, cx)),
+                    self.field(ParamKey::BftRweight, cx),
+                    self.field(ParamKey::BftQmax, cx),
+                    self.field(ParamKey::BftNfft, cx),
+                    self.field(ParamKey::BftKstep, cx),
+                    Some(self.note("Auto q step is derived from the input R grid and inverse NFFT. If both are specified, they must describe the same R spacing. q max limits the output extent; it does not stretch the grid.").into_any_element()),
                     Some(
                         self.note("Drag the R-window edges on χ(R) to set this range. The back transform isolates the selected shell in χ(q).")
                             .into_any_element(),

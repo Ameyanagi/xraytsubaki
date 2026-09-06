@@ -68,6 +68,23 @@ def qualify(archives, version, commit, run_id, tag):
     return hashes
 
 
+def get_draft_release(tag):
+    # GitHub's release-by-tag endpoint does not resolve the draft created below.
+    # gh release view resolves drafts; use its database ID for the API asset data.
+    resolved = json.loads(subprocess.check_output([
+        "gh", "release", "view", tag, "--repo", REPOSITORY,
+        "--json", "databaseId,isDraft,tagName"], text=True))
+    release_id = resolved.get("databaseId")
+    if (resolved.get("tagName") != tag or resolved.get("isDraft") is not True
+            or type(release_id) is not int or release_id <= 0):
+        raise ValueError("Expected an existing draft for this nightly tag")
+    remote = json.loads(subprocess.check_output([
+        "gh", "api", f"repos/{REPOSITORY}/releases/{release_id}"], text=True))
+    if remote.get("id") != release_id or remote.get("tag_name") != tag or remote.get("draft") is not True:
+        raise ValueError("Resolved release is not the expected nightly draft")
+    return remote
+
+
 def publish(directory, version, commit, run_id, tag):
     archives = sorted(directory.rglob("*.zip"))
     hashes = qualify(archives, version, commit, run_id, tag)
@@ -99,7 +116,7 @@ Build and signing provenance is in each archive's `build.json`; checksums are in
                         "--notes-file", str(notes)], check=True)
     assets = [path for archive in archives for path in [archive, Path(str(archive) + ".sha256")]] + [manifest]
     subprocess.run(["gh", "release", "upload", tag, "--repo", REPOSITORY, "--clobber", *map(str, assets)], check=True)
-    remote = json.loads(subprocess.check_output(["gh", "api", f"repos/{REPOSITORY}/releases/tags/{tag}"], text=True))
+    remote = get_draft_release(tag)
     remote_hashes = {asset["name"]: asset.get("digest") for asset in remote["assets"]}
     hashes[manifest.name] = sha256(manifest)
     if remote_hashes != {name: "sha256:" + digest for name, digest in hashes.items()}:

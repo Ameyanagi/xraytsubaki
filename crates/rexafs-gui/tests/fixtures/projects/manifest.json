@@ -10,6 +10,11 @@
       "project": "rexafs-0.1.1-links.rxs",
       "embedded_project": "rexafs-0.1.1-embedded.rxs",
       "format_version": 1
+    },
+    "0.1.2": {
+      "project": "rexafs-0.1.2-links.rxs",
+      "embedded_project": "rexafs-0.1.2-embedded.rxs",
+      "format_version": 1
     }
   },
   "invalid_projects": [
@@ -17,6 +22,7 @@
     "truncated.rxs"
   ],
   "sha256": {
+    "data/Ru_QAS.dat": "13669c95a20b03a4080a12b114dd427dea00516f86b72177bbcb0d4710aae2f8",
     "data/cu_150k.xmu": "c309e53ec6b681024718d5c25694c6426818725974afd7b124a2f076be618cf2",
     "data/second.xmu": "c309e53ec6b681024718d5c25694c6426818725974afd7b124a2f076be618cf2",
     "feff/feff0001.dat": "9fa9934c94b34d78aa5380a93afad03f86c5724393e046fb403a66b326d4b06a",
@@ -27,6 +33,8 @@
     "rexafs-0.1.0-links.rxs": "496c8171743c0e4307efb49edb68f52993dfe30800e18a151fb7bd5670fbe85e",
     "rexafs-0.1.1-embedded.rxs": "4ba1d4008c0d0e6d19cfefa228972540bc19bc7be56b81a715a965cbcd34c228",
     "rexafs-0.1.1-links.rxs": "3a4b9e0476fa0dda06dd109d43ef3f9463c0892b8d587b8a90cec2d8392f926a",
+    "rexafs-0.1.2-embedded.rxs": "64888af772b7546f928a76a2a18ae5b2d1802c14f96e33122dba6c0f348befff",
+    "rexafs-0.1.2-links.rxs": "7063452235e0a107e1296562cd2d79703f5be9af7d59d5fae66d5e65d01b7cbf",
     "truncated.rxs": "f11cad939b7c5e9b31a8910d2fa82cb7ca6dfec6d0dee4f55cc051287a5af59c"
   }
 }

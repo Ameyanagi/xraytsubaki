@@ -91,8 +91,13 @@ fn base(path: &Path) -> Result<PathBuf, String> {
 }
 fn relative(path: &Path, base: &Path) -> Result<PathBuf, String> {
     let absolute = absolute(path)?;
-    let a: Vec<_> = absolute.components().collect();
-    let b: Vec<_> = base.components().collect();
+    // Native dialogs can return a resolved directory while imported files use
+    // an alias (for example /private/tmp versus /tmp on macOS). Compare both
+    // locations consistently so saving beside the data still stores data/file.
+    let source_location = resolved_location(&absolute);
+    let base_location = resolved_location(base);
+    let a: Vec<_> = source_location.components().collect();
+    let b: Vec<_> = base_location.components().collect();
     if a.first() != b.first() {
         return Ok(absolute);
     } // Different Windows volumes.
@@ -108,6 +113,28 @@ fn relative(path: &Path, base: &Path) -> Result<PathBuf, String> {
         out.push(".");
     }
     Ok(out)
+}
+
+fn resolved_location(path: &Path) -> PathBuf {
+    let mut parent = path;
+    let mut tail = Vec::new();
+    loop {
+        if let Ok(mut resolved) = std::fs::canonicalize(parent) {
+            for name in tail.into_iter().rev() {
+                resolved.push(name);
+            }
+            return resolved;
+        }
+        // Missing linked inputs still need portable references. Resolve their
+        // nearest existing ancestor while retaining the missing tail.
+        match (parent.file_name(), parent.parent()) {
+            (Some(name), Some(next)) => {
+                tail.push(name);
+                parent = next;
+            }
+            _ => return path.to_owned(),
+        }
+    }
 }
 fn portable(path: PathBuf) -> PathBuf {
     #[cfg(windows)]

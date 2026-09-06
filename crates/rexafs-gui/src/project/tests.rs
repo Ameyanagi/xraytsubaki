@@ -146,6 +146,31 @@ fn linked_project_moves_with_data_and_save_as_rebases_every_owned_path() {
 }
 
 #[test]
+#[cfg(unix)]
+fn saving_through_a_directory_alias_keeps_links_portable() {
+    use std::os::unix::fs::symlink;
+    let temp = Temp::new();
+    let real = temp.join("real");
+    let project = specimen(&real);
+    let alias = temp.join("alias");
+    symlink(&real, &alias).unwrap();
+    let mut opened_through_alias = project.clone();
+    storage::map_paths(&mut opened_through_alias, &mut |p| {
+        Ok(alias.join(p.strip_prefix(&real).unwrap()))
+    })
+    .unwrap();
+    let file = real.join("native-dialog.rxs");
+    save(&file, &opened_through_alias).unwrap();
+    assert_eq!(json_file(&file)["source_dir"], "data");
+    assert_eq!(json_file(&file)["spectrum_file"], "data/cu_150k.xmu");
+    std::fs::remove_file(alias).unwrap();
+    let moved = temp.join("moved");
+    std::fs::rename(real, &moved).unwrap();
+    let restored = load(&moved.join("native-dialog.rxs")).unwrap();
+    assert!(restored.spectrum_file.unwrap().is_file());
+}
+
+#[test]
 fn embedded_project_is_lossless_self_contained_and_can_be_saved_again() {
     let temp = Temp::new();
     let source = temp.join("original");

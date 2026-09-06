@@ -101,6 +101,9 @@ pub enum BackgroundError {
 /// Errors related to Fourier transform operations.
 #[derive(Error, Debug, Clone)]
 pub enum FFTError {
+    #[error("invalid FFT parameter {parameter}: {reason}")]
+    InvalidParameter { parameter: String, reason: String },
+
     #[error("FFT requires at least {min} points for k-range [{kmin}, {kmax}], got {actual}")]
     InsufficientPoints {
         min: usize,

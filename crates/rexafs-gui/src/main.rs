@@ -83,24 +83,26 @@ fn main() {
 fn check_package() -> Result<(), String> {
     let path = app::packaged_data_file().ok_or("Packaged example is missing")?;
     let (energy, mu) = params::load_raw(&path, &params::PipelineParams::default())?;
-    let result = rexafs::process(&energy, &mu).map_err(|e| e.to_string())?;
-    if !result.e0.is_finite()
-        || result.k.is_empty()
-        || result.r.is_empty()
-        || result
-            .chi
-            .iter()
-            .chain(&result.chir_mag)
-            .any(|v| !v.is_finite())
+    let mut spectrum = rexafs::Spectrum::from_arrays(&energy, &mu).map_err(|e| e.to_string())?;
+    spectrum.fft().map_err(|e| e.to_string())?;
+    let e0 = spectrum.e0().ok_or("Missing E0")?;
+    let k = spectrum.k().ok_or("Missing k")?;
+    let r = spectrum.r().ok_or("Missing R")?;
+    let chi = spectrum.chi().ok_or("Missing chi")?;
+    let magnitude = spectrum.chir_mag().ok_or("Missing Fourier magnitude")?;
+    if !e0.is_finite()
+        || k.is_empty()
+        || r.is_empty()
+        || chi.iter().chain(magnitude.iter()).any(|v| !v.is_finite())
     {
         return Err("Packaged example produced invalid numerical output".into());
     }
     println!(
         "rexafs {}: package check passed (E0={}, k={}, R={})",
         env!("CARGO_PKG_VERSION"),
-        result.e0,
-        result.k.len(),
-        result.r.len()
+        e0,
+        k.len(),
+        r.len()
     );
     Ok(())
 }

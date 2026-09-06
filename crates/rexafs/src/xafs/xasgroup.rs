@@ -585,16 +585,8 @@ mod tests {
             let par = &group_par.spectra[index];
             let default = &group_default.spectra[index];
 
-            assert_abs_diff_eq!(
-                seq.get_e0().unwrap(),
-                par.get_e0().unwrap(),
-                epsilon = 1.0e-8
-            );
-            assert_abs_diff_eq!(
-                par.get_e0().unwrap(),
-                default.get_e0().unwrap(),
-                epsilon = 1.0e-8
-            );
+            assert_abs_diff_eq!(seq.e0().unwrap(), par.e0().unwrap(), epsilon = 1.0e-8);
+            assert_abs_diff_eq!(par.e0().unwrap(), default.e0().unwrap(), epsilon = 1.0e-8);
 
             let seq_norm = seq
                 .normalization
@@ -617,21 +609,21 @@ mod tests {
             assert_slice_close(&seq_norm_vec, &par_norm_vec, 1.0e-6);
             assert_slice_close(&par_norm_vec, &default_norm_vec, 1.0e-6);
 
-            let seq_k = seq.get_k().unwrap();
-            let par_k = par.get_k().unwrap();
-            let default_k = default.get_k().unwrap();
-            assert_slice_close(seq_k.as_slice(), par_k.as_slice(), 1.0e-8);
-            assert_slice_close(par_k.as_slice(), default_k.as_slice(), 1.0e-8);
+            let seq_k = seq.k().unwrap();
+            let par_k = par.k().unwrap();
+            let default_k = default.k().unwrap();
+            assert_slice_close(seq_k, par_k, 1.0e-8);
+            assert_slice_close(par_k, default_k, 1.0e-8);
 
-            let seq_chi = seq.get_chi().unwrap();
-            let par_chi = par.get_chi().unwrap();
-            let default_chi = default.get_chi().unwrap();
-            assert_slice_close(seq_chi.as_slice(), par_chi.as_slice(), 1.0e-6);
-            assert_slice_close(par_chi.as_slice(), default_chi.as_slice(), 1.0e-6);
+            let seq_chi = seq.chi().unwrap();
+            let par_chi = par.chi().unwrap();
+            let default_chi = default.chi().unwrap();
+            assert_slice_close(seq_chi, par_chi, 1.0e-6);
+            assert_slice_close(par_chi, default_chi, 1.0e-6);
 
-            let seq_chir_imag = seq.get_chir_imag().unwrap();
-            let par_chir_imag = par.get_chir_imag().unwrap();
-            let default_chir_imag = default.get_chir_imag().unwrap();
+            let seq_chir_imag = seq.chir_imag().unwrap();
+            let par_chir_imag = par.chir_imag().unwrap();
+            let default_chir_imag = default.chir_imag().unwrap();
             assert_slice_close(seq_chir_imag.as_slice(), par_chir_imag.as_slice(), 1.0e-6);
             assert_slice_close(
                 par_chir_imag.as_slice(),

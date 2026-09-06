@@ -447,15 +447,15 @@ struct FrameSample {
 /// Sampled-frame arrays of a processed spectrum for the overview.
 fn frame_sample(sp: &XASSpectrum, k_grid: &[f64]) -> Result<FrameSample, String> {
     let k_row = resample_chik(sp, k_grid).ok_or("processed spectrum has no chi(k)")?;
-    let e0 = sp.get_e0().unwrap_or(f64::NAN);
+    let e0 = sp.e0().unwrap_or(f64::NAN);
     let energy: Vec<f64> = sp
         .energy
         .as_ref()
         .map(|e| e.iter().copied().collect())
         .unwrap_or_default();
     let norm: Vec<f64> = sp
-        .get_flat()
-        .or_else(|| sp.get_norm())
+        .flat()
+        .or_else(|| sp.norm())
         .map(|n| n.iter().copied().collect())
         .unwrap_or_default();
     let whiteline = energy
@@ -465,11 +465,11 @@ fn frame_sample(sp: &XASSpectrum, k_grid: &[f64]) -> Result<FrameSample, String>
         .map(|(_, n)| *n)
         .fold(f64::NAN, f64::max);
     let r: Vec<f64> = sp
-        .get_r()
+        .r()
         .map(|v| v.iter().copied().collect())
         .unwrap_or_default();
     let mag: Vec<f64> = sp
-        .get_chir_mag()
+        .chir_mag()
         .map(|v| v.iter().copied().collect())
         .unwrap_or_default();
     Ok(FrameSample {
@@ -1558,7 +1558,7 @@ fn spectrum_status(label: &SharedString, sp: &XASSpectrum) -> SharedString {
         "{} · {} points · E0 {:.1} eV",
         label,
         sp.energy.as_ref().map(|e| e.len()).unwrap_or(0),
-        sp.get_e0().unwrap_or(f64::NAN),
+        sp.e0().unwrap_or(f64::NAN),
     )
     .into()
 }
@@ -2844,7 +2844,7 @@ impl StudioApp {
         self.stale_plots = None;
         // Surface the auto-determined E0 in the field placeholder.
         if self.effective_params(ix).e0.is_none()
-            && let Some(e0) = sp.get_e0()
+            && let Some(e0) = sp.e0()
             && let Some((_, field)) = self
                 .param_fields
                 .iter()
@@ -4839,7 +4839,10 @@ impl StudioApp {
             cx.notify();
             return;
         };
-        let (Some(k), Some(chi)) = (sp.get_k(), sp.get_chi()) else {
+        let (Some(k), Some(chi)) = (
+            sp.k().map(nalgebra::DVector::from_column_slice),
+            sp.chi().map(nalgebra::DVector::from_column_slice),
+        ) else {
             self.status = "current spectrum has no chi(k) — check background".into();
             cx.notify();
             return;
@@ -5307,10 +5310,12 @@ impl StudioApp {
                             return Err("batch cancelled".into());
                         }
                         let k = sp
-                            .get_k()
+                            .k()
+                            .map(nalgebra::DVector::from_column_slice)
                             .ok_or_else(|| "processed spectrum has no k grid".to_string())?;
                         let chi = sp
-                            .get_chi()
+                            .chi()
+                            .map(nalgebra::DVector::from_column_slice)
                             .ok_or_else(|| "processed spectrum has no chi(k)".to_string())?;
                         let frame_ranges = ranges.resolved(frame_params.fft_kweight);
                         let result = run_fit(k, chi, &paths, &vars, &frame_ranges)?;
@@ -5781,13 +5786,13 @@ impl StudioApp {
                     SeriesSpace::Energy => sp
                         .energy
                         .as_ref()
-                        .zip(sp.get_flat().or_else(|| sp.get_norm()))
+                        .zip(sp.flat().or_else(|| sp.norm()))
                         .map(|(e, n)| {
                             let e: Vec<f64> = e.iter().copied().collect();
                             let n: Vec<f64> = n.iter().copied().collect();
                             resample_xy(&e, &n, grid)
                         }),
-                    SeriesSpace::R => sp.get_r().zip(sp.get_chir_mag()).map(|(r, m)| {
+                    SeriesSpace::R => sp.r().zip(sp.chir_mag()).map(|(r, m)| {
                         let r: Vec<f64> = r.iter().copied().collect();
                         let m: Vec<f64> = m.iter().copied().collect();
                         resample_xy(&r, &m, grid)

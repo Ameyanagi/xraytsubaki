@@ -26,8 +26,8 @@ at the end of the migration. See the [release plan](doc/rebranding-plan.md),
 | Surface | Implemented scope |
 |---|---|
 | Rust core | Normalization, AUTOBK, FFT/IFFT, parallel groups, alignment/rebinning/merging, LCF/PCA, structures, path fitting and joint/independent fits |
-| Python | Array processing with NumPy results; QAS transmission batch processing |
-| JavaScript / TypeScript | Array processing through Wasm in Node and browsers |
+| Python | Spectrum stages and configuration with NumPy results; QAS file reader |
+| JavaScript / TypeScript | Spectrum stages and configuration through Wasm in Node and browsers |
 | Desktop | Import, processing, structures and path selection, fitting, project persistence and publication exports |
 
 Optional Rust integrations include [ReFEFF](https://crates.io/crates/refeff), FEFF10,
@@ -69,25 +69,26 @@ npm --prefix js-rexafs run build
 npm --prefix js-rexafs test
 ```
 
-## Small processing API
+## Spectrum API
 
 Each language uses the same normalization → AUTOBK → Fourier pipeline. Inputs are
 finite, equal-length arrays with strictly increasing energy in eV.
 
 ```rust,ignore
-let result = rexafs::process(&energy, &mu)?;
+let mut spectrum = rexafs::Spectrum::from_arrays(&energy, &mu)?;
+spectrum.fft()?;
 ```
 
 ```python
 import rexafs
-result = rexafs.process(energy, mu)
-print(result.e0, result.k, result.chi)
+spectrum = rexafs.Spectrum.from_arrays(energy, mu).fft()
+print(spectrum.e0(), spectrum.k(), spectrum.chi())
 ```
 
 ```javascript
-import init, { process } from "rexafs";
+import init, { Spectrum } from "rexafs";
 await init();
-const result = process(energy, mu); // Float64Array inputs
+const spectrum = Spectrum.from_arrays(energy, mu).fft(); // Float64Array inputs
 ```
 
 See the [API guide](doc/api.md) for units, errors and advanced Rust entry points,

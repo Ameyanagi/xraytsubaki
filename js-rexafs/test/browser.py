@@ -21,11 +21,12 @@ try:
         page = browser.new_page()
         page.goto(f"http://127.0.0.1:{server.server_port}/js-rexafs/test/browser.html")
         result = page.evaluate("""async ({rows, reference}) => {
-          const {default: init, process} = await import('../browser.js');
+          const {default: init, Spectrum} = await import('../browser.js');
           const energy = Float64Array.from(rows, row => row[0]);
           const mu = Float64Array.from(rows, row => Math.log(row[1]/row[2]));
           await init(); // exercises the relative Wasm URL and browser fetch
-          const out = process(energy, mu);
+          const spectrum = Spectrum.from_arrays(energy, mu).fft();
+          const out = {e0: spectrum.e0(), k: spectrum.k(), chi: spectrum.chi(), r: spectrum.r(), chir_mag: spectrum.chir_mag(), chir_re: spectrum.chir_real(), chir_im: spectrum.chir_imag()};
           if (out.e0 !== reference.e0 || out.k.length !== reference.k_length || out.r.length !== reference.r_length) throw Error('grid mismatch');
           for (const [key, values] of Object.entries(reference.samples)) {
             [0,20,50,100].forEach((index,i) => {
@@ -33,8 +34,9 @@ try:
             });
           }
           let rejected = false;
-          try { process(new Float64Array([2,1,3]), new Float64Array([1])); } catch { rejected = true; }
+          try { Spectrum.from_arrays(new Float64Array([2,1,3]), new Float64Array([1])); } catch { rejected = true; }
           if (!rejected) throw Error('invalid arrays accepted');
+          spectrum.free();
           return {e0:out.e0, k:out.k.length, r:out.r.length};
         }""", {"rows": rows, "reference": reference})
         print("Browser pipeline passed:", result)

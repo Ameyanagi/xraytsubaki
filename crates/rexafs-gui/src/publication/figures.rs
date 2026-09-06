@@ -270,7 +270,7 @@ pub(crate) fn render_figure(
 }
 
 pub(crate) fn spectrum_figures(sp: Arc<XASSpectrum>, label: &str) -> Vec<FigureData> {
-    let weight = sp.get_kweight().copied().unwrap_or(2.);
+    let weight = sp.kweight().copied().unwrap_or(2.);
     let opts = plotting::ViewOptions {
         flat: false,
         show_re: true,

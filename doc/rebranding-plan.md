@@ -1,3 +1,7 @@
+# Historical plan
+
+The spectrum API in [api.md](api.md) supersedes the processing facade proposed below.
+
 # rexafs rebranding and release plan
 
 Prepared 2026-09-06. Public identity: **rexafs**. Working codename: **xraytsubaki**.

@@ -42,7 +42,8 @@
     "LICENSE-MIT",
     "LICENSE-APACHE",
     "node.d.ts",
-    "types.d.ts"
+    "types.d.ts",
+    "spectrum.js"
   ],
   "scripts": {
     "build": "node build.mjs",

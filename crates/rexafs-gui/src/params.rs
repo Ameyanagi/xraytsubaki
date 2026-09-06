@@ -774,8 +774,7 @@ pub fn reference_e0(path: &std::path::Path, import: &ImportConfig) -> Result<f64
     sp.set_spectrum(energy, mu);
     sp.find_e0()
         .map_err(|e| format!("reference E0 failed: {e}"))?;
-    sp.get_e0()
-        .ok_or_else(|| "reference E0 not found".to_string())
+    sp.e0().ok_or_else(|| "reference E0 not found".to_string())
 }
 
 /// Normalize/AUTOBK/FFT chain on raw arrays (shared by file loads and
@@ -906,8 +905,8 @@ pub fn process_arrays(
 /// Linearly resample the k-weighted chi(k) onto a fixed grid (0 outside the
 /// data range), so operando frames share one heatmap axis.
 pub fn resample_chik(sp: &XASSpectrum, grid: &[f64]) -> Option<Vec<f64>> {
-    let k = sp.get_k()?;
-    let chi = sp.get_chi_kweighted()?;
+    let k = sp.k()?;
+    let chi = sp.chi_kweighted()?;
     if k.len() < 2 || k.len() != chi.len() {
         return None;
     }
@@ -1025,8 +1024,8 @@ mod tests {
         assert_eq!(energy[0], 8133.0);
         assert_eq!(mu[0], -1.1873423); // already mu: never take a second logarithm
         let spectrum = process_file(&path, &PipelineParams::default()).unwrap();
-        assert!(spectrum.get_k().unwrap().len() > 200);
-        assert!(spectrum.get_chi().unwrap().iter().all(|x| x.is_finite()));
+        assert!(spectrum.k().unwrap().len() > 200);
+        assert!(spectrum.chi().unwrap().iter().all(|x| x.is_finite()));
     }
 
     #[test]

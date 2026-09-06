@@ -1,90 +1,154 @@
-# rexafs API guide
+# rexafs spectrum API
 
-The public processing entry point is `process(energy, mu)` in Rust, Python and
-JavaScript. Each binding calls the Rust core. Advanced processing, fitting,
-structure, plotting and analysis APIs remain available in Rust and the desktop;
-binding coverage is intentionally listed in the package READMEs.
-
-## Inputs and outputs
-
-Energy is in eV. Energy and absorption must have the same length, contain finite
-numbers, and have strictly increasing energy. The checked constructor rejects
-duplicates and unsorted input; it never sorts or averages silently. At least two
-points are required to construct a spectrum; a full EXAFS calculation requires
-sufficient pre-edge, post-edge and k-space coverage and can return a stage error.
-
-`process` finds E0, normalizes, removes the AUTOBK background and Fourier transforms.
-An E0 override must be finite and strictly inside the measured energy range.
-The default forward transform uses k-weight 2, a Kaiser–Bessel window, nominal
-k range 2–15 Å⁻¹, dk 1 Å⁻¹ and FFT length 2048, subject to the core's data-dependent
-range handling. Advanced configurations use the existing staged Rust methods.
-
-| Result | Units / relationship |
-|---|---|
-| `e0` | Edge energy, eV |
-| `k`, `chi` | Same length; k in Å⁻¹ and unweighted χ(k) |
-| `r` | Fourier distance, Å; not phase corrected |
-| `chir_mag`, `chir_re`, `chir_im` | Same length as `r`; magnitude, real and imaginary components |
-
-Result arrays own their memory. Python uses NumPy float64 arrays, JavaScript uses
-Float64Array, and Rust uses Vec<f64>. Output never mixes partial success with absent
-fields. R-space magnitudes are transform amplitudes, not phase-corrected distances.
-
-## Rust
+Rust, Python and TypeScript use the same mutable `Spectrum` workflow. Construct a
+spectrum, then call the stage you need. `fft()` computes missing normalization
+and background results using the selected methods and their defaults.
 
 ```rust,ignore
-use rexafs::{process, process_with_options, ProcessOptions, Spectrum};
-
-let result = process(&energy, &mu)?;
-let explicit = process_with_options(&energy, &mu, ProcessOptions { e0: Some(7112.0) })?;
-
-let mut spectrum = Spectrum::from_arrays(&energy, &mu)?;
-spectrum.find_e0()?.normalize()?.calc_background()?.fft()?;
-let chi = spectrum.chi(); // borrowed slice, without cloning
+let mut spectrum = rexafs::Spectrum::from_arrays(&energy, &mu)?;
+spectrum.fft()?;
+let chi = spectrum.chi();
 ```
-
-| Preferred path | Existing path retained |
-|---|---|
-| `rexafs::Spectrum` | `rexafs::prelude::XASSpectrum` |
-| `rexafs::Group` | `rexafs::prelude::XASGroup` |
-| `rexafs::Error`, `rexafs::Result` | `rexafs::xafs::XAFSError`, `rexafs::xafs::Result` |
-| `rexafs::io::read_qas_transmission` | `rexafs::xafs::io::load_spectrum_QAS_trans` |
-| `rexafs::fitting`, `structure`, `analysis`, `tools` | Corresponding modules under `rexafs::xafs` |
-
-`Spectrum::new()` and `set_spectrum` remain legacy construction methods. Prefer
-`from_arrays` for caller-supplied data: the legacy setter has historical sorting
-behavior and is not the checked input boundary. `k()` and `chi()` borrow buffers;
-the old `get_k()` and `get_chi()` continue returning owned clones. Public spectrum
-fields and existing solver/configuration types remain accessible for advanced use.
-
-## Python and JavaScript
 
 ```python
-import rexafs
-result = rexafs.process(energy, mu, e0=7112.0)
+from rexafs import Spectrum
+spectrum = Spectrum.from_arrays(energy, mu).fft()
+chi = spectrum.chi()
 ```
 
-```javascript
-import init, { process } from "rexafs";
+```typescript
+import init, { Spectrum } from "rexafs";
 await init();
-const result = process(energy, mu, { e0: 7112.0 });
+const spectrum = Spectrum.from_arrays(energy, mu).fft();
+const chi = spectrum.chi();
+spectrum.free();
 ```
 
-Python accepts 1-D array-like inputs, including strided views. JavaScript requires
-Float64Array inputs and rejects unknown options. Browser initialization is explicit;
-Node loads its own Wasm asset. JavaScript processing is synchronous; put long jobs
-in a worker. Python copies inputs and releases the GIL during the calculation.
+## Stages and methods
 
-Rust returns typed errors. Python raises ValueError for input/normalization errors
-and RuntimeError for other processing failures. JavaScript throws Error/TypeError.
-The Python QAS batch API returns successful count and indexed failures and continues
-past failures; it is a file adapter, not the universal array-processing API.
+| Call | Behavior |
+|---|---|
+| `find_e0()` | Find E0 from the working spectrum; invalidate dependent results |
+| `normalize()` | Run the selected normalization method; resolve E0 if needed |
+| `calc_background()` | Run the selected background method; normalize if needed |
+| `fft()` | Forward Fourier transform; calculate missing background results first |
+| `ifft()` | Reverse transform; calculate the forward transform first if needed |
 
-## Further cleanup
+Each stage executes immediately. Rust returns `Result<&mut Self, Error>`; Python
+and TypeScript return the same spectrum and raise/throw on failure. Explicit
+chains such as `spectrum.normalize().calc_background().fft()` are also supported
+(with `?` between stages in Rust). There is no public `process()` facade or
+separate `ProcessedSpectrum` result class.
 
-The first release avoids removing established advanced APIs. Subsequent work should
-add structured processing options shared across bindings, typed fit builders in
-Python/TypeScript and private cache state with explicit invalidation. These are
-future extensions, not functions advertised as available today. Preserve numerical
-reference tests as the API grows; do not silently change scientific defaults to
-make a cross-language interface look uniform.
+When E0 is unset, the selected normalization method estimates it. Rust's optional
+`ndarray-compat` feature retains its legacy normalization edge detector; explicitly
+calling `find_e0()` selects the core derivative-based estimate instead.
+
+Generic stage names are independent of the chosen algorithm. The defaults are
+pre/post-edge normalization and AUTOBK background removal. Setting another
+method never silently falls back to a default: the existing MBack normalization
+and ILPBkg background placeholders return not-implemented errors. A future
+background algorithm belongs in `BackgroundMethod`; the spectrum workflow and
+binding stage calls stay the same. Runtime custom algorithm callbacks are not
+part of this API.
+
+## Configuration
+
+The bindings expose the Rust configuration names and fields: `PrePostEdge`,
+`AUTOBK`, `XrayFFTF`, `NormalizationMethod`, and `BackgroundMethod`. Configure a
+stage separately, then let `fft()` run it when needed.
+
+```rust,ignore
+use rexafs::{AUTOBK, BackgroundMethod, XrayFFTF};
+let mut background = AUTOBK::new();
+background.rbkg = Some(1.2);
+spectrum.set_background_method(Some(BackgroundMethod::AUTOBK(background)))?;
+let mut transform = XrayFFTF::new();
+transform.kweight = Some(3.0);
+spectrum.set_fft(transform).fft()?;
+```
+
+```python
+from rexafs import AUTOBK, BackgroundMethod, XrayFFTF
+background = AUTOBK()
+background.rbkg = 1.2
+spectrum.set_background_method(BackgroundMethod.AUTOBK(background))
+transform = XrayFFTF()
+transform.kweight = 3
+spectrum.set_fft(transform).fft()
+```
+
+```typescript
+import { AUTOBK, BackgroundMethod, XrayFFTF } from "rexafs";
+const background = new AUTOBK();
+background.rbkg = 1.2;
+const method = BackgroundMethod.AUTOBK(background);
+spectrum.set_background_method(method);
+const transform = new XrayFFTF();
+transform.kweight = 3;
+spectrum.set_fft(transform).fft();
+background.free(); method.free(); transform.free();
+```
+
+Normalization uses `set_normalization_method` with
+`NormalizationMethod.PrePostEdge(parameters)` in the bindings, or
+`Some(NormalizationMethod::PrePostEdge(parameters))` in Rust. Use `set_e0(value)`
+for an explicit edge energy. Unset scalar parameters use Rust defaults. Window
+and solver fields in the bindings use Rust variant names such as `Hanning`,
+`KaiserBessel`, and `LinearDirect`. The bindings expose scalar configuration;
+advanced AUTOBK standard-spectrum arrays remain available in Rust.
+
+Setters copy configuration objects. Editing a configuration afterward takes
+effect when it is passed to the setter again. Changing normalization invalidates
+background and both transforms; changing background invalidates both transforms;
+changing forward-transform parameters invalidates forward/reverse results.
+Unchanged prerequisite results are reused. Calling a stage explicitly recomputes
+that stage. Replacing spectrum data clears the old E0 and derived results.
+
+Rust's legacy public fields remain accessible. After modifying input data or
+stage parameters directly, call `invalidate_derived()` before requesting another
+stage; prefer setters to invalidate automatically.
+Changing the public normalization `edge_step` preserves the new scale through
+invalidation; clearing it to `None` restores automatic estimation. This tracking
+also survives spectrum serialization.
+
+## Inputs, results and errors
+
+Energy is in eV. `from_arrays` requires finite, equal-length, one-dimensional
+arrays with strictly increasing energy. Python accepts NumPy arrays, lists and
+strided views. JavaScript requires `Float64Array`. Rust accepts `&[f64]`.
+At least two points are needed to construct a spectrum; calculation stages also
+require sufficient pre-edge, post-edge and k-space coverage.
+
+| Getter | Result |
+|---|---|
+| `e0()` | Resolved edge energy, eV |
+| `norm()`, `flat()` | Normalized and flattened absorption |
+| `pre_edge()`, `post_edge()` | Fitted normalization curves |
+| `k()`, `chi()` | Wave number (Å⁻¹) and unweighted χ(k) |
+| `r()` | Fourier distance (Å, not phase corrected) |
+| `chir_mag()`, `chir_real()`, `chir_imag()` | Components on the R grid |
+| `q()`, `chiq()` | Reverse-transform grid and result |
+
+Before its stage succeeds, a result is `None` in Rust/Python and `undefined` in
+JavaScript. Python getters return independent NumPy float64 arrays; JavaScript
+getters return independent Float64Arrays. Rust's `k()` and `chi()` borrow buffers;
+use `.to_vec()` when an owned copy is needed. Its other array getters in the table
+return owned values. The bindings' `k()` and `chi()` return copies too.
+
+Default forward-transform settings remain k-weight 2, Kaiser–Bessel window,
+nominal k range 2–15 Å⁻¹, dk 1 Å⁻¹ and length 2048, subject to data-dependent range
+handling. Algorithm defaults and numerical implementations are shared with Rust.
+
+Rust returns typed errors. Python raises `ValueError` for input/normalization
+errors and `RuntimeError` for other stage failures. JavaScript throws errors.
+Python owns its inputs and releases the GIL during stages. Browser consumers
+must `await init()` before constructing spectra; Node loads its packaged Wasm
+asset automatically. Processing is synchronous after initialization. Use a Web
+Worker for long browser calculations and `free()` to release Wasm objects.
+JavaScript's `set_e0()` rejects non-finite values immediately, leaving the
+existing configuration and results intact.
+
+Python's `rexafs.io.read_qas_transmission(path)` returns a spectrum, matching
+Rust's reader. For multiple files, load spectra and call their stage methods.
+Fitting, structures, plotting and other advanced modules remain Rust/desktop APIs.

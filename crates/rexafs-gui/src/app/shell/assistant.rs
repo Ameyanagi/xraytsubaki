@@ -552,7 +552,7 @@ impl AssistantWindow {
                 let sp = match derived { Some(sp) => sp, None => std::sync::Arc::new(crate::params::process_file(&file, &params)?) };
                 let settings = crate::publication::resolved_settings(&sp);
                 let plots = if let Some(ranges) = &ranges {
-                    let input = std::sync::Arc::new((sp.get_k().ok_or("No k data")?.to_owned(), sp.get_chi().ok_or("No chi data")?.to_owned()));
+                    let input = std::sync::Arc::new((sp.k().map(nalgebra::DVector::from_column_slice).ok_or("No k data")?.to_owned(), sp.chi().map(nalgebra::DVector::from_column_slice).ok_or("No chi data")?.to_owned()));
                     let preview = super::fit_preview::transform(input, ranges.clone())?;
                     ["Model k", "Model R", "Model q"].into_iter().zip(super::fit_preview::preview_plots(&preview, crate::theme::Theme::light(), true, true)).collect()
                 } else if stage == super::Stage::Fit && fit.is_some() {

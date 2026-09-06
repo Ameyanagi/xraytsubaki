@@ -7,31 +7,30 @@ EXAFS fitting, structure handling, LCF/PCA and spectrum tools.
 Publication on crates.io is pending. In this checkout, run `cargo test -p rexafs`.
 After publication, add the library with `cargo add rexafs`.
 
-## Start with the array pipeline
+## Start with a spectrum
 
 ```rust,no_run
-use rexafs::{io, process, Spectrum};
-
-let spectrum = io::read_qas_transmission("scan.dat")?;
-let result = process(
-    spectrum.energy.as_ref().unwrap().as_slice(),
-    spectrum.mu.as_ref().unwrap().as_slice(),
-)?;
-assert_eq!(result.k.len(), result.chi.len());
+use rexafs::{io, Spectrum};
+let mut spectrum = io::read_qas_transmission("scan.dat")?;
+spectrum.fft()?;
+assert_eq!(spectrum.k().unwrap().len(), spectrum.chi().unwrap().len());
 // For your own data: Spectrum::from_arrays(&energy, &mu)?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-`process` uses defaults; `process_with_options` accepts `ProcessOptions { e0 }`.
-Inputs must be finite, equal-length arrays with strictly increasing energy in eV.
-`Spectrum` and `Group` are concise aliases for `XASSpectrum` and `XASGroup`; existing
-staged methods and advanced types remain available. The shallow modules `io`,
-`fitting`, `structure`, `analysis` and `tools` avoid implementation-path imports.
+`fft()` calculates missing normalization and background results using the selected
+methods and defaults. `normalize()`, `calc_background()`, `fft()` and `ifft()`
+also support explicit chaining. The same stage names are used in Python and
+TypeScript. The standalone `process()` facade has been removed.
 
-The result contains resolved `e0` (eV), `k` (Å⁻¹), unweighted `chi`, `r` (Å, not
-phase corrected), and `chir_mag`, `chir_re`, `chir_im`. The default Fourier
-transform uses k-weight 2. See the
-[API guide](https://github.com/ameyanagi/xraytsubaki/blob/main/doc/api.md).
+Configure methods with `NormalizationMethod`, `BackgroundMethod`, `PrePostEdge`,
+`AUTOBK` and `XrayFFTF`. Setters invalidate dependent results. Alternative methods
+remain selectable; unimplemented methods return explicit errors. Inputs to
+`from_arrays` must be finite, equal-length arrays with strictly increasing energy
+in eV. Result getters expose the spectrum's intermediate and final arrays.
+
+See the [API guide](../../doc/api.md) for examples, units and ownership.
+`Spectrum` and `Group` remain aliases for `XASSpectrum` and `XASGroup`.
 
 ## Features and scope
 

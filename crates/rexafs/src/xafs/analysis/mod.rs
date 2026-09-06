@@ -74,10 +74,10 @@ impl AnalysisSpace {
                 let energy = spectrum.energy.clone().ok_or_else(|| missing("energy"))?;
                 let y = match self {
                     Self::Flat => spectrum
-                        .get_flat()
+                        .flat()
                         .ok_or_else(|| missing("flat (run normalize() first)"))?,
                     _ => spectrum
-                        .get_norm()
+                        .norm()
                         .ok_or_else(|| missing("norm (run normalize() first)"))?,
                 };
                 if energy.len() != y.len() {
@@ -96,10 +96,10 @@ impl AnalysisSpace {
             }
             Self::Chi { kweight } => {
                 let k = spectrum
-                    .get_k()
+                    .k()
                     .ok_or_else(|| missing("k (run calc_background() first)"))?;
                 let chi = spectrum
-                    .get_chi()
+                    .chi()
                     .ok_or_else(|| missing("chi (run calc_background() first)"))?;
                 if k.len() != chi.len() {
                     return Err(super::errors::DataError::LengthMismatch {
@@ -109,7 +109,7 @@ impl AnalysisSpace {
                     .into());
                 }
                 let y = DVector::from_fn(k.len(), |i, _| chi[i] * k[i].powf(*kweight));
-                Ok((k, y))
+                Ok((DVector::from_column_slice(k), y))
             }
         }
     }

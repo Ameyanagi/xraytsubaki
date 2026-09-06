@@ -226,8 +226,9 @@ impl StudioApp {
                     None => {
                         let sp = process_file(&file, &params).map_err(|e| e.to_string())?;
                         Arc::new(
-                            sp.get_k()
-                                .zip(sp.get_chi())
+                            sp.k()
+                                .map(nalgebra::DVector::from_column_slice)
+                                .zip(sp.chi().map(nalgebra::DVector::from_column_slice))
                                 .ok_or("No processed χ(k). Check the background settings.")?,
                         )
                     }

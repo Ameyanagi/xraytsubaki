@@ -115,6 +115,35 @@ impl XrayFFTF {
         ),
         FFTError,
     > {
+        if self.nfft.is_some_and(|n| n < 2) {
+            return Err(FFTError::InvalidParameter {
+                parameter: "nfft".into(),
+                reason: "must be at least 2".into(),
+            });
+        }
+        for (name, value, strictly_positive) in [
+            ("kstep", self.kstep, true),
+            ("kweight", self.kweight, false),
+            ("dk", self.dk, false),
+            ("dk2", self.dk2, false),
+            ("rmax_out", self.rmax_out, false),
+        ] {
+            if value.is_some_and(|v| !v.is_finite() || v < 0.0 || (strictly_positive && v == 0.0)) {
+                return Err(FFTError::InvalidParameter {
+                    parameter: name.into(),
+                    reason: "must be finite and nonnegative (kstep must be positive)".into(),
+                });
+            }
+        }
+        if self.kmin.is_some_and(|v| !v.is_finite())
+            || self.kmax.is_some_and(|v| !v.is_finite())
+            || self.kmin.zip(self.kmax).is_some_and(|(lo, hi)| lo >= hi)
+        {
+            return Err(FFTError::InvalidParameter {
+                parameter: "kmin/kmax".into(),
+                reason: "must be finite with kmin < kmax".into(),
+            });
+        }
         if k.len() != chi.len() {
             return Err(FFTError::InterpolationFailed {
                 reason: "k/chi length mismatch".to_string(),
@@ -770,8 +799,8 @@ mod tests {
         let r_expected = larch_r.get_col(0);
         let chir_expected = larch_r.get_col(1);
 
-        let r = xafs_test_group.get_r().unwrap();
-        let chir = xafs_test_group.get_chir_mag().unwrap();
+        let r = xafs_test_group.r().unwrap();
+        let chir = xafs_test_group.chir_mag().unwrap();
 
         r.iter().zip(r_expected.iter()).for_each(|(x, y)| {
             assert_abs_diff_eq!(x, y, epsilon = TEST_TOL);
@@ -827,8 +856,8 @@ mod tests {
         });
         xafs_test_group.fft()?;
 
-        let chir_real = xafs_test_group.get_chir_real().unwrap();
-        let chir_imag = xafs_test_group.get_chir_imag().unwrap();
+        let chir_real = xafs_test_group.chir_real().unwrap();
+        let chir_imag = xafs_test_group.chir_imag().unwrap();
         assert_eq!(chir_real.len(), chir_imag.len());
 
         let has_distinct_value = chir_real
@@ -872,8 +901,8 @@ mod tests {
         });
         xafs_test_group.ifft()?;
 
-        let q = xafs_test_group.get_q().unwrap();
-        let chiq = xafs_test_group.get_chiq().unwrap();
+        let q = xafs_test_group.q().unwrap();
+        let chiq = xafs_test_group.chiq().unwrap();
 
         // println!("q: {:?}", q.len());
         // println!("chiq: {:?}", chiq.len());
@@ -881,7 +910,7 @@ mod tests {
         assert!(q.len() == chiq.len());
 
         // Convert DVector to Array1 for multiplication with Array1 view
-        let chi_dv = xafs_test_group.get_chi_kweighted().unwrap();
+        let chi_dv = xafs_test_group.chi_kweighted().unwrap();
         let chi_array = Array1::from_vec(chi_dv.data.as_vec().clone());
         let chi = chi_array * xafs_test_group.xftf.unwrap().get_kwin().unwrap();
 

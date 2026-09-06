@@ -898,10 +898,10 @@ fn space_array(s: &XASSpectrum, space: DiffSpace) -> Result<DVector<f64>, XAFSEr
     match space {
         DiffSpace::Mu => s.mu.clone().ok_or_else(|| missing("mu")),
         DiffSpace::Norm => s
-            .get_norm()
+            .norm()
             .ok_or_else(|| missing("norm (run normalize() first)")),
         DiffSpace::Flat => s
-            .get_flat()
+            .flat()
             .ok_or_else(|| missing("flat (run normalize() first)")),
     }
 }
@@ -980,7 +980,7 @@ mod tests {
         assert_abs_diff_eq!(s.e0.unwrap(), e0 + 2.5, epsilon = 1e-12);
         s.find_e0().unwrap();
         assert_abs_diff_eq!(s.e0.unwrap(), e0 + 2.5, epsilon = 1e-9);
-        assert!(s.get_norm().is_none());
+        assert!(s.norm().is_none());
     }
 
     #[test]
@@ -1106,8 +1106,8 @@ mod tests {
 
         // Normalized μ of the rebinned spectrum agrees with the original.
         reb.normalize().unwrap();
-        let norm_reb = reb.get_norm().unwrap();
-        let norm_orig = orig.get_norm().unwrap();
+        let norm_reb = reb.norm().unwrap();
+        let norm_orig = orig.norm().unwrap();
         let on_grid = interp_linear(&e, orig.energy.as_ref().unwrap(), &norm_orig).unwrap();
         let idx = indices_in_range(&e, e0 - 30.0, e0 + 50.0);
         let rms = (idx
@@ -1223,16 +1223,16 @@ mod tests {
         s.normalize().unwrap();
         s.calc_background().unwrap();
         s.fft().unwrap();
-        assert!(s.get_chi().is_some());
-        assert!(s.get_chir_mag().is_some());
+        assert!(s.chi().is_some());
+        assert!(s.chir_mag().is_some());
         s.truncate(None, Some(23000.0)).unwrap();
-        assert!(s.get_norm().is_none());
-        assert!(s.get_chi().is_none());
-        assert!(s.get_chir_mag().is_none());
+        assert!(s.norm().is_none());
+        assert!(s.chi().is_none());
+        assert!(s.chir_mag().is_none());
         // The pipeline recomputes cleanly afterwards.
         s.normalize().unwrap();
         s.calc_background().unwrap();
         s.fft().unwrap();
-        assert!(s.get_chir_mag().is_some());
+        assert!(s.chir_mag().is_some());
     }
 }

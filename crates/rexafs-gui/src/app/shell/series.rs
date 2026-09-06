@@ -372,7 +372,7 @@ impl StudioApp {
         let e0 = self
             .spectrum
             .as_ref()
-            .and_then(|s| s.get_e0())
+            .and_then(|s| s.e0())
             .or_else(|| data.zip(sample).and_then(|(d, i)| d.e0s.get(i).copied()));
         let whiteline = data
             .zip(sample)

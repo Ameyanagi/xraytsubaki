@@ -9,6 +9,7 @@ import re
 import subprocess
 import tomllib
 from zipfile import ZipFile
+from macos_installer import qualify_installer
 
 TARGETS = {"aarch64-apple-darwin", "x86_64-apple-darwin"}
 REPOSITORY = "Ameyanagi/rexafs"
@@ -63,14 +64,35 @@ def qualify(archives, version, commit, run_id, tag):
             raise ValueError("Nightly archive checksum differs from its signed artifact")
         hashes[archive.name] = digest
         hashes[sidecar.name] = sha256(sidecar)
+        hashes.update(qualify_installer(archive.with_suffix(".dmg"), metadata, archive))
     if targets != TARGETS:
         raise ValueError("Both qualified Mac architectures are required")
     return hashes
 
 
+def get_draft_release(tag):
+    # GitHub's release-by-tag endpoint does not resolve the draft created below.
+    # gh release view resolves drafts; use its database ID for the API asset data.
+    resolved = json.loads(subprocess.check_output([
+        "gh", "release", "view", tag, "--repo", REPOSITORY,
+        "--json", "databaseId,isDraft,tagName"], text=True))
+    release_id = resolved.get("databaseId")
+    if (resolved.get("tagName") != tag or resolved.get("isDraft") is not True
+            or type(release_id) is not int or release_id <= 0):
+        raise ValueError("Expected an existing draft for this nightly tag")
+    remote = json.loads(subprocess.check_output([
+        "gh", "api", f"repos/{REPOSITORY}/releases/{release_id}"], text=True))
+    if remote.get("id") != release_id or remote.get("tag_name") != tag or remote.get("draft") is not True:
+        raise ValueError("Resolved release is not the expected nightly draft")
+    return remote
+
+
 def publish(directory, version, commit, run_id, tag):
     archives = sorted(directory.rglob("*.zip"))
     hashes = qualify(archives, version, commit, run_id, tag)
+    installers = list(directory.rglob("*.dmg"))
+    if sorted(p.name for p in installers) != sorted(p.with_suffix(".dmg").name for p in archives):
+        raise ValueError("Unexpected or duplicate nightly installers")
     # A tag is immutable, including across reruns that resume a draft upload.
     ref = subprocess.run(["gh", "api", f"repos/{REPOSITORY}/git/ref/tags/{tag}"], capture_output=True, text=True)
     if ref.returncode == 0:
@@ -87,19 +109,19 @@ def publish(directory, version, commit, run_id, tag):
 
 These prerelease builds include the newest changes on main. They pass automated core/desktop regression tests and package self-checks; they do not receive a separate manual graphical audit every night.
 
-Both Mac archives are signed with Developer ID, notarized, stapled and checked with Gatekeeper after extraction. `rexafs Nightly.app` can coexist with Stable. Save your project before switching builds.
+Both Mac apps and DMG installers are signed with Developer ID, notarized, stapled and checked with Gatekeeper. Open the DMG, drag `rexafs Nightly.app` onto Applications, and eject the disk image. Nightly can coexist with Stable. Save your project before switching builds. ZIP archives remain available for the existing updater.
 
 Use Updates → Nightly in the application to discover this channel. Stable remains the default. This run does not publish nightly packages to crates.io, PyPI or npm.
 
-Build and signing provenance is in each archive's `build.json`; checksums are in `SHA256SUMS`. Workflow: https://github.com/{REPOSITORY}/actions/runs/{run_id}
+Build and signing provenance is in each archive's `build.json` and each installer's `.dmg.json` sidecar; checksums are in `SHA256SUMS`. Installation is smoke-tested from a fresh copy of the mounted DMG. Workflow: https://github.com/{REPOSITORY}/actions/runs/{run_id}
 """)
     if existing.returncode != 0:
         subprocess.run(["gh", "release", "create", tag, "--repo", REPOSITORY, "--target", commit,
                         "--draft", "--prerelease", "--latest=false", "--title", "rexafs " + tag,
                         "--notes-file", str(notes)], check=True)
-    assets = [path for archive in archives for path in [archive, Path(str(archive) + ".sha256")]] + [manifest]
+    assets = [path for path in directory.rglob("*") if path.is_file() and path.name in hashes] + [manifest]
     subprocess.run(["gh", "release", "upload", tag, "--repo", REPOSITORY, "--clobber", *map(str, assets)], check=True)
-    remote = json.loads(subprocess.check_output(["gh", "api", f"repos/{REPOSITORY}/releases/tags/{tag}"], text=True))
+    remote = get_draft_release(tag)
     remote_hashes = {asset["name"]: asset.get("digest") for asset in remote["assets"]}
     hashes[manifest.name] = sha256(manifest)
     if remote_hashes != {name: "sha256:" + digest for name, digest in hashes.items()}:

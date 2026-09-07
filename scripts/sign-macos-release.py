@@ -13,6 +13,7 @@ import subprocess
 import tempfile
 from zipfile import ZipFile
 from desktop_channels import app_name
+from macos_installer import build_installer, include_notices, installer_name, verify_installation
 
 
 def digest(path):
@@ -106,30 +107,60 @@ def verify_app(app, team):
     run(["spctl", "--assess", "--type", "execute", "--verbose=2", app])
 
 
-def sign_archive(archive, output, metadata, keychain, directory):
+def notarize(submission, keychain, directory, label):
+    auth = ["--keychain-profile", "rexafs-release", "--keychain", str(keychain)]
+    result = json.loads(subprocess.check_output([
+        "xcrun", "notarytool", "submit", str(submission), *auth, "--wait", "--timeout", "45m",
+        "--output-format", "json"], text=True))
+    log = directory / f"{label}-notarization-log.json"
+    run(["xcrun", "notarytool", "log", result["id"], *auth, log])
+    print(log.read_text())
+    if result.get("status") != "Accepted":
+        raise ValueError("Apple did not accept the notarization submission")
+    return result["id"]
+
+
+def sign_installer(bundle, archive, output, metadata, keychain, directory):
+    image = output / installer_name(metadata)
+    build_installer(bundle, image, metadata)
+    run(["codesign", "--sign", metadata["signing_identity"], "--keychain", keychain, "--timestamp", image])
+    notarization_id = notarize(image, keychain, directory, "installer")
+    run(["xcrun", "stapler", "staple", image])
+    run(["codesign", "--verify", "--strict", "--verbose=2", image])
+    details = subprocess.run(["codesign", "-d", "--verbose=4", str(image)], check=True,
+                             capture_output=True, text=True).stderr
+    if (f"TeamIdentifier={metadata['apple_team_id']}\n" not in details
+            or "Authority=Developer ID Application:" not in details or "Timestamp=" not in details):
+        raise ValueError("Installer is missing its timestamped Developer ID signature")
+    run(["xcrun", "stapler", "validate", image])
+    run(["spctl", "--assess", "--type", "open", "--context", "context:primary-signature", "--verbose=2", image])
+    executable_sha256 = verify_installation(image, metadata, verify_app)
+    evidence = dict(schema_version=1, build=metadata, signed=True, notarized=True, stapled=True,
+                    gatekeeper_accepted=True, installation_verified=True,
+                    apple_team_id=metadata["apple_team_id"], notarization_id=notarization_id,
+                    archive_sha256=digest(archive), sha256=digest(image), executable_sha256=executable_sha256)
+    Path(str(image) + ".json").write_text(json.dumps(evidence, indent=2) + "\n")
+    Path(str(image) + ".sha256").write_text(f"{digest(image)}  {image.name}\n")
+
+
+def sign_archive(archive, output, metadata, keychain, directory, dmg=False):
     unpacked = directory / "unpacked"
     run(["ditto", "-x", "-k", archive, unpacked])
     bundle = unpacked / archive.stem
     application_name = app_name(metadata.get("channel", "stable"))
     app = bundle / application_name
+    if dmg:
+        include_notices(bundle, metadata)
     identity, team = os.environ["MACOS_SIGNING_IDENTITY"], os.environ["APPLE_TEAM_ID"]
     run(["codesign", "--force", "--sign", identity, "--keychain", keychain,
          "--options", "runtime", "--timestamp", app])
     submission = directory / "notarization.zip"
     run(["ditto", "-c", "-k", "--keepParent", app, submission])
-    auth = ["--keychain-profile", "rexafs-release", "--keychain", str(keychain)]
-    result = json.loads(subprocess.check_output([
-        "xcrun", "notarytool", "submit", str(submission), *auth, "--wait", "--timeout", "45m",
-        "--output-format", "json"], text=True))
-    log = directory / "notarization-log.json"
-    run(["xcrun", "notarytool", "log", result["id"], *auth, log])
-    print(log.read_text())
-    if result.get("status") != "Accepted":
-        raise ValueError("Apple did not accept the notarization submission")
+    notarization_id = notarize(submission, keychain, directory, "app")
     run(["xcrun", "stapler", "staple", app])
     verify_app(app, team)
     metadata.update(signed=True, notarized=True, signing_identity=identity, apple_team_id=team,
-                    notarization_id=result["id"], unsigned_archive_sha256=digest(archive),
+                    notarization_id=notarization_id, unsigned_archive_sha256=digest(archive),
                     signing_run_id=os.environ["GITHUB_RUN_ID"], signing_tools_commit=os.environ["GITHUB_SHA"])
     (bundle / "build.json").write_text(json.dumps(metadata, indent=2) + "\n")
     readme = bundle / "README.txt"
@@ -147,6 +178,8 @@ def sign_archive(archive, output, metadata, keychain, directory):
     for option in ["--version", "--self-check"]:
         subprocess.run([str(extracted / "Contents/MacOS/rexafs"), option], cwd=fresh, check=True)
     Path(str(final) + ".sha256").write_text(f"{digest(final)}  {final.name}\n")
+    if dmg:
+        sign_installer(bundle, final, output, metadata, keychain, directory)
 
 
 if __name__ == "__main__":
@@ -157,6 +190,7 @@ if __name__ == "__main__":
         parser.add_argument("--" + name, required=True)
     parser.add_argument("--channel", choices=["stable", "nightly"], default="stable")
     parser.add_argument("--release-tag")
+    parser.add_argument("--dmg", action="store_true", help="Also build, sign, notarize and verify a DMG installer")
     args = parser.parse_args()
     if platform.system() != "Darwin":
         raise SystemExit("Signing requires macOS")
@@ -164,4 +198,4 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory(prefix="rexafs-signing-") as temporary:
         directory = Path(temporary)
         with signing_keychain(directory) as keychain:
-            sign_archive(args.archive.resolve(), args.output.resolve(), metadata, keychain, directory)
+            sign_archive(args.archive.resolve(), args.output.resolve(), metadata, keychain, directory, args.dmg)

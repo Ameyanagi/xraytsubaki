@@ -37,6 +37,7 @@ jobs:
       - run: python scripts/check-release-version.py
       - run: python scripts/test-release-maintenance.py
       - run: python scripts/test-desktop-channels.py
+      - run: python scripts/test-macos-installer.py
       - run: python scripts/test-benchmark-tools.py
       - name: Require retained compatibility fixtures for this release
         run: python scripts/check-compatibility-fixtures.py
@@ -149,6 +150,17 @@ jobs:
         run: python scripts/test-release-archive.py
       - run: cargo build --locked --release -p rexafs-gui --no-default-features --features refeff-runner
       - run: python scripts/package-desktop.py
+      - name: Build and smoke-test unsigned Mac installer preview
+        if: runner.os == 'macOS'
+        run: |
+          python -m pip install -r scripts/macos-installer-requirements.txt
+          python scripts/preview-macos-installer.py target/distributions/rexafs-*-apple-darwin installer-preview
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'macOS' && github.event_name == 'pull_request'
+        with:
+          name: installer-preview-${{ matrix.os }}
+          path: installer-preview/*-preview.dmg
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.os }}

@@ -1,5 +1,6 @@
 """Channel isolation, source/signing identity and nightly publication regressions."""
 import importlib.util
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -59,13 +60,21 @@ class DesktopChannels(unittest.TestCase):
             zip.writestr(file.stem + "/rexafs Nightly.app/Contents/MacOS/rexafs", b"test-only")
         digest = nightly.sha256(file)
         Path(str(file) + ".sha256").write_text(f"{digest}  {file.name}\n")
+        image = file.with_suffix(".dmg")
+        image.write_bytes(b"test-only image")
+        evidence = dict(schema_version=1, build=metadata, signed=True, notarized=True, stapled=True,
+                        gatekeeper_accepted=True, installation_verified=True, apple_team_id="TEST",
+                        notarization_id="test-only", archive_sha256=digest, sha256=nightly.sha256(image),
+                        executable_sha256=hashlib.sha256(b"test-only").hexdigest())
+        Path(str(image) + ".json").write_text(json.dumps(evidence))
+        Path(str(image) + ".sha256").write_text(f"{nightly.sha256(image)}  {image.name}\n")
         return file
 
     def test_publication_requires_both_signed_architectures_and_matching_run(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             files = [self.archive(root, target) for target in sorted(nightly.TARGETS)]
-            self.assertEqual(len(nightly.qualify(files, "0.1.2", "abc", "123", TAG)), 4)
+            self.assertEqual(len(nightly.qualify(files, "0.1.2", "abc", "123", TAG)), 10)
             with self.assertRaises(ValueError):
                 nightly.qualify(files[:1], "0.1.2", "abc", "123", TAG)
             for overrides in [dict(signed=False), dict(notarized=False), dict(dirty=True), dict(commit="wrong"),
@@ -89,6 +98,26 @@ class DesktopChannels(unittest.TestCase):
             file.write_bytes(file.read_bytes() + b"tampered")
             with self.assertRaises(ValueError):
                 macos.check_source(*args, channel="nightly", release_tag=TAG)
+
+    def test_missing_or_unqualified_installer_cannot_start_publication(self):
+        for defect in ["missing", "unsigned", "extra"]:
+            with self.subTest(defect=defect), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                files = [self.archive(root, target) for target in sorted(nightly.TARGETS)]
+                image = files[0].with_suffix(".dmg")
+                if defect == "missing":
+                    image.unlink()
+                elif defect == "unsigned":
+                    evidence_file = Path(str(image) + ".json")
+                    evidence = json.loads(evidence_file.read_text())
+                    evidence["signed"] = False
+                    evidence_file.write_text(json.dumps(evidence))
+                else:
+                    (root / "unexpected.dmg").write_bytes(b"test-only")
+                with patch.object(nightly.subprocess, "run") as run:
+                    with self.assertRaises((ValueError, FileNotFoundError)):
+                        nightly.publish(root, "0.1.2", "abc", "123", TAG)
+                    run.assert_not_called()
 
     def test_draft_lookup_uses_its_database_id_and_checks_identity(self):
         resolved = dict(databaseId=17, isDraft=True, tagName=TAG)

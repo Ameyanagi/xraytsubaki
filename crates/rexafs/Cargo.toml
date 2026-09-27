@@ -63,7 +63,7 @@ refeff = { workspace = true, optional = true }
 rusqlite = { version = "0.31", features = ["bundled"], optional = true }
 ureq = { version = "3", features = ["json"], optional = true }
 base64 = "0.23.1"
-hdf5-pure = "0.46.1"
+hdf5-pure = "0.47.0"
 encoding_rs = "0.8"
 regex = "1"
 # Pin interpolation and the embedded atomic dataset as a processing-version input.

@@ -115,7 +115,7 @@ jobs:
       - run: cargo test --locked -p rexafs --features ndarray-compat
       - run: cargo test --locked -p rexafs --features trust-region
       - run: cargo package --locked -p rexafs
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: rust-package
           path: target/package/rexafs-*.crate
@@ -146,7 +146,7 @@ jobs:
           rust-toolchain: '1.98.1'
       - name: Require one wheel with the intended stable ABI and platform metadata
         run: python scripts/check-python-wheels.py dist --platform ${{ matrix.os }}
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: wheel-${{ matrix.os }}
           path: dist/*.whl
@@ -174,7 +174,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.runtime.python }}
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: wheel-${{ matrix.os }}
           path: dist
@@ -188,7 +188,7 @@ jobs:
       - name: Verify the same wheel with the latest compatible NumPy
         run: python scripts/check-python-wheels.py dist --platform ${{ matrix.os }} --installed
       - run: python py-rexafs/tests/test_api.py
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: matrix.os == 'ubuntu-24.04' && matrix.runtime.python == '3.12'
         with:
           node-version: '24'
@@ -222,7 +222,7 @@ jobs:
       - run: twine check dist/*
       - run: python -m pip install dist/*.tar.gz
       - run: python py-rexafs/tests/test_api.py
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: python-sdist
           path: dist/*.tar.gz
@@ -238,7 +238,7 @@ jobs:
         with:
           toolchain: 1.98.1
           targets: wasm32-unknown-unknown
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
       - name: Restore the pinned browser engine build tool
@@ -264,7 +264,7 @@ jobs:
       - run: npm pack
         working-directory: js-rexafs
       - run: node scripts/test-npm-package.mjs js-rexafs/rexafs-*.tgz
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: npm-package
           path: js-rexafs/rexafs-*.tgz
@@ -364,13 +364,13 @@ jobs:
           if [ -d target/gui-smoke ]; then
             tar -czf "target/linux-gui-smoke-${REXAFS_EXPECTED_TARGET}.tar.gz" -C target gui-smoke
           fi
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always() && runner.os == 'Linux'
         with:
           name: linux-gui-smoke-${{ matrix.target }}
           path: target/linux-gui-smoke-${{ matrix.target }}.tar.gz
           if-no-files-found: warn
-      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         if: runner.os == 'Windows'
         with:
           version: '0.12.3'
@@ -397,7 +397,7 @@ jobs:
           if [ -d target/update-smoke ]; then
             tar -czf "target/update-smoke-${REXAFS_EXPECTED_TARGET}.tar.gz" -C target update-smoke
           fi
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always() && runner.os != 'macOS'
         with:
           name: update-smoke-${{ matrix.target }}
@@ -408,13 +408,13 @@ jobs:
         run: |
           python -m pip install -r scripts/macos-installer-requirements.txt
           python scripts/preview-macos-installer.py target/distributions/rexafs-*-apple-darwin installer-preview
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: runner.os == 'macOS' && github.event_name == 'pull_request'
         with:
           name: installer-preview-${{ matrix.os }}
           path: installer-preview/*-preview.dmg
           if-no-files-found: error
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: desktop-${{ matrix.os }}
           path: |
@@ -435,14 +435,14 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: artifacts
       - name: Hash every qualified distribution
         run: |
           python scripts/check-python-wheels.py artifacts --inventory
           python scripts/check-artifacts.py create artifacts SHA256SUMS
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-manifest
           path: SHA256SUMS

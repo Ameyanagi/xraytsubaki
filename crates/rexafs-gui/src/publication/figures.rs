@@ -545,7 +545,12 @@ pub(crate) fn render_figure(
     options: &FigureOptions,
 ) -> Result<RenderedFigure, String> {
     let plot = data.plot(options)?;
-    let mut svg = plot.render_to_svg().map_err(|e| e.to_string())?;
+    let config = plot.get_config();
+    let mut svg = physical_svg_size(
+        plot.render_to_svg().map_err(|e| e.to_string())?,
+        config.canvas_size(),
+        config.figure.dpi as f64,
+    );
     if let Some(start) = svg.find("<svg")
         && let Some(end) = svg[start..].find('>')
     {
@@ -567,6 +572,43 @@ pub(crate) fn render_figure(
         png: plot.render_png_bytes().map_err(|e| e.to_string())?,
         svg,
     })
+}
+
+/// Give the root `<svg>` element a physical size in inches.
+///
+/// ruviz draws the SVG in raster pixels (`inches × DPI`) and writes them as
+/// unitless `width`/`height`, which SVG treats as CSS pixels (96 per inch), so a
+/// 3.3 in figure at 300 DPI would import at about 10 in. This rexafs-specific
+/// fix keeps those pixel coordinates as the `viewBox` and sets `width`/`height`
+/// to `pixels / DPI` inches, so the drawing scales to the configured size in
+/// vector editors, word processors and browsers. An SVG that already has a
+/// `viewBox`, or whose size does not match the canvas, is returned unchanged.
+fn physical_svg_size(mut svg: String, (width, height): (u32, u32), dpi: f64) -> String {
+    let Some(start) = svg.find("<svg") else {
+        return svg;
+    };
+    let Some(end) = svg[start..].find('>').map(|end| start + end) else {
+        return svg;
+    };
+    let pixels = format!(r#"width="{width}" height="{height}""#);
+    if svg[start..end].contains("viewBox") {
+        return svg;
+    }
+    if let Some(at) = svg[start..end].find(&pixels).map(|at| start + at) {
+        let inches = |px: u32| {
+            let value = format!("{:.4}", px as f64 / dpi);
+            format!("{}in", value.trim_end_matches('0').trim_end_matches('.'))
+        };
+        svg.replace_range(
+            at..at + pixels.len(),
+            &format!(
+                r#"width="{}" height="{}" viewBox="0 0 {width} {height}""#,
+                inches(width),
+                inches(height)
+            ),
+        );
+    }
+    svg
 }
 
 pub(crate) fn quantity_figures(
@@ -1179,6 +1221,33 @@ mod tests {
         assert!(rendered.svg.contains("data-ruviz-text-engine=\"typst\""));
         assert!(rendered.svg.contains("class=\"typst-doc\""));
         assert!(rendered.svg.contains("Photon energy"));
+        assert!(
+            rendered
+                .svg
+                .contains(r#"width="4in" height="3in" viewBox="0 0 800 600""#)
+        );
+    }
+    #[test]
+    fn svg_uses_physical_size_with_pixel_view_box() {
+        let options = FigureOptions {
+            width: Some(3.3),
+            height: Some(2.5),
+            ..Default::default()
+        };
+        let svg = render_figure(&sample(), &options).unwrap().svg;
+        let start = svg.find("<svg").unwrap();
+        let tag = &svg[start..start + svg[start..].find('>').unwrap()];
+        assert!(
+            tag.contains(r#"width="3.3in" height="2.5in" viewBox="0 0 990 750""#),
+            "{tag}"
+        );
+        let mut options = FigureOptions::default();
+        StylePreset::SingleColumn.apply(&mut options);
+        let svg = render_figure(&sample(), &options).unwrap().svg;
+        assert!(svg.contains(r#"width="3.5in" height="2.6in" viewBox="0 0 2100 1560""#));
+        // An SVG that already has a viewBox is left untouched.
+        let sized = r#"<svg width="1in" height="1in" viewBox="0 0 9 9"></svg>"#;
+        assert_eq!(physical_svg_size(sized.into(), (9, 9), 300.), sized);
     }
     #[test]
     fn style_presets_and_apply_to_all_copy_only_appearance_fields() {

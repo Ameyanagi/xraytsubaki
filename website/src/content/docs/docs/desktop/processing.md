@@ -164,6 +164,18 @@ Auto applies these choices before calling the core library, whose unset fields
 can resolve differently. Retain resolved settings when comparing interfaces or
 other software.
 
+*Unreleased (planned for 0.2.15):* a range that reaches beyond a short scan is
+limited to the measured data when processing runs, following Larch: the pre-edge
+start is raised to the first energy, the post-edge end lowered to the last, and a
+window left without data falls back to Larch's automatic value. An entered value
+is never rewritten, so longer scans keep it. The used value appears in amber under
+an entered field, with one warning per group in the Problems drawer; an Auto field
+shows the used value in its placeholder. Background k max and the Wavelet k range
+are limited the same way. A reversed range, or one with fewer than two measured
+points, stops processing with an error naming the setting. See
+[processing theory](https://github.com/Ameyanagi/rexafs/blob/dev/doc/processing-theory.md)
+for the exact rules.
+
 ## Background
 
 AUTOBK estimates the smooth background and produces $\chi(k)$. Begin with

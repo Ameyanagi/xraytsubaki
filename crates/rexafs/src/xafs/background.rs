@@ -34,11 +34,45 @@ use super::errors::{BackgroundError, DataError};
 use super::lmutils::LMParameters;
 use super::mathutils::{self, splev_jacobian, MathUtils};
 use super::normalization::{self, Normalization};
+use super::ranges::RangeAdjustment;
 use super::xafsutils::FTWindow;
 use super::xrayfft::{FFTUtils, XFFTReverse, XFFT};
 use super::{xafsutils, xrayfft};
 
 mod fixed;
+
+/// Upper spline boundary limited to the measured wave number `kdata` in Å⁻¹.
+/// An explicit `kmax` beyond the data is capped (as before 0.2.15), and the cap
+/// is reported. A `kmin` at or beyond the usable end is an error naming `kmin`.
+fn k_window(
+    kmin: f64,
+    kmax: Option<f64>,
+    kdata: f64,
+) -> Result<(f64, Option<RangeAdjustment>), BackgroundError> {
+    let used = kmax.map_or(kdata, |value| value.min(kdata).max(0.0));
+    if kmin >= used {
+        let reason = match kmax {
+            Some(requested) if kmin >= requested => {
+                format!("{kmin} Å⁻¹ must be below kmax ({requested} Å⁻¹)")
+            }
+            _ => format!(
+                "{kmin} Å⁻¹ lies at or beyond the end of the measured data (k = {kdata:.2} Å⁻¹)"
+            ),
+        };
+        return Err(BackgroundError::InvalidFitRange {
+            field: "kmin".into(),
+            reason,
+        });
+    }
+    let adjustment = kmax
+        .filter(|requested| *requested > used)
+        .map(|requested| RangeAdjustment {
+            field: "kmax",
+            requested,
+            used,
+        });
+    Ok((used, adjustment))
+}
 
 /// Weak, constant endpoint penalty for the mean-square fixed AUTOBK objective.
 pub const DEFAULT_CLAMP_LAMBDA: f64 = 0.001;
@@ -253,7 +287,9 @@ pub struct AUTOBK {
     /// starts at zero; endpoint penalties use that output grid, not this boundary.
     pub kmin: Option<f64>,
     /// Upper spline/window boundary in Å⁻¹. `None` uses the available post-edge range;
-    /// an explicit value is capped at that range. Must exceed `kmin`.
+    /// an explicit value is capped at that range when the background is calculated
+    /// (the stored value is kept; [`AUTOBK::range_adjustments`] reports the cap).
+    /// Must exceed `kmin`, and `kmin` must lie inside the measured k range.
     pub kmax: Option<f64>,
     /// Uniform output k spacing in Å⁻¹; default 0.05, finite and positive.
     /// This sets the physical R grid. FixedPenalty uses the fixed numerical
@@ -383,6 +419,25 @@ impl AUTOBK {
     /// Create recommended background settings; equivalent to `default()`.
     pub fn new() -> AUTOBK {
         AUTOBK::default()
+    }
+
+    /// Settings that the last background calculation limited to the measured
+    /// data (since 0.2.15). An explicit `kmax` above the largest measured wave
+    /// number `sqrt((E_max - ek0) / 3.81 eV Å²)` is capped there; this reports
+    /// that cap. `energy` is the grid in eV that was processed. Returns an empty
+    /// list before calculation (unresolved `ek0`). Calculates nothing.
+    pub fn range_adjustments(&self, energy: &DVector<f64>) -> Vec<RangeAdjustment> {
+        let (Some(ek0), Some(kmin), Some(emax)) =
+            (self.ek0, self.kmin, energy.iter().copied().reduce(f64::max))
+        else {
+            return Vec::new();
+        };
+        let kdata = (xafsutils::constants::ETOK * (emax - ek0).max(0.0)).sqrt();
+        k_window(kmin, self.kmax, kdata)
+            .ok()
+            .and_then(|(_, adjustment)| adjustment)
+            .into_iter()
+            .collect()
     }
 
     /// Resolve unset scalar defaults without fitting a background.
@@ -869,13 +924,7 @@ impl AUTOBK {
         );
         let kraw = enpe.map(|x| x.signum() * (xafsutils::constants::ETOK * x.abs()).sqrt());
 
-        let kmax = self
-            .kmax
-            .map(|max_value| max_value.min(kraw.max()).max(0.0))
-            .unwrap_or_else(|| kraw.max());
-        if kmax <= kmin {
-            return Err(BackgroundError::SplineKnotsFailed { kmin, kmax });
-        }
+        let (kmax, _) = k_window(kmin, self.kmax, kraw.max())?;
 
         let kout = dvector_arange(0.0, (1.01 + kmax / kstep).floor(), 1.0) * kstep;
         if kout.len() < 2 {
@@ -1919,6 +1968,26 @@ mod tests {
     use approx::assert_abs_diff_eq;
 
     const CHI_MSE_TOL: f64 = 1.0e-4;
+
+    #[test]
+    fn k_window_caps_kmax_and_names_kmin_beyond_the_data() {
+        // Data reach k = 8 Å⁻¹; a requested kmax of 15 is capped and reported.
+        let (used, adjustment) = k_window(0.0, Some(15.0), 8.0).unwrap();
+        assert_eq!(used, 8.0);
+        let adjustment = adjustment.unwrap();
+        assert_eq!(
+            (adjustment.field, adjustment.requested, adjustment.used),
+            ("kmax", 15.0, 8.0)
+        );
+        assert_eq!(k_window(0.0, Some(6.0), 8.0).unwrap(), (6.0, None));
+        assert_eq!(k_window(0.0, None, 8.0).unwrap(), (8.0, None));
+        for (kmin, kmax) in [(9.0, Some(15.0)), (7.0, Some(6.0))] {
+            match k_window(kmin, kmax, 8.0) {
+                Err(BackgroundError::InvalidFitRange { field, .. }) => assert_eq!(field, "kmin"),
+                other => panic!("expected InvalidFitRange, got {other:?}"),
+            }
+        }
+    }
 
     #[test]
     fn test_autobk() -> Result<(), Box<dyn Error>> {

@@ -61,7 +61,10 @@ pub enum WaveletWindow {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Wavelet {
-    /// Selected measured support in Å⁻¹. Must be fully covered by the input.
+    /// Selected support in Å⁻¹, increasing. Since 0.2.15 endpoints beyond the
+    /// measured k range are limited to it during calculation; the map's settings
+    /// record the range used and its warnings say so. A range wholly outside the
+    /// measured k range is an error.
     pub k_range: [f64; 2],
     /// Integer k exponent, 0–6, default 2; amplifies high-k contributions/noise.
     pub kweight: u8,
@@ -86,8 +89,9 @@ pub struct Wavelet {
     pub window: WaveletWindow,
 }
 impl Wavelet {
-    /// Select a fully measured k interval in Å⁻¹, with documented defaults.
-    /// Construction is cheap; calculation validates data, coverage and resource limits.
+    /// Select a k interval in Å⁻¹, with documented defaults. Construction is cheap;
+    /// calculation limits the interval to the measured k range and validates data,
+    /// coverage and resource limits.
     pub fn new(k_range: RangeInclusive<f64>) -> Self {
         Self {
             k_range: [*k_range.start(), *k_range.end()],
@@ -149,7 +153,8 @@ impl Wavelet {
     /// dimensionless. Irregular samples are linearly resampled onto a zero-origin
     /// grid. Values outside selected measured support are zero padding, recorded
     /// by the support mask. All original samples are retained as provenance.
-    /// Requires at least two samples, full selected-interval coverage, at most
+    /// The selected interval is first limited to the measured k range (since 0.2.15).
+    /// Requires at least two samples, an interval overlapping the data, at most
     /// 32768 k grid points/R rows, 262144 FFT samples, 4 million complex output
     /// cells and 64 million R-rows-times-FFT-samples of filtering work. The largest
     /// R must be below the Nyquist radius π/(2*kstep).

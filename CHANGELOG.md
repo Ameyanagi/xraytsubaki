@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Show each group on two lines: the name, shortened at the end, then its source
+  file, quantity and E₀ when known, so similarly named references stay
+  distinguishable. Only the current group is highlighted; marks use checkboxes.
+
 ## 0.2.14 (2026-09-24)
 
 - Keep Live acquisition visible in a compact sidebar or separate monitor while

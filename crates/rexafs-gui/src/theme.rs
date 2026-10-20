@@ -103,6 +103,16 @@ impl Theme {
         }
     }
 
+    /// Solid accent tint for the current row in a list (for example the
+    /// current group). Text on it should use `text`, not `text_muted`, to keep
+    /// WCAG AA contrast. Marked groups use a checkbox, never this tint.
+    pub fn current_row(&self) -> Rgba {
+        Rgba {
+            a: 0.28,
+            ..self.accent
+        }
+    }
+
     /// Matching ruviz plot theme so plot canvases restyle with the chrome.
     pub fn plot_theme(&self) -> ruviz::render::Theme {
         match self.mode {

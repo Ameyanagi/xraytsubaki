@@ -1906,3 +1906,31 @@ fn removal_exclusions_roundtrip_linked_and_embedded_without_resurrection() {
         assert!(source.is_file());
     }
 }
+
+#[test]
+fn unsaved_changes_follow_content_not_header_or_empty_sessions() {
+    // A fresh window has nothing to save, even with no saved fingerprint.
+    assert!(!ProjectFile::default().has_unsaved_changes(None));
+
+    let temp = tempfile::tempdir().unwrap();
+    let project = super::copper_example_in(temp.path()).unwrap();
+    // Imported work that was never saved must be offered for saving.
+    assert!(project.has_unsaved_changes(None));
+
+    let saved = project.content_fingerprint();
+    assert!(saved.is_some());
+    assert_eq!(project.clone().content_fingerprint(), saved);
+    assert!(!project.has_unsaved_changes(saved));
+
+    // Saving rewrites the header; that alone is not an edit.
+    let mut reheadered = project.clone();
+    reheadered.header = None;
+    assert!(!reheadered.has_unsaved_changes(saved));
+
+    let mut edited = project.clone();
+    edited.params.energy_offset_ev += 1.0;
+    assert!(edited.has_unsaved_changes(saved));
+
+    // Emptying a saved project is still a change.
+    assert!(ProjectFile::default().has_unsaved_changes(saved));
+}

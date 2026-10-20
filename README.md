@@ -259,7 +259,8 @@ Saved projects use compact JSON and omit redundant defaults while retaining
 numeric precision, arrays, expressions and metadata. The file begins with a header
 containing format/software versions, timestamps, source paths, checksums and
 original comment headers. Every save checks the reconstructed state, then uses
-atomic replacement and keeps the previous `.rxs.bak`.
+atomic replacement and keeps the previous `.rxs.bak`. Closing or quitting with
+unsaved changes asks whether to save, discard or cancel.
 
 Projects store processing, fit history/models, joint assignments, derived spectra
 and publication settings. Embedded inputs retain their original bytes; derived

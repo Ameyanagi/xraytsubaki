@@ -224,6 +224,49 @@ impl ProjectFile {
         }
         next
     }
+
+    /// Whether the session holds work worth offering to save: an open
+    /// project, imported data, derived groups, a fit model or history,
+    /// measurement records or assistant conversations. A fresh window whose
+    /// only state is default settings returns `false`, so it closes silently.
+    pub fn has_user_content(&self) -> bool {
+        self.origin.is_some()
+            || self.source_dir.is_some()
+            || self.spectrum_file.is_some()
+            || !self.raw_files.is_empty()
+            || !self.derived.is_empty()
+            || !self.fit_paths.is_empty()
+            || !self.fit_history.is_empty()
+            || !self.series_measurements.runs.is_empty()
+            || !self.series_measurements.live_sessions.is_empty()
+            || !self.assistant.conversations.is_empty()
+    }
+
+    /// A process-local hash of the saved content, used only to detect
+    /// unsaved changes. Objects are canonicalized through `serde_json::Value`
+    /// (sorted keys); the header is excluded because saving rewrites it.
+    /// Returns `None` when the model cannot be serialized.
+    pub fn content_fingerprint(&self) -> Option<u64> {
+        use std::hash::{Hash, Hasher};
+        let mut value = serde_json::to_value(self).ok()?;
+        if let Some(object) = value.as_object_mut() {
+            object.remove("header");
+        }
+        let mut hasher = std::hash::DefaultHasher::new();
+        value.to_string().hash(&mut hasher);
+        Some(hasher.finish())
+    }
+
+    /// Whether closing would lose work. `saved` is the fingerprint recorded
+    /// when this project was last saved or opened (`None` if never). A
+    /// session with no user content never asks; otherwise any difference
+    /// from the saved fingerprint, or no saved fingerprint, counts as unsaved.
+    pub fn has_unsaved_changes(&self, saved: Option<u64>) -> bool {
+        match saved {
+            None => self.has_user_content(),
+            Some(saved) => self.content_fingerprint() != Some(saved),
+        }
+    }
 }
 
 /// Independent of the application version. Optional additions keep this version;

@@ -111,6 +111,8 @@ impl StudioApp {
                 match result {
                     Ok((project, next, registry)) => {
                         app.apply_project(project, next, registry, cx);
+                        // The bundled example can be reopened at any time.
+                        app.mark_project_clean();
                         app.status = "Synthetic raw-μ copper series · 50 frames + 3 references · labels show raw mixing weights".into();
                     }
                     Err(error) => app.status = format!("Example could not open: {error}").into(),

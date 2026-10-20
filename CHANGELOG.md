@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Ask to save, discard or cancel before closing the window or quitting with
+  unsaved project changes; empty or unmodified sessions close without asking.
+
 ## 0.2.14 (2026-09-24)
 
 - Keep Live acquisition visible in a compact sidebar or separate monitor while

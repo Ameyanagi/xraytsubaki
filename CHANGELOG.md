@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Use sentence-case scientific labels with units for Normalize, Background and
+  Transform parameters (for example "Spline k max", "Victoreen exponent n"),
+  and show a hover explanation on every label with its unit, Auto value and the
+  matching Larch or Athena name.
+
 ## 0.2.14 (2026-09-24)
 
 - Keep Live acquisition visible in a compact sidebar or separate monitor while

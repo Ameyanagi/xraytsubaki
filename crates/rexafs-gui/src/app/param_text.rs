@@ -98,7 +98,7 @@ pub(crate) fn param_text(key: ParamKey) -> ParamText {
              Auto uses 2. Larch: nnorm; Athena: normalization order.",
         ),
         NVictoreen => text(
-            "Victoreen exponent n",
+            "Victoreen n",
             "The pre-edge line is fitted to μ(E)·Eⁿ, so the background falls as E⁻ⁿ; \
              n = 0 (Auto) fits a plain straight line. Larch: nvict.",
         ),
@@ -181,7 +181,7 @@ pub(crate) fn param_text(key: ParamKey) -> ParamText {
              system; Fixed λ reports an error above it. Auto uses 1e8. rexafs-specific.",
         ),
         BkgResidualRatio => text(
-            "Residual ratio limit",
+            "Residual limit",
             "Legacy models accept a direct solve only if its residual norm is at most this \
              multiple of the starting residual; unused by Fixed λ. Auto uses 1.05. rexafs-specific.",
         ),
@@ -261,7 +261,7 @@ pub(crate) fn param_text(key: ParamKey) -> ParamText {
              an explicit value must agree with them. Larch: kstep (xftr).",
         ),
         BftNfft => text(
-            "Inverse FFT length",
+            "Back FFT length",
             "Number of points in the back transform; it changes the automatic q step. \
              Auto uses 2048. Larch: nfft (xftr).",
         ),
@@ -392,12 +392,18 @@ mod tests {
         // into its unit column; longer text would stay in the label.
         for &key in INSPECTOR_KEYS {
             let label = param_text(key).label;
-            if let Some(open) = label.rfind(" (") {
-                let unit = &label[open + 2..label.len() - 1];
-                assert!(unit.chars().count() <= 6, "{key:?}: unit {unit:?} too long");
-            }
+            let name = match label.rfind(" (") {
+                Some(open) => {
+                    let unit = &label[open + 2..label.len() - 1];
+                    assert!(unit.chars().count() <= 6, "{key:?}: unit {unit:?} too long");
+                    &label[..open]
+                }
+                None => label,
+            };
+            // The label column truncates after about 17 characters at the
+            // default inspector width ("Victoreen exponen…" in testing).
             assert!(
-                label.chars().count() <= 22,
+                name.chars().count() <= 17,
                 "{key:?}: label {label:?} too long"
             );
         }

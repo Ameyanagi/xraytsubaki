@@ -20,8 +20,9 @@ Closing the window or quitting (**⌘Q**) with unsaved changes asks **Save…**,
 only after the project is written; cancelling that dialog or a failed save keeps
 the window open. A window with no imported data, derived groups, fit model,
 measurement records or Assistant conversations closes without asking. "Unsaved"
-means the project content differs from the last save or open (the header is
-ignored), or the session has never been saved; after opening a project, the
+means the project content differs from the last save or open, or the session
+has never been saved. The header and the cached parser diagnostics, which are
+refilled whenever a file is read, are not compared; after opening a project, the
 comparison is re-recorded once its sources finish reloading. The bundled example
 opens clean; a recovered copy opens unsaved.
 

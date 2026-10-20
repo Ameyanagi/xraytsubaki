@@ -1927,6 +1927,26 @@ fn unsaved_changes_follow_content_not_header_or_empty_sessions() {
     reheadered.header = None;
     assert!(!reheadered.has_unsaved_changes(saved));
 
+    // Reading the project's spectra after opening refills the parser
+    // diagnostics cache; that is not an edit (#151 follow-up).
+    let mut reread = project.clone();
+    let (id, group) = project
+        .source_groups
+        .first()
+        .map(|g| (g.id.clone(), g.path.clone()))
+        .unwrap();
+    reread.parser_evidence.insert(
+        id,
+        crate::source_evidence::ParserRecord {
+            path: group,
+            channel: Default::default(),
+            mapping_revision: 1,
+            diagnostics: Default::default(),
+            declared_edge: None,
+        },
+    );
+    assert!(!reread.has_unsaved_changes(saved));
+
     let mut edited = project.clone();
     edited.params.energy_offset_ev += 1.0;
     assert!(edited.has_unsaved_changes(saved));

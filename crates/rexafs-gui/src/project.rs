@@ -244,13 +244,18 @@ impl ProjectFile {
 
     /// A process-local hash of the saved content, used only to detect
     /// unsaved changes. Objects are canonicalized through `serde_json::Value`
-    /// (sorted keys); the header is excluded because saving rewrites it.
+    /// (sorted keys). Two saved fields are excluded because they change
+    /// without a user edit: the header, which saving rewrites, and
+    /// `parser_evidence`, the diagnostics cache that each file read refills
+    /// (opening a project reads its spectra again). Edits that change how
+    /// files are read still show up in the import settings and parameters.
     /// Returns `None` when the model cannot be serialized.
     pub fn content_fingerprint(&self) -> Option<u64> {
         use std::hash::{Hash, Hasher};
         let mut value = serde_json::to_value(self).ok()?;
         if let Some(object) = value.as_object_mut() {
             object.remove("header");
+            object.remove("parser_evidence");
         }
         let mut hasher = std::hash::DefaultHasher::new();
         value.to_string().hash(&mut hasher);

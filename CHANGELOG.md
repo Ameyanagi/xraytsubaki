@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Use sentence-case scientific labels with units for Normalize, Background and
+  Transform parameters (for example "Spline k max", "Victoreen n"),
+  and show a hover explanation on every label with its unit, Auto value and the
+  matching Larch or Athena name.
 - Show each group on two lines: the name, shortened at the end, then its source
   file, quantity and E₀ when known, so similarly named references stay
   distinguishable. Only the current group is highlighted; marks use checkboxes.

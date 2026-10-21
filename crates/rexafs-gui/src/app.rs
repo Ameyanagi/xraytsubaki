@@ -62,6 +62,7 @@ pub(crate) mod import_review;
 pub(crate) mod import_state;
 mod importing;
 mod merge;
+mod param_text;
 pub(crate) mod series_display;
 mod series_source;
 use series_source::OverviewSource;
@@ -4197,103 +4198,72 @@ impl StudioApp {
         const COL: FieldKind = FieldKind::Integer { min: Some(0) };
         const INT: FieldKind = FieldKind::Integer { min: None };
         const FLOAT: FieldKind = FieldKind::Float;
+        // Labels and hover explanations come from `param_text`, one reviewable
+        // table. Pre-edge and post-edge ranges are eV *relative to E0*; the
+        // section title and tooltips say so, since a 260px panel leaves ~132px
+        // for a label and "(eV rel. E0)" does not fit.
         let specs = [
-            (ParamKey::ImpEnergyCol, "energy col", "0", COL),
-            (ParamKey::ImpI0Col, "I0 col", "1", COL),
-            (ParamKey::ImpItCol, "It col", "2", COL),
-            (ParamKey::ImpIrCol, "Ir col", "3", COL),
-            (ParamKey::AlignTarget, "ref E0 target", "e.g. 22117", FLOAT),
-            (ParamKey::EnergyOffset, "offset (eV)", "0", FLOAT),
-            (ParamKey::E0, "E0 (eV)", "auto", FLOAT),
-            (ParamKey::EdgeStep, "edge step", "auto", FLOAT),
-            // These four are eV *relative to E0* — the thing newcomers get
-            // wrong. The label carries the unit; the "relative to E0" part is
-            // stated once in the panel footer, since a 260px panel leaves
-            // ~132px for a label and "(eV rel. E0)" does not fit.
-            (
-                ParamKey::PreEdgeStart,
-                "pre-edge start (eV)",
-                "auto (-200)",
-                FLOAT,
-            ),
-            (
-                ParamKey::PreEdgeEnd,
-                "pre-edge end (eV)",
-                "auto (-30)",
-                FLOAT,
-            ),
-            (ParamKey::NormStart, "fit minimum (eV)", "auto (150)", FLOAT),
-            (
-                ParamKey::NormEnd,
-                "fit maximum (eV)",
-                "auto (spectrum end)",
-                FLOAT,
-            ),
-            (ParamKey::NormPolyorder, "poly order", "auto (2)", INT),
-            (ParamKey::NVictoreen, "victoreen n", "auto (0)", INT),
-            (ParamKey::Rbkg, "rbkg (Å)", "auto (1.0)", FLOAT),
+            (ParamKey::ImpEnergyCol, "0", COL),
+            (ParamKey::ImpI0Col, "1", COL),
+            (ParamKey::ImpItCol, "2", COL),
+            (ParamKey::ImpIrCol, "3", COL),
+            (ParamKey::AlignTarget, "e.g. 22117", FLOAT),
+            (ParamKey::EnergyOffset, "0", FLOAT),
+            (ParamKey::E0, "auto", FLOAT),
+            (ParamKey::EdgeStep, "auto", FLOAT),
+            (ParamKey::PreEdgeStart, "auto (-200)", FLOAT),
+            (ParamKey::PreEdgeEnd, "auto (-30)", FLOAT),
+            (ParamKey::NormStart, "auto (150)", FLOAT),
+            (ParamKey::NormEnd, "auto (spectrum end)", FLOAT),
+            (ParamKey::NormPolyorder, "auto (2)", INT),
+            (ParamKey::NVictoreen, "auto (0)", INT),
+            (ParamKey::Rbkg, "auto (1.0)", FLOAT),
             // Scoped names: the AUTOBK and FFT k-ranges are different
-            // parameters with different values, and identical "k min"/"k max"
-            // labels in two sections read as a contradiction.
-            (ParamKey::BkgKmin, "bkg k min (Å⁻¹)", "auto (0)", FLOAT),
-            (ParamKey::BkgKmax, "bkg k max (Å⁻¹)", "auto (full)", FLOAT),
-            (ParamKey::BkgKstep, "k step (Å⁻¹)", "auto (0.05)", FLOAT),
-            (ParamKey::BkgNknots, "spline knots", "auto", INT),
-            (ParamKey::BkgKweight, "bkg k-weight", "auto (1)", INT),
-            (ParamKey::BkgClampLo, "clamp lo", "auto (0)", INT),
-            (ParamKey::BkgClampHi, "clamp hi", "auto (1)", INT),
-            (ParamKey::BkgNclamp, "clamp points", "auto (3)", COL),
-            (ParamKey::BkgClampLambda, "clamp λ", "auto (0.001)", FLOAT),
-            (ParamKey::BkgDk, "window dk (Å⁻¹)", "auto (0.1)", FLOAT),
-            (ParamKey::BkgNfft, "nfft", "auto (2048)", INT),
-            (ParamKey::FftKmin, "fft k min (Å⁻¹)", "auto (2)", FLOAT),
-            (ParamKey::FftKmax, "fft k max (Å⁻¹)", "auto (15)", FLOAT),
-            (ParamKey::FftDk, "dk (Å⁻¹)", "auto (1)", FLOAT),
-            (ParamKey::FftKweight, "k-weight", "auto (2)", FLOAT),
-            (ParamKey::FftDk2, "dk2 (Å⁻¹)", "auto", FLOAT),
-            (ParamKey::FftRmax, "R max out (Å)", "auto (10)", FLOAT),
-            (ParamKey::FftKstep, "k step (Å⁻¹)", "auto", FLOAT),
-            (ParamKey::FftNfft, "nfft", "auto (2048)", INT),
-            (ParamKey::BftRmin, "R min (Å)", "auto (0)", FLOAT),
-            (ParamKey::BftRmax, "R max (Å)", "auto (20)", FLOAT),
-            (ParamKey::BftDr, "dR (Å)", "auto (1)", FLOAT),
-            (
-                ParamKey::BkgEk0,
-                "k origin E₀ (eV)",
-                "auto (edge E₀)",
-                FLOAT,
-            ),
-            (
-                ParamKey::BkgRegularization,
-                "legacy ridge",
-                "auto (0.0001)",
-                FLOAT,
-            ),
-            (
-                ParamKey::BkgCondition,
-                "condition limit",
-                "auto (1e8)",
-                FLOAT,
-            ),
-            (
-                ParamKey::BkgResidualRatio,
-                "residual ratio limit",
-                "auto (1.05)",
-                FLOAT,
-            ),
-            (ParamKey::BftQmax, "q max (Å⁻¹)", "auto (10)", FLOAT),
-            (ParamKey::BftDr2, "dR high (Å)", "auto (dR)", FLOAT),
-            (ParamKey::BftRweight, "R weight", "auto (0)", INT),
-            (ParamKey::BftKstep, "q step (Å⁻¹)", "auto (R grid)", FLOAT),
-            (ParamKey::BftNfft, "inverse NFFT", "auto (2048)", INT),
+            // parameters with different values ("Spline k …" vs "FT k …").
+            (ParamKey::BkgKmin, "auto (0)", FLOAT),
+            (ParamKey::BkgKmax, "auto (full)", FLOAT),
+            (ParamKey::BkgKstep, "auto (0.05)", FLOAT),
+            (ParamKey::BkgNknots, "auto", INT),
+            (ParamKey::BkgKweight, "auto (1)", INT),
+            (ParamKey::BkgClampLo, "auto (0)", INT),
+            (ParamKey::BkgClampHi, "auto (1)", INT),
+            (ParamKey::BkgNclamp, "auto (3)", COL),
+            (ParamKey::BkgClampLambda, "auto (0.001)", FLOAT),
+            (ParamKey::BkgDk, "auto (0.1)", FLOAT),
+            (ParamKey::BkgNfft, "auto (2048)", INT),
+            (ParamKey::FftKmin, "auto (2)", FLOAT),
+            (ParamKey::FftKmax, "auto (15)", FLOAT),
+            (ParamKey::FftDk, "auto (1)", FLOAT),
+            (ParamKey::FftKweight, "auto (2)", FLOAT),
+            (ParamKey::FftDk2, "auto", FLOAT),
+            (ParamKey::FftRmax, "auto (10)", FLOAT),
+            (ParamKey::FftKstep, "auto", FLOAT),
+            (ParamKey::FftNfft, "auto (2048)", INT),
+            (ParamKey::BftRmin, "auto (0)", FLOAT),
+            (ParamKey::BftRmax, "auto (20)", FLOAT),
+            (ParamKey::BftDr, "auto (1)", FLOAT),
+            (ParamKey::BkgEk0, "auto (edge E₀)", FLOAT),
+            (ParamKey::BkgRegularization, "auto (0.0001)", FLOAT),
+            (ParamKey::BkgCondition, "auto (1e8)", FLOAT),
+            (ParamKey::BkgResidualRatio, "auto (1.05)", FLOAT),
+            (ParamKey::BftQmax, "auto (10)", FLOAT),
+            (ParamKey::BftDr2, "auto (dR)", FLOAT),
+            (ParamKey::BftRweight, "auto (0)", INT),
+            (ParamKey::BftKstep, "auto (R grid)", FLOAT),
+            (ParamKey::BftNfft, "auto (2048)", INT),
         ];
         specs
             .into_iter()
-            .map(|(key, label, placeholder, kind)| {
+            .map(|(key, placeholder, kind)| {
                 let step = param_step(key);
+                let text = param_text::param_text(key);
                 let field = cx.new(|cx| {
-                    let field = NumericField::new(label, placeholder, None, kind, theme, cx)
-                        .with_step(step);
+                    let mut field =
+                        NumericField::new(text.label, placeholder, None, kind, theme, cx)
+                            .with_step(step);
+                    if let Some(tip) = text.tip {
+                        field = field.with_description(tip);
+                    }
                     if key == ParamKey::EnergyOffset {
                         field.with_display_decimals(2, cx)
                     } else {
@@ -9724,13 +9694,10 @@ impl StudioApp {
     }
 
     /// Enum parameter row with a dropdown list (0 = auto).
-    pub(crate) fn enum_row(
-        &self,
-        label: &'static str,
-        which: EnumParam,
-        cx: &mut Context<Self>,
-    ) -> gpui::AnyElement {
+    /// Choice row; its label and hover explanation come from `param_text`.
+    pub(crate) fn enum_row(&self, which: EnumParam, cx: &mut Context<Self>) -> gpui::AnyElement {
         let t = self.theme;
+        let param_text::ParamText { label, tip } = param_text::enum_text(which);
         let options = self.enum_options(which);
         let selected = self.enum_selected_index(which);
         let expanded = self.open_enum == Some(which);
@@ -9750,9 +9717,19 @@ impl StudioApp {
                         .gap_2()
                         .child(
                             div()
+                                .id(SharedString::from(format!("enum-label-{which:?}")))
                                 .flex_1()
                                 .text_sm()
                                 .text_color(t.text_muted)
+                                .when_some(tip, |d, tip| {
+                                    d.tooltip(move |_, cx| {
+                                        cx.new(|_| Tooltip {
+                                            label: tip.into(),
+                                            theme: t,
+                                        })
+                                        .into()
+                                    })
+                                })
                                 .child(label),
                         )
                         .children(self.parameter_badge(

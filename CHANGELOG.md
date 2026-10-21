@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Show each group on two lines: the name, shortened at the end, then its source
+  file, quantity and E₀ when known, so similarly named references stay
+  distinguishable. Only the current group is highlighted; marks use checkboxes.
 - Write publication SVG width and height in inches with a pixel `viewBox`, so a
   3.3 in figure imports at 3.3 in instead of about 10 in.
 

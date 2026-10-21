@@ -11,7 +11,7 @@ use super::{MONO, PlotScope, button, controls::icon};
 use crate::app::group_rows::{self, Row};
 use crate::app::{DERIVED_BASE, NavDown, NavExtendDown, NavExtendUp, NavUp, StudioApp};
 use crate::icons::Icon;
-use crate::plotting::{middle_truncate, trace_rgba};
+use crate::plotting::trace_rgba;
 
 /// Merge reasons read "<group label>: <message>". When the label already ends
 /// with the message's opening phrase (the label carries "· quantity unconfirmed"
@@ -725,10 +725,11 @@ impl StudioApp {
                     .map(|row| {
                         if let Row::Header(_) = row {
                             div()
-                                .h(px(27.))
+                                .h(px(group_rows::ROW_HEIGHT))
                                 .px_3()
+                                .pb_1()
                                 .flex()
-                                .items_center()
+                                .items_end()
                                 .text_color(this.theme.text_muted)
                                 .child("Results")
                                 .into_any_element()
@@ -837,7 +838,40 @@ impl StudioApp {
             text: "More actions".into(),
             theme: t,
         };
-        let tag = if child { "" } else { tag };
+        // Source rows name their channel on the second line; only results keep
+        // the compact operation tag ("Merge", "Diff", ...) beside the name.
+        let tag = if matches!(row, Row::Result { .. }) {
+            tag
+        } else {
+            ""
+        };
+        let source = match (&path, derived) {
+            (None, Some(_)) => "derived".to_string(),
+            (path, _) => path
+                .as_deref()
+                .and_then(|p| p.file_stem())
+                .map(|stem| stem.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+        };
+        let quantity = match derived {
+            Some(d) if d.source.is_none() || !d.quantity.is_absorption() => d.quantity.label(),
+            _ => group_rows::measured_quantity(mode),
+        };
+        // E₀ is shown only when already known: a cached processed spectrum,
+        // the inspector's current spectrum, or a fixed E₀ setting.
+        let e0 = self
+            .cache
+            .peek(&(ix, self.effective_fingerprint(ix)))
+            .and_then(|sp| sp.e0())
+            .or_else(|| {
+                active
+                    .then(|| self.spectrum.as_deref().and_then(|sp| sp.e0()))
+                    .flatten()
+            })
+            .or(self.effective_params(ix).e0);
+        let subtitle = group_rows::row_detail(&source, quantity, e0);
+        // Muted text lacks AA contrast on the current-row tint.
+        let muted = if active { t.text } else { t.text_muted };
         let marked_children = if extra > 0 && !expanded {
             self.derived
                 .iter()
@@ -859,17 +893,6 @@ impl StudioApp {
         } else {
             String::new()
         };
-        // Monospace labels let us budget for the fixed slots and ASCII tags and
-        // middle-truncate names while retaining their identifying suffix.
-        let reserved = 100.
-            + if child { 12. } else { 0. }
-            + (tag.chars().count() + suffix.chars().count()) as f32 * 6.5
-            + if has_problems { 16. } else { 0. }
-            + if locked { 16. } else { 0. };
-        let label = middle_truncate(
-            &label,
-            ((self.structure.settings.groups_panel_width() - reserved) / 7.2).max(2.) as usize,
-        );
         crate::accessibility::Control::new(
             div().id(("group", ix)),
             format!(
@@ -886,7 +909,7 @@ impl StudioApp {
         )
         .selected(active)
         .when(active, |d| d.track_focus(&self.data_focus))
-        .h(px(27.))
+        .h(px(group_rows::ROW_HEIGHT))
         .w_full()
         .min_w_0()
         .px_1p5()
@@ -902,12 +925,8 @@ impl StudioApp {
             gpui::Rgba { a: 0., ..t.border }
         })
         .cursor_pointer()
-        .when(active, |d| {
-            d.bg(gpui::Rgba {
-                a: 0.16,
-                ..t.accent
-            })
-        })
+        // Only the current group is highlighted; marks show as checkboxes.
+        .when(active, |d| d.bg(t.current_row()))
         .when(!active, |d| d.hover(|d| d.bg(t.raised)))
         .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
         .on_mouse_down(
@@ -972,19 +991,36 @@ impl StudioApp {
                 .map(crate::spectrum_colors::rgba)
                 .unwrap_or_else(|| trace_rgba(&t, self.group_color_index(ix))),
         ))
-        .child(self.group_label_editor(ix, label, cx))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .child(self.group_label_editor(ix, label, cx))
+                .child(
+                    div()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .text_size(px(11.))
+                        .text_color(muted)
+                        .child(subtitle),
+                ),
+        )
         .child(
             div()
                 .flex_none()
                 .text_size(px(11.))
-                .text_color(t.text_muted)
+                .text_color(muted)
                 .child(suffix),
         )
         .child(
             div()
                 .flex_none()
                 .text_size(px(11.))
-                .text_color(t.text_muted)
+                .text_color(muted)
                 .child(tag),
         )
         .when(has_problems, |d| {

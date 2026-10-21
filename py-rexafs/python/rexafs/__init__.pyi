@@ -120,8 +120,10 @@ class PrePostEdge:
 
     Default None estimates a lower bound near the second energy sample, rounded
     on a 2 or 5 eV grid and clipped to the measured range. Usually this offset
-    is negative. Choose a range below the edge rise; reversing the two pre-edge
-    bounds causes the implementation to swap them."""
+    is negative. Choose a range below the edge rise. Since 0.2.15 an explicit
+    start before the first measured energy is raised to it when normalize() runs
+    (the stored value is kept), and a start at or above pre_edge_end is an error
+    naming pre_edge_start instead of being swapped."""
     pre_edge_end: float | None
     """End of the pre-edge fit, as an offset from E0 in eV.
 
@@ -133,13 +135,17 @@ class PrePostEdge:
 
     Default None uses 5 * round(norm_end / 15), capped at 25 eV, then ensures
     at least a 10 eV separation from norm_end. Select a region beyond the edge
-    rise; very short scans can make this automatic choice unsuitable."""
+    rise; very short scans can make this automatic choice unsuitable. Since
+    0.2.15, when a start lies beyond the (data-limited) norm_end, normalize() uses
+    min(25, 5 * round(norm_end / 15)) eV instead of failing; the setting is kept."""
     norm_end: float | None
     """End of the post-edge polynomial fit, as an offset from E0 in eV.
 
     Default None rounds the available upper energy offset to a 5 eV grid and
     clips it to the data limit. Reducing this bound excludes high-energy data
-    from the normalization fit; it does not trim the spectrum itself."""
+    from the normalization fit; it does not trim the spectrum itself. Since
+    0.2.15 an explicit value beyond the last measured energy is lowered to it
+    when normalize() runs; the stored setting keeps the requested value."""
     norm_polyorder: int | None
     """Degree of the polynomial fitted to the pre-edge-subtracted post-edge data.
 
@@ -1801,7 +1807,10 @@ class Wavelet:
     order narrows frequency response and broadens localization in k. R is not
     phase-corrected. Fixed order is independent of R extent (cauchy_v1).
     Calculations release the GIL and return owned results; invalid definitions,
-    uncovered intervals and excessive allocations raise ValueError."""
+    intervals wholly outside the measured k range and excessive allocations
+    raise ValueError. Since 0.2.15 endpoints beyond the measured k range are
+    limited to it; the map keeps the requested settings and its warnings
+    report the range used."""
     def __init__(self, k_range: tuple[float, float], *, kweight: int = 2,
                  order: int = 100, kstep: float = 0.05, rmax: float = 6.0,
                  rstep: float | None = None, taper: float = 0.0,

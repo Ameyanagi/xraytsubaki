@@ -340,8 +340,10 @@ impl StudioApp {
                         .map_err(|e| e.to_string())?;
                     if map.r().len()<2 {return Err("The desktop map needs at least two R rows; increase R maximum or reduce R step".into());}
                     let mut fft_settings = settings.clone();
-                    fft_settings.fft_kmin = Some(definition.k_range[0]);
-                    fft_settings.fft_kmax = Some(definition.k_range[1]);
+                    // The map's k range may be limited to the measured data.
+                    let [kmin, kmax] = map.k_support();
+                    fft_settings.fft_kmin = Some(kmin);
+                    fft_settings.fft_kmax = Some(kmax);
                     fft_settings.fft_kweight = Some(definition.kweight as f64);
                     let fourier_error = match crate::params::forward_settings(&fft_settings) {
                         Ok(f) => sp.set_fft(f).fft().err().map(|e| e.to_string()),
@@ -448,7 +450,17 @@ impl StudioApp {
             self.wavelet.lock_basis = None;
         }
         let map = &record.map;
-        let k = map.settings().k_range;
+        let k = map.k_support();
+        // Amber note on k min/max when the map used a data-limited k range.
+        for (i, used) in k.into_iter().enumerate() {
+            if let Some(field) = self.wavelet.fields.get(i) {
+                let requested = field.read(cx).value();
+                let note = requested
+                    .is_some_and(|v| (v - used).abs() > 1e-9)
+                    .then(|| format!("Used {used:.2} Å⁻¹: limited by the measured data").into());
+                field.update(cx, |f, cx| f.set_adjusted(note, cx));
+            }
+        }
         let r = [map.r()[0], *map.r().last().unwrap()];
         self.wavelet.cursor = [0.5 * (k[0] + k[1]), 0.5 * (r[0] + r[1])];
         self.wavelet.message.clear();

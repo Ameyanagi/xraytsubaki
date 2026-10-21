@@ -356,15 +356,26 @@ impl StudioApp {
         let p = self.ui_params();
         let linked = p.bkg_kweight_linked;
         let field = if linked {
+            let text = crate::app::param_text::param_text(ParamKey::BkgKweight);
             div()
                 .flex()
                 .flex_col()
                 .gap_1()
                 .child(
                     div()
+                        .id("bkg-kweight-linked-label")
                         .text_size(px(11.))
                         .text_color(t.text_muted)
-                        .child("bkg k-weight"),
+                        .when_some(text.tip, |d, tip| {
+                            d.tooltip(move |_, cx| {
+                                cx.new(|_| Tooltip {
+                                    theme: t,
+                                    label: tip.into(),
+                                })
+                                .into()
+                            })
+                        })
+                        .child(text.label),
                 )
                 .child(
                     div()
@@ -446,7 +457,7 @@ impl StudioApp {
                 "Drag Rbkg on |χ(R)|, or the k-window edges on χ(k). Rbkg must remain below the shell being fitted."
             }
             "Back FT  R → q" => {
-                "Select an R window to isolate shells in χ(q). Auto q step follows the R grid and inverse NFFT; q max changes the extent, not the spacing."
+                "Select an R window to isolate shells in χ(q). Auto q step follows the R grid and inverse FFT length; q max changes the extent, not the spacing."
             }
             _ => "",
         };
@@ -801,7 +812,7 @@ impl StudioApp {
             .bkg_solver
             .is_none_or(|s| s == rexafs::prelude::AUTOBKSolver::LinearDirect);
         let fixed = p.bkg_clamp_policy == rexafs::prelude::AUTOBKClampScalePolicy::FixedPenalty;
-        let mut solver = vec![self.enum_row("method", EnumParam::BkgSolver, cx)];
+        let mut solver = vec![self.enum_row(EnumParam::BkgSolver, cx)];
         solver.extend(
             [
                 self.field(ParamKey::BkgKstep, cx),
@@ -812,7 +823,7 @@ impl StudioApp {
         );
         if linear {
             solver.extend(self.field(ParamKey::BkgCondition, cx));
-            solver.push(self.enum_row("matrix cache", EnumParam::BkgCache, cx));
+            solver.push(self.enum_row(EnumParam::BkgCache, cx));
             if fixed {
                 solver.push(self.note("Fixed λ uses one linear solve. The condition limit controls the SVD cutoff; legacy ridge and iterative fallback are inactive.").into_any_element());
             } else {
@@ -824,9 +835,9 @@ impl StudioApp {
                     .into_iter()
                     .flatten(),
                 );
-                solver.push(self.enum_row("fallback", EnumParam::BkgFallback, cx));
+                solver.push(self.enum_row(EnumParam::BkgFallback, cx));
                 if p.bkg_linear_fallback_to_lm != Some(false) {
-                    solver.push(self.enum_row("fallback solver", EnumParam::BkgFallbackSolver, cx));
+                    solver.push(self.enum_row(EnumParam::BkgFallbackSolver, cx));
                 }
                 solver.push(self.note("Legacy models can use ridge regularization and retry with the selected iterative solver when the direct solve fails its checks.").into_any_element());
             }
@@ -884,14 +895,14 @@ impl StudioApp {
                     self.field(ParamKey::BkgClampLo, cx),
                     self.field(ParamKey::BkgClampHi, cx),
                     self.field(ParamKey::BkgNclamp, cx),
-                    Some(self.enum_row("clamp model", EnumParam::BkgClampPolicy, cx)),
+                    Some(self.enum_row(EnumParam::BkgClampPolicy, cx)),
                     if self.ui_params().bkg_clamp_policy == rexafs::prelude::AUTOBKClampScalePolicy::FixedPenalty {
                         self.field(ParamKey::BkgClampLambda, cx)
                     } else {
                         Some(self.note("λ is inactive for legacy clamp models. Select Fixed λ with the linear solver to use a constant penalty.").into_any_element())
                     },
                     Some(self.note("Clamp points sets the number of samples at each active end. Zero points disables clamping; in Fixed λ, λ = 0 also disables it.").into_any_element()),
-                    Some(self.enum_row("window", EnumParam::BkgWindow, cx)),
+                    Some(self.enum_row(EnumParam::BkgWindow, cx)),
                     self.field(ParamKey::BkgDk, cx),
                 ]
                 .into_iter()
@@ -941,7 +952,7 @@ impl StudioApp {
                         self.field(ParamKey::FftKmin, cx),
                         self.field(ParamKey::FftKmax, cx),
                         self.field(ParamKey::FftDk, cx),
-                        Some(self.enum_row("window", EnumParam::FftWindow, cx)),
+                        Some(self.enum_row(EnumParam::FftWindow, cx)),
                         self.field(ParamKey::FftKweight, cx),
                         self.field(ParamKey::FftRmax, cx),
                     ]
@@ -966,7 +977,7 @@ impl StudioApp {
                         self.field(ParamKey::BftRmax, cx),
                         self.field(ParamKey::BftDr, cx),
                         self.field(ParamKey::BftDr2, cx),
-                        Some(self.enum_row("window", EnumParam::BftWindow, cx)),
+                        Some(self.enum_row(EnumParam::BftWindow, cx)),
                         self.field(ParamKey::BftRweight, cx),
                         self.field(ParamKey::BftQmax, cx),
                         self.field(ParamKey::BftNfft, cx),
@@ -985,7 +996,7 @@ impl StudioApp {
                     "Advanced",
                     None,
                     [
-                        Some(self.enum_row("sampling grid", EnumParam::FftGrid, cx)),
+                        Some(self.enum_row(EnumParam::FftGrid, cx)),
                         self.field(ParamKey::FftDk2, cx),
                         self.field(ParamKey::FftKstep, cx),
                         self.field(ParamKey::FftNfft, cx),

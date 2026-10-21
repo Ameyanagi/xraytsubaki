@@ -11,6 +11,7 @@ import secrets
 import shlex
 import subprocess
 import tempfile
+import time
 from zipfile import ZipFile
 from desktop_channels import app_name
 from macos_installer import build_installer, include_notices, installer_name, verify_installation
@@ -118,7 +119,23 @@ def signing_keychain(directory):
 
 
 def run(command):
-    subprocess.run([str(value) for value in command], check=True)
+    """Run a command, retrying Apple's stapler after transient service failures.
+
+    stapler fetches notarization tickets from Apple's CloudKit service, which
+    sometimes drops the connection (exit 68) shortly after notarization. Retry
+    stapler up to five times with growing waits; other commands run once.
+    """
+    command = [str(value) for value in command]
+    attempts = 5 if command[:2] == ["xcrun", "stapler"] else 1
+    for attempt in range(1, attempts + 1):
+        try:
+            subprocess.run(command, check=True)
+            return
+        except subprocess.CalledProcessError:
+            if attempt == attempts:
+                raise
+            print(f"stapler failed (attempt {attempt}/{attempts}); retrying", flush=True)
+            time.sleep(30 * attempt)
 
 
 def verify_app(app, team):

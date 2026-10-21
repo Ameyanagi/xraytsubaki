@@ -637,6 +637,42 @@ pub fn kind(mode: crate::params::DetectionMode, result: Option<&DerivedSpectrum>
     }
 }
 
+/// Height of every row in the virtualized group list, in logical pixels.
+/// `uniform_list` measures one item and assumes every item matches, so the
+/// two-line group rows and the "Results" header must share this value.
+pub const ROW_HEIGHT: f32 = 38.;
+
+/// Quantity text for a measured source group. Every import mode yields the
+/// absorption coefficient μ(E) versus photon energy E; the prefix names how it
+/// was formed (ln(I0/It), fluorescence/I0, ln(It/Ir) or a stored μ column).
+pub fn measured_quantity(mode: crate::params::DetectionMode) -> &'static str {
+    use crate::params::DetectionMode;
+    match mode {
+        DetectionMode::Transmission => "transmission μ(E)",
+        DetectionMode::Fluorescence => "fluorescence μ(E)",
+        DetectionMode::Reference => "reference μ(E)",
+        DetectionMode::MuColumn | DetectionMode::Auto => "measured μ(E)",
+    }
+}
+
+/// Second, muted line of a group row: "source · quantity · E₀".
+///
+/// `source` is the file stem or "derived"; `quantity` is the stored or measured
+/// quantity; `e0_ev` is the absorption-edge energy E₀ in electronvolts, shown
+/// with 0.1 eV resolution only when already known (a processed spectrum or a
+/// fixed E₀ setting). Empty parts are omitted; nothing is computed here.
+pub fn row_detail(source: &str, quantity: &str, e0_ev: Option<f64>) -> String {
+    let e0 = e0_ev
+        .filter(|e| e.is_finite())
+        .map(|e| format!("{e:.1} eV"));
+    [Some(source), Some(quantity), e0.as_deref()]
+        .into_iter()
+        .flatten()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
+
 /// Deterministic eight-swatch default derived from durable group metadata.
 pub fn color_index(id: &crate::group_identity::GroupId) -> usize {
     let text = serde_json::to_string(id).unwrap_or_default();
@@ -716,6 +752,26 @@ impl Diagnostics {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn row_detail_separates_similar_references_and_omits_unknown_parts() {
+        use crate::params::DetectionMode;
+        let quantity = measured_quantity(DetectionMode::MuColumn);
+        assert_eq!(
+            row_detail("CuO", quantity, Some(8984.04)),
+            "CuO · measured μ(E) · 8984.0 eV"
+        );
+        assert_eq!(row_detail("Cu", quantity, None), "Cu · measured μ(E)");
+        assert_eq!(
+            row_detail("derived", "μnorm", Some(f64::NAN)),
+            "derived · μnorm"
+        );
+        assert_eq!(row_detail("", "", None), "");
+        assert_eq!(
+            measured_quantity(DetectionMode::Reference),
+            "reference μ(E)"
+        );
+    }
 
     #[test]
     fn removal_survivor_does_not_register_hidden_catalog_candidates() {

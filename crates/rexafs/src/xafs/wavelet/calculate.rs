@@ -10,6 +10,8 @@ pub(super) struct Layout {
     pub k: Vec<f64>,
     pub r: Vec<f64>,
     pub size: WaveletSize,
+    /// Selected k support limited to the measured k range (since 0.2.15).
+    pub k_range: [f64; 2],
 }
 pub(super) fn layout(model: &Wavelet, k: &[f64]) -> Result<Layout> {
     if k.len() < 2
@@ -22,10 +24,17 @@ pub(super) fn layout(model: &Wavelet, k: &[f64]) -> Result<Layout> {
         ));
     }
     let [lo, hi] = model.k_range;
-    if !lo.is_finite() || !hi.is_finite() || lo >= hi || lo < k[0] || hi > k[k.len() - 1] {
-        return Err(invalid(
-            "selected k interval must be increasing and fully covered by measured input",
-        ));
+    if !lo.is_finite() || !hi.is_finite() || lo >= hi {
+        return Err(invalid("k min must be finite and below k max"));
+    }
+    // Endpoints beyond the measured k range are limited to it (since 0.2.15).
+    let (first, last) = (k[0], k[k.len() - 1]);
+    let (lo, hi) = (lo.max(first), hi.min(last));
+    if lo >= hi {
+        return Err(invalid(format!(
+            "the selected k range {:.2}–{:.2} Å⁻¹ lies outside the measured k range {first:.2}–{last:.2} Å⁻¹; change k min or k max",
+            model.k_range[0], model.k_range[1]
+        )));
     }
     if !model.kstep.is_finite()
         || model.kstep <= 0.
@@ -103,7 +112,12 @@ pub(super) fn layout(model: &Wavelet, k: &[f64]) -> Result<Layout> {
         cells,
         bytes: 16 * cells + 25 * nk + 8 * r.len(),
     };
-    Ok(Layout { k: axis, r, size })
+    Ok(Layout {
+        k: axis,
+        r,
+        size,
+        k_range: [lo, hi],
+    })
 }
 fn interpolate(k: &[f64], chi: &[f64], x: f64) -> f64 {
     let upper = k.partition_point(|v| *v < x);
@@ -131,7 +145,7 @@ pub(super) fn calculate(
         ));
     }
     let layout = layout(model, k)?;
-    let [lo, hi] = model.k_range;
+    let [lo, hi] = layout.k_range;
     let mut prepared = Vec::with_capacity(layout.k.len());
     let mut window = Vec::with_capacity(layout.k.len());
     let mut support = Vec::with_capacity(layout.k.len());
@@ -215,6 +229,12 @@ pub(super) fn calculate(
         || k[0] != 0.
     {
         warnings.push("Original samples were linearly resampled onto the recorded zero-origin grid; sampling does not add resolution.".into());
+    }
+    if layout.k_range != model.k_range {
+        warnings.push(format!(
+            "The requested k range {:.2}–{:.2} Å⁻¹ was limited to the measured data: {lo:.2}–{hi:.2} Å⁻¹.",
+            model.k_range[0], model.k_range[1]
+        ));
     }
     if *layout.r.last().unwrap() > 0.8 * PI / (2. * model.kstep) {
         warnings.push(

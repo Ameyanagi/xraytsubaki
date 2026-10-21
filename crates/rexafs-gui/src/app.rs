@@ -869,6 +869,47 @@ fn push_problem(problems: &mut Vec<JobError>, problem: JobError) {
     problems.push(problem);
 }
 
+/// Prefix of the one Problems-drawer warning per group about limited ranges.
+const RANGE_WARNING_PREFIX: &str = "Ranges limited to the measured data";
+
+/// Context-panel field, label and unit for a core range adjustment.
+fn range_adjustment_field(field: &str) -> Option<(ParamKey, &'static str, &'static str)> {
+    Some(match field {
+        "pre_edge_start" => (ParamKey::PreEdgeStart, "pre-edge start", "eV"),
+        "pre_edge_end" => (ParamKey::PreEdgeEnd, "pre-edge end", "eV"),
+        "norm_start" => (ParamKey::NormStart, "fit minimum", "eV"),
+        "norm_end" => (ParamKey::NormEnd, "fit maximum", "eV"),
+        "norm_polyorder" => (ParamKey::NormPolyorder, "poly order", ""),
+        "kmax" => (ParamKey::BkgKmax, "bkg k max", "Å⁻¹"),
+        _ => return None,
+    })
+}
+
+fn range_used_text(adjustment: &rexafs::RangeAdjustment, unit: &str) -> String {
+    if unit.is_empty() {
+        format!("{}", adjustment.used)
+    } else {
+        format!("{:.1} {unit}", adjustment.used)
+    }
+}
+
+/// One warning naming every explicit setting that processing limited, or
+/// `None` when none was limited. Values are the requested and used ones.
+fn range_warning(adjustments: &[rexafs::RangeAdjustment]) -> Option<String> {
+    let parts: Vec<String> = adjustments
+        .iter()
+        .filter_map(|a| {
+            let (_, label, unit) = range_adjustment_field(a.field)?;
+            Some(format!(
+                "{label} {} → {}",
+                a.requested,
+                range_used_text(a, unit)
+            ))
+        })
+        .collect();
+    (!parts.is_empty()).then(|| format!("{RANGE_WARNING_PREFIX}: {}.", parts.join("; ")))
+}
+
 fn problem_counts(problems: &[JobError]) -> (usize, usize) {
     let warnings = problems
         .iter()
@@ -2443,6 +2484,41 @@ fn filter_match_lower(name: &str, pattern: &str) -> bool {
         }
     }
     true
+}
+
+#[cfg(test)]
+mod range_warning_tests {
+    use super::{RANGE_WARNING_PREFIX, range_warning};
+    use rexafs::RangeAdjustment;
+
+    #[test]
+    fn one_warning_names_every_limited_field_with_units() {
+        assert_eq!(range_warning(&[]), None);
+        let message = range_warning(&[
+            RangeAdjustment {
+                field: "norm_start",
+                requested: 150.0,
+                used: 25.0,
+            },
+            RangeAdjustment {
+                field: "norm_polyorder",
+                requested: 2.0,
+                used: 1.0,
+            },
+            RangeAdjustment {
+                field: "kmax",
+                requested: 15.0,
+                used: 9.512,
+            },
+        ])
+        .unwrap();
+        assert_eq!(
+            message,
+            format!(
+                "{RANGE_WARNING_PREFIX}: fit minimum 150 → 25.0 eV; poly order 2 → 1; bkg k max 15 → 9.5 Å⁻¹."
+            )
+        );
+    }
 }
 
 #[cfg(test)]
@@ -5001,6 +5077,60 @@ impl StudioApp {
         })
     }
 
+    /// Mark range fields that processing limited to this scan's data: explicit
+    /// values get an amber note and one Problems warning for the group; automatic
+    /// values show the used value in their placeholder. Settings are unchanged.
+    fn show_range_adjustments(&mut self, ix: usize, sp: &XASSpectrum, cx: &mut Context<Self>) {
+        let adjustments = if self.effective_params(ix).mback.is_some() {
+            Vec::new()
+        } else {
+            sp.range_adjustments()
+        };
+        let params = self.effective_params(ix).clone();
+        let mut explicit = Vec::new();
+        for (key, field) in &self.param_fields {
+            let adjustment = adjustments
+                .iter()
+                .find(|a| range_adjustment_field(a.field).is_some_and(|(k, ..)| k == *key));
+            let user_set = param_field_value(*key, &params).is_some();
+            let note = adjustment.filter(|_| user_set).map(|a| {
+                let unit = range_adjustment_field(a.field).map_or("", |(.., unit)| unit);
+                SharedString::from(format!(
+                    "Used {}: limited by the measured data",
+                    range_used_text(a, unit)
+                ))
+            });
+            if let Some(a) = adjustment {
+                if user_set {
+                    explicit.push(*a);
+                } else {
+                    let used = a.used;
+                    field.update(cx, |f, cx| {
+                        f.set_placeholder(format!("auto ({used:.1})"), cx)
+                    });
+                }
+            }
+            field.update(cx, |f, cx| f.set_adjusted(note, cx));
+        }
+        // Key by the full source path: same-named files in other folders are
+        // separate groups, each with its own warning.
+        let label = self.spectrum_path.display().to_string();
+        self.job_errors.retain(|p| {
+            !(p.batch.is_none() && p.label == label && p.message.starts_with(RANGE_WARNING_PREFIX))
+        });
+        if let Some(message) = range_warning(&explicit) {
+            push_problem(
+                &mut self.job_errors,
+                JobError {
+                    batch: None,
+                    severity: ProblemSeverity::Warning,
+                    label,
+                    message,
+                },
+            );
+        }
+    }
+
     fn set_processed(
         &mut self,
         ix: usize,
@@ -5075,12 +5205,14 @@ impl StudioApp {
                 (ParamKey::PreEdgeEnd, "auto (-30)"),
                 (ParamKey::NormStart, "auto (150)"),
                 (ParamKey::NormEnd, "auto (spectrum end)"),
+                (ParamKey::NormPolyorder, "auto (2)"),
             ] {
                 if let Some((_, field)) = self.param_fields.iter().find(|(k, _)| *k == key) {
                     field.update(cx, |f, cx| f.set_placeholder(value, cx));
                 }
             }
         }
+        self.show_range_adjustments(ix, &sp, cx);
         self.spectrum = Some(sp.clone());
         self.refresh_operando_frame_plot(ix, fingerprint, &sp, cx);
         self.invalidate_explore_plots(cx);

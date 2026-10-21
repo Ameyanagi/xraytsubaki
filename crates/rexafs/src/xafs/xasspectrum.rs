@@ -1367,6 +1367,36 @@ impl XASSpectrum {
         self.e0
     }
 
+    /// Fit-range endpoints that the calculated stages limited to this scan's
+    /// measured data (since 0.2.15).
+    ///
+    /// Pre/post-edge normalization limits its energy windows (offsets from E0 in
+    /// eV) and AUTOBK caps its `kmax` (Å⁻¹) instead of failing on a short scan;
+    /// the stored settings keep the requested values. Each entry names the
+    /// setting with its requested and used value, recomputed from the current
+    /// settings and energy grid for stages that have results. Empty when nothing was limited,
+    /// before calculation, for MBACK (which checks its own regions) and for the
+    /// legacy `ndarray-compat` backend. Calculates nothing.
+    pub fn range_adjustments(&self) -> Vec<super::ranges::RangeAdjustment> {
+        let mut adjustments = Vec::new();
+        #[cfg(not(feature = "ndarray-compat"))]
+        if let Some(energy) = &self.energy {
+            if let Some(normalization::NormalizationMethod::PrePostEdge(method)) =
+                &self.normalization
+            {
+                if method.get_norm().is_some() {
+                    adjustments.extend(method.range_adjustments(energy));
+                }
+            }
+            if let Some(background::BackgroundMethod::AUTOBK(method)) = &self.background {
+                if method.chi.is_some() {
+                    adjustments.extend(method.range_adjustments(energy));
+                }
+            }
+        }
+        adjustments
+    }
+
     /// Copy normalized absorption in edge-step units on the current energy grid.
     /// Returns `None` until normalization succeeds or after it is invalidated.
     /// When `preserves_prepared_values()` is true this copies the supplied

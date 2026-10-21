@@ -13,7 +13,10 @@ fn dictionary<'py>(py: Python<'py>, json: String) -> PyResult<Bound<'py, PyAny>>
 /// kstep=0.05 inverse angstroms, rmax=6 angstroms, no taper and automatic FFT/R sampling.
 /// Larger order narrows frequency response and broadens localization in k. R is not
 /// phase-corrected. The cauchy_v1 profile uses a fixed order independent of R extent.
-/// Construction copies settings; calculation checks coverage, finite values and budgets.
+/// Construction copies settings; calculation checks finite values and budgets. Since
+/// 0.2.15 endpoints beyond the measured k range are limited to it; the map keeps the
+/// requested settings, its warnings report the range used, and a range wholly outside
+/// the data raises.
 /// Advanced radii replace the generated R grid; nfft never silently truncates input.
 #[pyclass(name = "Wavelet", module = "rexafs", frozen, skip_from_py_object)]
 #[derive(Clone)]

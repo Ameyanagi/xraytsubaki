@@ -35,6 +35,14 @@ journal's requested raster resolution, or use the vector SVG for scalable line a
 window does not alter export dimensions. Reset restores the selected figure's
 defaults.
 
+SVG files record the figure's physical size in inches, for example
+`width="3.5in" height="2.6in"` for **Single column**, so vector editors, word
+processors and browsers place them at the chosen size. Drawing coordinates stay
+in output pixels (inches × DPI) through the SVG `viewBox`, so DPI does not change
+the vector drawing's printed size. Text, including axis labels and math, is
+typeset by Typst and stored as glyph outlines rather than editable `<text>`
+elements; it looks identical everywhere but must be retyped to change wording.
+
 Sizes must be 1–30 inches on each side; DPI must be an integer from 72 to 1200.
 The image must contain at most 25 million pixels. Width in pixels is width in
 inches multiplied by DPI, and likewise for height. These limits and defaults

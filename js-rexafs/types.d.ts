@@ -48,7 +48,8 @@ export interface PrePostEdgeOptions {
    * Lower pre-edge fit bound, as an energy offset from E0 in eV. Default: undefined selects a
    * rounded estimate near the beginning of the measured range. Choose a region below the
    * absorption edge without other edges or glitches; this region determines the subtracted
-   * baseline.
+   * baseline. Since 0.2.15 a start before the first measured energy is raised to it during
+   * normalization (the setting is kept); a start at or above pre_edge_end is an error.
    */
   pre_edge_start?: number | undefined;
   /**
@@ -66,7 +67,9 @@ export interface PrePostEdgeOptions {
   /**
    * Upper post-edge fit bound relative to E0, in eV. Default: undefined rounds the available
    * post-edge extent to a nearby 5 eV boundary, without extending beyond the measured range.
-   * Choose the range before a second absorption edge if one is present.
+   * Choose the range before a second absorption edge if one is present. Since 0.2.15 an
+   * explicit value beyond the data is lowered to the last measured energy during
+   * normalization, and a norm_start beyond it becomes min(25, 5 * round(norm_end / 15)) eV.
    */
   norm_end?: number | undefined;
   /**
@@ -1879,7 +1882,10 @@ export interface WaveletSize {
 }
 /**
  * Cauchy settings, available since 0.2.10. Use spectrum.wavelet(new Wavelet([2, 12])).
- * k_range is fully measured support in Å⁻¹. Defaults: weight 2, order 100,
+ * k_range is measured support in Å⁻¹; since 0.2.15 endpoints beyond the measured k range
+ * are limited to it; the map keeps the requested settings and its warnings report the
+ * range used.
+ * Defaults: weight 2, order 100,
  * k step 0.05 Å⁻¹, R up to 6 Å, no taper and automatic FFT/R sampling.
  * cauchy_v1 fixes order independently of R extent; larger order narrows frequency
  * response and broadens localization in k. R is not phase-corrected.

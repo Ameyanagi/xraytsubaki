@@ -164,7 +164,8 @@ fn wavelet_region_integral_uses_the_bilinear_scientific_surface() {
 fn wavelet_invalid_grids_fail_before_unbounded_allocation_or_truncation() {
     let (k, chi) = packet();
     for model in [
-        Wavelet::new(0. ..=30.),
+        Wavelet::new(25. ..=30.),
+        Wavelet::new(8. ..=4.),
         Wavelet::new(1. ..=18.).kstep(1e-30),
         Wavelet::new(1. ..=18.).nfft(512),
         Wavelet::new(1. ..=18.).order(0),
@@ -180,6 +181,26 @@ fn wavelet_invalid_grids_fail_before_unbounded_allocation_or_truncation() {
         .unwrap();
     assert!(zero.phase(0.).unwrap().iter().all(Option::is_none));
     assert!(zero.magnitude().iter().all(|v| *v == 0.));
+}
+#[test]
+fn wavelet_k_range_beyond_the_data_is_limited_and_reported() {
+    let (k, chi) = packet(); // measured k = 0–20 Å⁻¹
+    let map = Wavelet::new(2. ..=30.).calculate(&k, &chi).unwrap();
+    // The requested definition is kept; the used interval is reported separately.
+    assert_eq!(map.settings().k_range, [2., 30.]);
+    assert_eq!(map.k_support(), [2., 20.]);
+    assert!(map.integral(10. ..=25., 1. ..=2.).is_err());
+    let restored: WaveletMap = serde_json::from_str(&serde_json::to_string(&map).unwrap()).unwrap();
+    assert_eq!(restored.k_support(), [2., 20.]);
+    assert!(map
+        .warnings()
+        .iter()
+        .any(|w| w.contains("limited to the measured data")));
+    let inside = Wavelet::new(2. ..=12.).calculate(&k, &chi).unwrap();
+    assert_eq!(inside.k_support(), [2., 12.]);
+    assert!(!inside.warnings().iter().any(|w| w.contains("limited")));
+    let error = Wavelet::new(25. ..=30.).calculate(&k, &chi).unwrap_err();
+    assert!(error.to_string().contains("outside the measured k range"));
 }
 #[test]
 fn wavelet_spectrum_api_prepares_on_a_copy_and_retains_settings() {

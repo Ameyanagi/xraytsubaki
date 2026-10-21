@@ -7,7 +7,17 @@ use serde::{Deserialize, Serialize};
 
 use super::errors::{DataError, NormalizationError};
 use super::mathutils::{self, MathUtils};
+use super::ranges::RangeAdjustment;
 use super::xafsutils;
+
+/// Sample-index windows `[start, end)` and degree used by one normalization;
+/// the pre-edge flag selects a constant instead of a line.
+struct FitWindows {
+    pre: (usize, usize, bool),
+    post: (usize, usize),
+    polyorder: usize,
+    adjustments: Vec<RangeAdjustment>,
+}
 
 /// Common interface for absorption normalization and its cached results.
 ///
@@ -255,6 +265,18 @@ impl NormalizationMethod {
 /// output; AUTOBK uses the original absorption and resolved edge step.
 /// Automatic values filled into this object are retained. Set a field back to
 /// None, or construct fresh settings, to request its automatic resolution again.
+///
+/// Short scans (since 0.2.15): when a fit window extends beyond the measured
+/// energies, normalization limits it to the data instead of failing, following
+/// Larch `pre_edge`. The pre-edge start is raised to the first energy and the
+/// post-edge end lowered to the last. A pre-edge window lying wholly below the
+/// data becomes `[start, start / 2]` with a constant (mean) pre-edge; a post-edge
+/// start beyond the data becomes `min(25, 5 * round(end / 15))` eV; and the
+/// post-edge degree is capped at 1 when the window has fewer than five points.
+/// The stored settings keep the requested values, so longer scans are not
+/// affected; [`PrePostEdge::range_adjustments`] lists what was changed. A
+/// reversed pair (start at or above end, inside the data) or a window with fewer
+/// than two measured points returns [`NormalizationError::InvalidFitRange`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PrePostEdge {
@@ -360,7 +382,8 @@ impl PrePostEdge {
     /// Requires at least two samples and nondecreasing energy in eV. This mutates
     /// settings but does not fit the backgrounds or refresh result arrays.
     /// Resolved values remain stored; reset a field to None or create a fresh
-    /// object to request automatic selection again.
+    /// object to request automatic selection again. Explicit range endpoints are
+    /// stored unchanged; limiting them to the data happens during normalization.
     pub fn fill_parameter(
         &mut self,
         energy: &DVector<f64>,
@@ -394,10 +417,15 @@ impl PrePostEdge {
             .pre_edge_end
             .unwrap_or_else(|| 5.0 * (pre_edge_start / 15.0).round());
 
-        if pre_edge_start > pre_edge_end {
+        // Explicit values are never swapped or rewritten: normalization limits
+        // endpoints beyond the data and reports a reversed pair as an error
+        // (since 0.2.15). Only fully automatic pairs keep the legacy reordering.
+        let explicit_pre = self.pre_edge_start.is_some() || self.pre_edge_end.is_some();
+        if pre_edge_start > pre_edge_end && !explicit_pre {
             std::mem::swap(&mut pre_edge_start, &mut pre_edge_end);
         }
 
+        let explicit_norm = self.norm_start.is_some() || self.norm_end.is_some();
         let mut norm_end = self.norm_end.unwrap_or_else(|| {
             let estimate = 5.0 * ((energy.max() - e0) / 5.0).round();
             let estimate = if estimate < 0.0 {
@@ -412,10 +440,12 @@ impl PrePostEdge {
             .norm_start
             .unwrap_or_else(|| (5.0 * (norm_end / 15.0).round()).min(25.0));
 
-        if norm_start > norm_end + 5.0 {
-            std::mem::swap(&mut norm_start, &mut norm_end);
+        if !explicit_norm {
+            if norm_start > norm_end + 5.0 {
+                std::mem::swap(&mut norm_start, &mut norm_end);
+            }
+            norm_start = norm_start.min(norm_end - 10.0);
         }
-        norm_start = norm_start.min(norm_end - 10.0);
 
         let mut norm_polyorder = self.norm_polyorder.unwrap_or_else(|| {
             let diff = norm_end - norm_start;
@@ -436,6 +466,192 @@ impl PrePostEdge {
         self.norm_polyorder = Some(norm_polyorder);
 
         Ok(self)
+    }
+
+    /// Fit windows used by [`Normalization::normalize`] after limiting the
+    /// resolved settings to `energy` (sorted, finite, in eV). Requires the
+    /// settings filled by [`Self::fill_parameter`]. Stored settings are unchanged.
+    ///
+    /// The rules follow Larch `pre_edge` (see [`super::ranges`]):
+    /// - the pre-edge start is raised to the first measured energy;
+    /// - if the whole pre-edge window lies below the data, its end becomes
+    ///   `start / 2` and the pre-edge is a constant (the mean absorption). This
+    ///   fallback is a rexafs choice: Larch swaps such explicit bounds and may fit
+    ///   from the first sample, and it selects a constant pre-edge whenever the
+    ///   window spans fewer than three samples, whereas rexafs does so only when
+    ///   the window lies wholly below the data (a two-point window inside the data
+    ///   stays linear, as before);
+    /// - a data-limited pre-edge window with one point keeps two points, as Larch does;
+    /// - the post-edge end is lowered to the last measured energy;
+    /// - if the post-edge start lies at or beyond that end, it becomes the
+    ///   automatic value `min(25, 5 * round(end / 15))` eV, and it always stays
+    ///   at least 10 eV below the end;
+    /// - the polynomial degree is capped at 1 when the window has fewer than five points.
+    ///
+    /// A reversed range, or a window that still holds fewer than two measured
+    /// points, returns [`NormalizationError::InvalidFitRange`] naming the setting.
+    fn fit_windows(&self, energy: &[f64]) -> Result<FitWindows, NormalizationError> {
+        let missing = |field: &str| -> NormalizationError {
+            DataError::MissingData {
+                field: field.to_string(),
+            }
+            .into()
+        };
+        let e0 = self.e0.ok_or_else(|| missing("e0"))?;
+        let pre_start = self
+            .pre_edge_start
+            .ok_or_else(|| missing("pre_edge_start"))?;
+        let pre_end = self.pre_edge_end.ok_or_else(|| missing("pre_edge_end"))?;
+        let norm_start = self.norm_start.ok_or_else(|| missing("norm_start"))?;
+        let norm_end = self.norm_end.ok_or_else(|| missing("norm_end"))?;
+        let polyorder = self
+            .norm_polyorder
+            .ok_or_else(|| missing("norm_polyorder"))?;
+        let n = energy.len();
+        let lo = energy[0] - e0;
+        let hi = energy[n - 1] - e0;
+        let invalid = |field: &str, reason: String| NormalizationError::InvalidFitRange {
+            field: field.to_string(),
+            reason,
+        };
+        // Check before clamping: f64::min/max would silently replace a NaN.
+        for (field, value) in [
+            ("pre_edge_start", pre_start),
+            ("pre_edge_end", pre_end),
+            ("norm_start", norm_start),
+            ("norm_end", norm_end),
+        ] {
+            if !value.is_finite() {
+                return Err(invalid(field, format!("{value} eV must be finite")));
+            }
+        }
+        let mut adjustments = Vec::new();
+
+        // Pre-edge: start limited to the data (Larch: pre1 = max(pre1, emin - e0)).
+        if pre_start >= pre_end && pre_end > lo {
+            return Err(invalid(
+                "pre_edge_start",
+                format!("{pre_start} eV must be below pre_edge_end ({pre_end} eV)"),
+            ));
+        }
+        let start = pre_start.max(lo);
+        let mut end = pre_end;
+        // A window entirely below the data falls back to Larch's automatic end
+        // pre2 = pre1 / 2 (pre_edge.py, line 234) and a constant pre-edge, as
+        // Larch uses for short windows (lines 243–245): a line fitted to a few
+        // eV just below the edge would be extrapolated far into the post-edge.
+        let constant = end <= start;
+        if constant {
+            end = 0.5 * start;
+        }
+        let p1 = mathutils::index_of_sorted(energy, &(start + e0))?;
+        let mut p2 = mathutils::index_nearest_sorted(energy, &(end + e0))?;
+        let limited = start != pre_start || end != pre_end;
+        if p2 < p1 + 2 {
+            if !limited || p1 + 2 >= n {
+                return Err(invalid(
+                    "pre_edge_end",
+                    format!(
+                        "the pre-edge range {start:.1} to {end:.1} eV holds fewer than two measured points; \
+                         the scan starts {lo:.1} eV from E0"
+                    ),
+                ));
+            }
+            p2 = p1 + 2;
+            end = energy[p2] - e0;
+        }
+        for (field, requested, used) in [
+            ("pre_edge_start", pre_start, start),
+            ("pre_edge_end", pre_end, end),
+        ] {
+            if used != requested {
+                adjustments.push(RangeAdjustment {
+                    field,
+                    requested,
+                    used,
+                });
+            }
+        }
+        let pre = (p1, p2, constant);
+
+        // Post-edge: end limited to the data (Larch: norm2 = min(norm2, emax - e0)).
+        // A small tolerance treats an end computed from the last energy as "at the end".
+        let tolerance = 1e-6 * hi.abs().max(1.0);
+        let at_end = norm_end >= hi - tolerance;
+        if norm_start >= norm_end && !at_end {
+            return Err(invalid(
+                "norm_start",
+                format!("{norm_start} eV must be below norm_end ({norm_end} eV)"),
+            ));
+        }
+        let end = norm_end.min(hi);
+        let mut start = norm_start;
+        if start >= end {
+            start = (5.0 * (end / 15.0).round()).min(25.0);
+        }
+        start = start.min(end - 10.0);
+        if end < norm_end && start < 0.0 {
+            return Err(invalid(
+                "norm_end",
+                format!(
+                    "the scan ends {hi:.1} eV above E0, too close to the edge for a post-edge fit"
+                ),
+            ));
+        }
+        let p1 = mathutils::index_of_sorted(energy, &(start + e0))?;
+        let p2 = mathutils::index_nearest_sorted(energy, &(end + e0))?;
+        if p2 < p1 + 2 {
+            return Err(invalid(
+                "norm_start",
+                format!(
+                    "the post-edge range {start:.1} to {end:.1} eV holds fewer than two measured points; \
+                     the scan ends {hi:.1} eV above E0"
+                ),
+            ));
+        }
+        // Larch caps the degree at 1 for windows of fewer than five points
+        // (pre_edge.py, lines 297–301); the window always holds at least two.
+        let order = if p2 - p1 < 5 {
+            polyorder.clamp(0, 1) as usize
+        } else {
+            polyorder.max(0) as usize
+        };
+        for (field, requested, used) in [
+            ("norm_start", norm_start, start),
+            ("norm_end", norm_end, end),
+            ("norm_polyorder", polyorder as f64, order as f64),
+        ] {
+            if used != requested && !(field == "norm_end" && used >= requested - tolerance) {
+                adjustments.push(RangeAdjustment {
+                    field,
+                    requested,
+                    used,
+                });
+            }
+        }
+        Ok(FitWindows {
+            pre,
+            post: (p1, p2),
+            polyorder: order,
+            adjustments,
+        })
+    }
+
+    /// Settings that normalization limits to the measured data (since 0.2.15).
+    ///
+    /// Recomputes the limits from the current settings and the supplied `energy`
+    /// grid in eV (normally the grid that was normalized); it does not record the
+    /// last calculation. After `fill_parameter` or `normalize` the settings are
+    /// resolved, so this can be called before fitting too. Returns an empty list
+    /// when every range fits inside the data, when settings are still unresolved,
+    /// or when the ranges are invalid. Fits nothing and changes nothing.
+    pub fn range_adjustments(&self, energy: &DVector<f64>) -> Vec<RangeAdjustment> {
+        if energy.is_empty() {
+            return Vec::new();
+        }
+        self.fit_windows(energy.as_slice())
+            .map(|windows| windows.adjustments)
+            .unwrap_or_default()
     }
 
     fn validate_inputs(energy: &DVector<f64>, mu: &DVector<f64>) -> Result<(), NormalizationError> {
@@ -581,35 +797,12 @@ impl Normalization for PrePostEdge {
         let e0 = self.e0.ok_or_else(|| DataError::MissingData {
             field: "e0".to_string(),
         })?;
-        let pre_edge_start = self.pre_edge_start.ok_or_else(|| DataError::MissingData {
-            field: "pre_edge_start".to_string(),
-        })?;
-        let pre_edge_end = self.pre_edge_end.ok_or_else(|| DataError::MissingData {
-            field: "pre_edge_end".to_string(),
-        })?;
-        let norm_start = self.norm_start.ok_or_else(|| DataError::MissingData {
-            field: "norm_start".to_string(),
-        })?;
-        let norm_end = self.norm_end.ok_or_else(|| DataError::MissingData {
-            field: "norm_end".to_string(),
-        })?;
-        let norm_polyorder = self.norm_polyorder.ok_or_else(|| DataError::MissingData {
-            field: "norm_polyorder".to_string(),
-        })?;
         let nvict = self.n_victoreen.unwrap_or(0);
 
         let energy_slice = energy.as_slice();
-        let p1 = mathutils::index_of_sorted(energy_slice, &(pre_edge_start + e0))?;
-        let mut p2 = mathutils::index_nearest_sorted(energy_slice, &(pre_edge_end + e0))?;
-        if p2 <= p1 || p2 - p1 < 2 {
-            if p1 + 2 > energy.len() {
-                return Err(NormalizationError::PreEdgeFitFailed {
-                    start: pre_edge_start + e0,
-                    end: pre_edge_end + e0,
-                });
-            }
-            p2 = (p1 + 2).min(energy.len());
-        }
+        let windows = self.fit_windows(energy_slice)?;
+        let (p1, p2, constant) = windows.pre;
+        let nvict = if constant { 0 } else { nvict };
 
         let mut energy_x = Vec::with_capacity(p2 - p1);
         let mut mu_x = Vec::with_capacity(p2 - p1);
@@ -623,12 +816,16 @@ impl Normalization for PrePostEdge {
         }
         if energy_x.len() < 2 {
             return Err(NormalizationError::PreEdgeFitFailed {
-                start: pre_edge_start + e0,
-                end: pre_edge_end + e0,
+                start: energy[p1],
+                end: energy[p2 - 1],
             });
         }
 
-        let pre_coefficients: Vec<f64> = polyfit(&energy_x, &mu_x, 1)?;
+        let pre_coefficients: Vec<f64> = if constant {
+            vec![mu_x.iter().sum::<f64>() / mu_x.len() as f64, 0.0]
+        } else {
+            polyfit(&energy_x, &mu_x, 1)?
+        };
 
         let mut pre_edge = DVector::zeros(energy.len());
         for i in 0..energy.len() {
@@ -636,31 +833,13 @@ impl Normalization for PrePostEdge {
                 (energy[i] * pre_coefficients[1] + pre_coefficients[0]) * energy[i].powi(-nvict);
         }
 
-        let mut p1 = mathutils::index_of_sorted(energy_slice, &(norm_start + e0))?;
-        let mut p2 = mathutils::index_nearest_sorted(energy_slice, &(norm_end + e0))?;
-
-        if p2 <= p1 || p2 - p1 < 2 {
-            if p1 + 2 > energy.len() {
-                return Err(NormalizationError::PostEdgeFitFailed {
-                    order: norm_polyorder as usize,
-                    n_points: 0,
-                });
-            }
-            p2 = (p1 + 2).min(energy.len());
-            p1 = (p1 + 1).min(energy.len() - 1);
-        }
-
+        let (p1, p2) = windows.post;
+        let norm_polyorder = windows.polyorder;
         let mut presub = Vec::with_capacity(p2 - p1);
         for i in p1..p2 {
             presub.push(mu[i] - pre_edge[i]);
         }
-        if presub.len() <= norm_polyorder as usize {
-            return Err(NormalizationError::PostEdgeFitFailed {
-                order: norm_polyorder as usize,
-                n_points: presub.len(),
-            });
-        }
-        let post_coefficients = polyfit(&energy_slice[p1..p2], &presub, norm_polyorder as usize)?;
+        let post_coefficients = polyfit(&energy_slice[p1..p2], &presub, norm_polyorder)?;
 
         let mut post_edge = pre_edge.clone();
         for (i, c) in post_coefficients.iter().enumerate() {
@@ -912,5 +1091,155 @@ mod tests {
             .for_each(|(a, b)| {
                 assert_abs_diff_eq!(a, b, epsilon = ACCEPTABLE_MU_DIFF);
             });
+    }
+
+    /// Synthetic Ni-like edge at 8333 eV: a sloped line plus a smooth unit step.
+    fn edge(first: f64, last: f64) -> (DVector<f64>, DVector<f64>) {
+        let count = (last - first) as usize + 1;
+        let energy = DVector::from_iterator(count, (0..count).map(|i| first + i as f64));
+        let mu =
+            energy.map(|e| 0.2 - 1e-5 * (e - 8333.0) + 1.0 / (1.0 + (-(e - 8333.0) / 2.0).exp()));
+        (energy, mu)
+    }
+
+    fn normalized(
+        first: f64,
+        last: f64,
+        settings: PrePostEdge,
+    ) -> Result<PrePostEdge, NormalizationError> {
+        let (energy, mu) = edge(first, last);
+        let mut settings = settings;
+        settings.e0 = Some(8333.0);
+        settings.normalize(&energy, &mu)?;
+        Ok(settings)
+    }
+
+    #[test]
+    fn short_post_edge_is_limited_to_the_data_and_reported() {
+        // The scan ends 119 eV above E0, below the default 150 eV fit minimum.
+        let result = normalized(8133.0, 8452.0, PrePostEdge::default()).unwrap();
+        let norm = result.get_norm().unwrap();
+        assert_abs_diff_eq!(norm[norm.len() - 1], 1.0, epsilon = 0.02);
+        // Requested settings are kept for longer scans.
+        assert_eq!(result.norm_start, Some(150.0));
+        assert_eq!(result.norm_end, Some(2000.0));
+        let (energy, _) = edge(8133.0, 8452.0);
+        let fields: Vec<_> = result
+            .range_adjustments(&energy)
+            .iter()
+            .map(|a| (a.field, a.used))
+            .collect();
+        assert_eq!(fields, [("norm_start", 25.0), ("norm_end", 119.0)]);
+    }
+
+    #[test]
+    fn short_pre_edge_is_limited_to_the_data_and_reported() {
+        // The scan starts 15 eV before E0, above the default −30 eV pre-edge end.
+        let result = normalized(8318.0, 8800.0, PrePostEdge::default()).unwrap();
+        let norm = result.get_norm().unwrap();
+        assert_abs_diff_eq!(norm[norm.len() - 1], 1.0, epsilon = 0.02);
+        assert_eq!(result.pre_edge_start, Some(-200.0));
+        let (energy, _) = edge(8318.0, 8800.0);
+        let adjustments = result.range_adjustments(&energy);
+        assert_eq!(adjustments[0].field, "pre_edge_start");
+        assert_eq!(adjustments[0].used, -15.0);
+        assert_eq!(adjustments[1].field, "pre_edge_end");
+        assert_eq!(adjustments[1].used, -7.5);
+    }
+
+    #[test]
+    fn ranges_inside_the_data_are_not_reported() {
+        let settings = PrePostEdge {
+            norm_end: Some(400.0),
+            ..PrePostEdge::default()
+        };
+        let result = normalized(8133.0, 8800.0, settings).unwrap();
+        let (energy, _) = edge(8133.0, 8800.0);
+        assert!(result.range_adjustments(&energy).is_empty());
+    }
+
+    #[test]
+    fn reversed_or_empty_ranges_name_the_setting() {
+        let field = |settings: PrePostEdge| match normalized(8100.0, 8800.0, settings) {
+            Err(NormalizationError::InvalidFitRange { field, .. }) => field,
+            other => panic!("expected InvalidFitRange, got {other:?}"),
+        };
+        let reversed_pre = PrePostEdge {
+            pre_edge_start: Some(-30.0),
+            pre_edge_end: Some(-200.0),
+            ..PrePostEdge::default()
+        };
+        assert_eq!(field(reversed_pre), "pre_edge_start");
+
+        let reversed_post = PrePostEdge {
+            norm_start: Some(300.0),
+            norm_end: Some(150.0),
+            ..PrePostEdge::default()
+        };
+        assert_eq!(field(reversed_post), "norm_start");
+
+        let one_point = PrePostEdge {
+            pre_edge_start: Some(-100.0),
+            pre_edge_end: Some(-99.6),
+            ..PrePostEdge::default()
+        };
+        assert_eq!(field(one_point), "pre_edge_end");
+    }
+
+    #[test]
+    fn short_post_edge_windows_cap_the_degree_at_one_like_larch() {
+        // 1 eV steps through the edge, then 10 eV steps: 150–190 eV holds four points.
+        let energy: Vec<f64> = (8133..=8340)
+            .map(f64::from)
+            .chain((1..=26).map(|i| 8340.0 + 10.0 * f64::from(i)))
+            .collect();
+        let energy = DVector::from_vec(energy);
+        let mu = energy.map(|e| 0.2 + 1.0 / (1.0 + (-(e - 8333.0) / 2.0).exp()));
+        let mut settings = PrePostEdge {
+            e0: Some(8333.0),
+            norm_start: Some(150.0),
+            norm_end: Some(190.0),
+            norm_polyorder: Some(3),
+            ..PrePostEdge::default()
+        };
+        settings.normalize(&energy, &mu).unwrap();
+        assert_eq!(settings.get_norm_coefficients().unwrap().len(), 2);
+        let adjustments = settings.range_adjustments(&energy);
+        assert_eq!(
+            (
+                adjustments[0].field,
+                adjustments[0].requested,
+                adjustments[0].used
+            ),
+            ("norm_polyorder", 3.0, 1.0)
+        );
+        assert_eq!(settings.norm_polyorder, Some(3));
+    }
+
+    #[test]
+    fn non_finite_endpoints_are_rejected_before_clamping() {
+        for (field, settings) in [
+            (
+                "norm_end",
+                PrePostEdge {
+                    norm_end: Some(f64::NAN),
+                    ..PrePostEdge::default()
+                },
+            ),
+            (
+                "pre_edge_start",
+                PrePostEdge {
+                    pre_edge_start: Some(f64::NEG_INFINITY),
+                    ..PrePostEdge::default()
+                },
+            ),
+        ] {
+            match normalized(8100.0, 8800.0, settings) {
+                Err(NormalizationError::InvalidFitRange { field: name, .. }) => {
+                    assert_eq!(name, field)
+                }
+                other => panic!("expected InvalidFitRange, got {other:?}"),
+            }
+        }
     }
 }

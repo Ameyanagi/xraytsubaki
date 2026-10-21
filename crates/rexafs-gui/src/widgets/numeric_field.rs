@@ -61,6 +61,8 @@ pub struct NumericField {
     display_decimals: Option<usize>,
     /// Longer explanation shown as a tooltip on the label.
     description: Option<SharedString>,
+    /// Amber note when processing used a different, data-limited value.
+    adjusted: Option<SharedString>,
 }
 
 /// "pre-edge start (eV)" → ("pre-edge start", "eV").
@@ -239,6 +241,7 @@ impl NumericField {
             mixed: false,
             display_decimals: None,
             description: None,
+            adjusted: None,
         }
     }
 
@@ -309,6 +312,15 @@ impl NumericField {
         self.input
             .update(cx, |i, cx| i.set_placeholder(compact, cx));
         cx.notify();
+    }
+
+    /// Show (or clear) an amber note that processing used another value, e.g.
+    /// a range endpoint limited to the measured data. The value is unchanged.
+    pub fn set_adjusted(&mut self, note: Option<SharedString>, cx: &mut Context<Self>) {
+        if self.adjusted != note {
+            self.adjusted = note;
+            cx.notify();
+        }
     }
 
     pub fn set_mixed(&mut self, mixed: bool, cx: &mut Context<Self>) {
@@ -385,7 +397,11 @@ impl Render for NumericField {
                     .whitespace_nowrap()
                     .text_ellipsis()
                     .text_size(px(12.))
-                    .text_color(t.text_muted)
+                    .text_color(if self.adjusted.is_some() {
+                        t.warn
+                    } else {
+                        t.text_muted
+                    })
                     .when_some(self.description.clone(), |d, description| {
                         d.tooltip(move |_, cx| {
                             cx.new(|_| crate::app::Tooltip {
@@ -464,24 +480,31 @@ impl Render for NumericField {
             .flex_col()
             .gap_1()
             .child(row)
-            .when(!overridden && self.error.is_none() && has_auto, |d| {
-                d.when_some(automatic_detail(&self.automatic_hint), |d, detail| {
-                    d.child(
-                        div().text_size(px(11.)).text_color(t.text_muted).child(
-                            format!(
-                                "Automatic: {detail} {}",
-                                if detail.parse::<f64>().is_ok() {
-                                    self.unit.as_ref()
-                                } else {
-                                    ""
-                                }
-                            )
-                            .trim()
-                            .to_string(),
-                        ),
-                    )
-                })
-            })
+            .when_some(
+                self.adjusted.clone().filter(|_| self.error.is_none()),
+                |d, note| d.child(div().text_size(px(11.)).text_color(t.warn).child(note)),
+            )
+            .when(
+                !overridden && self.error.is_none() && self.adjusted.is_none() && has_auto,
+                |d| {
+                    d.when_some(automatic_detail(&self.automatic_hint), |d, detail| {
+                        d.child(
+                            div().text_size(px(11.)).text_color(t.text_muted).child(
+                                format!(
+                                    "Automatic: {detail} {}",
+                                    if detail.parse::<f64>().is_ok() {
+                                        self.unit.as_ref()
+                                    } else {
+                                        ""
+                                    }
+                                )
+                                .trim()
+                                .to_string(),
+                            ),
+                        )
+                    })
+                },
+            )
             .when_some(self.error.clone(), |d, error| {
                 let action = |id, label: &'static str| {
                     crate::accessibility::Control::new(

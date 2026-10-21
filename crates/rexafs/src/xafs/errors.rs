@@ -134,6 +134,17 @@ pub enum NormalizationError {
         n_points: usize,
     },
 
+    #[error("{field}: {reason}")]
+    /// A fit range is reversed or holds too few measured points, even after the
+    /// automatic limiting to the measured data (since 0.2.15). `field` names the
+    /// setting to change, for example `pre_edge_end` or `norm_start`.
+    InvalidFitRange {
+        /// Setting name, for example `pre_edge_start` or `norm_start`.
+        field: String,
+        /// Explanation that includes the range used and the measured limit.
+        reason: String,
+    },
+
     #[error("edge step is too small: {edge_step} (minimum: {min})")]
     /// The normalization scale is too small for stable division; inspect the selected edge and fitting ranges.
     EdgeStepTooSmall {
@@ -191,6 +202,16 @@ pub enum BackgroundError {
     InvalidRbkg {
         /// Requested background cutoff, in Å.
         rbkg: f64,
+    },
+
+    #[error("{field}: {reason}")]
+    /// The background k range is reversed or lies beyond the measured data
+    /// (since 0.2.15). `field` names the setting to change, such as `kmin`.
+    InvalidFitRange {
+        /// Setting name, for example `kmin`.
+        field: String,
+        /// Explanation that includes the requested value and the measured limit.
+        reason: String,
     },
 
     #[error("spline knot calculation failed: insufficient k-range [{kmin}, {kmax}]")]

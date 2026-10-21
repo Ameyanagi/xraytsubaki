@@ -56,9 +56,10 @@ test("browser initialization, phase mask, invalid coverage and malformed maps",a
   assert.throws(()=>map.phase(2));assert.throws(()=>map.integral([0,3],[1,3]));
   assert.throws(()=>new BrowserWavelet([1,9],{typo:2}),/Unknown/);
   assert.throws(()=>new BrowserWavelet([1,9],{rmax:NaN}),/finite/);
-  const outside=new BrowserWavelet([0,20]),huge=new BrowserWavelet([1,9],{kstep:1e-100});
-  assert.throws(()=>outside.calculate(k,k));assert.throws(()=>huge.estimate(k));
+  const partial=new BrowserWavelet([0,20]),outside=new BrowserWavelet([12,20]),huge=new BrowserWavelet([1,9],{kstep:1e-100});
+  const limited=partial.calculate(k,k);assert.match(limited.warnings_json(),/limited to the measured data/);
+  assert.throws(()=>outside.calculate(k,k),/outside the measured k range/);assert.throws(()=>huge.estimate(k));
   const bad=JSON.parse(map.to_json());bad.real.pop();assert.throws(()=>BrowserMap.from_json(JSON.stringify(bad)),/dimensions/);
   const restored=BrowserMap.from_json(map.to_json());assert.deepEqual(restored.real,map.real);
-  for(const object of [model,map,outside,huge,restored]) object.free();
+  for(const object of [model,map,partial,limited,outside,huge,restored]) object.free();
 });

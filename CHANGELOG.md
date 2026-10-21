@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Write publication SVG width and height in inches with a pixel `viewBox`, so a
+  3.3 in figure imports at 3.3 in instead of about 10 in.
+
 ## 0.2.14 (2026-09-24)
 
 - Keep Live acquisition visible in a compact sidebar or separate monitor while

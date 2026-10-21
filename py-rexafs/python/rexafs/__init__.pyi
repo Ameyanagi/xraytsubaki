@@ -1809,7 +1809,8 @@ class Wavelet:
     Calculations release the GIL and return owned results; invalid definitions,
     intervals wholly outside the measured k range and excessive allocations
     raise ValueError. Since 0.2.15 endpoints beyond the measured k range are
-    limited to it; the map's k_range and warnings report the range used."""
+    limited to it; the map keeps the requested settings and its warnings
+    report the range used."""
     def __init__(self, k_range: tuple[float, float], *, kweight: int = 2,
                  order: int = 100, kstep: float = 0.05, rmax: float = 6.0,
                  rstep: float | None = None, taper: float = 0.0,

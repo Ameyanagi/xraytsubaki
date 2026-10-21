@@ -341,7 +341,7 @@ impl StudioApp {
                     if map.r().len()<2 {return Err("The desktop map needs at least two R rows; increase R maximum or reduce R step".into());}
                     let mut fft_settings = settings.clone();
                     // The map's k range may be limited to the measured data.
-                    let [kmin, kmax] = map.settings().k_range;
+                    let [kmin, kmax] = map.k_support();
                     fft_settings.fft_kmin = Some(kmin);
                     fft_settings.fft_kmax = Some(kmax);
                     fft_settings.fft_kweight = Some(definition.kweight as f64);
@@ -450,7 +450,7 @@ impl StudioApp {
             self.wavelet.lock_basis = None;
         }
         let map = &record.map;
-        let k = map.settings().k_range;
+        let k = map.k_support();
         // Amber note on k min/max when the map used a data-limited k range.
         for (i, used) in k.into_iter().enumerate() {
             if let Some(field) = self.wavelet.fields.get(i) {

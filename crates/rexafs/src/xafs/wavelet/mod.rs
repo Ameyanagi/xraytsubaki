@@ -62,9 +62,10 @@ pub enum WaveletWindow {
 #[serde(deny_unknown_fields)]
 pub struct Wavelet {
     /// Selected support in Å⁻¹, increasing. Since 0.2.15 endpoints beyond the
-    /// measured k range are limited to it during calculation; the map's settings
-    /// record the range used and its warnings say so. A range wholly outside the
-    /// measured k range is an error.
+    /// measured k range are limited to it during calculation; the map keeps this
+    /// requested value in `settings()`, reports the used interval through
+    /// `WaveletMap::k_support` and says so in its warnings. A range wholly outside
+    /// the measured k range is an error.
     pub k_range: [f64; 2],
     /// Integer k exponent, 0–6, default 2; amplifies high-k contributions/noise.
     pub kweight: u8,

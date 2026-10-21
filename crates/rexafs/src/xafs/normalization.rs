@@ -272,7 +272,7 @@ impl NormalizationMethod {
 /// post-edge end lowered to the last. A pre-edge window lying wholly below the
 /// data becomes `[start, start / 2]` with a constant (mean) pre-edge; a post-edge
 /// start beyond the data becomes `min(25, 5 * round(end / 15))` eV; and the
-/// post-edge degree is lowered when the window has too few points.
+/// post-edge degree is capped at 1 when the window has fewer than five points.
 /// The stored settings keep the requested values, so longer scans are not
 /// affected; [`PrePostEdge::range_adjustments`] lists what was changed. A
 /// reversed pair (start at or above end, inside the data) or a window with fewer
@@ -475,13 +475,18 @@ impl PrePostEdge {
     /// The rules follow Larch `pre_edge` (see [`super::ranges`]):
     /// - the pre-edge start is raised to the first measured energy;
     /// - if the whole pre-edge window lies below the data, its end becomes
-    ///   `start / 2` and the pre-edge is a constant (the mean absorption);
+    ///   `start / 2` and the pre-edge is a constant (the mean absorption). This
+    ///   fallback is a rexafs choice: Larch swaps such explicit bounds and may fit
+    ///   from the first sample, and it selects a constant pre-edge whenever the
+    ///   window spans fewer than three samples, whereas rexafs does so only when
+    ///   the window lies wholly below the data (a two-point window inside the data
+    ///   stays linear, as before);
     /// - a data-limited pre-edge window with one point keeps two points, as Larch does;
     /// - the post-edge end is lowered to the last measured energy;
     /// - if the post-edge start lies at or beyond that end, it becomes the
     ///   automatic value `min(25, 5 * round(end / 15))` eV, and it always stays
     ///   at least 10 eV below the end;
-    /// - the polynomial degree is lowered when the window has too few points.
+    /// - the polynomial degree is capped at 1 when the window has fewer than five points.
     ///
     /// A reversed range, or a window that still holds fewer than two measured
     /// points, returns [`NormalizationError::InvalidFitRange`] naming the setting.
@@ -509,6 +514,17 @@ impl PrePostEdge {
             field: field.to_string(),
             reason,
         };
+        // Check before clamping: f64::min/max would silently replace a NaN.
+        for (field, value) in [
+            ("pre_edge_start", pre_start),
+            ("pre_edge_end", pre_end),
+            ("norm_start", norm_start),
+            ("norm_end", norm_end),
+        ] {
+            if !value.is_finite() {
+                return Err(invalid(field, format!("{value} eV must be finite")));
+            }
+        }
         let mut adjustments = Vec::new();
 
         // Pre-edge: start limited to the data (Larch: pre1 = max(pre1, emin - e0)).
@@ -593,8 +609,13 @@ impl PrePostEdge {
                 ),
             ));
         }
-        // Larch likewise lowers the degree for short windows (pre_edge.py, lines 294–299).
-        let order = (polyorder.max(0) as usize).min(p2 - p1 - 1);
+        // Larch caps the degree at 1 for windows of fewer than five points
+        // (pre_edge.py, lines 297–301); the window always holds at least two.
+        let order = if p2 - p1 < 5 {
+            polyorder.clamp(0, 1) as usize
+        } else {
+            polyorder.max(0) as usize
+        };
         for (field, requested, used) in [
             ("norm_start", norm_start, start),
             ("norm_end", norm_end, end),
@@ -616,11 +637,14 @@ impl PrePostEdge {
         })
     }
 
-    /// Settings that the last normalization limited to the measured data (since 0.2.15).
+    /// Settings that normalization limits to the measured data (since 0.2.15).
     ///
-    /// `energy` is the grid in eV that was normalized. Returns an empty list when
-    /// every range fit inside the data, or before normalization has resolved the
-    /// settings. Calculates nothing and changes nothing.
+    /// Recomputes the limits from the current settings and the supplied `energy`
+    /// grid in eV (normally the grid that was normalized); it does not record the
+    /// last calculation. After `fill_parameter` or `normalize` the settings are
+    /// resolved, so this can be called before fitting too. Returns an empty list
+    /// when every range fits inside the data, when settings are still unresolved,
+    /// or when the ranges are invalid. Fits nothing and changes nothing.
     pub fn range_adjustments(&self, energy: &DVector<f64>) -> Vec<RangeAdjustment> {
         if energy.is_empty() {
             return Vec::new();
@@ -1160,5 +1184,62 @@ mod tests {
             ..PrePostEdge::default()
         };
         assert_eq!(field(one_point), "pre_edge_end");
+    }
+
+    #[test]
+    fn short_post_edge_windows_cap_the_degree_at_one_like_larch() {
+        // 1 eV steps through the edge, then 10 eV steps: 150–190 eV holds four points.
+        let energy: Vec<f64> = (8133..=8340)
+            .map(f64::from)
+            .chain((1..=26).map(|i| 8340.0 + 10.0 * f64::from(i)))
+            .collect();
+        let energy = DVector::from_vec(energy);
+        let mu = energy.map(|e| 0.2 + 1.0 / (1.0 + (-(e - 8333.0) / 2.0).exp()));
+        let mut settings = PrePostEdge {
+            e0: Some(8333.0),
+            norm_start: Some(150.0),
+            norm_end: Some(190.0),
+            norm_polyorder: Some(3),
+            ..PrePostEdge::default()
+        };
+        settings.normalize(&energy, &mu).unwrap();
+        assert_eq!(settings.get_norm_coefficients().unwrap().len(), 2);
+        let adjustments = settings.range_adjustments(&energy);
+        assert_eq!(
+            (
+                adjustments[0].field,
+                adjustments[0].requested,
+                adjustments[0].used
+            ),
+            ("norm_polyorder", 3.0, 1.0)
+        );
+        assert_eq!(settings.norm_polyorder, Some(3));
+    }
+
+    #[test]
+    fn non_finite_endpoints_are_rejected_before_clamping() {
+        for (field, settings) in [
+            (
+                "norm_end",
+                PrePostEdge {
+                    norm_end: Some(f64::NAN),
+                    ..PrePostEdge::default()
+                },
+            ),
+            (
+                "pre_edge_start",
+                PrePostEdge {
+                    pre_edge_start: Some(f64::NEG_INFINITY),
+                    ..PrePostEdge::default()
+                },
+            ),
+        ] {
+            match normalized(8100.0, 8800.0, settings) {
+                Err(NormalizationError::InvalidFitRange { field: name, .. }) => {
+                    assert_eq!(name, field)
+                }
+                other => panic!("expected InvalidFitRange, got {other:?}"),
+            }
+        }
     }
 }

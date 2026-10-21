@@ -69,7 +69,7 @@ fn bracket(axis: &[f64], x: f64) -> (usize, f64) {
 pub(crate) fn texture(map: &rexafs::WaveletMap, view: usize) -> (Vec<Vec<f64>>, [f64; 4]) {
     let nx = map.k().len().clamp(2, 512);
     let ny = map.r().len().clamp(2, 256);
-    let [ka, kb] = map.settings().k_range;
+    let [ka, kb] = map.k_support();
     let ra = map.r()[0];
     let rb = *map.r().last().unwrap();
     let dx = (kb - ka) / (nx - 1) as f64;
@@ -149,7 +149,7 @@ impl StudioApp {
             panel_plot(&self.theme, layout.map, false)
                 .ticks(false)
                 .heatmap_with(&matrix, config)
-                .xlim(map.settings().k_range[0], map.settings().k_range[1])
+                .xlim(map.k_support()[0], map.k_support()[1])
                 .ylim(map.r()[0], *map.r().last().unwrap())
                 .into()
         } else {
@@ -157,12 +157,9 @@ impl StudioApp {
             // never fabricate a phase value just to satisfy heatmap bounds.
             panel_plot(&self.theme, layout.map, false)
                 .ticks(false)
-                .line(
-                    &map.settings().k_range,
-                    &[map.r()[0], *map.r().last().unwrap()],
-                )
+                .line(&map.k_support(), &[map.r()[0], *map.r().last().unwrap()])
                 .color(Color::TRANSPARENT)
-                .xlim(map.settings().k_range[0], map.settings().k_range[1])
+                .xlim(map.k_support()[0], map.k_support()[1])
                 .ylim(map.r()[0], *map.r().last().unwrap())
                 .into()
         };
@@ -193,7 +190,7 @@ impl StudioApp {
                         let Some(record) = &app.wavelet.record else {
                             return;
                         };
-                        let bounds = record.map.settings().k_range;
+                        let bounds = record.map.k_support();
                         app.wavelet.cursor = [
                             k.clamp(bounds[0], bounds[1]),
                             r.clamp(record.map.r()[0], *record.map.r().last().unwrap()),
@@ -295,7 +292,7 @@ impl StudioApp {
             } else {
                 "k-weighted χ"
             })
-            .xlim(map.settings().k_range[0], map.settings().k_range[1])
+            .xlim(map.k_support()[0], map.k_support()[1])
             .into();
         if !self.wavelet.slices {
             let (lo, hi) = crate::plotting::symmetric_y_limits(ky.iter().copied());

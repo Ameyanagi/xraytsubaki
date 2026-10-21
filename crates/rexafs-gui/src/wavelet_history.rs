@@ -210,4 +210,28 @@ mod tests {
         std::fs::write(&receipt.path, b"corrupted map").unwrap();
         assert!(read(receipt).err().unwrap().contains("checksum"));
     }
+
+    /// A request beyond the measured k range is saved and restored as requested;
+    /// the map reports the narrower interval it used separately.
+    #[test]
+    fn data_limited_maps_keep_the_requested_definition_in_history() {
+        let dir = tempfile::tempdir().unwrap();
+        let k = (0..181).map(|i| i as f64 * 0.05).collect::<Vec<_>>(); // to 9 Å⁻¹
+        let chi = k.iter().map(|v| (4. * v).sin()).collect::<Vec<_>>();
+        let requested = rexafs::Wavelet::new(2. ..=12.).rstep(0.1).rmax(4.);
+        let map = requested.calculate(&k, &chi).unwrap();
+        assert_eq!(map.k_support(), [2., 9.]);
+        let record = WaveletRecord {
+            schema: 1,
+            group: GroupId::new_result(),
+            label: "Short".into(),
+            settings: Default::default(),
+            map,
+            fourier: None,
+            fourier_error: None,
+        };
+        let receipt = retain(dir.path(), &record).unwrap();
+        assert_eq!(receipt.definition, requested);
+        assert_eq!(read(&receipt).unwrap().map.settings(), &requested);
+    }
 }

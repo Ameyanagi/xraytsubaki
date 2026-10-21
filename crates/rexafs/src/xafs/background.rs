@@ -421,11 +421,12 @@ impl AUTOBK {
         AUTOBK::default()
     }
 
-    /// Settings that the last background calculation limited to the measured
-    /// data (since 0.2.15). An explicit `kmax` above the largest measured wave
-    /// number `sqrt((E_max - ek0) / 3.81 eV Å²)` is capped there; this reports
-    /// that cap. `energy` is the grid in eV that was processed. Returns an empty
-    /// list before calculation (unresolved `ek0`). Calculates nothing.
+    /// Settings that background removal limits to the measured data (since
+    /// 0.2.15). An explicit `kmax` above the largest measured wave number
+    /// `sqrt((E_max - ek0) / 3.81 eV Å²)` is capped there; this reports that cap.
+    /// It recomputes from the current settings and the supplied `energy` grid in
+    /// eV (normally the processed grid); it does not record the last calculation.
+    /// Returns an empty list while `ek0` is unresolved. Fits nothing.
     pub fn range_adjustments(&self, energy: &DVector<f64>) -> Vec<RangeAdjustment> {
         let (Some(ek0), Some(kmin), Some(emax)) =
             (self.ek0, self.kmin, energy.iter().copied().reduce(f64::max))

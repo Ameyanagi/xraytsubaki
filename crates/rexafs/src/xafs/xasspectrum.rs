@@ -1373,7 +1373,8 @@ impl XASSpectrum {
     /// Pre/post-edge normalization limits its energy windows (offsets from E0 in
     /// eV) and AUTOBK caps its `kmax` (Å⁻¹) instead of failing on a short scan;
     /// the stored settings keep the requested values. Each entry names the
-    /// setting with its requested and used value. Empty when nothing was limited,
+    /// setting with its requested and used value, recomputed from the current
+    /// settings and energy grid for stages that have results. Empty when nothing was limited,
     /// before calculation, for MBACK (which checks its own regions) and for the
     /// legacy `ndarray-compat` backend. Calculates nothing.
     pub fn range_adjustments(&self) -> Vec<super::ranges::RangeAdjustment> {

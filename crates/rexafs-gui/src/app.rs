@@ -5098,7 +5098,9 @@ impl StudioApp {
             }
             field.update(cx, |f, cx| f.set_adjusted(note, cx));
         }
-        let label = self.spectrum_label.to_string();
+        // Key by the full source path: same-named files in other folders are
+        // separate groups, each with its own warning.
+        let label = self.spectrum_path.display().to_string();
         self.job_errors.retain(|p| {
             !(p.batch.is_none() && p.label == label && p.message.starts_with(RANGE_WARNING_PREFIX))
         });
@@ -5189,6 +5191,7 @@ impl StudioApp {
                 (ParamKey::PreEdgeEnd, "auto (-30)"),
                 (ParamKey::NormStart, "auto (150)"),
                 (ParamKey::NormEnd, "auto (spectrum end)"),
+                (ParamKey::NormPolyorder, "auto (2)"),
             ] {
                 if let Some((_, field)) = self.param_fields.iter().find(|(k, _)| *k == key) {
                     field.update(cx, |f, cx| f.set_placeholder(value, cx));

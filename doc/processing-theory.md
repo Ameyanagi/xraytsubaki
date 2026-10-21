@@ -112,20 +112,29 @@ which applies the first two to explicit values as well as automatic ones:
 1. The pre-edge start becomes $\max(\text{start}, \Delta E_{\min})$.
 2. The post-edge end becomes $\min(\text{end}, \Delta E_{\max})$.
 3. If the whole pre-edge window lies below the data, its end becomes half the
-   limited start (Larch's automatic `pre2 = pre1/2`), and the pre-edge is a
-   constant equal to the mean absorption in that window, as Larch uses for short
-   windows. A line fitted to a few eV just below the edge would be extrapolated
-   far into the post-edge region and distort the normalized spectrum.
+   limited start, and the pre-edge is a constant equal to the mean absorption in
+   that window. This fallback is a rexafs choice. It borrows Larch's automatic
+   `pre2 = pre1/2` and Larch's constant pre-edge for short windows, but Larch
+   would instead swap such explicit bounds, and it switches to a constant
+   whenever the window spans fewer than three samples. rexafs uses a constant
+   only in this wholly-below-data case; a short window inside the data stays a
+   line, as in earlier releases. A line fitted to a few eV just below the edge
+   would be extrapolated far into the post-edge region and distort the
+   normalized spectrum.
 4. If the post-edge start lies at or beyond the limited end, it becomes Larch's
    automatic value $\min(25, 5\,\mathrm{round}(\text{end}/15))$ eV. The start is
    always kept at least 10 eV below the end; this margin is rexafs's existing
    rule, whereas the cited Larch revision keeps 2 eV.
-5. The post-edge polynomial degree is lowered when the window has too few points.
+5. The post-edge polynomial degree is capped at 1 when the window holds fewer
+   than five points, as in Larch (`pre_edge.py`, lines 297–301), because a
+   higher-degree polynomial through a few points amplifies noise when it is
+   extrapolated back to $E_0$.
 
 A reversed range, where the start is at or above the end inside the data, is an
 error naming the setting instead of being swapped, as is a window that still
-holds fewer than two measured points. `Spectrum::range_adjustments()` (Rust) lists
-each limited setting with its requested and used values. The desktop application
+holds fewer than two measured points; so is a non-finite endpoint.
+`Spectrum::range_adjustments()` (Rust) recomputes, from the current settings and
+energy grid, each limited setting with its requested and used values. The desktop application
 shows the used value under an explicitly set field in amber and adds one warning
 per group to the Problems drawer; an automatic field shows the used value in its
 placeholder. These limits only make the calculation possible. A normalization
@@ -184,8 +193,9 @@ is capped at $k_{\max}$, as in Larch AUTOBK. The stored setting keeps the
 requested value, and since 0.2.15 (unreleased) `range_adjustments()` reports
 the cap. A `kmin` at or beyond the usable end is an error naming `kmin`. The
 Cauchy wavelet transform similarly limits its selected k range to the measured
-k range and records the range used in the map's settings and warnings; a range
-wholly outside the data is an error.
+k range; the map keeps the requested definition, and `WaveletMap::k_support()`
+and the map warnings report the interval used. A range wholly outside the data
+is an error.
 
 rexafs's default **FixedPenalty** objective adds a weak, fixed endpoint term
 and solves one linear least-squares problem. The value `clamp_lambda=0.001` is

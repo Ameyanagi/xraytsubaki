@@ -1883,7 +1883,8 @@ export interface WaveletSize {
 /**
  * Cauchy settings, available since 0.2.10. Use spectrum.wavelet(new Wavelet([2, 12])).
  * k_range is measured support in Å⁻¹; since 0.2.15 endpoints beyond the measured k range
- * are limited to it, and the map's k_range and warnings report the range used.
+ * are limited to it; the map keeps the requested settings and its warnings report the
+ * range used.
  * Defaults: weight 2, order 100,
  * k step 0.05 Å⁻¹, R up to 6 Å, no taper and automatic FFT/R sampling.
  * cauchy_v1 fixes order independently of R extent; larger order narrows frequency

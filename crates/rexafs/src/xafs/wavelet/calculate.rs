@@ -247,10 +247,7 @@ pub(super) fn calculate(
     }
     map::MapData {
         method: "cauchy_v1".into(),
-        settings: Wavelet {
-            k_range: layout.k_range,
-            ..model.clone()
-        },
+        settings: model.clone(),
         size: layout.size,
         input_k: k.to_vec(),
         input_chi: chi.to_vec(),

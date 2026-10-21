@@ -204,9 +204,17 @@ interpretation. Disabling reuse stops automatic selection for future imports
 without deleting earlier groups. See the
 [recipe dispatcher](https://github.com/Ameyanagi/rexafs/blob/v0.2.4/crates/rexafs-gui/src/import_recipes.rs#L317).
 
-Select a group to make it **current** and edit its settings in the inspector.
-**Marks** select groups for comparisons and bulk actions without changing the
-current group. Filtering or collapsing rows can hide marked groups without
+Each group row has two lines. The first shows the group name, shortened at the
+end when the panel is narrow. The second, in muted text, shows the source file
+name (or **derived** for a calculated result), the quantity, such as
+**measured μ(E)** for an absorption coefficient read from the file, and the
+absorption-edge energy E₀ in eV once processing or a fixed E₀ setting provides
+it. Hover a row for its full name and path.
+
+Select a group to make it **current** and edit its settings in the inspector;
+the current group has a solid accent background. **Marks** select groups for
+comparisons and bulk actions without changing the current group; a mark is
+shown only by the row's checkbox. Filtering or collapsing rows can hide marked groups without
 unmarking them; check the marked/hidden count before bulk actions. Comparison
 plots offer **Preview 12**, **Plot all** and a **Gradient** color option. Sampling
 changes only the display; it does not exclude inputs from PCA or MCR. Use

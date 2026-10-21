@@ -472,6 +472,8 @@ impl StudioApp {
             .min_w_0()
             .overflow_hidden()
             .whitespace_nowrap()
+            // Keep the start of the name; long names end in an ellipsis.
+            .text_ellipsis()
             .font_family(MONO)
             .text_size(px(12.))
             .key_context("GroupRename")

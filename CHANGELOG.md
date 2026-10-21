@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Ask to save, discard or cancel before closing the window or quitting with
+  unsaved project changes; empty or unmodified sessions close without asking.
 - Use sentence-case scientific labels with units for Normalize, Background and
   Transform parameters (for example "Spline k max", "Victoreen n"),
   and show a hover explanation on every label with its unit, Auto value and the

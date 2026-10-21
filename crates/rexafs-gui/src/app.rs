@@ -427,6 +427,13 @@ const DETECTION_MODES: [DetectionMode; 4] = [
     DetectionMode::MuColumn,
 ];
 
+/// What the unsaved-changes prompt is guarding.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CloseIntent {
+    CloseWindow,
+    Quit,
+}
+
 actions!(
     studio,
     [
@@ -1360,6 +1367,13 @@ pub struct StudioApp {
     assistant_history_saved_revision: u64,
     project_load_generation: u64,
     project_saving: bool,
+    /// Content fingerprint at the last save or open; `None` if never saved.
+    saved_fingerprint: Option<u64>,
+    /// Re-record `saved_fingerprint` once an opened project finishes
+    /// rescanning, so restoring its sources is not mistaken for an edit.
+    settle_saved_fingerprint: bool,
+    /// What to do after the unsaved-changes prompt's Save succeeds.
+    pending_close: Option<CloseIntent>,
     updates: shell::updates_view::UpdateState,
     help: shell::help::HelpState,
     pub(crate) structure: shell::structure_view::StructureState,
@@ -3067,15 +3081,12 @@ impl StudioApp {
         cx: &mut Context<Self>,
     ) -> Self {
         let studio = cx.weak_entity();
-        _window.on_window_should_close(cx, move |_, cx| {
-            if let Some(assistant) = studio
-                .read_with(cx, |app, _| app.assistant.clone())
-                .ok()
-                .flatten()
-            {
-                assistant.update(cx, |assistant, cx| assistant.analysis_closed(cx));
-            }
-            true
+        _window.on_window_should_close(cx, move |window, cx| {
+            studio
+                .update(cx, |app, cx| {
+                    app.confirm_close(CloseIntent::CloseWindow, window, cx)
+                })
+                .unwrap_or(true)
         });
         // `REXAFS_THEME` wins for one launch; otherwise the saved preference.
         let theme = crate::settings::env_var("THEME")
@@ -3257,6 +3268,9 @@ impl StudioApp {
             assistant_history_saved_revision: 0,
             project_load_generation: 0,
             project_saving: false,
+            saved_fingerprint: None,
+            settle_saved_fingerprint: false,
+            pending_close: None,
             updates: Default::default(),
             help: Default::default(),
             feff_running: false,
@@ -8903,6 +8917,7 @@ impl StudioApp {
             return;
         }
         if self.project_storage == crate::project::DataStorage::Embedded && self.catalog.scanning {
+            self.pending_close = None;
             self.status =
                 "Wait for the folder scan to finish before embedding all imported data.".into();
             cx.notify();
@@ -8936,57 +8951,63 @@ impl StudioApp {
             .unwrap_or("project.rxs".into());
         let rx = cx.prompt_for_new_path(&folder, Some(&name));
         cx.spawn(async move |this, cx| {
-            if let Ok(Ok(Some(mut path))) = rx.await {
-                if path.extension().is_none() {
-                    path.set_extension(crate::project::PROJECT_EXTENSION);
-                }
-                this.update(cx, |app, cx| {
-                    app.project_saving = true;
-                    app.status = "Saving project…".into();
-                    cx.notify();
+            let Ok(Ok(Some(mut path))) = rx.await else {
+                // The save dialog was cancelled: keep the window open.
+                this.update(cx, |app, _| app.pending_close = None).ok();
+                return;
+            };
+            if path.extension().is_none() {
+                path.set_extension(crate::project::PROJECT_EXTENSION);
+            }
+            this.update(cx, |app, cx| {
+                app.project_saving = true;
+                app.status = "Saving project…".into();
+                cx.notify();
+            })
+            .ok();
+            let save_path = path.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let saved = crate::project::save_with_storage(&save_path, &project, mode);
+                    if saved.is_ok() {
+                        crate::series_measurements::recovery::acknowledge_saved(&project);
+                    }
+                    saved.map(|header| (header, project.content_fingerprint()))
                 })
-                .ok();
-                let save_path = path.clone();
-                let result = cx
-                    .background_executor()
-                    .spawn(async move {
-                        let saved = crate::project::save_with_storage(&save_path, &project, mode);
-                        if saved.is_ok() {
-                            crate::series_measurements::recovery::acknowledge_saved(&project);
-                        }
-                        saved
-                    })
-                    .await;
-                this.update(cx, |app, cx| {
-                    app.project_saving = false;
-                    match result {
-                        Ok(header) => {
-                            if app.project_generation == generation {
-                                app.measurements.acknowledge_saved(&saved_measurement_ids);
-                                app.project_path = Some(path.clone());
-                                app.project_header = Some(header);
-                                app.assistant_history_saved_revision = history_revision;
-                                if app.assistant_history_revision == history_revision {
-                                    app.assistant_history.limit =
-                                        Some(app.structure.settings.assistant_history_limit);
-                                    app.assistant_history.prune_for_save();
-                                }
+                .await;
+            this.update(cx, |app, cx| {
+                app.project_saving = false;
+                match result {
+                    Ok((header, fingerprint)) => {
+                        if app.project_generation == generation {
+                            app.saved_fingerprint = fingerprint;
+                            app.settle_saved_fingerprint = false;
+                            app.measurements.acknowledge_saved(&saved_measurement_ids);
+                            app.project_path = Some(path.clone());
+                            app.project_header = Some(header);
+                            app.assistant_history_saved_revision = history_revision;
+                            if app.assistant_history_revision == history_revision {
+                                app.assistant_history.limit =
+                                    Some(app.structure.settings.assistant_history_limit);
+                                app.assistant_history.prune_for_save();
                             }
-                            app.set_status(
-                                StatusKind::Success,
-                                format!("Saved {}", path.display()),
-                            );
-                            app.remember_project(path.clone());
                         }
-                        Err(error) => {
-                            app.set_status(StatusKind::Error, format!("Save failed: {error}"));
-                            app.record_job_error("save project", error);
+                        app.set_status(StatusKind::Success, format!("Saved {}", path.display()));
+                        app.remember_project(path.clone());
+                        if let Some(intent) = app.pending_close.take() {
+                            app.finish_close(intent, cx);
                         }
                     }
-                    cx.notify();
-                })
-                .ok();
-            }
+                    Err(error) => {
+                        app.pending_close = None;
+                        app.set_status(StatusKind::Error, format!("Save failed: {error}"));
+                        app.record_job_error("save project", error);
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
         })
         .detach();
     }
@@ -9291,7 +9312,109 @@ impl StudioApp {
         if self.spectrum.is_some() {
             self.schedule_recompute(cx);
         }
+        // A project opened from disk starts clean; recovered copies and other
+        // projects without a file start unsaved.
+        self.saved_fingerprint = None;
+        self.settle_saved_fingerprint = false;
+        if self.project_path.is_some() {
+            self.mark_project_clean();
+        }
         cx.notify();
+    }
+
+    /// Treat the current state as saved, and re-record it once restored
+    /// sources finish loading (see `settle_saved_fingerprint`).
+    pub(crate) fn mark_project_clean(&mut self) {
+        self.saved_fingerprint = self.project_file().content_fingerprint();
+        self.settle_saved_fingerprint = true;
+    }
+
+    fn settle_saved_fingerprint(&mut self) {
+        if self.settle_saved_fingerprint
+            && !self.catalog.scanning
+            && self.pending_overrides.is_empty()
+            && self.pending_project_spectrum.is_none()
+            && self.pending_derived.is_none()
+        {
+            self.settle_saved_fingerprint = false;
+            self.saved_fingerprint = self.project_file().content_fingerprint();
+        }
+    }
+
+    fn has_unsaved_changes(&self) -> bool {
+        self.project_file()
+            .has_unsaved_changes(self.saved_fingerprint)
+    }
+
+    /// Ask before closing the window or quitting with unsaved changes.
+    /// Returns `true` when it is safe to proceed now; otherwise a native
+    /// Save / Don't Save / Cancel prompt decides later. Save runs the normal
+    /// save dialog and proceeds only after the file is written.
+    pub(crate) fn confirm_close(
+        &mut self,
+        intent: CloseIntent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        // A prompt or its save dialog is already open.
+        if self.pending_close.is_some() {
+            return false;
+        }
+        if !self.has_unsaved_changes() {
+            self.close_assistant_session(cx);
+            return true;
+        }
+        let message = match intent {
+            CloseIntent::CloseWindow => "Save changes before closing?",
+            CloseIntent::Quit => "Save changes before quitting?",
+        };
+        let answer = window.prompt(
+            gpui::PromptLevel::Warning,
+            message,
+            Some("Your changes to this project will be lost if you don't save them."),
+            &[
+                gpui::PromptButton::ok("Save…"),
+                gpui::PromptButton::new("Don't Save"),
+                gpui::PromptButton::cancel("Cancel"),
+            ],
+            cx,
+        );
+        self.pending_close = Some(intent);
+        cx.spawn(async move |this, cx| {
+            let choice = answer.await.ok();
+            this.update(cx, |app, cx| match choice {
+                // An in-flight save also finishes the close when it succeeds.
+                Some(0) => app.save_project_confirmed(cx),
+                Some(1) => {
+                    app.pending_close = None;
+                    app.finish_close(intent, cx);
+                }
+                _ => app.pending_close = None,
+            })
+            .ok();
+        })
+        .detach();
+        false
+    }
+
+    fn close_assistant_session(&mut self, cx: &mut Context<Self>) {
+        if let Some(assistant) = self.assistant.clone() {
+            assistant.update(cx, |assistant, cx| assistant.analysis_closed(cx));
+        }
+    }
+
+    /// Close or quit without asking again.
+    fn finish_close(&mut self, intent: CloseIntent, cx: &mut Context<Self>) {
+        self.close_assistant_session(cx);
+        match intent {
+            CloseIntent::Quit => cx.quit(),
+            CloseIntent::CloseWindow => {
+                let main = self.main_window;
+                cx.defer(move |cx| {
+                    main.update(cx, |_, window, _| window.remove_window()).ok();
+                });
+            }
+        }
     }
 
     // ---- views -------------------------------------------------------------
@@ -10124,6 +10247,7 @@ impl StudioApp {
 
 impl Render for StudioApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.settle_saved_fingerprint();
         if let Some(source) = self.measurement_import.take() {
             self.open_measurement_editor(source, window, cx);
         }

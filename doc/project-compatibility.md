@@ -15,6 +15,17 @@ in the analysis record. Saved derived-operation provenance, fit history and
 completed Assistant conversations are separate project records and remain
 available according to their own retention rules.
 
+Closing the window or quitting (**⌘Q**) with unsaved changes asks **Save…**,
+**Don't Save** or **Cancel**. **Save…** opens the normal save dialog and closes
+only after the project is written; cancelling that dialog or a failed save keeps
+the window open. A window with no imported data, derived groups, fit model,
+measurement records or Assistant conversations closes without asking. "Unsaved"
+means the project content differs from the last save or open, or the session
+has never been saved. The header and the cached parser diagnostics, which are
+refilled whenever a file is read, are not compared; after opening a project, the
+comparison is re-recorded once its sources finish reloading. The bundled example
+opens clean; a recovered copy opens unsaved.
+
 ## Raw data: paths or embedded originals
 
 Choose **Raw: paths / Raw: embedded** beside **Save project**. This choice is

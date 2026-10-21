@@ -129,7 +129,26 @@ fn main() {
         .run(move |cx: &mut App| {
             cx.bind_keys(widgets::text_input::text_input_keybindings());
             cx.bind_keys(app::studio_keybindings());
-            cx.on_action(|_: &app::Quit, cx| cx.quit());
+            // Quit asks to save unsaved work first (see `confirm_close`). The
+            // window is busy while it dispatches this action, so defer.
+            cx.on_action(|_: &app::Quit, cx| {
+                cx.defer(|cx| {
+                    let studio = cx
+                        .windows()
+                        .into_iter()
+                        .find_map(|window| window.downcast::<StudioApp>());
+                    let quit = studio.is_none_or(|studio| {
+                        studio
+                            .update(cx, |app, window, cx| {
+                                app.confirm_close(app::CloseIntent::Quit, window, cx)
+                            })
+                            .unwrap_or(true)
+                    });
+                    if quit {
+                        cx.quit();
+                    }
+                });
+            });
             let display = cx.primary_display().map(|display| display.visible_bounds());
             let window_size = initial_window_size(display.map(|bounds| bounds.size));
             let bounds = display.map_or_else(

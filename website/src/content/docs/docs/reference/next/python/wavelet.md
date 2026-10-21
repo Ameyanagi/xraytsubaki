@@ -19,7 +19,10 @@ Missing normalization/AUTOBK run on a copy; existing chi is reused. Larger
 order narrows frequency response and broadens localization in k. R is not
 phase-corrected. Fixed order is independent of R extent (cauchy_v1).
 Calculations release the GIL and return owned results; invalid definitions,
-uncovered intervals and excessive allocations raise ValueError.
+intervals wholly outside the measured k range and excessive allocations
+raise ValueError. Since 0.2.15 endpoints beyond the measured k range are
+limited to it; the map keeps the requested settings and its warnings
+report the range used.
 
 ## Wavelet
 

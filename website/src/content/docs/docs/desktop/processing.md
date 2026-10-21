@@ -164,6 +164,18 @@ Auto applies these choices before calling the core library, whose unset fields
 can resolve differently. Retain resolved settings when comparing interfaces or
 other software.
 
+*Unreleased (planned for 0.2.15):* a range that reaches beyond a short scan is
+limited to the measured data when processing runs, following Larch: the pre-edge
+start is raised to the first energy, the post-edge end lowered to the last, and a
+window left without data falls back to Larch's automatic value. An entered value
+is never rewritten, so longer scans keep it. The used value appears in amber under
+an entered field, with one warning per group in the Problems drawer; an Auto field
+shows the used value in its placeholder. Background k max and the Wavelet k range
+are limited the same way. A reversed range, or one with fewer than two measured
+points, stops processing with an error naming the setting. See
+[processing theory](https://github.com/Ameyanagi/rexafs/blob/dev/doc/processing-theory.md)
+for the exact rules.
+
 ## Background
 
 AUTOBK estimates the smooth background and produces $\chi(k)$. Begin with
@@ -176,6 +188,24 @@ The background uses a Hanning window with $dk=0.1$ Å⁻¹; this is separate fro
 forward-transform window. The fixed endpoint penalty is a rexafs choice described
 in the [AUTOBK objective](/docs/science/autobk/). Older projects preserve their
 saved clamp policy, so check it before comparing their results with a new project.
+
+**bkg k min** and **bkg k max** set the photoelectron wave-number range, in Å⁻¹,
+over which AUTOBK fits its spline. Drag their handles on χ(k), or, in an
+unreleased build after 0.2.14, on the Background **μ(E)** view. The μ(E) handles
+sit at the photon energy
+
+$$E = E_0 + \frac{\hbar^2 k^2}{2 m_e} \approx E_0 + 3.81\ \text{eV·Å}^2 \times k^2,$$
+
+where $E_0$ is the edge energy AUTOBK used to define $k$, $\hbar$ is the reduced
+Planck constant and $m_e$ is the electron mass
+([Newville 2014](https://doi.org/10.2138/rmg.2014.78.2)). The drag readout shows
+both units, for example `k 13.5 Å⁻¹ · 9030 eV`. Use this view to stop the
+background before a feature that is visible in energy, such as a second
+absorption edge inside the scan. The stored value remains $k$, so the energy of
+the cut moves when $E_0$ changes. Handles cannot go below $k=0$ or beyond the
+last measured energy. See the [handle
+conversion](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/app/shell/handles.rs),
+which uses the core crate's `KTOE`/`ETOK` constants.
 
 **Background options → Load standard…** accepts an optional χ(k) reference.
 Supply exactly two numeric columns: increasing, nonnegative k in Å⁻¹ and matching

@@ -242,7 +242,7 @@ impl StudioApp {
                             )
                             .xlabel("k (Å⁻¹)")
                             .ylabel("R (Å; uncorrected)")
-                            .xlim(map.settings().k_range[0], map.settings().k_range[1])
+                            .xlim(map.k_support()[0], map.k_support()[1])
                             .ylim(map.r()[0], *map.r().last().unwrap())
                             .into();
                         app.measurements.preview = Some(
@@ -302,8 +302,8 @@ impl StudioApp {
                     (
                         &mut w.k_range,
                         point.x,
-                        p.map.settings().k_range[0],
-                        p.map.settings().k_range[1],
+                        p.map.k_support()[0],
+                        p.map.k_support()[1],
                     )
                 } else {
                     (

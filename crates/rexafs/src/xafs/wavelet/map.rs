@@ -149,6 +149,15 @@ impl WaveletMap {
     pub fn settings(&self) -> &Wavelet {
         &self.data.settings
     }
+    /// k interval actually transformed, in Å⁻¹ (since 0.2.15): the requested
+    /// `settings().k_range` limited to the measured input k range. It equals the
+    /// requested range when that lies inside the data; region statistics must
+    /// lie inside it. The requested definition itself is never rewritten.
+    pub fn k_support(&self) -> [f64; 2] {
+        let k = &self.data.input_k;
+        let [lo, hi] = self.data.settings.k_range;
+        [lo.max(k[0]), hi.min(k[k.len() - 1])]
+    }
     /// Validated output dimensions and estimated buffer storage.
     pub fn size(&self) -> &WaveletSize {
         &self.data.size
@@ -267,7 +276,7 @@ impl WaveletMap {
     ) -> Result<WaveletRegionValue> {
         let kr = [*k.start(), *k.end()];
         let rr = [*r.start(), *r.end()];
-        if kr[0] < self.settings().k_range[0] || kr[1] > self.settings().k_range[1] {
+        if kr[0] < self.k_support()[0] || kr[1] > self.k_support()[1] {
             return Err(invalid(
                 "wavelet integral must lie inside selected measured k support",
             ));
@@ -335,7 +344,7 @@ impl WaveletMap {
     ) -> Result<WaveletRegionValue> {
         let kr = [*k.start(), *k.end()];
         let rr = [*r.start(), *r.end()];
-        if kr[0] < self.settings().k_range[0] || kr[1] > self.settings().k_range[1] {
+        if kr[0] < self.k_support()[0] || kr[1] > self.k_support()[1] {
             return Err(invalid(
                 "wavelet region must lie inside selected measured k support",
             ));

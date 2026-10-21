@@ -2334,6 +2334,30 @@ pub fn normalization_ranges(sp: &XASSpectrum) -> Option<[f64; 4]> {
 mod tests {
     use super::*;
 
+    /// A scan ending 119 eV above E0 used to fail ("polynomial order 2 too high
+    /// for 0 points"); the default 150 eV fit minimum is now limited to the data.
+    #[test]
+    fn short_scans_process_with_ranges_limited_to_the_data() {
+        let energy: Vec<f64> = (0..=268).map(|i| 8318.0 + 0.5 * i as f64).collect();
+        let mu: Vec<f64> = energy
+            .iter()
+            .map(|e| 0.2 + 1.0 / (1.0 + (-(e - 8333.0) / 1.5).exp()))
+            .collect();
+        let params = PipelineParams {
+            e0: Some(8333.0),
+            ..Default::default()
+        };
+        let spectrum = prepare_arrays(energy, mu, &params, RequiredStage::Normalized).unwrap();
+        let norm = spectrum.norm().unwrap();
+        assert!((norm[norm.len() - 1] - 1.0).abs() < 0.05);
+        let fields: Vec<_> = spectrum
+            .range_adjustments()
+            .iter()
+            .map(|a| a.field)
+            .collect();
+        assert_eq!(fields, ["pre_edge_start", "pre_edge_end", "norm_start"]);
+    }
+
     #[test]
     fn energy_offset_is_absolute_reversible_and_invalidates_raw_cache() {
         let group = DerivedSpectrum {

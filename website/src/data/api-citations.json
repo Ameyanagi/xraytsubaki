@@ -217,6 +217,12 @@
     ]
   },
   {
+    "url": "https://github.com/xraypy/xraylarch/blob/247278cefbb16eda04c91f79fc1b43df000fa498/larch/xafs/pre_edge.py#L232-L259",
+    "sources": [
+      "crates/rexafs/src/xafs/ranges.rs"
+    ]
+  },
+  {
     "url": "https://github.com/xraypy/xraylarch/blob/860d8a690c81eefb0e61dee4ca3703ef4b67e93d/larch/xafs/xafsft.py#L41",
     "sources": [
       "crates/rexafs/src/xafs/xafsutils.rs",

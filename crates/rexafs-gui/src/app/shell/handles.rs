@@ -38,13 +38,39 @@ const ARM_PX: f64 = 7.0;
 /// Use raw energy coverage, not the shortened χ(k) grid: users must be able
 /// to drag k-max outward again after reducing it. Share the core conversion.
 pub(crate) fn background_k_domain(sp: &rexafs::prelude::XASSpectrum) -> Option<(f64, f64)> {
-    use rexafs::xafs::xafsutils::XAFSUtils;
-    let e0 = match sp.background.as_ref()? {
-        BackgroundMethod::AUTOBK(a) => a.ek0.or_else(|| sp.e0())?,
-        _ => return None,
-    };
+    let e0 = background_ek0(sp)?;
     let emax = sp.energy.as_ref()?.iter().copied().max_by(f64::total_cmp)?;
-    (emax > e0).then(|| (0.0, (emax - e0).etok()))
+    (emax > e0).then(|| (0.0, energy_to_k(emax, e0)))
+}
+
+/// Edge energy E₀ (eV) that AUTOBK used to define k: its resolved `ek0`, or
+/// the spectrum E₀ before the first background run has stored one.
+pub(crate) fn background_ek0(sp: &rexafs::prelude::XASSpectrum) -> Option<f64> {
+    match sp.background.as_ref()? {
+        BackgroundMethod::AUTOBK(a) => a.ek0.or_else(|| sp.e0()),
+        _ => None,
+    }
+}
+
+/// Photon energy E (eV) of photoelectron wave number k (Å⁻¹):
+/// E = E₀ + ħ²k²/(2mₑ) = E₀ + k²/ETOK, with 1/ETOK ≈ 3.81 eV·Å² taken from
+/// the core crate. AUTOBK uses the same relation to place `kmax` in energy.
+pub(crate) fn k_to_energy(k: f64, e0: f64) -> f64 {
+    use rexafs::xafs::xafsutils::XAFSUtils;
+    e0 + k.ktoe()
+}
+
+/// Inverse of [`k_to_energy`]: k = √((E − E₀)·ETOK) in Å⁻¹. Energies below
+/// E₀ map to k = 0.
+pub(crate) fn energy_to_k(e: f64, e0: f64) -> f64 {
+    use rexafs::xafs::xafsutils::XAFSUtils;
+    (e - e0).etok()
+}
+
+/// Drag readout for a background k bound shown on an energy axis: the stored
+/// k and the photon energy where that cut falls.
+fn background_k_energy_readout(k: f64, e: f64) -> String {
+    format!("k {k:.1} Å⁻¹ · {e:.0} eV")
 }
 
 #[cfg(test)]
@@ -67,6 +93,24 @@ mod tests {
         let (lo, hi) = background_k_domain(&sp).unwrap();
         assert_eq!(lo, 0.0);
         assert!((hi - 16.).abs() < 1e-12, "{hi}");
+    }
+
+    #[test]
+    fn background_k_bounds_map_to_energy_and_back() {
+        use rexafs::xafs::xafsutils::constants::ETOK;
+        // Ni K edge: k = 13.5 Å⁻¹ lies 13.5²/ETOK ≈ 694 eV above E₀.
+        let e0 = 8333.0;
+        let e = k_to_energy(13.5, e0);
+        assert!((e - (e0 + 13.5_f64.powi(2) / ETOK)).abs() < 1e-9, "{e}");
+        assert!((e - 9027.4).abs() < 0.1, "{e}");
+        assert!((energy_to_k(e, e0) - 13.5).abs() < 1e-12);
+        assert_eq!(k_to_energy(0.0, e0), e0);
+        // Dragging below the edge clamps to k = 0 rather than producing NaN.
+        assert_eq!(energy_to_k(e0 - 50.0, e0), 0.0);
+        assert_eq!(
+            background_k_energy_readout(13.5, 9030.0),
+            "k 13.5 Å⁻¹ · 9030 eV"
+        );
     }
 }
 
@@ -344,7 +388,7 @@ impl StudioApp {
                     ],
                 )
             }
-            (Stage::Background, PLOT_CHIK) => {
+            (Stage::Background, PLOT_CHIK | PLOT_MU | PLOT_NORM) => {
                 let a = match sp.background.as_ref() {
                     Some(BackgroundMethod::AUTOBK(a)) => a,
                     _ => return (Vec::new(), Vec::new()),
@@ -352,6 +396,13 @@ impl StudioApp {
                 let lo = p.bkg_kmin.or(a.kmin).unwrap_or(0.0);
                 let available = background_k_domain(sp).map(|(_, hi)| hi).unwrap_or(0.0);
                 let hi = p.bkg_kmax.or(a.kmax).unwrap_or(available).min(available);
+                // On μ(E) the same k bounds sit at E₀ + k²/ETOK. The stored
+                // value stays in k, so the cut follows E₀ when it changes.
+                let (lo, hi) = match self.background_energy_e0(plot) {
+                    Some(e0) => (k_to_energy(lo, e0), k_to_energy(hi, e0)),
+                    None if plot == PLOT_CHIK => (lo, hi),
+                    None => return (Vec::new(), Vec::new()),
+                };
                 (
                     vec![(HandleKey::BkgKmin, lo), (HandleKey::BkgKmax, hi)],
                     vec![Span {
@@ -413,6 +464,15 @@ impl StudioApp {
             }
             _ => (Vec::new(), Vec::new()),
         }
+    }
+
+    /// E₀ for converting the background k handles when `plot` is the
+    /// Background stage's energy-axis plot; `None` on k-axis plots.
+    fn background_energy_e0(&self, plot: usize) -> Option<f64> {
+        if self.stage != Stage::Background || !matches!(plot, PLOT_MU | PLOT_NORM) {
+            return None;
+        }
+        background_ek0(self.spectrum.as_deref()?)
     }
 
     fn handle_color(&self, accent: bool) -> Rgba {
@@ -505,6 +565,8 @@ impl StudioApp {
                             self.measurement_handle_readout(x)
                         } else if p == super::peaks::PLOT_PEAKS {
                             self.peak_handle_readout(x)
+                        } else if let Some(e0) = self.background_energy_e0(p) {
+                            background_k_energy_readout(energy_to_k(x, e0), x)
                         } else {
                             k.readout(x)
                         },
@@ -694,6 +756,14 @@ impl StudioApp {
                     .lock()
                     .ok()
                     .and_then(|c| c.get(&plot).map(|a| a.data_of(f32::from(position.x)))),
+            };
+            // Background k bounds dragged on μ(E) arrive in eV; the
+            // parameter and its clamp to the data are in k.
+            let x = match self.background_energy_e0(plot) {
+                Some(e0) if matches!(key, HandleKey::BkgKmin | HandleKey::BkgKmax) => {
+                    x.map(|e| energy_to_k(e, e0))
+                }
+                _ => x,
             };
             if let Some(x) = x {
                 self.apply_handle_drag(key, x, cx);

@@ -198,6 +198,21 @@ measurements and model inadequacy affect interpretation. See
 [Larch's EXAFS fitting reference](https://xraypy.github.io/xraylarch/xafs_feffit.html)
 for related reporting conventions; the equations above are traced to rexafs.
 
+Reduced chi-square is a goodness-of-fit measure only when each residual is
+divided by the measurement uncertainty $\epsilon$; a model that matches the
+data within that noise then gives a value near 1. IFEFFIT and Larch estimate
+$\epsilon$ from the high-R part of $|\chi(R)|$, where little structural
+signal is expected ([Newville, *J. Synchrotron Rad.* 8, 322–324 (2001)](https://doi.org/10.1107/S0909049500016964);
+[Larch `feffit`](https://xraypy.github.io/xraylarch/xafs_feffit.html)).
+The desktop application does this only when **ε from noise** is on. When it is
+off, the residual uses the unit divisor above, and the reduced chi-square
+reflects the arbitrary scale of the weighted $\chi$ rather than the fit
+quality. The desktop fit results, fit history, Markdown fit report, publication
+methods and batch-fit table therefore show **n/a (noise not estimated)**, and
+the batch CSV leaves that cell empty. This is a rexafs display choice: the
+stored value and the fit itself are unchanged. Turn on **ε from noise** and
+refit to report it.
+
 ## Covariance and standard errors
 
 The Jacobian has entries

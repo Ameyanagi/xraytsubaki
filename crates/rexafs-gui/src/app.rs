@@ -1940,7 +1940,7 @@ mod override_tests {
                     frame,
                     entry_ix: frame,
                     r_factor: 0.1,
-                    reduced_chi_square: 1.,
+                    reduced_chi_square: Some(1.),
                     values: vec![],
                     solver_report: None,
                 })
@@ -7475,6 +7475,7 @@ impl StudioApp {
         let ranges = self.fit_ranges.resolved(self.ui_params().fft_kweight);
         let started = Instant::now();
         let history_inputs = (paths.clone(), vars.clone(), ranges.clone());
+        let noise_estimated = ranges.noise;
         let job = cx
             .background_executor()
             .spawn(async move { run_spectrum_fit(&sp, &paths, &vars, &ranges) });
@@ -7491,8 +7492,12 @@ impl StudioApp {
                         app.joint.result_config = None;
                         app.fit_provenance = Some(provenance.clone());
                         let stale = app.fit_is_stale();
+                        let reduced_chi_square = crate::fitting::reduced_chi_square_text(
+                            result.reduced_chi_square,
+                            noise_estimated,
+                        );
                         app.status = format!(
-                            "fit {} for {}{} · R-factor {:.5} · red. chi² {:.3e}",
+                            "fit {} for {}{} · R-factor {:.5} · reduced χ² {}",
                             if result.solver_report.as_ref().is_some_and(|r| !r.converged) {
                                 "stopped"
                             } else {
@@ -7501,7 +7506,7 @@ impl StudioApp {
                             provenance.label,
                             if stale { " (stale)" } else { "" },
                             result.r_factor,
-                            result.reduced_chi_square
+                            reduced_chi_square
                         )
                         .into();
                         let result = Arc::new(result);
@@ -7511,8 +7516,8 @@ impl StudioApp {
                         }
                         app.record(
                             format!(
-                                "fit {} · R {:.4} · red. χ² {:.3e}",
-                                provenance.label, result.r_factor, result.reduced_chi_square
+                                "fit {} · R {:.4} · reduced χ² {}",
+                                provenance.label, result.r_factor, reduced_chi_square
                             ),
                             None,
                         );
@@ -7938,7 +7943,12 @@ impl StudioApp {
                         }
                         let frame_ranges = ranges.resolved(frame_params.fft_kweight);
                         let result = run_spectrum_fit(&sp, &paths, &vars, &frame_ranges)?;
-                        Ok(BatchFitRow::from_result(*frame, *ix, &result))
+                        Ok(BatchFitRow::from_result(
+                            *frame,
+                            *ix,
+                            &result,
+                            frame_ranges.noise,
+                        ))
                     })();
                     if job_cancel.load(Ordering::Relaxed)
                         && result
@@ -9668,11 +9678,10 @@ impl StudioApp {
                             }),
                     )
                     .child(div().w(px(88.)).child(format!("{:.5}", row.r_factor)))
-                    .child(
-                        div()
-                            .w(px(112.))
-                            .child(format!("{:.4e}", row.reduced_chi_square)),
-                    );
+                    .child(div().w(px(112.)).child(match row.reduced_chi_square {
+                        Some(value) => format!("{value:.4e}"),
+                        None => "n/a".to_string(),
+                    }));
                 for name in &row_names {
                     let value = row
                         .value_of(name)

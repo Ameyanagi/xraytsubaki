@@ -1,5 +1,6 @@
 //! Peak-model editing and retained current/series results, within Data analysis.
 use super::*;
+use crate::app::{PEAK_PROBLEM_PREFIX, ProblemSeverity, replace_problem};
 use crate::plot_ranges::plot_builder;
 use crate::{
     peak_fits::{self, PeakArchive, PeakMetric, PeakRecord, PeakRun},
@@ -150,6 +151,32 @@ pub(crate) struct PeakState {
     menu_position: gpui::Point<gpui::Pixels>,
     menu_focus: Option<gpui::FocusHandle>,
     focus: Option<gpui::FocusHandle>,
+}
+/// Problems-drawer entry for one finished peak-fit row: an error for a failed
+/// fit, a warning listing the fit's warnings, or `None` (a clean or cancelled
+/// fit clears the group's previous entry).
+fn peak_row_problem(row: &peak_fits::PeakRow) -> Option<(ProblemSeverity, String)> {
+    match row.status {
+        FrameStatus::Failed | FrameStatus::Unavailable => Some((
+            ProblemSeverity::Error,
+            format!(
+                "{PEAK_PROBLEM_PREFIX} failed: {}",
+                row.reason.as_deref().unwrap_or("no reason recorded")
+            ),
+        )),
+        FrameStatus::Succeeded => {
+            row.summary
+                .as_ref()
+                .filter(|s| !s.warnings.is_empty())
+                .map(|s| {
+                    (
+                        ProblemSeverity::Warning,
+                        format!("{PEAK_PROBLEM_PREFIX}: {}", s.warnings.join("; ")),
+                    )
+                })
+        }
+        FrameStatus::Pending | FrameStatus::Cancelled => None,
+    }
 }
 impl Default for PeakState {
     fn default() -> Self {
@@ -734,6 +761,18 @@ impl StudioApp {
                     run.rows.len(),
                     if run.cancelled { " · cancelled" } else { "" }
                 );
+                for row in &run.rows {
+                    let label = app
+                        .group_registry
+                        .index(&row.group)
+                        .map_or_else(|| row.label.clone(), |ix| app.problem_label(ix));
+                    replace_problem(
+                        &mut app.job_errors,
+                        &label,
+                        PEAK_PROBLEM_PREFIX,
+                        peak_row_problem(row),
+                    );
+                }
                 app.peaks.archive.runs[index] = Arc::new(run);
                 app.peaks.busy = false;
                 app.peaks.cancel = None;
@@ -1862,5 +1901,68 @@ fn estimate(value: Option<f64>, error: Option<f64>) -> String {
     match (value, error) {
         (Some(v), Some(e)) => format!("{v:.4} ± {e:.2e}"),
         (value, _) => number(value),
+    }
+}
+
+#[cfg(test)]
+mod problem_tests {
+    use super::*;
+    use crate::{
+        group_identity::GroupId,
+        params::{DetectionMode, PipelineParams},
+    };
+
+    #[test]
+    fn finished_rows_map_to_one_problem_each() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("a.dat");
+        let mut data = String::from("# energy mu\n");
+        for i in 0..=200 {
+            let x = 8900. + i as f64 / 20.;
+            let y = 0.2 + (-0.5 * ((x - 8905.) / 0.8).powi(2)).exp();
+            data.push_str(&format!("{x:.6} {y:.15}\n"));
+        }
+        std::fs::write(&path, data).unwrap();
+        let mut settings = PipelineParams::default();
+        settings.import.mode = DetectionMode::MuColumn;
+        settings.import.energy_col = Some(0);
+        settings.import.mu_col = Some(1);
+        let inputs = [FrameInput {
+            group: GroupId::source(&path, DetectionMode::MuColumn),
+            label: "a.dat".into(),
+            path,
+            derived: None,
+            settings,
+            recipe: None,
+        }];
+        let model = PeakFit::new(8900.0..=8910.0)
+            .raw_mu()
+            .absolute()
+            .gaussian("p", 8904.5, 1.8, 2.)
+            .constant_baseline(0.1);
+        let mut run = PeakRun::new("test".into(), model, &inputs);
+        run.freeze(&inputs, || false);
+        let root = tmp.path().join("artifacts");
+        let mut row = peak_fits::calculate(&run.model, &run.rows[0], &inputs[0], &root, || false);
+        assert_eq!(row.status, FrameStatus::Succeeded, "{:?}", row.reason);
+        let clean = row.summary.as_ref().unwrap().warnings.is_empty();
+        assert_eq!(peak_row_problem(&row).is_none(), clean);
+
+        row.summary.as_mut().unwrap().warnings = vec!["a".into(), "b".into()];
+        let (severity, message) = peak_row_problem(&row).unwrap();
+        assert_eq!(severity, ProblemSeverity::Warning);
+        assert_eq!(message, format!("{PEAK_PROBLEM_PREFIX}: a; b"));
+
+        row.status = FrameStatus::Failed;
+        row.reason = Some("did not converge".into());
+        let (severity, message) = peak_row_problem(&row).unwrap();
+        assert_eq!(severity, ProblemSeverity::Error);
+        assert_eq!(
+            message,
+            format!("{PEAK_PROBLEM_PREFIX} failed: did not converge")
+        );
+
+        row.status = FrameStatus::Cancelled;
+        assert!(peak_row_problem(&row).is_none());
     }
 }

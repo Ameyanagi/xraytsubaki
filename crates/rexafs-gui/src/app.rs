@@ -873,6 +873,54 @@ fn push_problem(problems: &mut Vec<JobError>, problem: JobError) {
 /// Prefix of the one Problems-drawer warning per group about limited ranges.
 const RANGE_WARNING_PREFIX: &str = "Ranges limited to the measured data";
 
+/// Prefix of the one Problems-drawer warning per group about a collapsed edge step.
+const EDGE_STEP_WARNING_PREFIX: &str = "Normalization degenerate";
+/// Prefix of the one Problems-drawer error per group about a failed wavelet map.
+const WAVELET_PROBLEM_PREFIX: &str = "Wavelet map failed";
+/// Prefix of the one Problems-drawer entry per group from a XANES peak fit.
+const PEAK_PROBLEM_PREFIX: &str = "XANES peak fit";
+
+/// Replace the one `prefix` problem recorded for `label` (a full source path,
+/// so same-named files in other folders stay separate) with `problem`, or
+/// clear it when `problem` is `None`. Messages start with `prefix`.
+fn replace_problem(
+    problems: &mut Vec<JobError>,
+    label: &str,
+    prefix: &str,
+    problem: Option<(ProblemSeverity, String)>,
+) {
+    problems.retain(|p| !(p.batch.is_none() && p.label == label && p.message.starts_with(prefix)));
+    if let Some((severity, message)) = problem {
+        push_problem(
+            problems,
+            JobError {
+                batch: None,
+                severity,
+                label: label.to_owned(),
+                message,
+            },
+        );
+    }
+}
+
+/// Warning for a collapsed pre-/post-edge normalization, or `None`.
+///
+/// The edge step is the post-edge line minus the pre-edge line at E₀, in μ
+/// units. When the two lines meet or cross at E₀ (E₀ off the edge, or fit
+/// ranges outside the data), rexafs floors the automatic step at 1e-12 to
+/// avoid dividing by zero, so normalized μ(E) and χ(k) are scaled by ~10¹²
+/// and meaningless. A rexafs-specific heuristic flags any non-finite step or
+/// one below a millionth of the measured μ span (`mu_span`, max − min).
+fn edge_step_warning(edge_step: Option<f64>, mu_span: f64) -> Option<String> {
+    let step = edge_step?;
+    (!step.is_finite() || (mu_span.is_finite() && step <= 1e-6 * mu_span)).then(|| {
+        format!(
+            "{EDGE_STEP_WARNING_PREFIX}: edge step ≈ 0. Check E₀ and the pre-edge and \
+             normalization ranges."
+        )
+    })
+}
+
 /// Context-panel field, label and unit for a core range adjustment.
 fn range_adjustment_field(field: &str) -> Option<(ParamKey, &'static str, &'static str)> {
     Some(match field {
@@ -2489,8 +2537,44 @@ fn filter_match_lower(name: &str, pattern: &str) -> bool {
 
 #[cfg(test)]
 mod range_warning_tests {
-    use super::{RANGE_WARNING_PREFIX, range_warning};
+    use super::{
+        EDGE_STEP_WARNING_PREFIX, JobError, ProblemSeverity, RANGE_WARNING_PREFIX,
+        edge_step_warning, range_warning, replace_problem,
+    };
     use rexafs::RangeAdjustment;
+
+    #[test]
+    fn collapsed_edge_steps_warn_and_real_steps_do_not() {
+        // Core floor for an automatic step whose lines meet at E₀.
+        assert!(
+            edge_step_warning(Some(1e-12), 2.0)
+                .unwrap()
+                .starts_with(EDGE_STEP_WARNING_PREFIX)
+        );
+        assert!(edge_step_warning(Some(f64::NAN), 2.0).is_some());
+        assert_eq!(edge_step_warning(Some(0.8), 2.0), None);
+        // Recovered/normalized input keeps its unit step.
+        assert_eq!(edge_step_warning(Some(1.0), 1.2), None);
+        assert_eq!(edge_step_warning(None, 2.0), None);
+    }
+
+    #[test]
+    fn keyed_problems_replace_per_full_path_and_prefix() {
+        let mut problems = Vec::new();
+        let warn = |m: &str| Some((ProblemSeverity::Warning, m.to_owned()));
+        replace_problem(&mut problems, "/a/x.dat", "Wavelet", warn("Wavelet one"));
+        replace_problem(&mut problems, "/b/x.dat", "Wavelet", warn("Wavelet two"));
+        replace_problem(&mut problems, "/a/x.dat", "Edge", warn("Edge low"));
+        replace_problem(&mut problems, "/a/x.dat", "Wavelet", warn("Wavelet three"));
+        let messages: Vec<_> = problems
+            .iter()
+            .map(|p: &JobError| p.message.as_str())
+            .collect();
+        assert_eq!(messages, ["Wavelet two", "Edge low", "Wavelet three"]);
+        replace_problem(&mut problems, "/a/x.dat", "Wavelet", None);
+        assert_eq!(problems.len(), 2);
+        assert!(problems.iter().all(|p| p.message != "Wavelet three"));
+    }
 
     #[test]
     fn one_warning_names_every_limited_field_with_units() {
@@ -5050,6 +5134,7 @@ impl StudioApp {
     /// Mark range fields that processing limited to this scan's data: explicit
     /// values get an amber note and one Problems warning for the group; automatic
     /// values show the used value in their placeholder. Settings are unchanged.
+    /// A collapsed edge step adds its own Problems warning for the group.
     fn show_range_adjustments(&mut self, ix: usize, sp: &XASSpectrum, cx: &mut Context<Self>) {
         let adjustments = if self.effective_params(ix).mback.is_some() {
             Vec::new()
@@ -5085,20 +5170,34 @@ impl StudioApp {
         // Key by the full source path: same-named files in other folders are
         // separate groups, each with its own warning.
         let label = self.spectrum_path.display().to_string();
-        self.job_errors.retain(|p| {
-            !(p.batch.is_none() && p.label == label && p.message.starts_with(RANGE_WARNING_PREFIX))
-        });
-        if let Some(message) = range_warning(&explicit) {
-            push_problem(
-                &mut self.job_errors,
-                JobError {
-                    batch: None,
-                    severity: ProblemSeverity::Warning,
-                    label,
-                    message,
-                },
-            );
-        }
+        replace_problem(
+            &mut self.job_errors,
+            &label,
+            RANGE_WARNING_PREFIX,
+            range_warning(&explicit).map(|m| (ProblemSeverity::Warning, m)),
+        );
+        let mu_span = sp.mu.as_ref().map_or(f64::NAN, |mu| mu.max() - mu.min());
+        let edge_step = sp.normalization.as_ref().and_then(|n| n.get_edge_step());
+        replace_problem(
+            &mut self.job_errors,
+            &label,
+            EDGE_STEP_WARNING_PREFIX,
+            edge_step_warning(edge_step, mu_span).map(|m| (ProblemSeverity::Warning, m)),
+        );
+    }
+
+    /// Problems-drawer label for a group: its full source path when it has
+    /// one (matching the processing warnings), otherwise its display label.
+    fn problem_label(&self, ix: usize) -> String {
+        let path = if ix < self.catalog.len() {
+            Some(self.catalog.path(ix))
+        } else if ix == NO_ENTRY {
+            self.standalone_source.as_ref().map(|(p, ..)| p.clone())
+        } else {
+            None
+        };
+        path.filter(|p| !p.as_os_str().is_empty())
+            .map_or_else(|| self.entry_label(ix), |p| p.display().to_string())
     }
 
     fn set_processed(

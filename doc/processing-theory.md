@@ -141,6 +141,16 @@ placeholder. These limits only make the calculation possible. A normalization
 fitted to a few eV of pre-edge or post-edge data is less reliable than one fitted
 to a long scan, so inspect `pre_edge()`, `post_edge()` and the edge step.
 
+The automatic edge step is the post-edge line minus the pre-edge line at the grid
+point nearest $E_0$. When the two lines meet or cross there, rexafs floors the step
+at $10^{-12}$ to avoid dividing by zero (`PrePostEdge` in
+`crates/rexafs/src/xafs/normalization.rs`), which scales the normalized
+spectrum and $\chi(k)$ by about $10^{12}$. The desktop application treats a
+non-finite step, or one at most $10^{-6}$ of the measured $\mu(E)$ span
+(maximum minus minimum), as a degenerate normalization and adds one warning per
+group to the Problems drawer. This threshold is a rexafs heuristic, not a
+published criterion.
+
 The unreleased full [MBACK normalization](mback-normalization.md) provides a
 separate atomic-reference method with an explicit absorber and edge, positive
 fitted scale, strict fit regions and retained reference identity. Its matched

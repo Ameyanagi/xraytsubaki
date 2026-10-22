@@ -640,7 +640,7 @@ mod tests {
         assert!(report.contains("Copper &lt;reference&gt; &amp; EXAFS."));
         assert!(report.contains("Absorption edge E₀"));
         assert!(
-            report.contains("8977.493"),
+            report.contains("<td>8977.5</td>"),
             "table must contain resolved values, not only Auto requests"
         );
         assert!(!report.contains("Copper <reference>"));

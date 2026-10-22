@@ -104,6 +104,19 @@ impl Table {
     }
 }
 
+/// Format an applied processing value for the "Used" column without
+/// floating-point noise: energies (eV) to 0.1 eV, k (Å⁻¹) and R (Å) to 0.01,
+/// and dimensionless settings (polynomial order, k-weight) as integers when
+/// they are whole numbers. Full-precision values are in resolved.md and data/.
+fn used_number(value: f64, unit: &str) -> String {
+    match unit {
+        "eV" => format!("{value:.1}"),
+        "Å⁻¹" | "Å" => format!("{value:.2}"),
+        _ if value.fract() == 0.0 => format!("{value:.0}"),
+        _ => format!("{value:.2}"),
+    }
+}
+
 impl Snapshot {
     pub(crate) fn tables(&self) -> Vec<Table> {
         let mut tables = Vec::new();
@@ -120,11 +133,7 @@ impl Snapshot {
             for adjustment in spectrum.data.iter().flat_map(|sp| sp.range_adjustments()) {
                 let pointer = format!("/normalization/PrePostEdge/{}", adjustment.field);
                 if let Some(value) = resolved.pointer_mut(&pointer) {
-                    *value = if value.is_u64() {
-                        Value::from(adjustment.used.round() as u64)
-                    } else {
-                        Value::from(adjustment.used)
-                    };
+                    *value = Value::from(adjustment.used);
                 }
             }
             let fields = [
@@ -202,10 +211,13 @@ impl Snapshot {
                         label.into(),
                         unit.into(),
                         display(&values[key], "Auto"),
-                        display(
-                            resolved.pointer(pointer).unwrap_or(&Value::Null),
-                            "Unavailable",
-                        ),
+                        match resolved.pointer(pointer).and_then(Value::as_f64) {
+                            Some(used) => used_number(used, unit),
+                            None => display(
+                                resolved.pointer(pointer).unwrap_or(&Value::Null),
+                                "Unavailable",
+                            ),
+                        },
                     ]
                 })
                 .collect();
@@ -418,22 +430,22 @@ mod tests {
         };
         assert_eq!(used(&snapshot, "Absorption edge").1, "Unavailable");
         snapshot.resolve_spectra();
+        let sp = snapshot.spectra[0].data.clone().unwrap();
         let (requested, e0) = used(&snapshot, "Absorption edge");
         assert_eq!(requested, "Auto");
-        assert!(
-            (8970.0..9000.0).contains(&e0.parse::<f64>().unwrap()),
-            "{e0}"
-        );
-        let adjustment = snapshot.spectra[0]
-            .data
-            .as_ref()
-            .unwrap()
-            .range_adjustments();
+        assert_eq!(e0, format!("{:.1}", sp.e0().unwrap()));
+        let adjustment = sp.range_adjustments();
         let limit = adjustment.iter().find(|a| a.field == "norm_end").unwrap();
+        assert!(limit.used < 5000.0);
         let (requested, norm_end) = used(&snapshot, "Normalization end");
         assert_eq!(requested, "5000.0");
-        assert_eq!(norm_end.parse::<f64>().unwrap(), limit.used);
-        assert!(limit.used < 5000.0);
+        assert_eq!(norm_end, format!("{:.1}", limit.used));
+        assert_eq!(used(&snapshot, "Pre-edge start").1, "-200.0");
+        assert_eq!(used(&snapshot, "Normalization polynomial order").1, "2");
+        assert_eq!(used(&snapshot, "Transform k maximum").1, "15.00");
+        assert_eq!(used(&snapshot, "Transform k-weight").1, "2");
+        assert_eq!(used(&snapshot, "Transform window").1, "Kaiser–Bessel");
         assert!(!snapshot.markdown().contains("Unavailable"));
+        println!("{}", snapshot.tables()[0].markdown());
     }
 }

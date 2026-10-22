@@ -64,7 +64,9 @@ or physically complete.
 
 The screenshot's noise scale is 1. Its uncertainties therefore depend on that
 scale and the local covariance approximation; they are not a full experimental
-error budget. Read [fitting statistics](/docs/science/fitting-statistics/) before
+error budget. Without **ε from noise**, Results shows reduced χ² as
+**n/a (noise not estimated)**, because the statistic needs a measurement-noise
+estimate to mean anything. Read [fitting statistics](/docs/science/fitting-statistics/) before
 interpreting the reported standard errors.
 
 Save the project to retain the model/history, and use

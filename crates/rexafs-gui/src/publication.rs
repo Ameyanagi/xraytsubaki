@@ -145,7 +145,7 @@ impl Snapshot {
             text.push_str("No completed fits recorded.\n\n");
         }
         for fit in &self.project.fit_history {
-            text.push_str(&format!("### Fit {} — {}\n\nR factor: {:.6}; reduced χ²: {:.6}; χ²: {:.6}; N independent: {:.3}; varying parameters: {}.\n\n", fit.id, cell(&fit.group), fit.r_factor, fit.reduced_chi_square, fit.chi_square, fit.n_idp, fit.n_vary));
+            text.push_str(&format!("### Fit {} — {}\n\nR factor: {:.6}; reduced χ²: {}; χ²: {:.6}; N independent: {:.3}; varying parameters: {}.\n\n", fit.id, cell(&fit.group), fit.r_factor, fit.reduced_chi_square_text(), fit.chi_square, fit.n_idp, fit.n_vary));
             text.push_str(&table.next().unwrap().markdown());
             text.push_str(&table.next().unwrap().markdown());
             text.push_str("\nRecorded inputs, per-spectrum ranges, path expressions and solver diagnostics:\n\n```json\n");

@@ -369,6 +369,29 @@ impl FitRanges {
     }
 }
 
+/// Text shown instead of reduced χ² when the fit had no measurement-noise estimate.
+pub const REDUCED_CHI_SQUARE_WITHOUT_NOISE: &str = "n/a (noise not estimated)";
+
+/// Formats reduced χ² for display, or [`REDUCED_CHI_SQUARE_WITHOUT_NOISE`]
+/// when the fit did not estimate the measurement noise ε.
+///
+/// Reduced χ² = χ² / (N_idp − N_var) is a goodness-of-fit statistic only when
+/// each residual is divided by the measurement uncertainty ε, so that a good
+/// model gives a value near 1. IFEFFIT and Larch estimate ε from the high-R part
+/// of |χ(R)|, where little structural signal is expected (Newville, *J.
+/// Synchrotron Rad.* 8, 322–324 (2001), <https://doi.org/10.1107/S0909049500016964>;
+/// Larch `feffit` documentation, <https://xraypy.github.io/xraylarch/xafs_feffit.html>).
+/// Without **ε from noise**, rexafs divides by a unit placeholder (ε = 1), and
+/// the number only reflects the arbitrary scale of χ, so it is hidden. The
+/// stored value is unchanged; enabling **ε from noise** and refitting shows it.
+pub fn reduced_chi_square_text(value: f64, noise_estimated: bool) -> String {
+    if noise_estimated {
+        format!("{value:.4e}")
+    } else {
+        REDUCED_CHI_SQUARE_WITHOUT_NOISE.to_string()
+    }
+}
+
 /// One completed fit, kept so the model can be compared with and restored
 /// from earlier runs (Artemis' fit history).
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -469,6 +492,24 @@ impl FitHistoryEntry {
         self.params_fingerprint == Some(params_fingerprint)
             && self.group_id == group_id
             && self.group == label
+    }
+
+    /// Whether every dataset in this fit divided its residual by an ε estimated
+    /// from high-R χ(R) (**ε from noise**). Only then is reduced χ² meaningful;
+    /// see [`reduced_chi_square_text`].
+    pub fn noise_estimated(&self) -> bool {
+        match &self.joint {
+            Some(config) => config
+                .datasets
+                .iter()
+                .all(|d| d.ranges.as_ref().unwrap_or(&self.ranges).noise),
+            None => self.ranges.noise,
+        }
+    }
+
+    /// Reduced χ² text for display; see [`reduced_chi_square_text`].
+    pub fn reduced_chi_square_text(&self) -> String {
+        reduced_chi_square_text(self.reduced_chi_square, self.noise_estimated())
     }
 
     /// One-line description of what distinguishes this fit.
@@ -692,14 +733,22 @@ pub struct BatchFitRow {
     /// Catalog entry index (for file names).
     pub entry_ix: usize,
     pub r_factor: f64,
-    pub reduced_chi_square: f64,
+    /// Absent when the batch fit did not estimate ε, because reduced χ² is then
+    /// not meaningful; see [`reduced_chi_square_text`].
+    pub reduced_chi_square: Option<f64>,
     /// (name, value, stderr) for each varying parameter.
     pub values: Vec<(String, f64, Option<f64>)>,
     pub solver_report: Option<FitSolverReport>,
 }
 
 impl BatchFitRow {
-    pub fn from_result(frame: usize, entry_ix: usize, result: &FeffFitResult) -> Self {
+    /// `noise_estimated` is the batch's **ε from noise** setting.
+    pub fn from_result(
+        frame: usize,
+        entry_ix: usize,
+        result: &FeffFitResult,
+        noise_estimated: bool,
+    ) -> Self {
         let values = result
             .varying_names
             .iter()
@@ -714,7 +763,7 @@ impl BatchFitRow {
             frame,
             entry_ix,
             r_factor: result.r_factor,
-            reduced_chi_square: result.reduced_chi_square,
+            reduced_chi_square: noise_estimated.then_some(result.reduced_chi_square),
             values,
             solver_report: result.solver_report.clone(),
         }
@@ -749,7 +798,8 @@ pub(crate) fn csv_field(value: &str) -> String {
 }
 
 /// CSV for a batch-fit result set: frame, captured file label, fit statistics, then one
-/// value/stderr column pair per varying parameter.
+/// value/stderr column pair per varying parameter. The reduced χ² cell is empty
+/// when ε was not estimated.
 pub fn batch_csv(
     rows: &[BatchFitRow],
     names: &[String],
@@ -770,11 +820,13 @@ pub fn batch_csv(
             .map(String::as_str)
             .unwrap_or("");
         out.push_str(&format!(
-            "{},{},{:.6},{:.6e}",
+            "{},{},{:.6},{}",
             row.frame,
             csv_field(file),
             row.r_factor,
             row.reduced_chi_square
+                .map(|v| format!("{v:.6e}"))
+                .unwrap_or_default()
         ));
         for name in names {
             match row.values.iter().find(|(n, _, _)| n == name) {
@@ -1101,7 +1153,7 @@ mod tests {
             frame: 0,
             entry_ix: 0,
             r_factor: 0.01,
-            reduced_chi_square: 1.0e-6,
+            reduced_chi_square: Some(1.0e-6),
             values: vec![("=evil".into(), 1.0, Some(0.1))],
             solver_report: None,
         }];
@@ -1125,12 +1177,51 @@ mod tests {
     }
 
     #[test]
+    fn reduced_chi_square_is_hidden_without_noise_estimate() {
+        assert_eq!(
+            reduced_chi_square_text(4.5e-5, false),
+            REDUCED_CHI_SQUARE_WITHOUT_NOISE
+        );
+        assert_eq!(reduced_chi_square_text(1.234, true), "1.2340e0");
+
+        let mut entry = FitHistoryEntry::from_result(
+            1,
+            "Cu".into(),
+            vec![],
+            vec![],
+            FitRanges::default(),
+            &FeffFitResult::default(),
+        );
+        assert!(!entry.noise_estimated());
+        entry.ranges.noise = true;
+        assert!(entry.noise_estimated());
+        // A multiple-spectrum fit needs ε for every dataset; a dataset without
+        // its own ranges inherits the shared setting.
+        let mut config = crate::joint_fitting::JointConfig::default();
+        config.datasets = vec![Default::default(), Default::default()];
+        entry.joint = Some(config.clone());
+        assert!(entry.noise_estimated());
+        config.datasets[1].ranges = Some(FitRanges::default());
+        entry.joint = Some(config);
+        assert!(!entry.noise_estimated());
+        assert_eq!(
+            entry.reduced_chi_square_text(),
+            REDUCED_CHI_SQUARE_WITHOUT_NOISE
+        );
+
+        let row = BatchFitRow::from_result(0, 0, &FeffFitResult::default(), false);
+        assert_eq!(row.reduced_chi_square, None);
+        let csv = batch_csv(&[row], &[], &BTreeMap::new());
+        assert_eq!(csv.lines().nth(1), Some("0,,0.000000,,,"));
+    }
+
+    #[test]
     fn batch_csv_uses_labels_captured_with_the_batch() {
         let rows = vec![BatchFitRow {
             frame: 17,
             entry_ix: 42,
             r_factor: 0.0123,
-            reduced_chi_square: 4.5e-6,
+            reduced_chi_square: Some(4.5e-6),
             values: vec![("amp".into(), 0.91, Some(0.02))],
             solver_report: None,
         }];

@@ -48,6 +48,7 @@ pub enum PaletteCmd {
     Undo,
     Redo,
     Journal,
+    Problems,
     Group(usize),
 }
 
@@ -287,6 +288,12 @@ impl StudioApp {
             keys: "",
             cmd: PaletteCmd::Journal,
         });
+        items.push(PaletteItem {
+            label: "Show problems (errors and warnings)".into(),
+            category: "view",
+            keys: "",
+            cmd: PaletteCmd::Problems,
+        });
         for tool in Tool::PROCESSING.iter().chain(Tool::ANALYSIS.iter()) {
             items.push(PaletteItem {
                 label: format!("{}…", tool.name()),
@@ -457,6 +464,11 @@ impl StudioApp {
             PaletteCmd::Redo => self.redo(cx),
             PaletteCmd::Journal => {
                 self.journal.open = true;
+                cx.notify();
+            }
+            PaletteCmd::Problems => {
+                self.problems_batch = None;
+                self.problems_open = true;
                 cx.notify();
             }
             PaletteCmd::Group(ix) => {

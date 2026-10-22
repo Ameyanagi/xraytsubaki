@@ -53,7 +53,13 @@ the selected fitting range.
 
 Choose **Run fit**. In Results, inspect the measured/model curves, residuals,
 parameter uncertainties, correlations where reported, and physical path distances.
-A small R-factor and a converged optimizer do not establish that the model is unique
+A variable that is the whole expression of one path-parameter column is labelled
+with that parameter's symbol and unit, for example `dr_1` appears as
+"ΔR (Å) · Cu–Cu 2.553 Å" with the variable name beside it. The path is named by its
+absorber–scatterer chain and FEFF half path length R_eff (the reference geometry,
+not the fitted distance). Shared variables such as S₀² and ΔE₀ carry no path, and
+variables used only inside expressions keep the name you typed. Copied Markdown
+reports keep the variable names. A small R-factor and a converged optimizer do not establish that the model is unique
 or physically complete.
 
 

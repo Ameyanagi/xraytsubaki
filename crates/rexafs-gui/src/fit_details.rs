@@ -27,6 +27,12 @@ impl Estimate {
 pub(crate) struct PathFitDetails {
     pub file: std::path::PathBuf,
     pub label: String,
+    /// Absorber–scatterer chain of the FEFF path, e.g. "Cu–Cu" or
+    /// "Cu–O–Cu", from the atoms in its geometry block. `None` in history
+    /// entries recorded before rexafs stored it, or when the file lists no
+    /// atoms; the display then falls back to `label`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scatterers: Option<String>,
     pub reff: Option<f64>,
     pub nleg: Option<usize>,
     pub degeneracy: Option<f64>,
@@ -179,6 +185,10 @@ pub(crate) fn snapshot(paths: &[FitPathSpec], result: &FeffFitResult) -> Vec<Pat
             PathFitDetails {
                 file: p.file.clone(),
                 label: p.label.clone(),
+                scatterers: feff
+                    .as_ref()
+                    .filter(|f| !f.geometry_atoms.is_empty())
+                    .map(rexafs::xafs::structure::path_label),
                 reff,
                 nleg: feff.as_ref().map(|f| f.nleg),
                 degeneracy: degen,
@@ -226,6 +236,97 @@ pub(crate) fn snapshot(paths: &[FitPathSpec], result: &FeffFitResult) -> Vec<Pat
             }
         })
         .collect()
+}
+
+impl PathFitDetails {
+    /// Readable path name: the absorber–scatterer chain and the FEFF half
+    /// path length R_eff, e.g. "Cu–Cu 2.553 Å", matching the Paths list of
+    /// the fit model. R_eff is the geometric half path length of the FEFF
+    /// reference structure, not the fitted distance R = R_eff + ΔR. A joint
+    /// fit keeps its "Spectrum n · data ·" prefix. Older history entries
+    /// without the chain fall back to the stored path label (the file name).
+    pub fn title(&self) -> String {
+        let Some(chain) = self.scatterers.as_deref() else {
+            return match self.reff {
+                Some(r) => format!("{} {r:.3} Å", self.label),
+                None => self.label.clone(),
+            };
+        };
+        let name = match self.reff {
+            Some(r) => format!("{chain} {r:.3} Å"),
+            None => chain.to_string(),
+        };
+        match self.label.rsplit_once(" · ") {
+            Some((prefix, _)) if self.label.starts_with("Spectrum ") => {
+                format!("{prefix} · {name}")
+            }
+            _ => name,
+        }
+    }
+}
+
+/// Path-parameter columns and their readable symbols with units, as in the
+/// path editor: amplitude reduction factor S₀², coordination number N,
+/// threshold-energy shift ΔE₀ (eV), half-path-length change ΔR (Å),
+/// mean-square relative displacement σ² (Å²), imaginary energy Eᵢ (eV) and
+/// the third and fourth cumulants C₃ (Å³) and C₄ (Å⁴).
+type PathColumn = fn(&FitPathSpec) -> &str;
+
+const PATH_TERMS: [(&str, PathColumn); 8] = [
+    ("S₀²", |p| &p.s02),
+    ("N", |p| &p.degen),
+    ("ΔE₀ (eV)", |p| &p.e0),
+    ("ΔR (Å)", |p| &p.deltar),
+    ("σ² (Å²)", |p| &p.sigma2),
+    ("Eᵢ (eV)", |p| &p.ei),
+    ("C₃ (Å³)", |p| &p.third),
+    ("C₄ (Å⁴)", |p| &p.fourth),
+];
+
+/// Readable label of fit variable `name` from how the archived fit used it,
+/// e.g. "ΔR (Å) · Cu–Cu 2.553 Å" for `dr_1` or "S₀²" for a shared `s02`.
+///
+/// A variable gets a label only when it is the whole expression of one
+/// path-parameter column (any name, including the template names `s02`,
+/// `e0`, `dr_<n>`, `ss_<n>`). The path is named when the variable belongs
+/// to some but not all enabled paths; "+n" counts further paths sharing it.
+/// Variables used in expressions, in several columns or not at all return
+/// `None` and keep the name the user typed. `paths` are the fit's path
+/// specifications and `details` the snapshot of its enabled paths, in the
+/// same order as produced by [`snapshot`].
+pub(crate) fn variable_label(
+    name: &str,
+    paths: &[FitPathSpec],
+    details: &[PathFitDetails],
+) -> Option<String> {
+    let enabled: Vec<&FitPathSpec> = paths.iter().filter(|p| p.enabled).collect();
+    let mut found = None;
+    for (symbol, column) in PATH_TERMS {
+        let users: Vec<usize> = enabled
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| column(p).trim() == name)
+            .map(|(i, _)| i)
+            .collect();
+        if users.is_empty() {
+            continue;
+        }
+        if found.is_some() {
+            return None;
+        }
+        found = Some((symbol, users));
+    }
+    let (symbol, users) = found?;
+    if users.len() == enabled.len() {
+        return Some(symbol.to_string());
+    }
+    let Some(path) = details.get(users[0]) else {
+        return Some(symbol.to_string());
+    };
+    Some(match users.len() {
+        1 => format!("{symbol} · {}", path.title()),
+        n => format!("{symbol} · {} +{}", path.title(), n - 1),
+    })
 }
 
 #[cfg(test)]
@@ -297,5 +398,94 @@ mod tests {
         r.varying_names = vec!["a".into()];
         r.covariance = Some(vec![vec![0.0004]]);
         assert!((estimate("a", None, None, &r).unwrap().stderr.unwrap() - 0.02).abs() < 1e-10);
+    }
+
+    fn details(label: &str, scatterers: Option<&str>, reff: Option<f64>) -> PathFitDetails {
+        PathFitDetails {
+            file: label.into(),
+            label: label.into(),
+            scatterers: scatterers.map(Into::into),
+            reff,
+            nleg: Some(2),
+            degeneracy: None,
+            effective_degen: None,
+            distance: None,
+            deltar: None,
+            sigma2: None,
+            s02: None,
+            e0: None,
+            n_s02: None,
+            ei: None,
+            third: None,
+            fourth: None,
+        }
+    }
+
+    fn spec(file: &str, deltar: &str, sigma2: &str) -> FitPathSpec {
+        FitPathSpec {
+            s02: "s02".into(),
+            e0: "e0".into(),
+            deltar: deltar.into(),
+            sigma2: sigma2.into(),
+            enabled: true,
+            ..FitPathSpec::blank(file.into())
+        }
+    }
+
+    #[test]
+    fn path_title_names_the_scatterers_instead_of_the_file() {
+        let p = details("feff0001.dat", Some("Cu–Cu"), Some(2.5527));
+        assert_eq!(p.title(), "Cu–Cu 2.553 Å");
+        let joint = details(
+            "Spectrum 2 · cu_150k · feff0001.dat",
+            Some("Cu–Cu"),
+            Some(2.5527),
+        );
+        assert_eq!(joint.title(), "Spectrum 2 · cu_150k · Cu–Cu 2.553 Å");
+        // History entries recorded before the chain was stored.
+        let old = details("feff0001.dat", None, Some(2.5527));
+        assert_eq!(old.title(), "feff0001.dat 2.553 Å");
+        assert_eq!(details("feff0001.dat", None, None).title(), "feff0001.dat");
+    }
+
+    #[test]
+    fn variable_labels_follow_the_path_column_that_uses_them() {
+        let mut paths = vec![
+            spec("feff0001.dat", "dr_1", "ss_1"),
+            spec("feff0002.dat", "dr_2", "ss_2"),
+            spec("feff0003.dat", "dr_1", "ss_1"),
+        ];
+        paths.push(FitPathSpec {
+            enabled: false,
+            ..spec("feff0004.dat", "dr_9", "ss_9")
+        });
+        let snap = vec![
+            details("feff0001.dat", Some("Cu–Cu"), Some(2.5527)),
+            details("feff0002.dat", Some("Cu–Cu"), Some(3.61)),
+            details("feff0003.dat", Some("Cu–Cu–Cu"), Some(3.8292)),
+        ];
+        let label = |paths: &[FitPathSpec], name| variable_label(name, paths, &snap);
+        assert_eq!(label(&paths, "s02").as_deref(), Some("S₀²"));
+        assert_eq!(label(&paths, "e0").as_deref(), Some("ΔE₀ (eV)"));
+        assert_eq!(
+            label(&paths, "dr_2").as_deref(),
+            Some("ΔR (Å) · Cu–Cu 3.610 Å")
+        );
+        assert_eq!(
+            label(&paths, "ss_1").as_deref(),
+            Some("σ² (Å²) · Cu–Cu 2.553 Å +1")
+        );
+        // Disabled paths and unused names keep the typed name.
+        assert_eq!(label(&paths, "dr_9"), None);
+        assert_eq!(label(&paths, "amp"), None);
+        // A name used in two different columns is ambiguous.
+        paths[1].sigma2 = "dr_2".into();
+        assert_eq!(label(&paths, "dr_2"), None);
+        // Part of an expression is not the parameter itself.
+        paths[0].deltar = "dr_1 * 2".into();
+        assert_eq!(
+            label(&paths, "dr_1").as_deref(),
+            Some("ΔR (Å) · Cu–Cu–Cu 3.829 Å")
+        );
     }
 }

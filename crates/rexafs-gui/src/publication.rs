@@ -95,10 +95,15 @@ fn source_comments(path: &Path) -> Vec<String> {
 }
 impl Snapshot {
     pub(crate) fn context(&self) -> Value {
+        // Fit curve arrays are exported once, as data/fit-<id>.json.
+        let mut project = serde_json::to_value(&self.project).unwrap_or_default();
+        if let Some(object) = project.as_object_mut() {
+            object.remove("fit_results");
+        }
         json!({
             "software":{"name":"rexafs","version":env!("CARGO_PKG_VERSION")},
             "current_spectrum":self.current, "screen":self.screen,
-            "project":self.project,
+            "project":project,
             "effective_processing":self.spectra.iter().map(|s|json!({"file":s.path,"group":s.label(),"group_id":s.group.as_ref().map(|g|g.id),"requested":s.params,"source_comments":source_comments(&s.path)})).collect::<Vec<_>>(),
             "analysis":self.analysis, "batch_results_stale":self.batch_stale, "journal":self.journal,
             "semantics":{"null_processing_value":"Auto; resolved numbers are in processed-spectrum JSON when available", "fit_history":"Historical inputs and values; not necessarily the currently edited model", "path_distance":"R_eff + deltaR; for multiple scattering, half the total scattering path length", "stderr":"One standard error from the fit covariance, not total experimental uncertainty"}

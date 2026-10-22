@@ -393,6 +393,16 @@ pub struct FitHistoryEntry {
     pub path_details: Vec<crate::fit_details::PathFitDetails>,
     #[serde(default)]
     pub solver_report: Option<FitSolverReport>,
+    /// Exact core Fourier-transform settings used by the fit, one per dataset
+    /// in input order: k and R windows (`kmin`/`kmax`, `rmin`/`rmax`), the
+    /// window families and taper widths (`dk`, `dr`), FFT length, k step,
+    /// k-weights and fit space. `ranges` stores the editable desktop model;
+    /// this records the transform it produced, including defaults the editor
+    /// does not expose. Empty for fits recorded by older releases, whose
+    /// taper was the then-current [`FeffFitTransform`] default (Kaiser–Bessel
+    /// k window, dk = 4 Å⁻¹; Hanning R window, dr = 0 Å).
+    #[serde(default)]
+    pub transforms: Vec<FeffFitTransform>,
 }
 
 impl FitHistoryEntry {
@@ -426,6 +436,7 @@ impl FitHistoryEntry {
             path_details: crate::fit_details::snapshot(&paths, result),
             paths,
             vars,
+            transforms: vec![ranges.transform()],
             ranges,
             values,
             solver_report: result.solver_report.clone(),

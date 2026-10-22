@@ -66,7 +66,7 @@ fn joint(value: &mut Value) {
 fn history(value: &mut Value) {
     omit(
         value,
-        json!({"joint":null,"path_details":[],"solver_report":null}),
+        json!({"joint":null,"path_details":[],"solver_report":null,"transforms":[]}),
     );
     each(value, "paths", path);
     each(value, "vars", variable);

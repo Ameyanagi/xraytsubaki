@@ -232,6 +232,55 @@ fn joint_materialized_groups_keep_empty_locators_on_save_and_reopen() {
 }
 
 #[test]
+fn fit_result_arrays_and_transforms_survive_reopen_and_old_projects_still_open() {
+    use nalgebra::DVector;
+    use rexafs::prelude::FeffFitResult;
+    use std::sync::Arc;
+    let temp = Temp::new();
+    // A 0.1.0 project predates saved result arrays and transforms.
+    let mut project = specimen(&temp.join("source"));
+    assert!(project.fit_results.is_empty());
+    assert!(project.fit_history[0].transforms.is_empty());
+
+    let id = project.fit_history[0].id;
+    let transform = project.fit_history[0].ranges.transform();
+    project.fit_history[0].transforms = vec![transform.clone()];
+    let k = DVector::from_fn(64, |i, _| 0.05 * i as f64);
+    let result = FeffFitResult {
+        r_factor: 0.0123,
+        data_chi: k.map(f64::sin),
+        model_chi: k.map(|x| 0.9 * x.sin()),
+        k,
+        kweights: vec![2.0],
+        ..Default::default()
+    };
+    let unreadable = FeffFitResult {
+        r_factor: f64::NAN,
+        ..Default::default()
+    };
+    let mut second = project.fit_history[0].clone();
+    second.id = id + 1;
+    project.fit_history.push(second);
+    project.fit_results = [
+        (id, Arc::new(result.clone())),
+        (id + 1, Arc::new(unreadable)),
+        (id + 99, Arc::new(result.clone())), // No history entry.
+    ]
+    .into();
+
+    for mode in [DataStorage::Paths, DataStorage::Embedded] {
+        let file = temp.join(&format!("fit-results-{mode:?}.rxs"));
+        save_with_storage(&file, &project, mode).unwrap();
+        let loaded = load(&file).unwrap();
+        // Non-finite and orphaned results are dropped, not the whole save.
+        assert_eq!(loaded.fit_results.keys().copied().collect::<Vec<_>>(), [id]);
+        assert_eq!(*loaded.fit_results[&id], result);
+        assert_eq!(loaded.fit_history[0].transforms, [transform.clone()]);
+        assert_eq!(loaded.fit_history.len(), 2);
+    }
+}
+
+#[test]
 fn embedded_restore_uses_the_injected_cache_and_links_need_no_cache() {
     let temp = Temp::new();
     let project = specimen(&temp.join("source"));

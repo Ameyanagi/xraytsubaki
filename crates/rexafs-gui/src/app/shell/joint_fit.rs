@@ -492,6 +492,12 @@ impl StudioApp {
                     Ok((result, expanded)) => {
                         let (config, paths, vars, ranges) = saved;
                         let id = app.fit_history.last().map(|h| h.id + 1).unwrap_or(1);
+                        // Same per-dataset rule as `joint_fitting::run`.
+                        let transforms = config
+                            .datasets
+                            .iter()
+                            .map(|d| d.ranges.as_ref().unwrap_or(&ranges).transform())
+                            .collect();
                         let mut entry = FitHistoryEntry::from_result(
                             id,
                             provenance.label.to_string(),
@@ -500,6 +506,7 @@ impl StudioApp {
                             ranges,
                             &result,
                         );
+                        entry.transforms = transforms;
                         entry.path_details = crate::fit_details::snapshot(&expanded, &result);
                         entry.joint = Some(config.clone());
                         app.joint.result_config = Some(config);

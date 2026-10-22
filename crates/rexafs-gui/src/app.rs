@@ -8872,6 +8872,7 @@ impl StudioApp {
                 .and_then(|ix| self.derived.get(ix - DERIVED_BASE))
                 .map(|d| d.id),
             fit_history: self.fit_history.clone(),
+            fit_results: self.fit_history_results.clone(),
             joint: self.joint.config.clone(),
             publication: self.publish.settings.clone(),
             mcr_analysis: self.analysis.mcr.clone(),
@@ -9272,7 +9273,8 @@ impl StudioApp {
             config: project.joint,
             ..Default::default()
         };
-        self.fit_history_results.clear();
+        // Saved result arrays let Publish export history fits without a refit.
+        self.fit_history_results = project.fit_results;
         self.sync_range_fields(cx);
         self.derived = project.derived;
         self.group_registry.reserve_groups(&self.derived);

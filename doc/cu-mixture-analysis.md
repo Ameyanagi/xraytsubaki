@@ -57,6 +57,11 @@ These are viewing ranges relative to the current spectrum's E₀. They do not
 change calculation settings. The analysis form has separate range presets and
 shows its selected interval as dashed lines on the spectrum plot. Common full
 range uses the intersection of prepared inputs; prepare them before selecting it.
+The dashed lines belong to the open analysis form: switching between PCA and
+MCR redraws them at that form's interval (PCA defaults to −20 to +30 eV from E₀;
+blank MCR fields use the common measured interval), and closing the form
+removes them. Opening a processing tool such as Deglitch or Align returns to the
+spectra; reopen the analysis tool to see its stored result again.
 Completed result plots show the actual sampled interval retained with that run.
 
 Open **Data → Parameters → Principal components**. Inspect:

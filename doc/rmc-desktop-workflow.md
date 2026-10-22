@@ -229,6 +229,10 @@ calculator for a fast warm resume. **Stop and save** requests calculator
 cancellation and saves the last complete transactional state. A kernel that does
 not inspect cancellation immediately may delay stopping. Wait for the stopped or
 paused state before closing the application if the latest state is important.
+When the run stops or finishes, messages that applied only to the active run (for
+example, a request to stop it before starting another) are cleared, and the
+window footer reports the RMC outcome and completed attempts or generations
+instead of an earlier, unrelated message such as a path-fit R-factor.
 
 Checkpoints are written atomically after preparation, about every 30 seconds at
 move boundaries, and on pause, stop, budget completion or a calculation failure.

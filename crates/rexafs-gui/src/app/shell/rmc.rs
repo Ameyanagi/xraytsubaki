@@ -96,6 +96,35 @@ impl RmcState {
             ..Default::default()
         }
     }
+    /// Records that the worker has ended with `phase` (for example "Stopped"
+    /// or "Attempt limit reached") and returns the window-footer status line.
+    ///
+    /// Messages raised against the active run, such as "Stop and save the
+    /// current RMC run before starting another.", no longer apply once it has
+    /// ended, so they are cleared instead of sitting beside the Resume button.
+    /// The returned line replaces whatever the footer showed before the run,
+    /// which is often an unrelated path-fit R-factor. A worker error is set
+    /// after this call, so it is not lost.
+    fn end_run(&mut self, phase: String) -> String {
+        self.control = None;
+        self.error = None;
+        let unit = self.request.as_ref().map_or("attempts", |r| r.unit());
+        let status = run_end_status(&phase, self.live.as_ref().map(|p| p.completed), unit);
+        self.phase = phase;
+        status
+    }
+}
+/// Footer line for an RMC run that ended with `phase` after `completed`
+/// attempts or generations (`None` when it ended during preparation).
+fn run_end_status(phase: &str, completed: Option<usize>, unit: &str) -> String {
+    let phase = phase.to_lowercase();
+    match completed {
+        Some(n) => format!(
+            "RMC {phase} · {} completed {unit} · checkpoint saved",
+            count(n)
+        ),
+        None => format!("RMC {phase} before preparation finished"),
+    }
 }
 impl StudioApp {
     pub(super) fn fit_mode_picker(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -402,6 +431,8 @@ impl StudioApp {
         self.rmc.plots.clear();
         self.rmc.scene_key = None;
         self.rmc.phase = "Preparing exact ReFEFF".into();
+        // Replace an unrelated earlier footer message, such as a path-fit R-factor.
+        self.status = "RMC run started · preparing exact ReFEFF".into();
         self.stage_view.fit_step = FitStep::Results;
         cx.spawn(async move |this, cx| {
             loop {
@@ -446,24 +477,24 @@ impl StudioApp {
                                     app.rebuild_rmc_plots(cx);
                                 }
                                 Event::Stopped => {
-                                    app.rmc.phase = "Stopped".into();
-                                    app.rmc.control = None;
-                                    app.rmc.error = None;
+                                    app.status = app.rmc.end_run("Stopped".into()).into();
                                 }
                                 Event::Finished(saved) => {
-                                    app.rmc.phase = saved.status.clone();
                                     app.rmc.live = Some(saved.progress.clone());
+                                    app.status = app.rmc.end_run(saved.status.clone()).into();
                                     app.rmc.project.saved = Some(saved);
-                                    app.rmc.control = None;
                                     app.rebuild_rmc_plots(cx);
                                     if app.fit_mode == FitMode::Rmc {
                                         app.stage_view.fit_step = FitStep::Results;
                                     }
                                 }
                                 Event::Error(e) => {
+                                    app.rmc.end_run("Stopped with error".into());
+                                    app.set_status(
+                                        crate::app::StatusKind::Error,
+                                        "RMC stopped with an error; see the RMC panel.",
+                                    );
                                     app.rmc.error = Some(e);
-                                    app.rmc.phase = "Stopped with error".into();
-                                    app.rmc.control = None;
                                 }
                             }
                         }
@@ -471,6 +502,10 @@ impl StudioApp {
                             if app.rmc.control.is_some() {
                                 app.rmc.phase = "Worker stopped".into();
                                 app.rmc.error = Some("The RMC worker ended unexpectedly. The latest saved checkpoint remains available for recovery.".into());
+                                app.set_status(
+                                    crate::app::StatusKind::Error,
+                                    "The RMC worker ended unexpectedly; see the RMC panel.",
+                                );
                             }
                             app.rmc.control = None;
                         }
@@ -3152,6 +3187,24 @@ fn result_plots(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ending_a_run_clears_messages_about_the_active_run() {
+        let mut state = RmcState {
+            phase: "Stopping and saving".into(),
+            error: Some("Stop and save the current RMC run before starting another.".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            state.end_run("Stopped".into()),
+            "RMC stopped before preparation finished"
+        );
+        assert_eq!(state.phase, "Stopped");
+        assert!(state.error.is_none() && state.control.is_none());
+        assert_eq!(
+            run_end_status("Stopped", Some(1_499), "attempts"),
+            "RMC stopped · 1,499 completed attempts · checkpoint saved"
+        );
+    }
     #[test]
     fn periodic_preview_frames_cell_and_preserves_coordinates() {
         let configuration = Configuration {

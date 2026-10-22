@@ -181,7 +181,10 @@ calibrated scientific fit. [Capture and input provenance](/licenses/#desktop-021
 **Pause** finishes the current move, saves a checkpoint and retains the prepared
 calculator for a fast resume. **Stop and save** cancels work and retains the
 last complete state. Wait for the paused or stopped status before closing when
-the latest state is needed.
+the latest state is needed. When a run stops or finishes, messages about the
+active run are cleared and the window footer reports the RMC outcome and the
+number of completed attempts or generations, replacing any earlier message such
+as a path-fit R-factor.
 
 Checkpoints are saved after preparation, approximately every 30 seconds at move
 boundaries, and on pause, stop, completion or calculation failure. A sudden exit

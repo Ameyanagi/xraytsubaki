@@ -13,6 +13,24 @@
   distinguishable. Only the current group is highlighted; marks use checkboxes.
 - Write publication SVG width and height in inches with a pixel `viewBox`, so a
   3.3 in figure imports at 3.3 in instead of about 10 in.
+- Write plain publication SVG labels as editable `<text>` (ruviz 0.15.1);
+  labels with math or markup stay outlined.
+- Report degenerate normalization, Wavelet failures and XANES peak-fit failures
+  in the problems drawer, and add a "Show problems" command.
+- Run a queued background recompute after a failed job, so settings changed
+  during the failure are not left stale.
+- Show reduced χ² as "n/a (noise not estimated)" when ε was not estimated from
+  the data.
+- Save fit results with the project, so a reopened project lists its fits in
+  Publish and shows the last fit without refitting or a stale flag.
+- Fill the Used column of the copied analysis record with resolved Auto values
+  and data-limited ranges.
+- Redraw MCR/PCA/LCF analysis boundaries when a form opens or changes, and stop
+  showing an analysis result card while Deglitch or Align is open.
+- Name fit parameters by symbol, unit and path (for example "ΔR (Å) · Cu–Cu
+  2.557 Å") and fitted paths by their scatterers and distance.
+- Clear stale RMC run messages when a run ends, and report the outcome and
+  completed attempts in the footer.
 
 ## 0.2.14 (2026-09-24)
 

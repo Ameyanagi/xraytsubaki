@@ -482,6 +482,10 @@ impl<'a> XASPlotBuilder<'a> {
 
     /// Render exactly one panel into an owned SVG string without writing a file.
     /// Uses the same prerequisites and single-panel restriction as [`Self::render_plot`].
+    /// Labels are typeset by Typst. Labels without Typst math or markup, such as
+    /// tick numbers, are written as editable `<text>`; labels containing math or
+    /// markup characters (`$`, `[`, `#`, ...), such as `Energy [eV]`, stay glyph
+    /// outlines with an `aria-label` holding their Typst source.
     pub fn to_svg(self) -> Result<String, PlotError> {
         let plot = self.render_plot()?;
         Ok(plot.render_to_svg()?)
@@ -490,6 +494,7 @@ impl<'a> XASPlotBuilder<'a> {
     /// Render one owned SVG string per selected panel, preserving panel order.
     /// Each SVG uses the configured width/height; the combined-figure title is not
     /// inserted. No file is written and no combined multi-panel SVG is produced.
+    /// Text follows the same editable/outlined rule as [`Self::to_svg`].
     pub fn to_svg_panels(mut self) -> Result<Vec<String>, PlotError> {
         let plots = self.build_plots()?;
         let mut svg_panels = Vec::with_capacity(plots.len());
@@ -614,5 +619,9 @@ mod tests {
             .to_svg_panels()
             .expect("multi-panel svg panels should succeed");
         assert_eq!(panels.len(), 2);
+        // Tick numbers are editable SVG text; "Energy [eV]" contains Typst
+        // markup brackets, so it stays outlined with its source as aria-label.
+        assert!(panels[0].contains("<text"), "tick numbers are SVG text");
+        assert!(panels[0].contains(r#"aria-label="Energy [eV]""#));
     }
 }

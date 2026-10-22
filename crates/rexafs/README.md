@@ -154,7 +154,7 @@ FEFF fit compatibility is regression-tested against these regenerated Cu/ZnSe fi
 - `.window_fn(...)` is supported only on `k()` panels.
 - `.window_box(...)` is supported on `k()` panels, and on `r()` panels for `FeffFitResult` plots; it renders two range markers (min/max), not a rectangle.
 - `FeffFitResult` now includes `varying_names`, `covariance`, and `correlation` (matrix order follows `varying_names`).
-- `save_png()` combines multiple panels. `to_svg()` and `render_plot()` require a single panel; `to_svg_panels()` returns a separate SVG string for each panel.
+- `save_png()` combines multiple panels. `to_svg()` and `render_plot()` require a single panel; `to_svg_panels()` returns a separate SVG string for each panel. In SVG output, labels without Typst math or markup (tick numbers, plain legend names) are editable `<text>`; labels with math or markup characters such as `$`, `[` or `#` stay as glyph outlines.
 
 ### XASSpectrum examples
 

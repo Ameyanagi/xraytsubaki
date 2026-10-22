@@ -403,6 +403,18 @@ pub struct FitHistoryEntry {
     /// k window, dk = 4 Å⁻¹; Hanning R window, dr = 0 Å).
     #[serde(default)]
     pub transforms: Vec<FeffFitTransform>,
+    /// Derived-group id of the fitted spectrum; `None` for a catalog or
+    /// standalone file, for joint fits and for fits recorded by older releases.
+    #[serde(default)]
+    pub group_id: Option<u64>,
+    /// Hash of the fitted spectrum's processing settings (the app's
+    /// processed-spectrum fingerprint) at fit time. Restoring the result
+    /// compares it with the loaded spectrum to decide whether the fit still
+    /// matches the data. The hash is deterministic for one rexafs build; a
+    /// different build may hash differently, which only marks the restored fit
+    /// as needing an update. `None` for joint fits and older fits.
+    #[serde(default)]
+    pub params_fingerprint: Option<u64>,
 }
 
 impl FitHistoryEntry {
@@ -437,10 +449,26 @@ impl FitHistoryEntry {
             paths,
             vars,
             transforms: vec![ranges.transform()],
+            group_id: None,
+            params_fingerprint: None,
             ranges,
             values,
             solver_report: result.solver_report.clone(),
         }
+    }
+
+    /// Whether a loaded spectrum is the one this fit was run on: the same
+    /// derived group, label and processing fingerprint. Entries recorded
+    /// without a fingerprint (older releases, joint fits) never match.
+    pub fn matches_spectrum(
+        &self,
+        group_id: Option<u64>,
+        label: &str,
+        params_fingerprint: u64,
+    ) -> bool {
+        self.params_fingerprint == Some(params_fingerprint)
+            && self.group_id == group_id
+            && self.group == label
     }
 
     /// One-line description of what distinguishes this fit.

@@ -176,6 +176,7 @@ impl StudioApp {
         self.joint.result_config = entry.joint.clone();
         self.joint.result_index = 0;
         self.fit_result = Some(result);
+        self.pending_fit_restore = None;
         select_history_result(&mut self.fit_provenance, &mut self.fit_history_selected, id);
         self.stage_view.fit_result_tab = 0;
         self.set_stage(Stage::Fit, cx);

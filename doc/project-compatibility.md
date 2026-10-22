@@ -70,6 +70,14 @@ and modeled χ(k), k window, R-space transforms, path contributions) under
 `fit_results`, and the exact Fourier-transform settings it used — k/R windows,
 window families, taper widths `dk`/`dr`, FFT length and k step — under its
 `transforms` list, so a reopened project can publish its fits without a refit.
+The fit that was current and up to date at save time (`current_fit`) is shown
+again on reopening, in Fit results and as Publish fit figures. It counts as up
+to date when the reloaded spectrum has the same group, label and processing
+settings as when it was fitted (each entry records the group id and a
+processing fingerprint) and the model is unchanged; otherwise it is marked as
+needing an update. The fingerprint is a hash computed by the app; a different
+rexafs build may compute it differently, which only marks the fit as needing
+an update.
 Projects saved by releases before this change open unchanged: their fits keep
 statistics and models, but their curves return only after a refit, and their
 taper was the core default (Kaiser–Bessel k window, `dk` = 4 Å⁻¹; Hanning R

@@ -241,10 +241,25 @@ fn fit_result_arrays_and_transforms_survive_reopen_and_old_projects_still_open()
     let mut project = specimen(&temp.join("source"));
     assert!(project.fit_results.is_empty());
     assert!(project.fit_history[0].transforms.is_empty());
+    assert_eq!(project.current_fit, None);
+    assert_eq!(project.fit_history[0].params_fingerprint, None);
 
     let id = project.fit_history[0].id;
     let transform = project.fit_history[0].ranges.transform();
     project.fit_history[0].transforms = vec![transform.clone()];
+    // The fit was current and up to date on a derived group when saved.
+    let fingerprint = |p: &ProjectFile| {
+        let group = &p.derived[0];
+        (
+            group.id,
+            group.fingerprint(group.params.as_ref().unwrap_or(&p.params)),
+        )
+    };
+    let (group_id, params_fingerprint) = fingerprint(&project);
+    let label = project.fit_history[0].group.clone();
+    project.fit_history[0].group_id = Some(group_id);
+    project.fit_history[0].params_fingerprint = Some(params_fingerprint);
+    project.current_fit = Some(id);
     let k = DVector::from_fn(64, |i, _| 0.05 * i as f64);
     let result = FeffFitResult {
         r_factor: 0.0123,
@@ -275,9 +290,25 @@ fn fit_result_arrays_and_transforms_survive_reopen_and_old_projects_still_open()
         // Non-finite and orphaned results are dropped, not the whole save.
         assert_eq!(loaded.fit_results.keys().copied().collect::<Vec<_>>(), [id]);
         assert_eq!(*loaded.fit_results[&id], result);
-        assert_eq!(loaded.fit_history[0].transforms, [transform.clone()]);
+        assert_eq!(
+            loaded.fit_history[0].transforms,
+            std::slice::from_ref(&transform)
+        );
         assert_eq!(loaded.fit_history.len(), 2);
+        // Reopening shows the saved current fit, and the reloaded, unedited
+        // spectrum is recognised as the fitted one (not stale).
+        assert_eq!(loaded.current_fit, Some(id));
+        let (group_id, params_fingerprint) = fingerprint(&loaded);
+        let entry = &loaded.fit_history[0];
+        assert!(entry.matches_spectrum(Some(group_id), &label, params_fingerprint));
+        assert!(!entry.matches_spectrum(None, &label, params_fingerprint));
+        assert!(!entry.matches_spectrum(Some(group_id), &label, params_fingerprint ^ 1));
     }
+    // A current fit whose arrays cannot be saved is not restored.
+    project.current_fit = Some(id + 1);
+    let file = temp.join("unreadable-current.rxs");
+    save_with_storage(&file, &project, DataStorage::Paths).unwrap();
+    assert_eq!(load(&file).unwrap().current_fit, None);
 }
 
 #[test]

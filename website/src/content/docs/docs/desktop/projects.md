@@ -56,7 +56,8 @@ Processed spectra are recomputed on reopening. Derived spectra retain full
 energy and μ arrays in both modes. Historical fit statistics, models, result
 curves and exact transform settings (k/R windows, window families and taper
 widths) are saved, so **Publish** can export a reopened project's fits without
-a refit. Projects saved by older releases still open; their fits keep
+a refit. The fit that was current when you saved is shown again and counts as
+up to date while its spectrum, processing settings and model are unchanged. Projects saved by older releases still open; their fits keep
 statistics and models, and their curves return after a refit.
 Embedded mode excludes unrelated workspace files and executables/backends.
 [**Export analysis folder**](/docs/desktop/publication/#analysis-folder-contents)

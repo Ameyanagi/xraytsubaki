@@ -526,6 +526,7 @@ impl StudioApp {
                         let result = Arc::new(result);
                         app.fit_result = Some(result.clone());
                         app.fit_provenance = Some(provenance);
+                        app.pending_fit_restore = None;
                         app.fit_history.push(entry);
                         app.fit_history_results.insert(id, result);
                         app.fit_history_selected = Some(id);

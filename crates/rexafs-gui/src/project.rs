@@ -136,6 +136,11 @@ pub struct ProjectFile {
     /// releases; those fits keep their statistics and model, and their curves
     /// return only after a refit. Results with non-finite numbers, which JSON
     /// cannot represent, are dropped by [`save_with_storage`].
+    /// History id of the fit that was current and up to date when the project
+    /// was saved. Reopening shows that result again (Fit results and Publish
+    /// figures) and marks it as needing an update only if the reloaded
+    /// spectrum or model differs from the one it was fitted to.
+    pub current_fit: Option<usize>,
     pub fit_results:
         std::collections::BTreeMap<usize, std::sync::Arc<rexafs::prelude::FeffFitResult>>,
     pub joint: crate::joint_fitting::JointConfig,
@@ -383,6 +388,12 @@ fn retain_portable_fit_results(project: &mut ProjectFile) {
                 .and_then(serde_json::from_value::<rexafs::prelude::FeffFitResult>)
                 .is_ok()
     });
+    if project
+        .current_fit
+        .is_some_and(|id| !project.fit_results.contains_key(&id))
+    {
+        project.current_fit = None;
+    }
 }
 
 /// Read and validate a `.rxs` project without rewriting its source file.

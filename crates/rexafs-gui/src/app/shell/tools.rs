@@ -79,6 +79,13 @@ impl Tool {
         matches!(self, Tool::Lcf | Tool::Pca | Tool::Mcr)
     }
 
+    /// The analysis result card to show after opening this tool. Processing
+    /// tools such as Deglitch and Align show the spectra or their own
+    /// preview, never a previous LCF, PCA or MCR result.
+    fn shown_analysis(self) -> Option<Tool> {
+        self.is_analysis().then_some(self)
+    }
+
     fn needs_standard(self) -> bool {
         matches!(self, Tool::Align | Tool::Calibrate | Tool::Difference)
     }
@@ -237,6 +244,17 @@ mod analysis_range_tests {
             (Some(f64::NAN), Some(1.)),
         ] {
             assert!(analysis_range_from_fields(lo, hi).is_err());
+        }
+    }
+
+    #[test]
+    fn processing_tools_never_show_a_previous_analysis_result() {
+        use super::Tool;
+        for tool in [Tool::Deglitch, Tool::Align, Tool::Calibrate, Tool::Smooth] {
+            assert_eq!(tool.shown_analysis(), None);
+        }
+        for tool in Tool::ANALYSIS {
+            assert_eq!(tool.shown_analysis(), Some(tool));
         }
     }
 }
@@ -935,11 +953,18 @@ impl StudioApp {
             })
             .flatten();
         self.choose_tool_standard(standard, cx);
-        if tool.is_analysis() {
-            self.analysis.shown = Some(tool);
-            self.rebuild_analysis_plot(cx);
-        }
+        // Rebuilding with `None` drops a stale result card, e.g. MCR
+        // components left on screen after opening Deglitch or Align.
+        self.analysis.shown = tool.shown_analysis();
+        self.rebuild_analysis_plot(cx);
+        let was_data = self.stage == super::Stage::Data;
         self.set_stage(super::Stage::Data, cx);
+        if was_data {
+            // set_stage does not rebuild within the same stage, but the dashed
+            // analysis boundaries depend on the open tool's range (PCA default
+            // −20…+30 eV versus the MCR common measured interval).
+            self.invalidate_explore_plots(cx);
+        }
         self.set_side_panel_visible(super::assistant_shell::SidePanel::Inspector, true);
         self.inspector_scroll
             .set_offset(gpui::point(px(0.), px(0.)));
@@ -1696,6 +1721,8 @@ impl StudioApp {
                 .on_click(cx.listener(move |this, _, _, cx| {
                     if this.tools.open == Some(tool) {
                         this.tools.open = None;
+                        // Remove the closed tool's dashed analysis boundaries.
+                        this.invalidate_explore_plots(cx);
                         cx.notify();
                     } else {
                         this.open_tool(tool, cx);
@@ -1811,6 +1838,7 @@ impl StudioApp {
                             .on_click(cx.listener(
                                 |this, _: &ClickEvent, _w, cx| {
                                     this.tools.open = None;
+                                    this.invalidate_explore_plots(cx);
                                     cx.notify();
                                 },
                             )),

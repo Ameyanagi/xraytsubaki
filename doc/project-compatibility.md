@@ -65,8 +65,24 @@ loader](https://github.com/Ameyanagi/rexafs/blob/v0.2.4/crates/rexafs-gui/src/pr
 
 Processed spectra are recomputed when reopening. Derived spectra created inside
 the app retain full energy and μ arrays in both modes. Historical fit statistics
-and models remain saved; historical curve arrays are available through analysis
-exports when present in the session. Embedded mode does not include unrelated
+and models remain saved. Each history fit also saves its result arrays (measured
+and modeled χ(k), k window, R-space transforms, path contributions) under
+`fit_results`, and the exact Fourier-transform settings it used — k/R windows,
+window families, taper widths `dk`/`dr`, FFT length and k step — under its
+`transforms` list, so a reopened project can publish its fits without a refit.
+The fit that was current and up to date at save time (`current_fit`) is shown
+again on reopening, in Fit results and as Publish fit figures. It counts as up
+to date when the reloaded spectrum has the same group, label and processing
+settings as when it was fitted (each entry records the group id and a
+processing fingerprint) and the model is unchanged; otherwise it is marked as
+needing an update. The fingerprint is a hash computed by the app; a different
+rexafs build may compute it differently, which only marks the fit as needing
+an update.
+Projects saved by releases before this change open unchanged: their fits keep
+statistics and models, but their curves return only after a refit, and their
+taper was the core default (Kaiser–Bessel k window, `dk` = 4 Å⁻¹; Hanning R
+window, `dr` = 0 Å). A result containing NaN or infinity, which JSON cannot
+store, is saved without its arrays. Embedded mode does not include unrelated
 workspace files or a saved executable/backend. **Export analysis folder** adds
 processed arrays, available fit arrays and captioned figures/tables beside `project.rxs`.
 

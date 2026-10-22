@@ -60,8 +60,8 @@ pub(crate) fn markdown(entry: &FitHistoryEntry, result: Option<&FeffFitResult>) 
     out.push_str(&format!("| R-factor | {:.5} |\n", entry.r_factor));
     out.push_str(&format!("| χ² | {:.4e} |\n", entry.chi_square));
     out.push_str(&format!(
-        "| reduced χ² | {:.4e} |\n",
-        entry.reduced_chi_square
+        "| reduced χ² | {} |\n",
+        entry.reduced_chi_square_text()
     ));
     out.push_str(&format!(
         "| N idp / N var | {:.1} / {} |\n",
@@ -69,7 +69,9 @@ pub(crate) fn markdown(entry: &FitHistoryEntry, result: Option<&FeffFitResult>) 
     ));
     if let Some(r) = result {
         out.push_str(&format!("| N data | {} |\n", r.n_data));
-        if let Some(k) = r.kweight_results.first() {
+        if !entry.noise_estimated() {
+            out.push_str("| ε k (noise) | not estimated (unit scale) |\n");
+        } else if let Some(k) = r.kweight_results.first() {
             out.push_str(&format!("| ε k (noise) | {:.3e} |\n", k.epsilon_k));
             out.push_str(&format!("| ε R (noise) | {:.3e} |\n", k.epsilon_r));
         }
@@ -417,6 +419,30 @@ mod tests {
             !md.contains("| Ei |"),
             "unused cumulants stay out of the report"
         );
+    }
+
+    #[test]
+    fn reduced_chi_square_needs_a_noise_estimate() {
+        let (mut entry, mut result) = entry();
+        entry.reduced_chi_square = 4.5e-5;
+        result.reduced_chi_square = 4.5e-5;
+        let md = markdown(&entry, Some(&result));
+        assert!(
+            md.contains("| reduced χ² | n/a (noise not estimated) |"),
+            "{md}"
+        );
+        assert!(
+            md.contains("| ε k (noise) | not estimated (unit scale) |"),
+            "{md}"
+        );
+        assert!(!md.contains("4.5000e-5"), "{md}");
+
+        entry.ranges.noise = true;
+        result.kweight_results = vec![Default::default()];
+        result.kweight_results[0].epsilon_k = 2.5e-4;
+        let md = markdown(&entry, Some(&result));
+        assert!(md.contains("| reduced χ² | 4.5000e-5 |"), "{md}");
+        assert!(md.contains("| ε k (noise) | 2.500e-4 |"), "{md}");
     }
 
     #[test]

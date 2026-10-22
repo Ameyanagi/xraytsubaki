@@ -283,6 +283,32 @@ impl StudioApp {
         .expect("report revision contains serializable inputs")
     }
 
+    /// Copy the Markdown analysis record. Spectra are processed in the
+    /// background first so the "Used" column holds the applied values.
+    pub(crate) fn copy_analysis_record(&mut self, cx: &mut Context<Self>) {
+        let mut snapshot = self.analysis_snapshot();
+        let project_generation = self.project_generation;
+        cx.spawn(async move |this, cx| {
+            let text = cx
+                .background_executor()
+                .spawn(async move {
+                    snapshot.resolve_spectra();
+                    snapshot.markdown()
+                })
+                .await;
+            this.update(cx, |app, cx| {
+                if app.project_generation != project_generation {
+                    return;
+                }
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
+                app.set_status(crate::app::StatusKind::Success, "Analysis record copied");
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     pub(crate) fn export_publication(&mut self, cx: &mut Context<Self>) {
         if self.publish.running || !self.require_publication_source(cx) {
             return;

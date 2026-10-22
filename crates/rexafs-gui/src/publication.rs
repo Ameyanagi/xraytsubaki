@@ -94,11 +94,27 @@ fn source_comments(path: &Path) -> Vec<String> {
         .collect()
 }
 impl Snapshot {
+    /// Process each spectrum that has no result yet, so the record's "Used"
+    /// column shows the values processing applied: resolved Auto values and
+    /// ranges limited to short scans. A spectrum that cannot be processed keeps
+    /// no result and its "Used" cells read "Unavailable".
+    pub(crate) fn resolve_spectra(&mut self) {
+        for spectrum in &mut self.spectra {
+            if spectrum.data.is_none() {
+                spectrum.data = spectrum.for_display().ok();
+            }
+        }
+    }
     pub(crate) fn context(&self) -> Value {
+        // Fit curve arrays are exported once, as data/fit-<id>.json.
+        let mut project = serde_json::to_value(&self.project).unwrap_or_default();
+        if let Some(object) = project.as_object_mut() {
+            object.remove("fit_results");
+        }
         json!({
             "software":{"name":"rexafs","version":env!("CARGO_PKG_VERSION")},
             "current_spectrum":self.current, "screen":self.screen,
-            "project":self.project,
+            "project":project,
             "effective_processing":self.spectra.iter().map(|s|json!({"file":s.path,"group":s.label(),"group_id":s.group.as_ref().map(|g|g.id),"requested":s.params,"source_comments":source_comments(&s.path)})).collect::<Vec<_>>(),
             "analysis":self.analysis, "batch_results_stale":self.batch_stale, "journal":self.journal,
             "semantics":{"null_processing_value":"Auto; resolved numbers are in processed-spectrum JSON when available", "fit_history":"Historical inputs and values; not necessarily the currently edited model", "path_distance":"R_eff + deltaR; for multiple scattering, half the total scattering path length", "stderr":"One standard error from the fit covariance, not total experimental uncertainty"}
@@ -106,7 +122,7 @@ impl Snapshot {
     }
     pub(crate) fn markdown(&self) -> String {
         let mut text = format!(
-            "# rexafs analysis record\n\nVersion {}. Current spectrum: `{}`.\n\nThis is a snapshot of requested processing settings and recorded fit results. Auto values are resolved separately for each spectrum. Current settings may differ from historical fit settings.\n\n",
+            "# rexafs analysis record\n\nVersion {}. Current spectrum: `{}`.\n\nThis is a snapshot of requested processing settings and recorded fit results. Auto values are resolved separately for each spectrum; the Used column gives the values processing applied, including ranges limited to the measured data. Current settings may differ from historical fit settings.\n\n",
             env!("CARGO_PKG_VERSION"),
             cell(self.current.display().to_string())
         );
@@ -140,7 +156,7 @@ impl Snapshot {
             text.push_str("No completed fits recorded.\n\n");
         }
         for fit in &self.project.fit_history {
-            text.push_str(&format!("### Fit {} — {}\n\nR factor: {:.6}; reduced χ²: {:.6}; χ²: {:.6}; N independent: {:.3}; varying parameters: {}.\n\n", fit.id, cell(&fit.group), fit.r_factor, fit.reduced_chi_square, fit.chi_square, fit.n_idp, fit.n_vary));
+            text.push_str(&format!("### Fit {} — {}\n\nR factor: {:.6}; reduced χ²: {}; χ²: {:.6}; N independent: {:.3}; varying parameters: {}.\n\n", fit.id, cell(&fit.group), fit.r_factor, fit.reduced_chi_square_text(), fit.chi_square, fit.n_idp, fit.n_vary));
             text.push_str(&table.next().unwrap().markdown());
             text.push_str(&table.next().unwrap().markdown());
             text.push_str("\nRecorded inputs, per-spectrum ranges, path expressions and solver diagnostics:\n\n```json\n");
@@ -629,7 +645,7 @@ mod tests {
         assert!(report.contains("Copper &lt;reference&gt; &amp; EXAFS."));
         assert!(report.contains("Absorption edge E₀"));
         assert!(
-            report.contains("8977.493"),
+            report.contains("<td>8977.5</td>"),
             "table must contain resolved values, not only Auto requests"
         );
         assert!(!report.contains("Copper <reference>"));

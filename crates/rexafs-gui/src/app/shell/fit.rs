@@ -974,17 +974,28 @@ impl StudioApp {
                 .into_any_element();
         };
         let stale = self.fit_is_stale();
-        let eps: String = result
-            .kweight_results
-            .first()
-            .map(|k| format!("{:.2e}", k.epsilon_k))
-            .unwrap_or("—".into());
+        // The shown result always belongs to the selected history entry, which
+        // records whether ε was estimated for this fit.
+        let noise_estimated = self
+            .fit_history
+            .iter()
+            .find(|e| Some(e.id) == self.fit_history_selected)
+            .is_some_and(|e| e.noise_estimated());
+        let eps: String = if noise_estimated {
+            result
+                .kweight_results
+                .first()
+                .map(|k| format!("{:.2e}", k.epsilon_k))
+                .unwrap_or("—".into())
+        } else {
+            "not estimated (unit scale)".into()
+        };
         let mut card = vec![
             ("R-factor".to_string(), format!("{:.5}", result.r_factor)),
             ("χ²".to_string(), format!("{:.4e}", result.chi_square)),
             (
                 "reduced χ²".to_string(),
-                format!("{:.4e}", result.reduced_chi_square),
+                crate::fitting::reduced_chi_square_text(result.reduced_chi_square, noise_estimated),
             ),
             (
                 "N idp / N var".to_string(),
@@ -1054,7 +1065,19 @@ impl StudioApp {
                 .child(section_label(&t, "Fitted parameters · value ± uncertainty"))
                 .into_any_element(),
         );
+        // Readable labels come from the archived single-spectrum fit; joint
+        // fits keep their per-spectrum names.
+        let labelled = self
+            .fit_history
+            .iter()
+            .find(|e| Some(e.id) == self.fit_history_selected)
+            .filter(|_| self.joint.result_config.is_none());
+        let readable = |name: &str| {
+            labelled
+                .and_then(|e| crate::fit_details::variable_label(name, &e.paths, &e.path_details))
+        };
         for (name, variable) in &result.variables.vars {
+            let label = readable(name);
             let value = match variable.stderr {
                 Some(error) => format!("{:.5} ± {:.5}", variable.value, error),
                 None => format!(
@@ -1082,10 +1105,18 @@ impl StudioApp {
                         div()
                             .flex_1()
                             .min_w_0()
-                            .child(crate::joint_fitting::display_name(
-                                name,
-                                self.joint.result_config.as_ref(),
-                            )),
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(label.clone().unwrap_or_else(|| {
+                                crate::joint_fitting::display_name(
+                                    name,
+                                    self.joint.result_config.as_ref(),
+                                )
+                            }))
+                            .when(label.is_some(), |d| {
+                                d.child(div().text_color(t.text_muted).child(name.clone()))
+                            }),
                     )
                     .child(value)
                     .into_any_element(),
@@ -1108,12 +1139,11 @@ impl StudioApp {
                     .items_center()
                     .justify_between()
                     .text_size(px(11.5))
-                    .child(
-                        div()
-                            .font_family(MONO)
-                            .text_color(t.warn)
-                            .child(format!("corr({a}, {b})")),
-                    )
+                    .child(div().font_family(MONO).text_color(t.warn).child(format!(
+                        "corr({}, {})",
+                        readable(a).unwrap_or_else(|| a.clone()),
+                        readable(b).unwrap_or_else(|| b.clone())
+                    )))
                     .child(
                         div()
                             .font_family(MONO)
@@ -1226,10 +1256,9 @@ impl StudioApp {
             } else {
                 "R = R_eff + ΔR"
             };
-            let source = p
+            let file = p
                 .file
-                .parent()
-                .and_then(|p| p.file_name())
+                .file_name()
                 .map(|s| s.to_string_lossy().into_owned())
                 .unwrap_or_default();
             details = details.child(
@@ -1240,18 +1269,14 @@ impl StudioApp {
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .child(
-                        div()
-                            .font_weight(gpui::FontWeight::MEDIUM)
-                            .child(format!("{} · {}", p.label, source)),
-                    )
+                    .child(div().font_weight(gpui::FontWeight::MEDIUM).child(p.title()))
                     .child(
                         div()
                             .text_color(t.accent)
                             .child(format!("{distance_label}   {} Å", value(&p.distance, 4))),
                     )
                     .child(div().text_color(t.text_muted).child(format!(
-                            "FEFF R_eff {} Å · {} legs · FEFF degeneracy {}",
+                            "{file} · FEFF R_eff {} Å · {} legs · FEFF degeneracy {}",
                             p.reff
                                 .map(|r| format!("{r:.4}"))
                                 .unwrap_or_else(|| "unavailable".into()),
@@ -1359,8 +1384,10 @@ impl StudioApp {
                         .text_size(px(11.))
                         .text_color(t.text_muted)
                         .child(format!(
-                            "χ² {:.4} · reduced χ² {:.4} · independent points {:.1}",
-                            entry.chi_square, entry.reduced_chi_square, entry.n_idp
+                            "χ² {:.4} · reduced χ² {} · independent points {:.1}",
+                            entry.chi_square,
+                            entry.reduced_chi_square_text(),
+                            entry.n_idp
                         ))
                         .into_any_element(),
                 );

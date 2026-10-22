@@ -53,7 +53,13 @@ the selected fitting range.
 
 Choose **Run fit**. In Results, inspect the measured/model curves, residuals,
 parameter uncertainties, correlations where reported, and physical path distances.
-A small R-factor and a converged optimizer do not establish that the model is unique
+A variable that is the whole expression of one path-parameter column is labelled
+with that parameter's symbol and unit, for example `dr_1` appears as
+"ΔR (Å) · Cu–Cu 2.553 Å" with the variable name beside it. The path is named by its
+absorber–scatterer chain and FEFF half path length R_eff (the reference geometry,
+not the fitted distance). Shared variables such as S₀² and ΔE₀ carry no path, and
+variables used only inside expressions keep the name you typed. Copied Markdown
+reports keep the variable names. A small R-factor and a converged optimizer do not establish that the model is unique
 or physically complete.
 
 
@@ -64,7 +70,9 @@ or physically complete.
 
 The screenshot's noise scale is 1. Its uncertainties therefore depend on that
 scale and the local covariance approximation; they are not a full experimental
-error budget. Read [fitting statistics](/docs/science/fitting-statistics/) before
+error budget. Without **ε from noise**, Results shows reduced χ² as
+**n/a (noise not estimated)**, because the statistic needs a measurement-noise
+estimate to mean anything. Read [fitting statistics](/docs/science/fitting-statistics/) before
 interpreting the reported standard errors.
 
 Save the project to retain the model/history, and use

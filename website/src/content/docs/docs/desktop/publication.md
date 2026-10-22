@@ -8,7 +8,10 @@ Open **Publish** after processing or fitting. The header names the report
 scope. Since 0.2.12, **Publish report…** writes the complete analysis folder listed
 below, then **Open last
 published report** opens `report.html` and **Show folder** reveals the directory.
-**Copy analysis record** copies the Markdown record.
+**Copy analysis record** copies the Markdown record. Since 0.2.15 it processes the included spectra first, so the **Used** column
+of each processing table gives the values processing applied: resolved Auto
+values, and fit ranges limited to the measured data on a short scan. Earlier
+versions left that column as "Unavailable" in the copied record.
 
 The header records when the last report was published.
 Changing figure settings, captions, report selection, processing or fit inputs

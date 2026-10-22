@@ -8,7 +8,10 @@ with **Export…**) writes the complete analysis folder described in
 every figure as PNG, SVG and CSV, tables, captions, resolved data and the
 project. After publishing, **Open report** opens `report.html` and **Show
 folder** reveals the directory. **Copy analysis record** copies the Markdown
-record to the clipboard.
+record to the clipboard. Since 0.2.15 it processes the included spectra first, so the **Used** column
+of each processing table gives the values processing applied: resolved Auto
+values, and fit ranges limited to the measured data on a short scan. Earlier
+versions left that column as "Unavailable" in the copied record.
 
 Select a figure in the left column, adjust its style, and use **Save figure**
 **PNG**, **SVG** or **CSV** beside the preview to save that figure alone. The

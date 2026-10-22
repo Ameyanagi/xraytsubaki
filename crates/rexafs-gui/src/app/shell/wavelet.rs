@@ -1,6 +1,7 @@
 //! Wavelet workspace: immutable scientific maps, bounded current residency and
 //! independent display controls. Original groups and pipeline settings stay intact.
 use super::*;
+use crate::app::{ProblemSeverity, WAVELET_PROBLEM_PREFIX, replace_problem};
 use crate::wavelet_history::WaveletSavedRegion;
 use crate::{
     group_identity::GroupId,
@@ -268,11 +269,31 @@ impl StudioApp {
             .map_err(|e| e.to_string())?;
         Ok(definition)
     }
+    /// Record (or clear) the current group's one wavelet failure in Problems,
+    /// keyed by its full source path like the processing warnings.
+    fn set_wavelet_problem(&mut self, error: Option<&str>) {
+        let Some(ix) = self.current_group_index() else {
+            return;
+        };
+        let label = self.problem_label(ix);
+        replace_problem(
+            &mut self.job_errors,
+            &label,
+            WAVELET_PROBLEM_PREFIX,
+            error.map(|e| {
+                (
+                    ProblemSeverity::Error,
+                    format!("{WAVELET_PROBLEM_PREFIX}: {e}"),
+                )
+            }),
+        );
+    }
     /// Coalesce committed edits and steppers; stale jobs cannot replace newer maps.
     fn schedule_wavelet(&mut self, cx: &mut Context<Self>) {
         self.wavelet.cancel();
         self.wavelet.dirty = true;
         if let Err(error) = self.wavelet_definition(cx) {
+            self.set_wavelet_problem(Some(&error));
             self.wavelet.message = format!("{error} · previous map unchanged");
             cx.notify();
             return;
@@ -308,6 +329,7 @@ impl StudioApp {
         let definition = match self.wavelet_definition(cx) {
             Ok(d) => d,
             Err(e) => {
+                self.set_wavelet_problem(Some(&e));
                 self.wavelet.message = e;
                 cx.notify();
                 return;
@@ -388,8 +410,12 @@ impl StudioApp {
                     return;
                 }
                 match result {
-                    Err(e) => app.wavelet.message = format!("{e} · previous map unchanged"),
+                    Err(e) => {
+                        app.set_wavelet_problem(Some(&e));
+                        app.wavelet.message = format!("{e} · previous map unchanged");
+                    }
                     Ok((record, receipt)) => {
+                        app.set_wavelet_problem(None);
                         app.wavelet.archive.insert_preview(receipt.clone(), &mut app.wavelet.automatic_receipts);
                         app.wavelet.dirty = false;
                         app.show_wavelet(record, receipt, cx);

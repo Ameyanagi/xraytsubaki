@@ -462,16 +462,7 @@ impl StudioApp {
                             &t,
                             "Copy the Markdown analysis record (analysis.md) to the clipboard.",
                         )
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(
-                                this.analysis_snapshot().markdown(),
-                            ));
-                            this.set_status(
-                                crate::app::StatusKind::Success,
-                                "Analysis record copied",
-                            );
-                            cx.notify();
-                        })),
+                        .on_click(cx.listener(|this, _, _, cx| this.copy_analysis_record(cx))),
                     )
                     .child(
                         enabled_when(

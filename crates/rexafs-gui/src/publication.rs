@@ -94,6 +94,17 @@ fn source_comments(path: &Path) -> Vec<String> {
         .collect()
 }
 impl Snapshot {
+    /// Process each spectrum that has no result yet, so the record's "Used"
+    /// column shows the values processing applied: resolved Auto values and
+    /// ranges limited to short scans. A spectrum that cannot be processed keeps
+    /// no result and its "Used" cells read "Unavailable".
+    pub(crate) fn resolve_spectra(&mut self) {
+        for spectrum in &mut self.spectra {
+            if spectrum.data.is_none() {
+                spectrum.data = spectrum.for_display().ok();
+            }
+        }
+    }
     pub(crate) fn context(&self) -> Value {
         json!({
             "software":{"name":"rexafs","version":env!("CARGO_PKG_VERSION")},
@@ -106,7 +117,7 @@ impl Snapshot {
     }
     pub(crate) fn markdown(&self) -> String {
         let mut text = format!(
-            "# rexafs analysis record\n\nVersion {}. Current spectrum: `{}`.\n\nThis is a snapshot of requested processing settings and recorded fit results. Auto values are resolved separately for each spectrum. Current settings may differ from historical fit settings.\n\n",
+            "# rexafs analysis record\n\nVersion {}. Current spectrum: `{}`.\n\nThis is a snapshot of requested processing settings and recorded fit results. Auto values are resolved separately for each spectrum; the Used column gives the values processing applied, including ranges limited to the measured data. Current settings may differ from historical fit settings.\n\n",
             env!("CARGO_PKG_VERSION"),
             cell(self.current.display().to_string())
         );

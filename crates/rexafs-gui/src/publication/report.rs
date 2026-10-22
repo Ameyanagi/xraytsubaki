@@ -110,11 +110,23 @@ impl Snapshot {
         let settings = &self.project.publication;
         for (index, spectrum) in self.spectra.iter().enumerate() {
             let values = serde_json::to_value(&spectrum.params).unwrap();
-            let resolved = spectrum
+            let mut resolved = spectrum
                 .data
                 .as_ref()
                 .map(|sp| resolved_settings(sp))
                 .unwrap_or(Value::Null);
+            // The stored settings keep the requested ranges; a short scan
+            // limits them only while processing (`RangeAdjustment`).
+            for adjustment in spectrum.data.iter().flat_map(|sp| sp.range_adjustments()) {
+                let pointer = format!("/normalization/PrePostEdge/{}", adjustment.field);
+                if let Some(value) = resolved.pointer_mut(&pointer) {
+                    *value = if value.is_u64() {
+                        Value::from(adjustment.used.round() as u64)
+                    } else {
+                        Value::from(adjustment.used)
+                    };
+                }
+            }
             let fields = [
                 ("Absorption edge E₀", "e0", "/e0", "eV"),
                 (
@@ -368,5 +380,60 @@ mod tests {
         for n in 1..=3 {
             assert_eq!(record.matches(&format!("**Table {n}.**")).count(), 1);
         }
+    }
+
+    /// The copied record processes its spectra, so "Used" holds resolved Auto
+    /// values and the range that processing limited to the measured scan.
+    #[test]
+    fn copied_record_reports_used_values_including_limited_ranges() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/projects/data/cu_150k.xmu");
+        let params = PipelineParams {
+            norm_end: Some(5000.0),
+            ..Default::default()
+        };
+        let mut snapshot = Snapshot {
+            project: Default::default(),
+            current: path.clone(),
+            spectra: vec![SpectrumInput {
+                path,
+                params,
+                ..Default::default()
+            }],
+            results: BTreeMap::new(),
+            analysis: Value::Null,
+            batch_csv: None,
+            batch_stale: false,
+            journal: vec![],
+            screen: Value::Null,
+        };
+        let used = |snapshot: &Snapshot, setting: &str| {
+            let tables = snapshot.tables();
+            let row = tables[0]
+                .rows
+                .iter()
+                .find(|r| r[0].starts_with(setting))
+                .unwrap();
+            (row[2].clone(), row[3].clone())
+        };
+        assert_eq!(used(&snapshot, "Absorption edge").1, "Unavailable");
+        snapshot.resolve_spectra();
+        let (requested, e0) = used(&snapshot, "Absorption edge");
+        assert_eq!(requested, "Auto");
+        assert!(
+            (8970.0..9000.0).contains(&e0.parse::<f64>().unwrap()),
+            "{e0}"
+        );
+        let adjustment = snapshot.spectra[0]
+            .data
+            .as_ref()
+            .unwrap()
+            .range_adjustments();
+        let limit = adjustment.iter().find(|a| a.field == "norm_end").unwrap();
+        let (requested, norm_end) = used(&snapshot, "Normalization end");
+        assert_eq!(requested, "5000.0");
+        assert_eq!(norm_end.parse::<f64>().unwrap(), limit.used);
+        assert!(limit.used < 5000.0);
+        assert!(!snapshot.markdown().contains("Unavailable"));
     }
 }

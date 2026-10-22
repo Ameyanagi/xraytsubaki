@@ -129,6 +129,20 @@ pub struct ProjectFile {
     pub active_derived: Option<u64>,
     /// Completed fits (model snapshot + statistics), oldest first.
     pub fit_history: Vec<FitHistoryEntry>,
+    /// Full result arrays of history fits, keyed by [`FitHistoryEntry::id`]:
+    /// measured and modeled χ(k), the k window, the R-space transforms and the
+    /// path contributions. Reopening restores them so Publish can export the
+    /// fit curves without refitting. Absent in projects saved by older
+    /// releases; those fits keep their statistics and model, and their curves
+    /// return only after a refit. Results with non-finite numbers, which JSON
+    /// cannot represent, are dropped by [`save_with_storage`].
+    /// History id of the fit that was current and up to date when the project
+    /// was saved. Reopening shows that result again (Fit results and Publish
+    /// figures) and marks it as needing an update only if the reloaded
+    /// spectrum or model differs from the one it was fitted to.
+    pub current_fit: Option<usize>,
+    pub fit_results:
+        std::collections::BTreeMap<usize, std::sync::Arc<rexafs::prelude::FeffFitResult>>,
     pub joint: crate::joint_fitting::JointConfig,
     pub(crate) publication: crate::publication::figures::FigureSettings,
     pub assistant: assistant::AssistantHistory,
@@ -320,6 +334,7 @@ pub fn save_with_storage(
     check_version(project.version.max(1))?;
     let mut prepared = storage::prepare(project, path, mode)?;
     prepared.assistant.prune_for_save();
+    retain_portable_fit_results(&mut prepared);
     // Measurement history already has lossless dictionary encoding. Keep it
     // out of the generic compactor's Value/validation copies: a 100k-frame run
     // otherwise expands into several simultaneous JSON object trees.
@@ -359,6 +374,26 @@ pub fn save_with_storage(
     }
     atomic_write(path, &json)?;
     Ok(prepared.header.unwrap())
+}
+
+/// Keep only result arrays that belong to a history entry and survive a JSON
+/// round trip. JSON has no NaN or infinity (serde writes `null`), so such a
+/// result could not be read back; dropping it saves the project without that
+/// fit's curves instead of refusing the whole save.
+fn retain_portable_fit_results(project: &mut ProjectFile) {
+    let ids: std::collections::BTreeSet<_> = project.fit_history.iter().map(|f| f.id).collect();
+    project.fit_results.retain(|id, result| {
+        ids.contains(id)
+            && serde_json::to_value(result.as_ref())
+                .and_then(serde_json::from_value::<rexafs::prelude::FeffFitResult>)
+                .is_ok()
+    });
+    if project
+        .current_fit
+        .is_some_and(|id| !project.fit_results.contains_key(&id))
+    {
+        project.current_fit = None;
+    }
 }
 
 /// Read and validate a `.rxs` project without rewriting its source file.

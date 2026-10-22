@@ -416,6 +416,28 @@ pub struct FitHistoryEntry {
     pub path_details: Vec<crate::fit_details::PathFitDetails>,
     #[serde(default)]
     pub solver_report: Option<FitSolverReport>,
+    /// Exact core Fourier-transform settings used by the fit, one per dataset
+    /// in input order: k and R windows (`kmin`/`kmax`, `rmin`/`rmax`), the
+    /// window families and taper widths (`dk`, `dr`), FFT length, k step,
+    /// k-weights and fit space. `ranges` stores the editable desktop model;
+    /// this records the transform it produced, including defaults the editor
+    /// does not expose. Empty for fits recorded by older releases, whose
+    /// taper was the then-current [`FeffFitTransform`] default (Kaiser–Bessel
+    /// k window, dk = 4 Å⁻¹; Hanning R window, dr = 0 Å).
+    #[serde(default)]
+    pub transforms: Vec<FeffFitTransform>,
+    /// Derived-group id of the fitted spectrum; `None` for a catalog or
+    /// standalone file, for joint fits and for fits recorded by older releases.
+    #[serde(default)]
+    pub group_id: Option<u64>,
+    /// Hash of the fitted spectrum's processing settings (the app's
+    /// processed-spectrum fingerprint) at fit time. Restoring the result
+    /// compares it with the loaded spectrum to decide whether the fit still
+    /// matches the data. The hash is deterministic for one rexafs build; a
+    /// different build may hash differently, which only marks the restored fit
+    /// as needing an update. `None` for joint fits and older fits.
+    #[serde(default)]
+    pub params_fingerprint: Option<u64>,
 }
 
 impl FitHistoryEntry {
@@ -449,10 +471,27 @@ impl FitHistoryEntry {
             path_details: crate::fit_details::snapshot(&paths, result),
             paths,
             vars,
+            transforms: vec![ranges.transform()],
+            group_id: None,
+            params_fingerprint: None,
             ranges,
             values,
             solver_report: result.solver_report.clone(),
         }
+    }
+
+    /// Whether a loaded spectrum is the one this fit was run on: the same
+    /// derived group, label and processing fingerprint. Entries recorded
+    /// without a fingerprint (older releases, joint fits) never match.
+    pub fn matches_spectrum(
+        &self,
+        group_id: Option<u64>,
+        label: &str,
+        params_fingerprint: u64,
+    ) -> bool {
+        self.params_fingerprint == Some(params_fingerprint)
+            && self.group_id == group_id
+            && self.group == label
     }
 
     /// Whether every dataset in this fit divided its residual by an ε estimated

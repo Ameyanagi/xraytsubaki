@@ -1257,6 +1257,9 @@ pub struct StudioApp {
     derived: Vec<DerivedSpectrum>,
     next_derived_id: u64,
     pending_derived: Option<u64>,
+    /// History id of a fit result restored from a project whose provenance
+    /// is attached once the fitted spectrum is processed again.
+    pending_fit_restore: Option<usize>,
     compare_gen: u64,
     compare_running: bool,
     plot_coverage: [crate::plotting::PlotCoverage; 5],
@@ -3297,6 +3300,7 @@ impl StudioApp {
             derived: Vec::new(),
             next_derived_id: 1,
             pending_derived: None,
+            pending_fit_restore: None,
             compare_gen: 0,
             compare_running: false,
             plot_coverage: Default::default(),
@@ -5348,6 +5352,7 @@ impl StudioApp {
         }
         self.show_range_adjustments(ix, &sp, cx);
         self.spectrum = Some(sp.clone());
+        self.settle_restored_fit();
         self.refresh_operando_frame_plot(ix, fingerprint, &sp, cx);
         self.invalidate_explore_plots(cx);
         // Scripted launches (screenshots): REXAFS_DEBUG_FIT_PATHS="a.dat:b.dat"
@@ -7692,6 +7697,7 @@ impl StudioApp {
                     Ok(result) => {
                         app.joint.result_config = None;
                         app.fit_provenance = Some(provenance.clone());
+                        app.pending_fit_restore = None;
                         let stale = app.fit_is_stale();
                         let reduced_chi_square = crate::fitting::reduced_chi_square_text(
                             result.reduced_chi_square,
@@ -7722,11 +7728,7 @@ impl StudioApp {
                             ),
                             None,
                         );
-                        app.push_fit_history(
-                            provenance.label.to_string(),
-                            history_inputs,
-                            result.clone(),
-                        );
+                        app.push_fit_history(&provenance, history_inputs, result.clone());
                         app.rebuild_fit_plots(cx);
                         // Reflect fitted values back into the variable fields.
                         if !stale {
@@ -7763,15 +7765,23 @@ impl StudioApp {
     /// Record a completed fit in the history (model snapshot + stats).
     fn push_fit_history(
         &mut self,
-        group: String,
+        provenance: &FitProvenance,
         inputs: (Vec<FitPathSpec>, Vec<FitVarSpec>, FitRanges),
         result: Arc<FeffFitResult>,
     ) {
         let id = self.fit_history.last().map(|e| e.id + 1).unwrap_or(1);
         let (paths, vars, ranges) = inputs;
-        self.fit_history.push(FitHistoryEntry::from_result(
-            id, group, paths, vars, ranges, &result,
-        ));
+        let mut entry = FitHistoryEntry::from_result(
+            id,
+            provenance.label.to_string(),
+            paths,
+            vars,
+            ranges,
+            &result,
+        );
+        entry.group_id = provenance.group_id;
+        entry.params_fingerprint = Some(provenance.params_fingerprint);
+        self.fit_history.push(entry);
         self.fit_history_results.insert(id, result);
         self.fit_history_selected = Some(id);
     }
@@ -7814,13 +7824,19 @@ impl StudioApp {
         self.fit_ranges = entry.ranges;
         self.sync_range_fields(cx);
         self.fit_history_selected = Some(id);
+        self.pending_fit_restore = None;
         if let Some(result) = self.fit_history_results.get(&id).cloned() {
             self.fit_result = Some(result);
+            // The recorded group and processing fingerprint let an unchanged
+            // spectrum count as up to date; older entries fall back to the
+            // loaded spectrum's fingerprint.
             self.fit_provenance = Some(FitProvenance {
-                group_id: None,
+                group_id: entry.group_id,
                 label: entry.group.clone().into(),
                 path: self.spectrum_path.clone(),
-                params_fingerprint: self.spectrum_fingerprint,
+                params_fingerprint: entry
+                    .params_fingerprint
+                    .unwrap_or(self.spectrum_fingerprint),
                 model_fingerprint: self.fit_model_fingerprint(),
             });
             self.rebuild_fit_plots(cx);
@@ -9083,6 +9099,20 @@ impl StudioApp {
                 .and_then(|ix| self.derived.get(ix - DERIVED_BASE))
                 .map(|d| d.id),
             fit_history: self.fit_history.clone(),
+            fit_results: self.fit_history_results.clone(),
+            current_fit: self
+                .fit_result
+                .as_ref()
+                .filter(|_| {
+                    self.pending_fit_restore.is_some()
+                        || (self.fit_provenance.is_some() && !self.fit_is_stale())
+                })
+                .and_then(|r| {
+                    self.fit_history_results
+                        .iter()
+                        .find(|(_, v)| Arc::ptr_eq(v, r))
+                        .map(|(id, _)| *id)
+                }),
             joint: self.joint.config.clone(),
             publication: self.publish.settings.clone(),
             mcr_analysis: self.analysis.mcr.clone(),
@@ -9483,7 +9513,25 @@ impl StudioApp {
             config: project.joint,
             ..Default::default()
         };
-        self.fit_history_results.clear();
+        // Saved result arrays let Publish export history fits without a refit.
+        self.fit_history_results = project.fit_results;
+        // Show the fit that was current at save time again; its provenance is
+        // attached when the fitted spectrum finishes processing.
+        self.pending_fit_restore = None;
+        if let Some((id, result)) = project
+            .current_fit
+            .and_then(|id| Some((id, self.fit_history_results.get(&id)?.clone())))
+        {
+            self.joint.result_config = self
+                .fit_history
+                .iter()
+                .find(|e| e.id == id)
+                .and_then(|e| e.joint.clone());
+            self.fit_result = Some(result);
+            self.fit_history_selected = Some(id);
+            self.pending_fit_restore = Some(id);
+            self.rebuild_fit_plots(cx);
+        }
         self.sync_range_fields(cx);
         self.derived = project.derived;
         self.group_registry.reserve_groups(&self.derived);
@@ -9538,6 +9586,63 @@ impl StudioApp {
     pub(crate) fn mark_project_clean(&mut self) {
         self.saved_fingerprint = self.project_file().content_fingerprint();
         self.settle_saved_fingerprint = true;
+    }
+
+    /// Attach provenance to a fit result restored from a project. A joint fit
+    /// waits until restored sources and overrides are resolved, then records
+    /// the current model. A single-spectrum fit waits for a processed spectrum:
+    /// if it is the fitted one (same group, label and processing fingerprint)
+    /// the result is up to date; any other spectrum gets provisional
+    /// provenance that marks the result as needing an update until the fitted
+    /// spectrum is processed.
+    fn settle_restored_fit(&mut self) {
+        let Some(id) = self.pending_fit_restore else {
+            return;
+        };
+        let Some(entry) = self.fit_history.iter().find(|e| e.id == id) else {
+            self.pending_fit_restore = None;
+            return;
+        };
+        if entry.joint.is_some() {
+            if self.catalog.scanning
+                || !self.pending_overrides.is_empty()
+                || self.pending_project_spectrum.is_some()
+                || self.pending_derived.is_some()
+            {
+                return;
+            }
+            self.fit_provenance = Some(FitProvenance {
+                group_id: None,
+                label: entry.group.clone().into(),
+                path: PathBuf::new(),
+                params_fingerprint: 0,
+                model_fingerprint: self.fit_model_fingerprint(),
+            });
+            self.pending_fit_restore = None;
+            return;
+        }
+        if self.spectrum.is_none() {
+            return;
+        }
+        let matches = entry.matches_spectrum(
+            self.active_group_id(),
+            &self.spectrum_label,
+            self.spectrum_fingerprint,
+        );
+        self.fit_provenance = Some(FitProvenance {
+            group_id: entry.group_id,
+            label: entry.group.clone().into(),
+            path: if matches {
+                self.spectrum_path.clone()
+            } else {
+                PathBuf::new()
+            },
+            params_fingerprint: entry.params_fingerprint.unwrap_or_default(),
+            model_fingerprint: self.fit_model_fingerprint(),
+        });
+        if matches {
+            self.pending_fit_restore = None;
+        }
     }
 
     fn settle_saved_fingerprint(&mut self) {
@@ -10458,6 +10563,7 @@ impl StudioApp {
 impl Render for StudioApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.settle_saved_fingerprint();
+        self.settle_restored_fit();
         if let Some(source) = self.measurement_import.take() {
             self.open_measurement_editor(source, window, cx);
         }

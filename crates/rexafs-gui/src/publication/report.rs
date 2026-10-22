@@ -104,17 +104,38 @@ impl Table {
     }
 }
 
+/// Format an applied processing value for the "Used" column without
+/// floating-point noise: energies (eV) to 0.1 eV, k (Å⁻¹) and R (Å) to 0.01,
+/// and dimensionless settings (polynomial order, k-weight) as integers when
+/// they are whole numbers. Full-precision values are in resolved.md and data/.
+fn used_number(value: f64, unit: &str) -> String {
+    match unit {
+        "eV" => format!("{value:.1}"),
+        "Å⁻¹" | "Å" => format!("{value:.2}"),
+        _ if value.fract() == 0.0 => format!("{value:.0}"),
+        _ => format!("{value:.2}"),
+    }
+}
+
 impl Snapshot {
     pub(crate) fn tables(&self) -> Vec<Table> {
         let mut tables = Vec::new();
         let settings = &self.project.publication;
         for (index, spectrum) in self.spectra.iter().enumerate() {
             let values = serde_json::to_value(&spectrum.params).unwrap();
-            let resolved = spectrum
+            let mut resolved = spectrum
                 .data
                 .as_ref()
                 .map(|sp| resolved_settings(sp))
                 .unwrap_or(Value::Null);
+            // The stored settings keep the requested ranges; a short scan
+            // limits them only while processing (`RangeAdjustment`).
+            for adjustment in spectrum.data.iter().flat_map(|sp| sp.range_adjustments()) {
+                let pointer = format!("/normalization/PrePostEdge/{}", adjustment.field);
+                if let Some(value) = resolved.pointer_mut(&pointer) {
+                    *value = Value::from(adjustment.used);
+                }
+            }
             let fields = [
                 ("Absorption edge E₀", "e0", "/e0", "eV"),
                 (
@@ -190,10 +211,13 @@ impl Snapshot {
                         label.into(),
                         unit.into(),
                         display(&values[key], "Auto"),
-                        display(
-                            resolved.pointer(pointer).unwrap_or(&Value::Null),
-                            "Unavailable",
-                        ),
+                        match resolved.pointer(pointer).and_then(Value::as_f64) {
+                            Some(used) => used_number(used, unit),
+                            None => display(
+                                resolved.pointer(pointer).unwrap_or(&Value::Null),
+                                "Unavailable",
+                            ),
+                        },
                     ]
                 })
                 .collect();
@@ -368,5 +392,60 @@ mod tests {
         for n in 1..=3 {
             assert_eq!(record.matches(&format!("**Table {n}.**")).count(), 1);
         }
+    }
+
+    /// The copied record processes its spectra, so "Used" holds resolved Auto
+    /// values and the range that processing limited to the measured scan.
+    #[test]
+    fn copied_record_reports_used_values_including_limited_ranges() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/projects/data/cu_150k.xmu");
+        let params = PipelineParams {
+            norm_end: Some(5000.0),
+            ..Default::default()
+        };
+        let mut snapshot = Snapshot {
+            project: Default::default(),
+            current: path.clone(),
+            spectra: vec![SpectrumInput {
+                path,
+                params,
+                ..Default::default()
+            }],
+            results: BTreeMap::new(),
+            analysis: Value::Null,
+            batch_csv: None,
+            batch_stale: false,
+            journal: vec![],
+            screen: Value::Null,
+        };
+        let used = |snapshot: &Snapshot, setting: &str| {
+            let tables = snapshot.tables();
+            let row = tables[0]
+                .rows
+                .iter()
+                .find(|r| r[0].starts_with(setting))
+                .unwrap();
+            (row[2].clone(), row[3].clone())
+        };
+        assert_eq!(used(&snapshot, "Absorption edge").1, "Unavailable");
+        snapshot.resolve_spectra();
+        let sp = snapshot.spectra[0].data.clone().unwrap();
+        let (requested, e0) = used(&snapshot, "Absorption edge");
+        assert_eq!(requested, "Auto");
+        assert_eq!(e0, format!("{:.1}", sp.e0().unwrap()));
+        let adjustment = sp.range_adjustments();
+        let limit = adjustment.iter().find(|a| a.field == "norm_end").unwrap();
+        assert!(limit.used < 5000.0);
+        let (requested, norm_end) = used(&snapshot, "Normalization end");
+        assert_eq!(requested, "5000.0");
+        assert_eq!(norm_end, format!("{:.1}", limit.used));
+        assert_eq!(used(&snapshot, "Pre-edge start").1, "-200.0");
+        assert_eq!(used(&snapshot, "Normalization polynomial order").1, "2");
+        assert_eq!(used(&snapshot, "Transform k maximum").1, "15.00");
+        assert_eq!(used(&snapshot, "Transform k-weight").1, "2");
+        assert_eq!(used(&snapshot, "Transform window").1, "Kaiser–Bessel");
+        assert!(!snapshot.markdown().contains("Unavailable"));
+        println!("{}", snapshot.tables()[0].markdown());
     }
 }

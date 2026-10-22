@@ -39,9 +39,22 @@ SVG files record the figure's physical size in inches, for example
 `width="3.5in" height="2.6in"` for **Single column**, so vector editors, word
 processors and browsers place them at the chosen size. Drawing coordinates stay
 in output pixels (inches × DPI) through the SVG `viewBox`, so DPI does not change
-the vector drawing's printed size. Text, including axis labels and math, is
-typeset by Typst and stored as glyph outlines rather than editable `<text>`
-elements; it looks identical everywhere but must be retyped to change wording.
+the vector drawing's printed size.
+
+All labels are laid out by [Typst](https://typst.app/docs/), a typesetting
+engine. Labels without math or markup, such as tick numbers, legend names and
+titles or axis labels you type (for example `Energy (eV)`), are written as
+editable SVG `<text>` elements at the positions Typst computed, so vector
+editors and browsers can select, search and retype them. Labels containing
+Typst math, such as the default axis labels `$E$ (eV)`, `$mu(E)$` or
+`$k^2 chi(k)$`, stay as glyph outlines (vector shapes of each character) so
+subscripts, superscripts and Greek letters render identically everywhere; each
+outlined label carries an `aria-label` with its Typst source. Editable text is
+drawn by the viewer, so it matches the preview exactly only when the viewer has
+the figure font (Arial by default) installed; otherwise the viewer substitutes
+a similar font. PNG output is unaffected. This uses ruviz's
+`Plot::svg_native_text` option, enabled in
+[`FigureData::plot`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/figures.rs).
 
 Sizes must be 1–30 inches on each side; DPI must be an integer from 72 to 1200.
 The image must contain at most 25 million pixels. Width in pixels is width in

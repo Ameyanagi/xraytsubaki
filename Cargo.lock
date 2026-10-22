@@ -7914,9 +7914,9 @@ dependencies = [
 
 [[package]]
 name = "ruviz"
-version = "0.14.2"
+version = "0.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5800a38ecc91758d8cccc97b03d944468390a1478d33089066c1331d3f54756c"
+checksum = "38390e91523cf024d319848f5e3ffc2e76f1a9dfba9af4fecdb8a7b989464c68"
 dependencies = [
  "base64 0.22.1",
  "bytemuck",
@@ -7952,9 +7952,9 @@ dependencies = [
 
 [[package]]
 name = "ruviz-gpui"
-version = "0.14.2"
+version = "0.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95569a176f7572ed2ac4bfa4ca1d68d84416513fc14c4385f119b2be3776ee5e"
+checksum = "663540d44ed9b926e887d994195ce11fe3232acc0f7bb85b473e6c84a42ea503"
 dependencies = [
  "arboard",
  "core-foundation 0.10.0",
@@ -7962,6 +7962,7 @@ dependencies = [
  "futures",
  "gpui",
  "image",
+ "libc",
  "rfd",
  "ruviz",
  "smallvec",

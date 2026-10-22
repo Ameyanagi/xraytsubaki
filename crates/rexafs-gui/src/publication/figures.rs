@@ -490,8 +490,11 @@ impl FigureData {
     }
 
     pub fn plot(&self, options: &FigureOptions) -> Result<Plot, String> {
+        // Typst lays out every label. In SVG, plain labels (tick numbers, legend
+        // names, typed titles) become editable `<text>`; math stays outlined.
         let mut plot = Plot::new()
             .typst(true)
+            .svg_native_text(true)
             .xlabel(self.math_xlabel())
             .ylabel(self.math_ylabel(options));
         if let Some((min, max)) = self.xlim(options) {
@@ -1207,7 +1210,16 @@ mod tests {
         let canvas = defaults.get_config().canvas_size();
         let rendered = render_figure(&sample(), &FigureOptions::default()).unwrap();
         assert_eq!(png_size(&rendered.png), canvas);
-        assert!(rendered.svg.contains("Energy"));
+        assert!(rendered.svg.contains(">Energy (eV)</tspan>"));
+        assert!(
+            rendered.svg.contains(">Data</tspan>"),
+            "legend label is text"
+        );
+        assert!(
+            rendered.svg.matches("<text").count() >= 5,
+            "tick numbers are text"
+        );
+        assert!(rendered.svg.contains(r#"role="img" aria-label="$mu(E)$""#));
         let options = FigureOptions {
             width: Some(4.),
             height: Some(3.),

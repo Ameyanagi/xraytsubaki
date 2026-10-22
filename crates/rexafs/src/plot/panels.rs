@@ -115,7 +115,13 @@ pub(crate) fn render_panel(data: PanelRenderData, show_legend: bool) -> Result<P
         }
     }
 
-    plot = plot.xlabel(xlabel).ylabel(ylabel).typst(true);
+    // Typst typesets labels; in SVG output, labels without Typst math or markup
+    // (tick numbers) are editable `<text>`, others remain glyph outlines.
+    plot = plot
+        .xlabel(xlabel)
+        .ylabel(ylabel)
+        .typst(true)
+        .svg_native_text(true);
 
     if show_legend {
         plot = plot.legend_best();

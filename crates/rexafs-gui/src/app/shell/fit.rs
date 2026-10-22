@@ -974,17 +974,28 @@ impl StudioApp {
                 .into_any_element();
         };
         let stale = self.fit_is_stale();
-        let eps: String = result
-            .kweight_results
-            .first()
-            .map(|k| format!("{:.2e}", k.epsilon_k))
-            .unwrap_or("—".into());
+        // The shown result always belongs to the selected history entry, which
+        // records whether ε was estimated for this fit.
+        let noise_estimated = self
+            .fit_history
+            .iter()
+            .find(|e| Some(e.id) == self.fit_history_selected)
+            .is_some_and(|e| e.noise_estimated());
+        let eps: String = if noise_estimated {
+            result
+                .kweight_results
+                .first()
+                .map(|k| format!("{:.2e}", k.epsilon_k))
+                .unwrap_or("—".into())
+        } else {
+            "not estimated (unit scale)".into()
+        };
         let mut card = vec![
             ("R-factor".to_string(), format!("{:.5}", result.r_factor)),
             ("χ²".to_string(), format!("{:.4e}", result.chi_square)),
             (
                 "reduced χ²".to_string(),
-                format!("{:.4e}", result.reduced_chi_square),
+                crate::fitting::reduced_chi_square_text(result.reduced_chi_square, noise_estimated),
             ),
             (
                 "N idp / N var".to_string(),
@@ -1359,8 +1370,10 @@ impl StudioApp {
                         .text_size(px(11.))
                         .text_color(t.text_muted)
                         .child(format!(
-                            "χ² {:.4} · reduced χ² {:.4} · independent points {:.1}",
-                            entry.chi_square, entry.reduced_chi_square, entry.n_idp
+                            "χ² {:.4} · reduced χ² {} · independent points {:.1}",
+                            entry.chi_square,
+                            entry.reduced_chi_square_text(),
+                            entry.n_idp
                         ))
                         .into_any_element(),
                 );

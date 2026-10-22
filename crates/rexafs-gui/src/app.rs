@@ -1680,6 +1680,26 @@ fn scan_entry_offset(scan_start: usize, scan_len: usize, entry: usize) -> Option
         .filter(|&offset| offset < scan_len)
 }
 
+/// Processing state of the selected group, as seen by the plot builder.
+#[derive(Clone, Copy, Debug)]
+struct ReloadState {
+    /// A job for the selection is running or a recompute is queued.
+    busy: bool,
+    /// The last job for the selection failed; the stale-plot banner is shown.
+    failed: bool,
+    /// The selection can be processed (it exists and is not excluded).
+    loadable: bool,
+    /// A result for the selection's current settings is cached.
+    cached: bool,
+    /// The plotted spectrum belongs to the selected group (any settings).
+    shown: bool,
+}
+
+/// Reprocess when nothing would otherwise produce the selection's plots.
+fn current_reload_needed(state: ReloadState) -> bool {
+    state.loadable && !state.busy && !state.failed && !state.cached && !state.shown
+}
+
 fn should_rebuild_explore(workspace: Workspace, dirty: &mut bool, invalidated: bool) -> bool {
     if workspace == Workspace::Explore {
         let rebuild = invalidated || *dirty;
@@ -1850,6 +1870,45 @@ mod thin_tests {
         assert!(!dirty);
         assert!(should_rebuild_explore(Workspace::Explore, &mut dirty, true));
         assert!(!dirty);
+    }
+
+    #[test]
+    fn selection_without_result_or_job_is_processed_again() {
+        use super::{ReloadState, current_reload_needed};
+        // Group B was selected while group A was plotted; B's job ended with
+        // no result and no error (a cancelled load).
+        let orphaned = ReloadState {
+            busy: false,
+            failed: false,
+            loadable: true,
+            cached: false,
+            shown: false,
+        };
+        assert!(current_reload_needed(orphaned));
+        // A failed job keeps A with the stale banner until settings change.
+        assert!(!current_reload_needed(ReloadState {
+            failed: true,
+            ..orphaned
+        }));
+        // The corrected settings are being processed.
+        assert!(!current_reload_needed(ReloadState {
+            busy: true,
+            ..orphaned
+        }));
+        // B's result for the corrected settings is ready.
+        assert!(!current_reload_needed(ReloadState {
+            cached: true,
+            ..orphaned
+        }));
+        assert!(!current_reload_needed(ReloadState {
+            shown: true,
+            ..orphaned
+        }));
+        // Removed or excluded groups are never processed.
+        assert!(!current_reload_needed(ReloadState {
+            loadable: false,
+            ..orphaned
+        }));
     }
 
     #[test]
@@ -5079,6 +5138,12 @@ impl StudioApp {
                             requested: label.clone(),
                             message: e.to_string().into(),
                         });
+                        // As on success: a drag tick that landed while this job
+                        // ran carries newer settings, which may fix the error.
+                        if app.recompute_dirty {
+                            app.recompute_dirty = false;
+                            app.reprocess_current(cx);
+                        }
                     }
                 }
                 cx.notify();
@@ -6157,7 +6222,44 @@ impl StudioApp {
         }
     }
 
+    /// Whether the selected group has neither a processed result for its
+    /// current settings nor a running job, while the plots would silently
+    /// fall back to another group's spectrum. A failed job is excluded: it
+    /// shows the stale-plot banner until the settings change.
+    fn current_needs_reload(&self) -> bool {
+        let Some(ix) = self.current_group_index() else {
+            return false;
+        };
+        let loadable = if ix == NO_ENTRY {
+            self.standalone_path().is_some()
+        } else {
+            self.valid_group_index(ix)
+        };
+        // Any earlier result of the same group counts: setting edits schedule
+        // their own recompute, and a held Live average view must stay held.
+        let shown = self.spectrum.is_some()
+            && self
+                .spectrum_group
+                .as_ref()
+                .and_then(|t| t.group_id.as_ref())
+                == self.group_id(ix).as_ref();
+        current_reload_needed(ReloadState {
+            busy: self.load_running || self.recompute_dirty,
+            failed: self.stale_plots.is_some(),
+            loadable,
+            cached: self.cache.contains(&(ix, self.effective_fingerprint(ix))),
+            shown,
+        })
+    }
+
     fn rebuild_explore_plots(&mut self, cx: &mut Context<Self>) {
+        // A cancelled load (for example after group indices changed) leaves
+        // no result and no error. Process the selection again rather than
+        // drawing the previous group's curves under the selected group's name.
+        // The job starts before this rebuild continues, so it runs once.
+        if self.current_needs_reload() {
+            self.reprocess_current(cx);
+        }
         self.mixed_overlay_weight = None;
         // Stage-dependent view flags (also correct on a scripted first launch).
         self.view.flat = self.stage_view.e_quantity == shell::EQuantity::Flat;

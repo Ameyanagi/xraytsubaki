@@ -3,6 +3,7 @@ pub(crate) mod assistant_context;
 pub(crate) mod figures;
 pub(crate) mod fit_table;
 pub(crate) mod methods;
+pub(crate) mod python_export;
 pub(crate) mod report;
 pub(crate) mod supporting;
 use crate::{params::PipelineParams, plotting, project::ProjectFile, theme::Theme};

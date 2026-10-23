@@ -25,6 +25,30 @@ exporter](https://github.com/Ameyanagi/rexafs/blob/v0.2.4/crates/rexafs-gui/src/
 It is separate from the batch-results table, which contains fitted values and
 their reported errors.
 
+**Data + Python script…** (since 0.2.15) finishes a figure outside rexafs. It
+asks for a new folder name (an existing folder is rejected) and writes one
+`series-NN.csv` per visible curve (two columns, x and y, with a one-line
+header and the full arrays) plus `make_figure.py`. The script redraws the figure
+with [matplotlib](https://matplotlib.org/) using the configured size in inches,
+DPI, font size, line width, curve colours and line styles, title, axis labels,
+axis limits, legend, grid and processing guides. All settings sit in a short
+block at the top of the script, with a header comment explaining how to edit
+them. Run it with any Python 3 that has numpy and matplotlib, for example
+`uv run --with numpy --with matplotlib python make_figure.py`; it writes
+`figure.pdf`, `figure.svg` and `figure.png` next to itself.
+
+Axis labels are converted from Typst math to matplotlib
+[mathtext](https://matplotlib.org/stable/users/explain/text/mathtext.html), its
+TeX-like math syntax: `$k^(2) chi(k)$ ($"Å"^(-2)$)` becomes
+`$k^{2}\,\chi(k)$ ($\mathrm{\AA}^{-2}$)`. The conversion covers the markup rexafs
+writes (superscripts, subscripts, Greek letter names, `abs(…)`, `op("…")` and
+quoted text); a typed label using other Typst markup falls back to the plain
+Unicode label. Curve names are written as plain text, so a `$` in a name is
+escaped as `\$`. The result is a close, editable reproduction rather than a
+pixel copy: matplotlib chooses its own tick positions, margins and fonts
+(Arial, then Helvetica, then DejaVu Sans). The generator is
+[`python_export.rs`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/python_export.rs).
+
 The **Single column** (3.5 × 2.6 in, 600 DPI, 8 pt), **Double column** (7.0 ×
 4.8 in, 300 DPI, 9 pt) and **Slide** (10 × 5.6 in, 200 DPI, 14 pt) presets set
 the size, resolution and font of the selected figure; they are rexafs choices,

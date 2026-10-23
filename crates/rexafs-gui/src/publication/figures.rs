@@ -361,9 +361,19 @@ impl FigureData {
         options.xmin.zip(options.xmax).or(self.default_xlim)
     }
 
+    /// χ(k) and χ(q) oscillate about zero, so their automatic y range is
+    /// symmetric (−a to +a) and the zero line sits mid-axis.
+    fn symmetric_y(&self) -> bool {
+        matches!(
+            self.key,
+            "chi-k" | "fit-k" | "residual-k" | "fit-residual-k" | "chi-q" | "fit-q"
+        )
+    }
+
     /// Autoscale only the displayed interval; a noisy high-k tail must not
     /// flatten the useful signal. The series and exported CSV keep every point.
-    fn visible_ylim(&self, options: &FigureOptions) -> Option<(f64, f64)> {
+    /// k-space figures use a symmetric range (see [`Self::symmetric_y`]).
+    pub(crate) fn visible_ylim(&self, options: &FigureOptions) -> Option<(f64, f64)> {
         let (xmin, xmax) = self.xlim(options)?;
         let mut ymin = f64::INFINITY;
         let mut ymax = f64::NEG_INFINITY;
@@ -389,6 +399,10 @@ impl FigureData {
         }
         if !ymin.is_finite() || !ymax.is_finite() {
             return None;
+        }
+        if self.symmetric_y() {
+            ymax = ymin.abs().max(ymax.abs());
+            ymin = -ymax;
         }
         let pad = if ymax > ymin {
             (ymax - ymin) * 0.05
@@ -1185,6 +1199,20 @@ mod tests {
         };
         assert_eq!(data.xlim(&options), Some((1., 2.)));
         assert!(data.visible_ylim(&options).unwrap().1 > 1000.);
+    }
+
+    #[test]
+    fn k_space_autoscale_is_symmetric_about_zero() {
+        let mut data = sample();
+        data.default_xlim = Some((0., 2.));
+        data.series[0].y = vec![-0.5, 2., 1.];
+        let options = FigureOptions::default();
+        let (lo, hi) = data.visible_ylim(&options).unwrap();
+        assert!(lo > -1. && hi > 2.);
+        data.key = "chi-k";
+        let (lo, hi) = data.visible_ylim(&options).unwrap();
+        assert_eq!(lo, -hi);
+        assert!((hi - 2.2).abs() < 1e-12);
     }
 
     #[test]

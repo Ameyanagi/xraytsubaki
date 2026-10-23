@@ -51,6 +51,11 @@
   data.
 - Add fit statistics tables to reports, and write the methods paragraph from
   the settings actually applied.
+- Draw built-in plot labels and legends in Arial-style sans-serif text instead
+  of serif Typst math, in the app, exported figures and matplotlib scripts.
+- Add a Multi-panel mode to Publish that lays out XANES, χ(k), χ(R) and fit
+  figures as labelled (a), (b), (c) panels at journal column widths, with a
+  combined caption and PNG, TIFF, SVG and PDF export.
 
 ## 0.2.14 (2026-09-24)
 

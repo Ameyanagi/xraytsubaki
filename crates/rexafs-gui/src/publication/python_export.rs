@@ -5,17 +5,21 @@
 //! configured size, font size, line width, colours, labels and axis limits.
 //! The script needs only Python 3, numpy and matplotlib.
 //!
-//! rexafs lays out labels with Typst math (for example `$k^(2) chi(k)$`);
-//! matplotlib uses its own TeX-like "mathtext" (`$k^{2} \chi(k)$`). This module
-//! translates the small Typst subset rexafs emits (superscripts, subscripts,
-//! Greek names, `abs(…)`, `op("…")` and quoted text) and falls back to the plain
-//! Unicode label for anything else. The matplotlib figure is a close, editable
+//! rexafs writes built-in labels as sans-serif Typst text markup (for example
+//! `_k_#super[2]_χ_(_k_)`, see `figures/labels.rs`), and typed labels may hold
+//! Typst math (`$k^(2) chi(k)$`). matplotlib uses its own TeX-like "mathtext"
+//! (`$k^{2}\chi$($k$)`). This module translates the small Typst subset rexafs
+//! emits (italic `_…_`, `#super[…]`, `#text("…")`, and in math superscripts,
+//! subscripts, Greek names, `abs(…)`, `op("…")` and quoted text) and falls back
+//! to the plain Unicode label for anything else. The script draws mathtext in
+//! the same sans-serif font as the text, so math does not switch to a serif
+//! font. The matplotlib figure is a close, editable
 //! reproduction, not a pixel copy: fonts, tick placement and margins come from
 //! matplotlib.
 //!
 //! [matplotlib]: https://matplotlib.org/stable/users/explain/text/mathtext.html
 
-use super::figures::{FigureData, FigureOptions};
+use super::figures::{FigureData, FigureOptions, typst_label};
 use ruviz::prelude::Plot;
 use std::{fs, path::Path};
 
@@ -58,21 +62,19 @@ pub(crate) fn python_export(
             .unwrap_or(config.typography.base_size as f64),
     );
     let line_width = round(options.line_width.unwrap_or(config.lines.data_width as f64));
-    let xlabel = axis_label(
-        options.xlabel.as_deref().unwrap_or(data.math_xlabel()),
-        &data.xlabel,
-    );
-    let ylabel = axis_label(
-        options
-            .ylabel
-            .as_deref()
-            .unwrap_or(data.math_ylabel(options)),
-        data.ylabel(options),
-    );
+    // Typed labels are literal outside `$…$`, exactly as in the rendered figure.
+    let xlabel = match &options.xlabel {
+        Some(typed) => axis_label(&typst_label(typed), typed),
+        None => axis_label(data.math_xlabel(), &data.xlabel),
+    };
+    let ylabel = match &options.ylabel {
+        Some(typed) => axis_label(&typst_label(typed), typed),
+        None => axis_label(data.math_ylabel(options), data.ylabel(options)),
+    };
     let title = options
         .title
         .as_deref()
-        .map(|t| axis_label(t, t))
+        .map(|t| axis_label(&typst_label(t), t))
         .map_or("None".into(), |t| py_str(&t));
     let limit =
         |pair: Option<(f64, f64)>| pair.map_or("None".into(), |(a, b)| format!("({a:?}, {b:?})"));
@@ -124,7 +126,8 @@ How to edit: change the values under "Figure settings" (size in inches, DPI,
 font size and line width in points, axis labels, limits, legend, grid) or the
 SERIES list (curve label, colour, line style "-" solid or "--" dashed), then
 run the script again. Labels use matplotlib mathtext: text between $...$ is
-math, for example $k^{{2}} \chi(k)$; write \$ for a literal dollar sign.
+math, for example $k^{{2}} \chi(k)$, drawn in the same sans-serif font as the
+text; write \$ for a literal dollar sign.
 Each CSV holds one curve as two columns (x, y) with a one-line header; the
 data are the full arrays from rexafs, and the axis limits only set the view.
 """
@@ -166,6 +169,12 @@ plt.rcParams.update(
         "xtick.labelsize": 0.9 * FONT_SIZE,
         "ytick.labelsize": 0.9 * FONT_SIZE,
         "legend.fontsize": 0.9 * FONT_SIZE,
+        # Draw $...$ math in the sans-serif text font, not serif Computer Modern.
+        "mathtext.fontset": "custom",
+        "mathtext.rm": "sans",
+        "mathtext.it": "sans:italic",
+        "mathtext.bf": "sans:bold",
+        "mathtext.cal": "sans",
         "svg.fonttype": "none",  # keep SVG text editable
         "pdf.fonttype": 42,  # embed TrueType fonts in the PDF
     }}
@@ -272,15 +281,64 @@ fn axis_label(typst: &str, plain: &str) -> String {
     typst_to_mathtext(typst).unwrap_or_else(|| plain_text(plain))
 }
 
+/// Append one mathtext span, merging it with a span that ends `out`, so
+/// `_k_#super[2]` becomes `$k^{2}$` rather than `$k$$^{2}$`.
+fn push_math(out: &mut String, math: &str, merge: bool) {
+    if merge && out.ends_with('$') {
+        out.pop();
+        // Keep `\chi` and a following `k` apart.
+        if out.ends_with(|c: char| c.is_ascii_alphabetic())
+            && math.starts_with(|c: char| c.is_ascii_alphabetic())
+        {
+            out.push(' ');
+        }
+    } else {
+        out.push('$');
+    }
+    out.push_str(math);
+    out.push('$');
+}
+
 /// Translate the Typst markup rexafs writes into matplotlib mathtext.
 ///
-/// Supports `#text("…")` literals, backslash escapes and `$…$` math. Returns
-/// `None` for other `#` markup or unbalanced math.
+/// Supports `#text("…")` literals, italic `_…_` (letters only, Greek as
+/// `\chi`), `#super[…]` superscripts, backslash escapes and `$…$` math.
+/// Returns `None` for other markup or unbalanced delimiters.
 fn typst_to_mathtext(source: &str) -> Option<String> {
     let mut out = String::new();
     let mut rest = source;
+    // Whether `out` ends with a math span written by the previous step.
+    let mut math_end = false;
     while let Some(c) = rest.chars().next() {
-        if let Some(literal) = rest.strip_prefix("#text(\"") {
+        let merge = std::mem::take(&mut math_end);
+        if let Some(inner) = rest.strip_prefix("#super[") {
+            let end = inner.find(']')?;
+            let exponent = inner[..end].replace('−', "-");
+            if !exponent
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '+' | '.'))
+            {
+                return None;
+            }
+            push_math(&mut out, &format!("^{{{exponent}}}"), merge);
+            math_end = true;
+            rest = &inner[end + 1..];
+        } else if let Some(inner) = rest.strip_prefix('_') {
+            let end = inner.find('_')?;
+            let mut math = String::new();
+            for letter in inner[..end].chars() {
+                if letter.is_ascii_alphabetic() {
+                    math.push(letter);
+                } else {
+                    math.push('\\');
+                    math.push_str(greek_name(letter)?);
+                    math.push(' ');
+                }
+            }
+            push_math(&mut out, math.trim_end(), merge);
+            math_end = true;
+            rest = &inner[end + 1..];
+        } else if let Some(literal) = rest.strip_prefix("#text(\"") {
             let (text, after) = typst_string(literal)?;
             rest = after.strip_prefix(')')?;
             out.push_str(&plain_text(&text));
@@ -322,6 +380,18 @@ fn typst_string(source: &str) -> Option<(String, &str)> {
         }
     }
     None
+}
+
+/// The mathtext name of a Greek letter, such as `chi` for `χ`.
+fn greek_name(letter: char) -> Option<&'static str> {
+    // Same order as `GREEK`: 22 lowercase letters, then 10 capitals.
+    const LOWER: &str = "αβγδεζηθικλμνξπρστφχψω";
+    const UPPER: &str = "ΓΔΘΛΞΠΣΦΨΩ";
+    let index = LOWER
+        .chars()
+        .position(|c| c == letter)
+        .or_else(|| UPPER.chars().position(|c| c == letter).map(|i| i + 22))?;
+    GREEK.get(index).copied()
 }
 
 /// Greek letter names that Typst math and mathtext share.
@@ -410,7 +480,7 @@ mod tests {
             label: "EXAFS · χ(k)".into(),
             xlabel: "k (Å⁻¹)".into(),
             ylabel: "k²χ(k) (Å⁻²)".into(),
-            math_ylabel: "$k^(2) chi(k)$ ($\"Å\"^(-2)$)".into(),
+            math_ylabel: "_k_#super[2]_χ_(_k_) (Å#super[−2])".into(),
             series: vec![
                 FigureSeries {
                     key: "series-0".into(),
@@ -465,8 +535,10 @@ mod tests {
             "LEGEND = True",
             "GRID = True",
             "TITLE = None",
-            r#"XLABEL = r"$k$ ($\mathrm{\AA}^{-1}$)""#,
-            r#"YLABEL = r"$k^{2}\,\chi(k)$ ($\mathrm{\AA}^{-2}$)""#,
+            r#"XLABEL = "$k$ (Å$^{-1}$)""#,
+            r#"YLABEL = r"$k^{2}\chi$($k$) (Å$^{-2}$)""#,
+            r#""mathtext.fontset": "custom","#,
+            r#""mathtext.it": "sans:italic","#,
             r##"{"file": "series-01.csv", "label": "Cu foil", "color": "#1f77b4", "linestyle": "-"},"##,
             r##"{"file": "series-02.csv", "label": "Fit", "color": "#ff7f0e", "linestyle": "--"},"##,
         ] {
@@ -483,7 +555,8 @@ mod tests {
     fn labels_with_quotes_backslashes_and_dollars_are_escaped() {
         let options = FigureOptions {
             title: Some(r#"Cu "foil" \ $5"#.into()),
-            xlabel: Some("#text(\"a \\\"b\\\" c\\\\d\")".into()),
+            xlabel: Some(r#"a "b" c\d"#.into()),
+            ylabel: Some("Ni_foil_2 #1 $mu$".into()),
             ..Default::default()
         };
         let script = &python_export(&figure("Cu \"A\" C:\\data $x"), &options).unwrap()[0].1;
@@ -491,12 +564,16 @@ mod tests {
         assert!(script.contains(r#""label": "Cu \"A\" C:\\data \\$x""#));
         assert!(script.contains(r#"TITLE = "Cu \"foil\" \\ \\$5""#));
         assert!(script.contains(r#"XLABEL = "a \"b\" c\\d""#));
+        // Typed text is literal: `_…_` is not italic markup, `$…$` is math.
+        assert!(script.contains(r#"YLABEL = r"Ni_foil_2 #1 $\mu$""#));
         assert_eq!(py_str("tab\there"), r#""tab\there""#);
         assert_eq!(py_str(r"ends\"), r#""ends\\""#);
         assert_eq!(py_str(r"$\mu$"), r#"r"$\mu$""#);
         // The plain Unicode label replaces markup outside the supported subset.
         assert_eq!(axis_label("#emph[k]", "k (Å⁻¹)"), "k (Å⁻¹)");
         assert_eq!(axis_label("$k$ $", "k ($)"), r"k (\$)");
+        assert_eq!(axis_label("_k (Å)", "k (Å)"), "k (Å)");
+        assert_eq!(axis_label("#super[a b]", "x"), "x");
     }
 
     #[test]
@@ -516,6 +593,17 @@ mod tests {
                 r"$\mathrm{Re}\,\chi(q)$ (dimensionless)",
             ),
             ("$x_(max)$", r"$x_{\mathrm{max}}$"),
+            // Built-in sans text markup: italics and superscripts.
+            ("_E_ (eV)", "$E$ (eV)"),
+            ("_k_ (Å#super[−1])", "$k$ (Å$^{-1}$)"),
+            (
+                "_k_#super[2.5]_χ_(_k_) (Å#super[−2.5])",
+                r"$k^{2.5}\chi$($k$) (Å$^{-2.5}$)",
+            ),
+            ("|_χ_(_R_)| (Å#super[−3])", r"|$\chi$($R$)| (Å$^{-3}$)"),
+            ("Normalized _μ_(_E_)", r"Normalized $\mu$($E$)"),
+            ("Re _χ_(_q_)", r"Re $\chi$($q$)"),
+            ("_χ__k_", r"$\chi k$"),
         ] {
             assert_eq!(
                 typst_to_mathtext(typst).as_deref(),

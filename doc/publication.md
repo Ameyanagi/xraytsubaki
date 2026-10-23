@@ -37,16 +37,20 @@ them. Run it with any Python 3 that has numpy and matplotlib, for example
 `uv run --with numpy --with matplotlib python make_figure.py`; it writes
 `figure.pdf`, `figure.svg` and `figure.png` next to itself.
 
-Axis labels are converted from Typst math to matplotlib
+Axis labels are converted from Typst to matplotlib
 [mathtext](https://matplotlib.org/stable/users/explain/text/mathtext.html), its
-TeX-like math syntax: `$k^(2) chi(k)$ ($"Å"^(-2)$)` becomes
-`$k^{2}\,\chi(k)$ ($\mathrm{\AA}^{-2}$)`. The conversion covers the markup rexafs
-writes (superscripts, subscripts, Greek letter names, `abs(…)`, `op("…")` and
-quoted text); a typed label using other Typst markup falls back to the plain
-Unicode label. Curve names are written as plain text, so a `$` in a name is
-escaped as `\$`. The result is a close, editable reproduction rather than a
-pixel copy: matplotlib chooses its own tick positions, margins and fonts
-(Arial, then Helvetica, then DejaVu Sans). The generator is
+TeX-like math syntax: the built-in label `_k_#super[2]_χ_(_k_) (Å#super[−2])`
+becomes `$k^{2}\chi$($k$) (Å$^{-2}$)`, and math you type, such as
+`$k^(2) chi(k)$`, becomes `$k^{2}\,\chi(k)$`. The conversion covers the markup
+rexafs writes (italics, `#super[…]`, and in math superscripts, subscripts, Greek
+letter names, `abs(…)`, `op("…")` and quoted text); a typed label using other
+Typst math falls back to the plain Unicode label. Typed text outside `$…$` and
+curve names are written as plain text, so a `$` in them is escaped as `\$`. The
+script sets matplotlib's `mathtext.fontset` to `custom` with the sans-serif
+font, so math matches the text instead of switching to serif Computer Modern.
+The result is a close, editable reproduction rather than a pixel copy:
+matplotlib chooses its own tick positions, margins and fonts (Arial, then
+Helvetica, then DejaVu Sans). The generator is
 [`python_export.rs`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/python_export.rs).
 
 The **Single column** (3.5 × 2.6 in, 600 DPI, 8 pt), **Double column** (7.0 ×
@@ -73,15 +77,28 @@ engine. Labels without math or markup, such as tick numbers, legend names and
 titles or axis labels you type (for example `Energy (eV)`), are written as
 editable SVG `<text>` elements at the positions Typst computed, so vector
 editors and browsers can select, search and retype them. Labels containing
-Typst math, such as the default axis labels `$E$ (eV)`, `$mu(E)$` or
-`$k^2 chi(k)$`, stay as glyph outlines (vector shapes of each character) so
-subscripts, superscripts and Greek letters render identically everywhere; each
-outlined label carries an `aria-label` with its Typst source. Editable text is
-drawn by the viewer, so it matches the preview exactly only when the viewer has
-the figure font (Arial by default) installed; otherwise the viewer substitutes
-a similar font. PNG output is unaffected. This uses ruviz's
+markup or math stay as glyph outlines (vector shapes of each character) so
+italics, superscripts and Greek letters render identically everywhere. Each
+outlined label carries an `aria-label`: the plain Unicode text, such as `k²χ(k)
+(Å⁻²)`, for built-in labels, and the Typst source for typed math. Editable text
+is drawn by the viewer, so it matches the preview exactly only when the viewer
+has the figure font (Arial by default) installed; otherwise the viewer
+substitutes a similar font. PNG output is unaffected. This uses ruviz's
 `Plot::svg_native_text` option, enabled in
 [`FigureData::plot`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/figures.rs).
+
+Every label uses the figure's sans-serif font (Arial by default) (since 0.2.15).
+Typst always draws math (`$…$`) in its serif New Computer Modern Math font, and
+no sans-serif math font is bundled, so the built-in axis labels are written as
+Typst text markup instead: `_E_ (eV)`, `_k_ (Å#super[−1])`,
+`_k_#super[2]_χ_(_k_) (Å#super[−2])`, `|_χ_(_R_)| (Å#super[−3])` and `Normalized
+_μ_(_E_)`, where `_…_` sets italics and `#super[…]` a superscript with a true
+minus sign (−, U+2212). Variables are italic and units upright, as ISO 80000-1
+and the IUPAC Green Book (Cohen et al., *Quantities, Units and Symbols in
+Physical Chemistry*, 3rd ed., RSC 2007) recommend. Earlier versions wrote these
+labels as math, so they rendered in a serif font. Math you type between dollar
+signs is still Typst math and still serif. The label builders are in
+[`figures/labels.rs`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/figures/labels.rs).
 
 Sizes must be 1–30 inches on each side; DPI must be an integer from 72 to 1200.
 The image must contain at most 25 million pixels. Width in pixels is width in

@@ -697,6 +697,7 @@ impl StudioApp {
                 }),
             );
         div()
+            .id(section.element_id())
             .flex()
             .flex_col()
             .border_b_1()

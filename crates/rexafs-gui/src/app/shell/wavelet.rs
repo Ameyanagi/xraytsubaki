@@ -98,6 +98,11 @@ impl StudioApp {
     }
     pub(crate) fn open_wavelet(&mut self, cx: &mut Context<Self>) {
         self.ui.sections.insert("Wavelet settings");
+        super::center::show_process_overlay(
+            &mut self.wavelet,
+            &mut self.normalization,
+            super::center::ProcessOverlay::Wavelet,
+        );
         self.set_stage(super::Stage::Process, cx);
         self.fluorescence.close();
         self.peaks.open = false;

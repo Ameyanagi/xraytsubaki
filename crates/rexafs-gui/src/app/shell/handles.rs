@@ -40,6 +40,46 @@ pub const PLOT_FIT_Q: usize = 104;
 
 /// Pixel distance within which a handle arms.
 const ARM_PX: f64 = 7.0;
+/// Height of the secondary tab row just inside the top of the plot area.
+const SECONDARY_ROW_PX: f32 = 15.0;
+
+/// Which grab-tab row the pointer is in. Primary (accent) tabs sit just
+/// above the plot area, secondary tabs just inside its top edge, so two
+/// handles at the same x (Rbkg = back-FT R min, or a spline k min at E₀)
+/// can each be grabbed by its own tab.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum TabRow {
+    Primary,
+    Secondary,
+}
+
+/// Choose the handle to arm from `(key, pixel distance)` candidates within
+/// [`ARM_PX`]. In a tab row, handles of that row win; otherwise (or within
+/// the row) the nearest wins, and an exact tie keeps list order.
+fn pick_handle(
+    candidates: impl IntoIterator<Item = (HandleKey, f64)>,
+    row: Option<TabRow>,
+) -> Option<HandleKey> {
+    let rank = |key: HandleKey, distance: f64| {
+        let other_row = match row {
+            Some(TabRow::Primary) => !key.accent(),
+            Some(TabRow::Secondary) => key.accent(),
+            None => false,
+        };
+        (u8::from(other_row), distance)
+    };
+    let mut best: Option<(HandleKey, (u8, f64))> = None;
+    for (key, distance) in candidates {
+        if distance > ARM_PX {
+            continue;
+        }
+        let r = rank(key, distance);
+        if best.is_none_or(|(_, b)| r.0 < b.0 || (r.0 == b.0 && r.1 < b.1)) {
+            best = Some((key, r));
+        }
+    }
+    best.map(|(key, _)| key)
+}
 
 /// Use raw energy coverage, not the shortened χ(k) grid: users must be able
 /// to drag k-max outward again after reducing it. Share the core conversion.
@@ -99,6 +139,40 @@ mod tests {
         let (lo, hi) = background_k_domain(&sp).unwrap();
         assert_eq!(lo, 0.0);
         assert!((hi - 16.).abs() < 1e-12, "{hi}");
+    }
+
+    #[test]
+    fn coincident_handles_are_grabbed_by_their_own_tab_row() {
+        // Rbkg = back-FT R min = 1.0 Å on |χ(R)|: back-FT window listed first.
+        let tie = [(HandleKey::BftRmin, 0.0), (HandleKey::Rbkg, 0.0)];
+        assert_eq!(
+            pick_handle(tie, Some(TabRow::Primary)),
+            Some(HandleKey::BftRmin)
+        );
+        assert_eq!(
+            pick_handle(tie, Some(TabRow::Secondary)),
+            Some(HandleKey::Rbkg)
+        );
+        assert_eq!(pick_handle(tie, None), Some(HandleKey::BftRmin));
+        // E₀ and a spline k min at E₀ on μ(E).
+        let edge = [(HandleKey::E0, 1.0), (HandleKey::BkgKmin, 1.0)];
+        assert_eq!(
+            pick_handle(edge, Some(TabRow::Secondary)),
+            Some(HandleKey::BkgKmin)
+        );
+        assert_eq!(
+            pick_handle(edge, Some(TabRow::Primary)),
+            Some(HandleKey::E0)
+        );
+        // Off the rows, the nearest handle wins regardless of row.
+        let near = [(HandleKey::BftRmin, 5.0), (HandleKey::Rbkg, 2.0)];
+        assert_eq!(pick_handle(near, None), Some(HandleKey::Rbkg));
+        // A handle of the other row is still reachable from either row.
+        assert_eq!(
+            pick_handle([(HandleKey::Rbkg, 3.0)], Some(TabRow::Primary)),
+            Some(HandleKey::Rbkg)
+        );
+        assert_eq!(pick_handle([(HandleKey::Rbkg, ARM_PX + 0.1)], None), None);
     }
 
     #[test]
@@ -261,8 +335,8 @@ pub struct HandleState {
 struct HandleDecor {
     /// (data x0, data x1, colour)
     spans: Vec<(f64, f64, Rgba)>,
-    /// (data x, colour, hot, dashed)
-    lines: Vec<(f64, Rgba, bool, bool)>,
+    /// (data x, colour, hot, dashed, secondary tab row)
+    lines: Vec<(f64, Rgba, bool, bool, bool)>,
 }
 
 impl StudioApp {
@@ -573,6 +647,7 @@ impl StudioApp {
                     self.handle_color(key.accent()),
                     hot,
                     key != HandleKey::E0,
+                    !key.accent(),
                 )
             })
             .collect();
@@ -624,7 +699,13 @@ impl StudioApp {
                             self.measurement_handle_readout(x)
                         } else if p == super::peaks::PLOT_PEAKS {
                             self.peak_handle_readout(x)
-                        } else if let Some(e0) = self.background_energy_e0(p) {
+                        } else if let Some(e0) = self
+                            .background_energy_e0(p)
+                            .filter(|_| matches!(k, HandleKey::BkgKmin | HandleKey::BkgKmax))
+                        {
+                            // Only the spline k bounds are k values shown on
+                            // the energy axis; E₀ and the normalization
+                            // ranges keep their own eV readouts.
                             background_k_energy_readout(energy_to_k(x, e0), x)
                         } else {
                             k.readout(x)
@@ -678,9 +759,9 @@ impl StudioApp {
                     let lines = decor
                         .lines
                         .iter()
-                        .filter_map(|&(x, color, hot, dashed)| {
+                        .filter_map(|&(x, color, hot, dashed, secondary)| {
                             let px = to_x(x)?;
-                            inside(px).then_some((px, color, hot, dashed))
+                            inside(px).then_some((px, color, hot, dashed, secondary))
                         })
                         .collect::<Vec<_>>();
                     let label = label.as_ref().and_then(|(x, text)| {
@@ -702,7 +783,7 @@ impl StudioApp {
                         let b = Bounds::new(point(px(x0), top), size(px(x1 - x0), height));
                         window.paint_quad(fill(b, c));
                     }
-                    for (x, color, hot, dashed) in lines {
+                    for (x, color, hot, dashed, secondary) in lines {
                         let c: Hsla = color.into();
                         let w = if hot { 2.6 } else { 1.3 };
                         let lx = px(x - w / 2.0);
@@ -719,10 +800,15 @@ impl StudioApp {
                             let b = Bounds::new(point(lx, top), size(px(w), height));
                             window.paint_quad(fill(b, c));
                         }
-                        // Grab tab just above the top axis line (never over
-                        // the tick labels inside the plot), wider when hot.
+                        // Primary grab tabs sit just above the top axis line
+                        // (never over the tick labels inside the plot);
+                        // secondary tabs just inside it. Wider when hot.
                         let (tw, th) = if hot { (11.0, 14.0) } else { (7.0, 11.0) };
-                        let tab_y = (area.top - th - 1.0).max(card_top + 1.0);
+                        let tab_y = if secondary {
+                            area.top + 1.0
+                        } else {
+                            (area.top - th - 1.0).max(card_top + 1.0)
+                        };
                         let tab =
                             Bounds::new(point(px(x - tw / 2.0), px(tab_y)), size(px(tw), px(th)));
                         window.paint_quad(quad(
@@ -838,7 +924,7 @@ impl StudioApp {
             .lock()
             .ok()
             .and_then(|c| c.get(&plot).copied());
-        let mut nearest: Option<(HandleKey, f64)> = None;
+        let mut nearest = None;
         if let Some(area) = visible {
             let x = f32::from(position.x);
             let y = f32::from(position.y);
@@ -847,18 +933,23 @@ impl StudioApp {
                 && x >= area.left - ARM_PX as f32
                 && x <= area.right + ARM_PX as f32
             {
-                for (key, value) in specs {
-                    if value < area.data_x0 || value > area.data_x1 {
-                        continue;
-                    }
-                    let distance = (area.px_of(value) - x).abs() as f64;
-                    if distance <= ARM_PX && nearest.is_none_or(|(_, best)| distance < best) {
-                        nearest = Some((key, distance));
-                    }
-                }
+                let row = if y < area.top {
+                    Some(TabRow::Primary)
+                } else if y <= area.top + SECONDARY_ROW_PX {
+                    Some(TabRow::Secondary)
+                } else {
+                    None
+                };
+                nearest = pick_handle(
+                    specs
+                        .into_iter()
+                        .filter(|(_, value)| *value >= area.data_x0 && *value <= area.data_x1)
+                        .map(|(key, value)| (key, (area.px_of(value) - x).abs() as f64)),
+                    row,
+                );
             }
         }
-        let armed = nearest.map(|(key, _)| (plot, key));
+        let armed = nearest.map(|key| (plot, key));
         if armed != self.handles.armed {
             self.handles.armed = armed;
             cx.notify();

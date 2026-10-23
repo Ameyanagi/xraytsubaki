@@ -150,7 +150,11 @@ impl StudioApp {
                     _ => None,
                 };
                 if self.stage == Stage::Process {
-                    self.wavelet.hide();
+                    super::center::show_process_overlay(
+                        &mut self.wavelet,
+                        &mut self.normalization,
+                        super::center::ProcessOverlay::Plots,
+                    );
                     self.maximized = enlarged;
                 }
                 self.stage_view_changed(cx);

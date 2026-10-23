@@ -78,7 +78,10 @@ k weight 0–3, **Re** (adds the real part), **Window**, the energy presets **XA
 **−200…+800** and **Full spectrum**, **Compare**, the range show/hide toggle and
 plot options.
 
-Processing ranges are drawn on every plot they affect, and each can be dragged:
+Processing ranges are drawn on every plot they affect, and each can be dragged
+by its tab. Blue tabs sit just above the plot and yellow tabs just inside its top
+edge, so two edges at the same position, such as $R_\mathrm{bkg}$ and the
+back-transform R minimum, can each be grabbed:
 
 | Range | Where it appears |
 |---|---|

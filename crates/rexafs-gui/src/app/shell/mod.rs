@@ -197,6 +197,17 @@ impl ProcessSection {
         }
     }
 
+    /// Element ID of the section container (header and body). It scopes the
+    /// IDs inside, so the Normalize and Transform "Result" sub-sections do
+    /// not collide.
+    pub(crate) fn element_id(self) -> &'static str {
+        match self {
+            Self::Normalize => "process-block-normalize",
+            Self::Background => "process-block-background",
+            Self::Transform => "process-block-transform",
+        }
+    }
+
     /// Position among the inspector's scroll children (for scrolling to it).
     pub fn index(self) -> usize {
         Self::ALL.iter().position(|s| *s == self).unwrap_or(0)
@@ -879,8 +890,13 @@ mod stage_tests {
 
     #[test]
     fn process_sections_have_distinct_order_and_keys() {
-        let keys = ProcessSection::ALL.map(ProcessSection::collapsed_key);
-        assert!(keys[0] != keys[1] && keys[1] != keys[2] && keys[0] != keys[2]);
+        for keys in [
+            ProcessSection::ALL.map(ProcessSection::collapsed_key),
+            ProcessSection::ALL.map(ProcessSection::element_id),
+            ProcessSection::ALL.map(ProcessSection::name),
+        ] {
+            assert!(keys[0] != keys[1] && keys[1] != keys[2] && keys[0] != keys[2]);
+        }
         for (i, section) in ProcessSection::ALL.into_iter().enumerate() {
             assert_eq!(section.index(), i);
         }

@@ -592,7 +592,13 @@ impl StudioApp {
                     .flex()
                     .items_start()
                     .gap_1()
-                    .child(div().flex_1().text_size(px(12.)).child(caption.clone()))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_size(px(12.))
+                            .child(caption.clone()),
+                    )
                     .child(
                         icon_button(
                             &t,

@@ -181,11 +181,13 @@ impl CompositeRecipe {
     ///
     /// Panel width is the figure width divided by the column count, rounded
     /// down to whole pixels, so the composed figure is at most one pixel per
-    /// column narrower than `width_mm`.
+    /// column narrower than `width_mm`. A tolerance of 10⁻⁶ px keeps exact
+    /// widths such as 240 pt at 600 DPI (2000 px) from losing a pixel to
+    /// floating-point error in the millimetre conversion.
     pub fn grid(&self, panels: usize, dpi: f64) -> Grid {
         let columns = self.columns.clamp(1, 4).min(panels.max(1));
         let rows = panels.max(1).div_ceil(columns);
-        let width_px = (self.width_mm / MM_PER_INCH * dpi / columns as f64).floor();
+        let width_px = (self.width_mm / MM_PER_INCH * dpi / columns as f64 + 1e-6).floor();
         let height_px = match self.panel_height_mm {
             Some(mm) => mm / MM_PER_INCH * dpi,
             None => width_px * AUTO_ASPECT,
@@ -620,6 +622,13 @@ mod tests {
         assert!((grid.size_mm().0 - 177.8).abs() < 1e-9);
         // Fewer panels than columns: one column per panel.
         assert_eq!(recipe.grid(1, 600.).columns, 1);
+        // ACS single column, 240 pt = 2000 px at 600 DPI, keeps every pixel.
+        let acs = CompositeRecipe {
+            width_mm: JOURNAL_WIDTHS[0].mm,
+            columns: 1,
+            ..Default::default()
+        };
+        assert_eq!(acs.grid(3, 600.).cell_px.0, 2000);
         let three = CompositeRecipe {
             columns: 3,
             width_mm: 171.,

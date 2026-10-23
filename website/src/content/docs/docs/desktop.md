@@ -17,9 +17,7 @@ group. The **stage bar** follows the analysis order:
 | Stage | What it does |
 |---|---|
 | [**Data**](/docs/desktop/import/) | Import files, review columns, organize groups, and apply alignment, rebinning or merging. |
-| [**Normalize**](/docs/desktop/processing/#normalization) | Estimate the edge energy, fit baselines and scale absorption to a unit edge step. |
-| [**Background**](/docs/desktop/processing/#background) | Remove the smooth background with AUTOBK to obtain $\chi(k)$. |
-| [**Transform**](/docs/desktop/processing/#forward-transform) | Weight and window $\chi(k)$, Fourier-transform to $\chi(R)$, back-transform a selected R range to $\chi(q)$, or inspect a Cauchy wavelet map. |
+| [**Process**](/docs/desktop/processing/) | Normalize absorption to a unit edge step, remove the smooth background with AUTOBK to obtain $\chi(k)$, and Fourier-transform it to $\chi(R)$. Optionally back-transform a selected R range to $\chi(q)$ or inspect a Cauchy wavelet map. Four linked plots show the steps together. |
 | [**Fit**](/docs/desktop/fitting/) | Build a structural model and run single or joint fits: **Structure → Calculate → Paths → Model → Results**, or choose [RMC](/docs/desktop/rmc/) for coordinate refinement. |
 | [**Series**](/docs/desktop/series/) | Browse scans as ordered frames and inspect trends. |
 | [**Publish**](/docs/desktop/publication/) | Set figure size, labels, limits and captions; export PNG, SVG, CSV or an analysis folder. |
@@ -27,6 +25,12 @@ group. The **stage bar** follows the analysis order:
 Normalization, background removal and transforms run automatically when an
 absorption spectrum loads or its processing settings change. Selecting a stage
 changes the display and controls.
+
+*Unreleased (after 0.2.14):* the former **Normalize**, **Background** and
+**Transform** stages are merged into one **Process** stage, so the stage bar has
+five stages. Releases up to 0.2.14 show seven stages, and the screenshots on
+these pages were made with those releases. Selecting a thumbnail in the Data
+overview opens Process with that plot enlarged.
 
 | Task | Guide |
 |---|---|
@@ -55,7 +59,7 @@ retain their normal editing shortcuts.
 | Import files or folders | Cmd/Ctrl+Shift+O |
 | Save the project | Cmd/Ctrl+S |
 | Search actions | Cmd/Ctrl+K |
-| Data through Publish, in stage-bar order | Cmd/Ctrl+1 through Cmd/Ctrl+7 |
+| Data through Publish, in stage-bar order | Cmd/Ctrl+1 through Cmd/Ctrl+5 (Cmd/Ctrl+7 in 0.2.14 and earlier) |
 | Toggle Groups / Parameters | Cmd/Ctrl+B / Cmd/Ctrl+J |
 | Focus the group filter | Cmd/Ctrl+P |
 | Undo / redo an analysis edit | Cmd/Ctrl+Z / Cmd/Ctrl+Shift+Z |

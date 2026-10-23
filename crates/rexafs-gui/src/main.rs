@@ -304,9 +304,7 @@ fn native_menus(blocked: bool, cx: &mut App) {
         ]),
         Menu::new("View").items([
             MenuItem::action("Data", app::StageData).disabled(blocked),
-            MenuItem::action("Normalize", app::StageNormalize).disabled(blocked),
-            MenuItem::action("Background", app::StageBackground).disabled(blocked),
-            MenuItem::action("Transform", app::StageTransform).disabled(blocked),
+            MenuItem::action("Process", app::StageProcess).disabled(blocked),
             MenuItem::action("Fit", app::StageFit).disabled(blocked),
             MenuItem::action("Series", app::StageSeries).disabled(blocked),
             MenuItem::action("Publish", app::StagePublish).disabled(blocked),

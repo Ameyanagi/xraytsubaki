@@ -1,13 +1,16 @@
 //! Inspector: the right panel. A sticky header states the edit scope
 //! ("Editing <group>") and offers Apply-to-marked / Reset; below it the
 //! stage's parameter sections in pipeline order, then a Result card.
+//!
+//! In Process the panel holds three collapsible sections in pipeline order —
+//! Normalize, Background, Transform — each with its own copy/reset menu.
 
 use gpui::{
     ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, div, prelude::*, px,
 };
 
 use super::{
-    MONO, Stage, button,
+    MONO, ProcessSection, Stage, button,
     controls::{Tooltip, icon, icon_button},
     parameter_actions::ParamScope,
     section_label,
@@ -73,21 +76,22 @@ impl StudioApp {
     }
     pub(crate) fn inspector(&mut self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
-        if self.stage == Stage::Transform {
+        if self.stage == Stage::Process {
             self.ensure_wavelet_fields(cx);
-        }
-        if self.stage == Stage::Normalize {
             self.ensure_normalization_editor(cx);
         }
-        let body = match self.stage {
-            Stage::Data if self.fluorescence.open => self.fluorescence_inspector(cx),
-            Stage::Data if self.peaks.open => self.peak_inspector(cx),
-            Stage::Data => self.data_inspector(cx).into_any_element(),
-            Stage::Normalize => self.normalize_inspector(cx).into_any_element(),
-            Stage::Background => self.background_inspector(cx).into_any_element(),
-            Stage::Transform => self.transform_inspector(cx).into_any_element(),
-            Stage::Series => self.series_inspector(cx).into_any_element(),
-            Stage::Fit | Stage::Publish => div().into_any_element(),
+        // Process sections are direct children of the scroll area so that
+        // `focus_process_section` can scroll one of them into view.
+        let body: Vec<gpui::AnyElement> = match self.stage {
+            Stage::Data if self.fluorescence.open => vec![self.fluorescence_inspector(cx)],
+            Stage::Data if self.peaks.open => vec![self.peak_inspector(cx)],
+            Stage::Data => vec![self.data_inspector(cx).into_any_element()],
+            Stage::Process => ProcessSection::ALL
+                .into_iter()
+                .map(|section| self.process_section(section, cx))
+                .collect(),
+            Stage::Series => vec![self.series_inspector(cx).into_any_element()],
+            Stage::Fit | Stage::Publish => vec![div().into_any_element()],
         };
         let body = if self.stage.is_processing()
             && let Some(group) = self
@@ -98,11 +102,9 @@ impl StudioApp {
             // Only legacy groups whose stored quantity is unknown get the
             // confirmation prompt; a blocked quantity (Δμnorm) gets the plain
             // notice; every other derived group renders the normal body.
-            let blocked = group.processing_block_reason().or_else(|| {
-                (!group.corrections.is_empty()
-                    && matches!(self.stage, Stage::Background | Stage::Transform))
-                .then(|| crate::fluorescence_history::XANES_ONLY.into())
-            });
+            // A XANES-only correction blocks only Background and Transform,
+            // inside their sections (see `process_section`).
+            let blocked = group.processing_block_reason();
             if !group.quantity_unconfirmed && (blocked.is_none() || self.stage == Stage::Data) {
                 body
             } else {
@@ -134,7 +136,7 @@ impl StudioApp {
                         );
                     }
                 }
-                notice.into_any_element()
+                vec![notice.into_any_element()]
             }
         } else {
             body
@@ -176,7 +178,7 @@ impl StudioApp {
                 .flex_col()
                 .overflow_y_scroll()
                 .track_scroll(&self.inspector_scroll)
-                .child(body),
+                .children(body),
             )
             .into_any_element()
     }
@@ -230,7 +232,11 @@ impl StudioApp {
                     &t,
                     "reset-params",
                     Icon::Undo,
-                    format!("Reset {} for the current group", self.stage.name()),
+                    if self.stage == Stage::Process {
+                        "Reset all processing settings for the current group".to_string()
+                    } else {
+                        format!("Reset {} for the current group", self.stage.name())
+                    },
                     false,
                 )
                 .on_click(cx.listener(|app, _, _, cx| app.reset_params(cx))),
@@ -454,7 +460,7 @@ impl StudioApp {
                 "Range relative to E₀, in eV. Drag the yellow plot handles; clear a value for Auto."
             }
             "AUTOBK" => {
-                "Drag Rbkg on |χ(R)|, or the k-window edges on χ(k). Rbkg must remain below the shell being fitted."
+                "Drag Rbkg on |χ(R)|, or the yellow spline k-range edges on χ(k) or μ(E). Rbkg must remain below the shell being fitted."
             }
             "Back FT  R → q" => {
                 "Select an R window to isolate shells in χ(q). Auto q step follows the R grid and inverse FFT length; q max changes the extent, not the spacing."
@@ -576,6 +582,128 @@ impl StudioApp {
             .pb_2()
             .child(head)
             .when(open, |d| d.children(rows))
+    }
+
+    /// One collapsible Process section: a header with the section's status
+    /// and one-line summary, then the former stage's parameter sections.
+    /// The header's menu copies or resets just this section's settings.
+    fn process_section(&self, section: ProcessSection, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let t = self.theme;
+        let key = section.collapsed_key();
+        let open = !self.ui.sections.contains(key);
+        let (status, summary) = self.process_section_summary(section);
+        let scope = ParamScope::Process(section);
+        let body = open.then(|| match section {
+            ProcessSection::Normalize => self.normalize_inspector(cx).into_any_element(),
+            _ if self.xanes_only() => self
+                .note(crate::fluorescence_history::XANES_ONLY)
+                .into_any_element(),
+            ProcessSection::Background => self.background_inspector(cx).into_any_element(),
+            ProcessSection::Transform => self.transform_inspector(cx).into_any_element(),
+        });
+        let toggle = crate::accessibility::Control::new(
+            div().id(SharedString::from(format!(
+                "process-section-{}",
+                section.name()
+            ))),
+            section.name(),
+            accesskit::Role::DisclosureTriangle,
+        )
+        .expanded(open)
+        .description(summary.clone())
+        .tab_index(0)
+        .key_context("Control")
+        .min_w_0()
+        .flex_1()
+        .flex()
+        .items_center()
+        .gap_1p5()
+        .cursor_pointer()
+        .child(icon(
+            &t,
+            if open {
+                Icon::ChevronDown
+            } else {
+                Icon::ChevronRight
+            },
+        ))
+        .child(
+            div()
+                .flex_none()
+                .text_size(px(12.5))
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .text_color(t.text)
+                .child(section.name()),
+        )
+        .child(
+            div()
+                .flex_none()
+                .size(px(6.))
+                .rounded_full()
+                .bg(status.color(&t)),
+        )
+        .child(
+            div()
+                .min_w_0()
+                .flex_1()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .font_family(MONO)
+                .text_size(px(11.))
+                .text_color(t.text_muted)
+                .child(summary),
+        )
+        .on_click(cx.listener(move |app, _, _, cx| {
+            if !app.ui.sections.remove(key) {
+                app.ui.sections.insert(key);
+            }
+            cx.notify();
+        }));
+        let head = div()
+            .id(SharedString::from(format!(
+                "process-head-{}",
+                section.name()
+            )))
+            .min_h(px(34.))
+            .px_2()
+            .flex()
+            .items_center()
+            .gap_1()
+            .bg(t.raised)
+            .border_b_1()
+            .border_color(t.border)
+            .child(toggle)
+            .children(self.parameter_badge(scope, cx))
+            .child(
+                icon_button(
+                    &t,
+                    SharedString::from(format!("process-actions-{}", section.name())),
+                    Icon::More,
+                    format!("{} actions", section.name()),
+                    false,
+                )
+                .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
+                    this.param_context_menu = Some((scope, event.position()));
+                    cx.notify();
+                })),
+            )
+            .on_mouse_down(
+                gpui::MouseButton::Right,
+                cx.listener(move |this, event: &gpui::MouseDownEvent, _, cx| {
+                    cx.stop_propagation();
+                    this.param_context_menu = Some((scope, event.position));
+                    cx.notify();
+                }),
+            );
+        div()
+            .flex()
+            .flex_col()
+            .border_b_1()
+            .border_color(t.border)
+            .child(head)
+            .children(body)
+            .into_any_element()
     }
 
     /// Key/value result card.

@@ -6,7 +6,7 @@ use gpui::{
     Window, div, prelude::*, px,
 };
 
-use super::{MONO, Stage};
+use super::{MONO, ProcessSection, Stage};
 use super::{parameter_actions::ParamScope, tools::Tool};
 use crate::app::{DERIVED_BASE, NO_ENTRY, PaletteClose, StudioApp};
 use crate::widgets::text_input::{InputEvent, TextInput};
@@ -24,9 +24,12 @@ fn catalog_items(
 #[derive(Clone, Debug, PartialEq)]
 pub enum PaletteCmd {
     Stage(Stage),
+    /// Process stage with one section expanded and in view (the former
+    /// Normalize / Background / Transform stages).
+    ProcessSection(ProcessSection),
     MarkAll,
     MarkNone,
-    ApplyToMarked,
+    ApplySectionToMarked(ProcessSection),
     ApplyAllProcessingToMarked,
     CopyMappingToMarked,
     ResetParams,
@@ -130,6 +133,26 @@ fn fuzzy(query: &str, text: &str) -> bool {
     next.is_none()
 }
 
+/// "Go to" entries: the five stages with their ⌘-shortcuts, then the three
+/// Process sections that used to be stages of their own.
+fn stage_items() -> Vec<PaletteItem> {
+    Stage::ALL
+        .into_iter()
+        .map(|stage| PaletteItem {
+            label: format!("Go to {}", stage.name()),
+            category: "stage",
+            keys: stage.shortcut(),
+            cmd: PaletteCmd::Stage(stage),
+        })
+        .chain(ProcessSection::ALL.into_iter().map(|section| PaletteItem {
+            label: format!("Go to Process ▸ {}", section.name()),
+            category: "stage",
+            keys: "",
+            cmd: PaletteCmd::ProcessSection(section),
+        }))
+        .collect()
+}
+
 fn reset_params_item(stage: Stage) -> Option<PaletteItem> {
     stage.is_processing().then(|| PaletteItem {
         label: "Reset parameters of the current group".into(),
@@ -197,30 +220,14 @@ fn validate_recent_folder(
 
 impl StudioApp {
     fn palette_items(&self) -> Vec<PaletteItem> {
-        let mut items = Vec::new();
-        for stage in Stage::ALL {
-            items.push(PaletteItem {
-                label: format!("Go to {}", stage.name()),
-                category: "stage",
-                keys: match stage {
-                    Stage::Data => "⌘1",
-                    Stage::Normalize => "⌘2",
-                    Stage::Background => "⌘3",
-                    Stage::Transform => "⌘4",
-                    Stage::Fit => "⌘5",
-                    Stage::Series => "⌘6",
-                    Stage::Publish => "⌘7",
-                },
-                cmd: PaletteCmd::Stage(stage),
-            });
-        }
-        if ParamScope::default_for_stage(self.stage).is_some() {
-            items.push(PaletteItem {
-                label: format!("Apply {} settings to marked groups", self.stage.name()),
+        let mut items = stage_items();
+        if self.stage == Stage::Process {
+            items.extend(ProcessSection::ALL.into_iter().map(|section| PaletteItem {
+                label: format!("Apply {} settings to marked groups", section.name()),
                 category: "params",
                 keys: "",
-                cmd: PaletteCmd::ApplyToMarked,
-            });
+                cmd: PaletteCmd::ApplySectionToMarked(section),
+            }));
         }
         items.extend(reset_params_item(self.stage));
         let simple = [
@@ -410,9 +417,12 @@ impl StudioApp {
     fn run_palette_cmd(&mut self, cmd: PaletteCmd, cx: &mut Context<Self>) {
         match cmd {
             PaletteCmd::Stage(stage) => self.set_stage(stage, cx),
+            PaletteCmd::ProcessSection(section) => self.focus_process_section(section, cx),
             PaletteCmd::MarkAll => self.mark_all(true, cx),
             PaletteCmd::MarkNone => self.mark_all(false, cx),
-            PaletteCmd::ApplyToMarked => self.apply_params_to_marked(cx),
+            PaletteCmd::ApplySectionToMarked(section) => {
+                self.apply_scope_to_marked(ParamScope::Process(section), cx)
+            }
             PaletteCmd::ApplyAllProcessingToMarked => {
                 self.apply_scope_to_marked(ParamScope::All, cx)
             }
@@ -786,12 +796,7 @@ mod tests {
 
     #[test]
     fn reset_palette_entry_only_exists_for_processing_stages() {
-        for stage in [
-            Stage::Data,
-            Stage::Normalize,
-            Stage::Background,
-            Stage::Transform,
-        ] {
+        for stage in [Stage::Data, Stage::Process] {
             assert_eq!(
                 reset_params_item(stage).unwrap().cmd,
                 PaletteCmd::ResetParams
@@ -799,6 +804,32 @@ mod tests {
         }
         for stage in [Stage::Fit, Stage::Series, Stage::Publish] {
             assert!(reset_params_item(stage).is_none());
+        }
+    }
+
+    #[test]
+    fn stage_entries_show_five_shortcuts_and_keep_former_stage_commands() {
+        let items = stage_items();
+        let shortcuts = items
+            .iter()
+            .filter(|i| !i.keys.is_empty())
+            .map(|i| (i.label.as_str(), i.keys))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            shortcuts,
+            [
+                ("Go to Data", "⌘1"),
+                ("Go to Process", "⌘2"),
+                ("Go to Fit", "⌘3"),
+                ("Go to Series", "⌘4"),
+                ("Go to Publish", "⌘5"),
+            ]
+        );
+        // Typing a former stage name still finds a command that opens its
+        // section of Process.
+        for section in ProcessSection::ALL {
+            let ranked = rank_items(&section.name().to_lowercase(), stage_items());
+            assert_eq!(ranked[0].cmd, PaletteCmd::ProcessSection(section));
         }
     }
 }

@@ -98,7 +98,7 @@ impl StudioApp {
     }
     pub(crate) fn open_wavelet(&mut self, cx: &mut Context<Self>) {
         self.ui.sections.insert("Wavelet settings");
-        self.set_stage(super::Stage::Transform, cx);
+        self.set_stage(super::Stage::Process, cx);
         self.fluorescence.close();
         self.peaks.open = false;
         if self.wavelet_matches_current() && self.wavelet.fields.len() == 8 {
@@ -232,7 +232,7 @@ impl StudioApp {
     }
     pub(crate) fn wavelet_definition(&self, cx: &Context<Self>) -> Result<Wavelet, String> {
         if self.wavelet.fields.len() != 8 {
-            return Err("Set the wavelet parameters in Transform first".into());
+            return Err("Set the wavelet parameters in Process › Transform first".into());
         }
         let number = |i: usize| {
             self.wavelet.fields[i]
@@ -311,7 +311,7 @@ impl StudioApp {
                     if app.project_generation == project
                         && app.wavelet.generation == generation
                         && app.wavelet.open
-                        && app.stage == Stage::Transform
+                        && app.stage == Stage::Process
                     {
                         app.calculate_wavelet(cx);
                     }

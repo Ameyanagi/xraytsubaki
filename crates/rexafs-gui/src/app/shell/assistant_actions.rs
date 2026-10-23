@@ -2,7 +2,7 @@
 use super::assistant_receipts::{
     Receipt, diff, navigation_target, scope_label, select_history_result,
 };
-use super::{BkgView, EQuantity, FitView, Stage, TfView, fit_workspace::FitStep, journal::UndoOp};
+use super::{EQuantity, FitView, Stage, fit_workspace::FitStep, journal::UndoOp};
 use crate::{
     app::StudioApp,
     fitting::{FitRanges, FitVarSpec},
@@ -55,22 +55,11 @@ impl StudioApp {
         args: &Value,
         cx: &mut Context<Self>,
     ) -> Result<Value, String> {
-        // Validate navigation before changing the active spectrum.
-        let stage = match args["stage"]
-            .as_str()
-            .unwrap_or(self.stage.name())
-            .to_ascii_lowercase()
-            .as_str()
-        {
-            "data" => Stage::Data,
-            "normalize" => Stage::Normalize,
-            "background" => Stage::Background,
-            "transform" => Stage::Transform,
-            "fit" => Stage::Fit,
-            "series" => Stage::Series,
-            "publish" => Stage::Publish,
-            _ => return Err("Unknown stage".into()),
-        };
+        // Validate navigation before changing the active spectrum. Receipts
+        // saved before 0.2.15 name Normalize, Background or Transform; those
+        // open the matching section of Process.
+        let (stage, section) = Stage::parse(args["stage"].as_str().unwrap_or(self.stage.name()))
+            .ok_or("Unknown stage")?;
         let step = match args["fit_step"].as_str() {
             None => None,
             Some("structure") => Some(FitStep::Structure),
@@ -110,7 +99,10 @@ impl StudioApp {
                 self.select_entry(ix, cx);
             }
         }
-        self.set_stage(stage, cx);
+        match section {
+            Some(section) => self.focus_process_section(section, cx),
+            None => self.set_stage(stage, cx),
+        }
         if let Some(step) = step {
             self.set_fit_step(step, cx);
         }
@@ -136,18 +128,31 @@ impl StudioApp {
                 self.rebuild_fit_preview_plots(cx, true);
                 self.rebuild_fit_plots(cx);
             } else {
-                match view {
-                    "mu" => self.stage_view.e_quantity = EQuantity::Mu,
-                    "normalized_mu" => self.stage_view.e_quantity = EQuantity::Norm,
-                    "flat_mu" => self.stage_view.e_quantity = EQuantity::Flat,
-                    "k" => {
-                        self.stage_view.tf_view = TfView::K;
-                        self.stage_view.bkg_view = BkgView::K;
+                use super::center::{PLOT_CHIK, PLOT_CHIQ, PLOT_CHIR, PLOT_MU, PLOT_NORM};
+                // Data shows one μ(E) quantity; Process enlarges the named
+                // linked plot, and "k+r" restores all four.
+                let enlarged = match view {
+                    "mu" => {
+                        self.stage_view.e_quantity = EQuantity::Mu;
+                        Some(PLOT_MU)
                     }
-                    "r" => self.stage_view.tf_view = TfView::R,
-                    "q" => self.stage_view.tf_view = TfView::Q,
-                    _ => self.stage_view.tf_view = TfView::Both,
+                    "normalized_mu" => {
+                        self.stage_view.e_quantity = EQuantity::Norm;
+                        Some(PLOT_NORM)
+                    }
+                    "flat_mu" => {
+                        self.stage_view.e_quantity = EQuantity::Flat;
+                        Some(PLOT_NORM)
+                    }
+                    "k" => Some(PLOT_CHIK),
+                    "r" => Some(PLOT_CHIR),
+                    "q" => Some(PLOT_CHIQ),
+                    _ => None,
                 };
+                if self.stage == Stage::Process {
+                    self.wavelet.hide();
+                    self.maximized = enlarged;
+                }
                 self.stage_view_changed(cx);
             }
         }

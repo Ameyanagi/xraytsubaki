@@ -4,22 +4,25 @@ description: "Use normalization, AUTOBK, forward and inverse transforms."
 audience: user
 ---
 
-This guide describes **rexafs 0.2.14**. Screenshots identify the version that
-produced them and use public Cu measurements. They are
+This guide describes **rexafs 0.2.14** and the unreleased **Process** stage that
+follows it. Screenshots identify the version that produced them and use public
+Cu measurements; those made before the Process stage show the separate
+Normalize, Background and Transform stages of 0.2.14 and earlier. They are
 full, unedited windows; select an image for full resolution. See
 [capture provenance](/licenses/#desktop-0211-workflow-captures) and
 [available downloads](/docs/getting-started/install/).
 
 Loading an absorption spectrum or changing its settings runs **normalization →
-AUTOBK → forward Fourier transform → inverse transform**. Selecting a stage
-changes the display and controls. The inverse transform runs even with its
-controls collapsed, so invalid back-transform settings can fail processing.
+AUTOBK → forward Fourier transform → inverse transform**. The inverse transform
+runs even with its controls collapsed, so invalid back-transform settings can
+fail processing.
 See the [0.2.10 desktop pipeline](https://github.com/Ameyanagi/rexafs/blob/v0.2.10/crates/rexafs-gui/src/params.rs).
 
-The inspector edits the **current** group. **Apply to N** copies only the selected
-processing stage to eligible marked groups, excluding the current group and
-processing-locked groups. **Reset** restores that stage from the project's
-defaults. Copying all processing settings does not also copy column mappings or
+The inspector edits the **current** group. **Apply to N** in the panel header
+copies all processing settings to eligible marked groups, excluding the current
+group and processing-locked groups. **Reset** restores them from the project's
+defaults. To copy or reset only one step, use that section's **…** menu, described
+below. Copying all processing settings does not also copy column mappings or
 reference calibration; copying a column mapping is a separate guarded action.
 An Auto request is copied as Auto, so its resolved value can differ by spectrum.
 
@@ -36,6 +39,58 @@ value is available. This behavior is shared by the
 *Signed 0.2.12 release: automatic range values remain readable below their fields.
 This full unedited window uses the public room-temperature Cu measurement;
 [capture provenance](/licenses/#desktop-0212-release-captures).*
+
+## The Process stage
+
+*Unreleased (after 0.2.14):* normalization, background removal and Fourier
+transforms share one **Process** stage (Cmd/Ctrl+2). In 0.2.14 and earlier they
+were three separate stages, **Normalize**, **Background** and **Transform**.
+
+The inspector on the right has three collapsible sections in pipeline order.
+Each contains the controls of the former stage with the same name:
+
+| Section | Controls |
+|---|---|
+| **Normalize** | Polynomial or MBACK method, Edge ($E_0$, edge step), Pre-edge line, Normalization range, Result |
+| **Background** | AUTOBK ($R_\mathrm{bkg}$, spline k range, k weight), Background options, Clamps & window, Solver |
+| **Transform** | Forward FT k → R, Wavelet settings, Back FT R → q, Advanced, Result |
+
+Each section header shows a status dot and a one-line summary of its settings.
+Its **…** menu, also opened by right-clicking the header, applies that section's
+settings to the marked groups, resets them, or compares them. In the command
+palette (Cmd/Ctrl+K), **Go to Process ▸ Normalize**, **▸ Background** or
+**▸ Transform** opens Process with that section expanded and scrolled into view.
+
+The center shows four linked plots in a 2 × 2 grid: measured μ(E), normalized
+μ(E), $k^w\chi(k)$ (χ(k) multiplied by $k$ to the power $w$, the k weight) and
+the Fourier magnitude
+$|\chi(R)|$. The **norm/flat** toggle switches the normalized plot between
+normalized and flattened absorption. All four plots come from the same
+processing result and update together after any edit, so the effect of a
+normalization or background change on $\chi(R)$ is visible immediately. To
+enlarge a plot, choose the enlarge button in its header or double-click its
+title; the same button, a double-click or Esc restores the grid.
+
+The view selector in the plot bar offers **Linked plots**, **χ(q)**, which shows
+the back-transformed signal alone, and **Wavelet**. Other plot bar controls set
+the display: norm/flat, $E_0$, dμ/dE, **Pre/post** (or **MBACK fit**), **Spline**,
+k weight 0–3, **Re** (adds the real part), **Window**, the energy presets **XANES**,
+**−200…+800** and **Full spectrum**, **Compare**, the range show/hide toggle and
+plot options.
+
+Processing ranges are drawn on every plot they affect, and each can be dragged:
+
+| Range | Where it appears |
+|---|---|
+| Pre-edge range (blue), post-edge normalization range (yellow) and $E_0$ | Both μ(E) plots |
+| AUTOBK spline k range (yellow edges) | χ(k), and the measured μ(E) plot at the energy $E_0 + k^2/\mathrm{ETOK}$, where $\mathrm{ETOK} = 2m_e/\hbar^2 \approx 0.2625$ Å⁻²/eV (see [Background](#background)) |
+| Forward-FT k window (blue, shaded) | χ(k) |
+| Back-FT R window (blue, shaded) and $R_\mathrm{bkg}$ (yellow, shading $R < R_\mathrm{bkg}$) | χ(R) magnitude |
+
+For a group with a XANES-only fluorescence self-absorption correction, Process
+shows only the two μ(E) plots with a notice, and the Background and Transform
+sections show the XANES-only notice; see
+[fluorescence correction](#fluorescence-correction).
 
 <a id="plot-axis-ranges-unreleased"></a>
 
@@ -108,20 +163,22 @@ Python and TypeScript exposure of these energy-offset methods remains pending.
 
 ## Normalization
 
-Choose **Polynomial** or **MBACK** in the Normalize sidebar.
+Choose **Polynomial** or **MBACK** in the **Normalize** section of Process.
 MBACK shows absorber, edge and optional erfc-background
 settings in that same panel. A declared source absorber/edge lets it calculate
 on selection; otherwise enter them and choose **Apply**. The ordinary plot and
 range handles stay visible. **Atomic match…** and **Compare methods…** open
-optional diagnostics within Normalize. See the [MBACK guide](https://github.com/Ameyanagi/rexafs/blob/v0.2.10/doc/mback-normalization.md)
+optional diagnostics within the Normalize section. See the [MBACK guide](https://github.com/Ameyanagi/rexafs/blob/v0.2.10/doc/mback-normalization.md)
 for the model, assumptions and retained results.
 The fit toggle follows the selected method: **Pre/post** shows polynomial
 baselines; **MBACK fit** shows the complete fitted atomic model over the
-measured μ(E), without auxiliary pre/post lines. Enabling the toggle selects
-μ(E), so the fitted curve shares the original absorption units. Plot/data
+measured μ(E), without auxiliary pre/post lines. Both fits are drawn on the
+measured μ(E) plot of Process, in the original absorption units (in 0.2.14 and
+earlier, enabling the toggle switched Normalize to its μ(E) view). Plot/data
 exports include the fit while visible.
-These fits are limited to Normalize; Background shows only its **Spline**
-overlay. Switching tabs preserves each toggle's preference.
+In 0.2.14 and earlier these fits were limited to the Normalize stage, and
+Background showed only its **Spline** overlay; switching stages preserved each
+toggle's preference. In Process, both toggles are in the same plot bar.
 
 [![Polynomial normalization with the Pre/post overlay enabled](/screenshots/0.2.11/polynomial.jpg)](/screenshots/0.2.11/polynomial.jpg)
 
@@ -134,13 +191,13 @@ background terms. Cu and K were read from this XDI file's header; check these
 choices for your own measurement. A fit overlay is a diagnostic, not proof of
 an appropriate normalization model.*
 
-The range icon between **Colors** and **Overview plots**
-in the plot toolbar toggles shaded
+The range icon at the right of the plot toolbar (after **Colors**; in Data it
+sits before **Overview plots**) toggles shaded
 selection windows and their drag handles across processing, fitting and analysis
 plots. Hiding them preserves the numerical ranges and processing results. The
 icon stays in place; its tooltip changes between **Hide plot ranges** and
-**Show plot ranges**. The separate **Window** control in Transform displays the
-Fourier taper curve.
+**Show plot ranges**. The separate **Window** control displays the
+Fourier taper curve on χ(k).
 
 Set $E_0$ or leave it automatic. Pre/post-edge range controls are offsets from $E_0$
 in eV. Choose a meaningful baseline on either side of the edge. **norm** subtracts
@@ -200,7 +257,7 @@ saved clamp policy, so check it before comparing their results with a new projec
 
 **bkg k min** and **bkg k max** set the photoelectron wave-number range, in Å⁻¹,
 over which AUTOBK fits its spline. Drag their handles on χ(k), or, in an
-unreleased build after 0.2.14, on the Background **μ(E)** view. The μ(E) handles
+unreleased build after 0.2.14, on the measured μ(E) plot in Process. The μ(E) handles
 sit at the photon energy
 
 $$E = E_0 + \frac{\hbar^2 k^2}{2 m_e} \approx E_0 + 3.81\ \text{eV·Å}^2 \times k^2,$$
@@ -230,19 +287,21 @@ and [AUTOBK objective](/docs/science/autobk/).
 
 [![Background showing measured Cu absorption, one AUTOBK spline and the Fourier magnitude below](/screenshots/0.2.11/background.jpg)](/screenshots/0.2.11/background.jpg)
 
-*Spline controls the orange AUTOBK overlay. Normalize's polynomial and MBACK
-fit overlays are not drawn in this stage.*
+*Background stage of rexafs 0.2.11. Spline controls the orange AUTOBK overlay.
+In this release, Normalize's polynomial and MBACK fit overlays were not drawn in
+this stage.*
 
 
 ## Forward transform
 
-The Transform view selector contains
-**k**, **R**, **k + R**, **q**, and **Wavelet**. It remains visible in all five
-views. In Wavelet, **Magnitude**, **Real**, **Imaginary** and **Phase** appear
+In 0.2.14 and earlier, the Transform view selector contains
+**k**, **R**, **k + R**, **q**, and **Wavelet**, and remains visible in all five
+views. In Process, the linked plots replace **k**, **R** and **k + R**, and the
+selector offers **Linked plots**, **χ(q)** and **Wavelet**. In Wavelet, **Magnitude**, **Real**, **Imaginary** and **Phase** appear
 immediately to the right of that selector. Switching back to Wavelet preserves
 its map when the spectrum and processing settings are unchanged.
 **Wavelet settings** sits between Forward
-FT and Back FT in the parameter panel. It is collapsed initially and opens when
+FT and Back FT in the Transform section of the parameter panel. It is collapsed initially and opens when
 you select Wavelet. The map updates automatically after committed parameter edits
 and stepper clicks; calculations run in the background after a short pause.
 **Colors** and **Export** are at the top right. Region measurements live in
@@ -254,7 +313,7 @@ Fourier magnitude; **Slices** shows wavelet magnitude at a selected coordinate.
 See the [wavelet guide](https://github.com/Ameyanagi/rexafs/blob/v0.2.10/doc/wavelet-analysis.md)
 for interpretation, settings, retained maps and region integration.
 
-[![Wavelet magnitude with linked R spectrum on the left, k spectrum below and settings in the Transform sidebar](/screenshots/0.2.11/wavelet.jpg)](/screenshots/0.2.11/wavelet.jpg)
+[![Wavelet magnitude with linked R spectrum on the left, k spectrum below and settings in the 0.2.11 Transform sidebar](/screenshots/0.2.11/wavelet.jpg)](/screenshots/0.2.11/wavelet.jpg)
 
 *Cu foil wavelet magnitude, k = 2–12 Å⁻¹, k weight 2 and R maximum 6 Å.
 R is not phase-corrected; a map maximum is not directly a bond distance.
@@ -262,8 +321,8 @@ Changing R maximum to 5 Å updated the map automatically during the GUI check.*
 
 The recommended starting window is 2–15 Å⁻¹ with $k$ weight 2, taper parameter
 $dk=1$ Å⁻¹ and a Kaiser–Bessel window. Shorten the range for a noisier or narrower
-measurement. View **k**, **R**, or **k + R**, and enable real/imaginary components
-where available. Keep enough samples in the fitted window for a meaningful fit.
+measurement. Inspect χ(k) and $|\chi(R)|$ in the linked plots (**k**, **R** or
+**k + R** in 0.2.14 and earlier), and enable the real part with **Re** where available. Keep enough samples in the fitted window for a meaningful fit.
 
 The forward transform uses 2048 points and infers its k step from the background
 grid unless you override it. Its explicit amplitude multiplier is
@@ -278,7 +337,7 @@ It does not change the physical model. See
 
 ## Back transform
 
-Expand **Back FT R → q** and choose an R window to isolate a contribution.
+In the Transform section, expand **Back FT R → q** and choose an R window to isolate a contribution.
 The automatic q step follows the R sampling and inverse FFT length. Changing the
 maximum q display extent does not independently set its spacing.
 
@@ -301,7 +360,8 @@ contains the applicability and numerical diagnostics. The default internal
 post-edge polynomial is linear. It is separate from final normalization.
 
 **Add corrected spectrum →** retains the original and creates a new group, then
-opens **Normalize** for independent polynomial or MBACK processing. Reopen the
+opens **Process** (the Normalize stage in 0.2.14 and earlier) for independent
+polynomial or MBACK processing. Reopen the
 correction tool on that group to inspect or export its historical calculation.
 Choose **Include source files** when saving a portable project to include the
 correction history and original arrays.

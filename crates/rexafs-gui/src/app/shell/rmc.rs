@@ -663,7 +663,7 @@ impl StudioApp {
         let result = self
             .spectrum
             .as_ref()
-            .ok_or_else(|| "Prepare a spectrum in Background first.".to_string())
+            .ok_or_else(|| "Prepare a spectrum in Process › Background first.".to_string())
             .and_then(|spectrum| {
                 self.rmc
                     .project
@@ -1441,7 +1441,7 @@ impl StudioApp {
                 return Err("Wait for the active calculation to finish.".into());
             }
             if self.load_running || self.stale_plots.is_some() {
-                return Err("Finish spectrum processing in Background first.".into());
+                return Err("Finish spectrum processing in Process › Background first.".into());
             }
             if !cfg!(feature = "refeff-runner") {
                 return Err("This desktop build needs the ReFEFF backend.".into());

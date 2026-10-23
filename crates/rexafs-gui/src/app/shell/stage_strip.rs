@@ -4,7 +4,7 @@ use gpui::{
     ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, div, prelude::*, px,
 };
 
-use super::{MONO, Stage, StageStatus};
+use super::{MONO, ProcessSection, Stage, StageStatus};
 use crate::app::StudioApp;
 
 impl StudioApp {
@@ -128,102 +128,112 @@ impl StudioApp {
                 add("Import", p.import.mode.label().into());
                 add("Marked", self.selection.len().to_string());
             }
-            Stage::Normalize => {
-                add("E₀", number_value(p.e0, sp.and_then(|s| s.e0()), "eV", 2));
-                add(
-                    "Edge step",
-                    sp.and_then(|_| self.edge_step())
-                        .map(|n| format!("{n:.5}"))
-                        .unwrap_or_else(|| "—".into()),
-                );
-                add(
-                    "Pre-edge · E − E₀",
-                    range_value(
-                        p.pre_edge_start
-                            .or_else(|| norm.and_then(|n| n.pre_edge_start)),
-                        p.pre_edge_end.or_else(|| norm.and_then(|n| n.pre_edge_end)),
-                        "eV",
-                    ),
-                );
-                add(
-                    "Normalization · E − E₀",
-                    range_value(
-                        p.norm_start.or_else(|| norm.and_then(|n| n.norm_start)),
-                        p.norm_end.or_else(|| norm.and_then(|n| n.norm_end)),
-                        "eV",
-                    ),
-                );
-                add(
-                    "Polynomial order",
-                    p.norm_polyorder
-                        .or_else(|| norm.and_then(|n| n.norm_polyorder))
-                        .map(|n| n.to_string())
-                        .unwrap_or_else(|| "Auto".into()),
-                );
-            }
-            Stage::Background => {
-                add(
-                    "Rbkg",
-                    number_value(p.rbkg, bkg.and_then(|b| b.rbkg), "Å", 2),
-                );
-                let kmax = bkg.and_then(|b| b.kmax).or_else(|| {
-                    sp.and_then(|s| s.k())
-                        .and_then(|k| k.iter().next_back().copied())
-                });
-                add(
-                    "k range",
-                    range_value(
-                        p.bkg_kmin.or_else(|| bkg.and_then(|b| b.kmin)),
-                        p.bkg_kmax.or(kmax),
-                        "Å⁻¹",
-                    ),
-                );
-                add(
-                    "k-weight",
-                    number_value(
-                        p.bkg_kweight.map(|n| n as f64),
-                        bkg.and_then(|b| b.kweight).map(|n| n as f64),
-                        "",
-                        0,
-                    ),
-                );
-                add(
-                    "Window",
-                    crate::params::window_label(p.bkg_window.or_else(|| bkg.map(|b| b.window)))
-                        .into(),
-                );
-            }
-            Stage::Transform => {
-                add(
-                    "k range",
-                    range_value(
-                        p.fft_kmin.or_else(|| ft.and_then(|f| f.kmin)),
-                        p.fft_kmax.or_else(|| ft.and_then(|f| f.kmax)),
-                        "Å⁻¹",
-                    ),
-                );
-                add(
-                    "k-weight",
-                    number_value(p.fft_kweight, ft.and_then(|f| f.kweight), "", 0),
-                );
-                add(
-                    "Window",
-                    crate::params::window_label(p.fft_window.or_else(|| ft.and_then(|f| f.window)))
-                        .into(),
-                );
-                add(
-                    "dk",
-                    number_value(p.fft_dk, ft.and_then(|f| f.dk), "Å⁻¹", 2),
-                );
-                let back = sp.and_then(|s| s.xftr.as_ref());
-                add(
-                    "Back FT · R range",
-                    range_value(
-                        p.bft_rmin.or_else(|| back.and_then(|f| f.rmin)),
-                        p.bft_rmax.or_else(|| back.and_then(|f| f.rmax)),
-                        "Å",
-                    ),
-                );
+            Stage::Process => {
+                for section in ProcessSection::ALL {
+                    match section {
+                        ProcessSection::Normalize => {
+                            add("E₀", number_value(p.e0, sp.and_then(|s| s.e0()), "eV", 2));
+                            add(
+                                "Edge step",
+                                sp.and_then(|_| self.edge_step())
+                                    .map(|n| format!("{n:.5}"))
+                                    .unwrap_or_else(|| "—".into()),
+                            );
+                            add(
+                                "Pre-edge · E − E₀",
+                                range_value(
+                                    p.pre_edge_start
+                                        .or_else(|| norm.and_then(|n| n.pre_edge_start)),
+                                    p.pre_edge_end.or_else(|| norm.and_then(|n| n.pre_edge_end)),
+                                    "eV",
+                                ),
+                            );
+                            add(
+                                "Normalization · E − E₀",
+                                range_value(
+                                    p.norm_start.or_else(|| norm.and_then(|n| n.norm_start)),
+                                    p.norm_end.or_else(|| norm.and_then(|n| n.norm_end)),
+                                    "eV",
+                                ),
+                            );
+                            add(
+                                "Polynomial order",
+                                p.norm_polyorder
+                                    .or_else(|| norm.and_then(|n| n.norm_polyorder))
+                                    .map(|n| n.to_string())
+                                    .unwrap_or_else(|| "Auto".into()),
+                            );
+                        }
+                        ProcessSection::Background => {
+                            add(
+                                "Rbkg",
+                                number_value(p.rbkg, bkg.and_then(|b| b.rbkg), "Å", 2),
+                            );
+                            let kmax = bkg.and_then(|b| b.kmax).or_else(|| {
+                                sp.and_then(|s| s.k())
+                                    .and_then(|k| k.iter().next_back().copied())
+                            });
+                            add(
+                                "Spline k range",
+                                range_value(
+                                    p.bkg_kmin.or_else(|| bkg.and_then(|b| b.kmin)),
+                                    p.bkg_kmax.or(kmax),
+                                    "Å⁻¹",
+                                ),
+                            );
+                            add(
+                                "Spline k-weight",
+                                number_value(
+                                    p.bkg_kweight.map(|n| n as f64),
+                                    bkg.and_then(|b| b.kweight).map(|n| n as f64),
+                                    "",
+                                    0,
+                                ),
+                            );
+                            add(
+                                "Spline window",
+                                crate::params::window_label(
+                                    p.bkg_window.or_else(|| bkg.map(|b| b.window)),
+                                )
+                                .into(),
+                            );
+                        }
+                        ProcessSection::Transform => {
+                            add(
+                                "FT k range",
+                                range_value(
+                                    p.fft_kmin.or_else(|| ft.and_then(|f| f.kmin)),
+                                    p.fft_kmax.or_else(|| ft.and_then(|f| f.kmax)),
+                                    "Å⁻¹",
+                                ),
+                            );
+                            add(
+                                "FT k-weight",
+                                number_value(p.fft_kweight, ft.and_then(|f| f.kweight), "", 0),
+                            );
+                            add(
+                                "FT window",
+                                crate::params::window_label(
+                                    p.fft_window.or_else(|| ft.and_then(|f| f.window)),
+                                )
+                                .into(),
+                            );
+                            add(
+                                "FT dk",
+                                number_value(p.fft_dk, ft.and_then(|f| f.dk), "Å⁻¹", 2),
+                            );
+                            let back = sp.and_then(|s| s.xftr.as_ref());
+                            add(
+                                "Back FT · R range",
+                                range_value(
+                                    p.bft_rmin.or_else(|| back.and_then(|f| f.rmin)),
+                                    p.bft_rmax.or_else(|| back.and_then(|f| f.rmax)),
+                                    "Å",
+                                ),
+                            );
+                        }
+                    }
+                }
             }
             Stage::Fit => {
                 let dataset = self
@@ -308,8 +318,6 @@ impl StudioApp {
 
     /// Status and one-line summary per stage for the current group.
     pub(crate) fn stage_summary(&self, stage: Stage) -> (StageStatus, String) {
-        let p = self.ui_params();
-        let sp = self.spectrum.as_deref();
         match stage {
             Stage::Data => {
                 let groups = if self.catalog.is_empty() {
@@ -324,46 +332,12 @@ impl StudioApp {
                 };
                 (status, crate::text::plural(groups, "group"))
             }
-            Stage::Normalize => {
-                let Some(sp) = sp else {
-                    return (StageStatus::Idle, "—".into());
-                };
-                let e0 = sp.e0().map(|v| format!("{v:.1}")).unwrap_or("?".into());
-                let step = self
-                    .edge_step()
-                    .map(|v| format!("{v:.3}"))
-                    .unwrap_or("?".into());
-                let status = if p.e0.is_none() {
-                    StageStatus::Auto
-                } else {
-                    StageStatus::Ok
-                };
-                (status, format!("E₀ {e0} · step {step}"))
-            }
-            Stage::Background => {
-                let rbkg = p.rbkg.unwrap_or(1.0);
-                let kw = p.bkg_kweight.unwrap_or(1);
-                let status = if sp.is_some_and(|s| s.chi().is_some()) {
-                    if p.rbkg.is_none() {
-                        StageStatus::Auto
-                    } else {
-                        StageStatus::Ok
-                    }
-                } else {
-                    StageStatus::Idle
-                };
-                (status, format!("Rbkg {rbkg:.1} · kw {kw}"))
-            }
-            Stage::Transform => {
-                let (kmin, kmax, win, kw) = self.fft_summary();
-                let status = if sp.is_some_and(|s| s.chir_mag().is_some()) {
-                    StageStatus::Ok
-                } else {
-                    StageStatus::Idle
-                };
+            Stage::Process => {
+                let parts =
+                    ProcessSection::ALL.map(|section| self.process_section_summary(section));
                 (
-                    status,
-                    format!("k {kmin:.1}–{kmax:.1} · {win} · kw {kw:.0}"),
+                    combined_status(parts.each_ref().map(|(status, _)| *status)),
+                    parts.map(|(_, text)| text).join(" · "),
                 )
             }
             Stage::Fit => {
@@ -396,6 +370,57 @@ impl StudioApp {
         }
     }
 
+    /// Status and one-line summary of one Process section: the inspector
+    /// section headers, the Data-stage overview thumbnails and the Process tab.
+    pub(crate) fn process_section_summary(&self, section: ProcessSection) -> (StageStatus, String) {
+        let p = self.ui_params();
+        let sp = self.spectrum.as_deref();
+        match section {
+            ProcessSection::Normalize => {
+                let Some(sp) = sp else {
+                    return (StageStatus::Idle, "—".into());
+                };
+                let e0 = sp.e0().map(|v| format!("{v:.1}")).unwrap_or("?".into());
+                let step = self
+                    .edge_step()
+                    .map(|v| format!("{v:.3}"))
+                    .unwrap_or("?".into());
+                let status = if p.e0.is_none() {
+                    StageStatus::Auto
+                } else {
+                    StageStatus::Ok
+                };
+                (status, format!("E₀ {e0} · step {step}"))
+            }
+            ProcessSection::Background => {
+                let rbkg = p.rbkg.unwrap_or(1.0);
+                let kw = p.bkg_kweight.unwrap_or(1);
+                let status = if sp.is_some_and(|s| s.chi().is_some()) {
+                    if p.rbkg.is_none() {
+                        StageStatus::Auto
+                    } else {
+                        StageStatus::Ok
+                    }
+                } else {
+                    StageStatus::Idle
+                };
+                (status, format!("Rbkg {rbkg:.1} · kw {kw}"))
+            }
+            ProcessSection::Transform => {
+                let (kmin, kmax, win, kw) = self.fft_summary();
+                let status = if sp.is_some_and(|s| s.chir_mag().is_some()) {
+                    StageStatus::Ok
+                } else {
+                    StageStatus::Idle
+                };
+                (
+                    status,
+                    format!("k {kmin:.1}–{kmax:.1} · {win} · kw {kw:.0}"),
+                )
+            }
+        }
+    }
+
     /// Effective FT summary values (params, else the core defaults).
     pub(crate) fn fft_summary(&self) -> (f64, f64, &'static str, f64) {
         let p = self.ui_params();
@@ -423,6 +448,21 @@ impl StudioApp {
             NormalizationMethod::PrePostEdge(ppe) => ppe.edge_step,
             _ => None,
         }
+    }
+}
+
+/// Status of the Process tab from its three sections: idle until every
+/// section has a result, then "auto" while any section still uses automatic
+/// values, otherwise ok.
+fn combined_status(parts: [StageStatus; 3]) -> StageStatus {
+    if parts.contains(&StageStatus::Idle) {
+        StageStatus::Idle
+    } else if parts.contains(&StageStatus::Attention) {
+        StageStatus::Attention
+    } else if parts.contains(&StageStatus::Auto) {
+        StageStatus::Auto
+    } else {
+        StageStatus::Ok
     }
 }
 
@@ -509,5 +549,18 @@ impl gpui::Render for StageTooltip {
                             .child(value.clone()),
                     )
             }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{StageStatus::*, combined_status};
+
+    #[test]
+    fn process_status_reports_the_least_finished_section() {
+        assert_eq!(combined_status([Ok, Ok, Ok]), Ok);
+        assert_eq!(combined_status([Auto, Ok, Ok]), Auto);
+        assert_eq!(combined_status([Ok, Auto, Idle]), Idle);
+        assert_eq!(combined_status([Ok, Attention, Auto]), Attention);
     }
 }

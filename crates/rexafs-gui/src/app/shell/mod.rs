@@ -68,23 +68,24 @@ use super::{StudioApp, Workspace};
 use crate::theme::Theme;
 
 /// Pipeline stages, in pipeline order. The number is the ⌘-shortcut.
+///
+/// Normalization, background removal and the Fourier transform share one
+/// Process stage: they are sections of one inspector and their plots update
+/// together. Releases up to 0.2.14 had separate Normalize, Background and
+/// Transform stages; [`Stage::parse`] still accepts those names.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Stage {
     Data,
-    Normalize,
-    Background,
-    Transform,
+    Process,
     Fit,
     Series,
     Publish,
 }
 
 impl Stage {
-    pub const ALL: [Stage; 7] = [
+    pub const ALL: [Stage; 5] = [
         Stage::Data,
-        Stage::Normalize,
-        Stage::Background,
-        Stage::Transform,
+        Stage::Process,
         Stage::Fit,
         Stage::Series,
         Stage::Publish,
@@ -94,20 +95,48 @@ impl Stage {
         Self::ALL.iter().position(|s| *s == self).unwrap_or(0) + 1
     }
 
+    /// Shortcut label shown in the command palette (⌘1…⌘5, Ctrl on
+    /// Windows and Linux). `studio_keybindings` binds the same numbers.
+    pub fn shortcut(self) -> &'static str {
+        match self {
+            Stage::Data => "⌘1",
+            Stage::Process => "⌘2",
+            Stage::Fit => "⌘3",
+            Stage::Series => "⌘4",
+            Stage::Publish => "⌘5",
+        }
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             Stage::Data => "Data",
-            Stage::Normalize => "Normalize",
-            Stage::Background => "Background",
-            Stage::Transform => "Transform",
+            Stage::Process => "Process",
             Stage::Fit => "Fit",
             Stage::Series => "Series",
             Stage::Publish => "Publish",
         }
     }
 
-    /// Legacy workspace the stage maps onto: the four processing stages share
-    /// the explore plot machinery, Fit and Series keep their centers.
+    /// Resolve a stage name (case-insensitive) from scripted launches
+    /// (`REXAFS_STAGE`), assistant navigation and saved assistant receipts.
+    /// The names of the former stages, `normalize`, `background` and
+    /// `transform`, map to the Process stage and its matching section.
+    pub fn parse(name: &str) -> Option<(Stage, Option<ProcessSection>)> {
+        Some(match name.trim().to_ascii_lowercase().as_str() {
+            "data" => (Stage::Data, None),
+            "process" => (Stage::Process, None),
+            "normalize" => (Stage::Process, Some(ProcessSection::Normalize)),
+            "background" => (Stage::Process, Some(ProcessSection::Background)),
+            "transform" => (Stage::Process, Some(ProcessSection::Transform)),
+            "fit" => (Stage::Fit, None),
+            "series" => (Stage::Series, None),
+            "publish" => (Stage::Publish, None),
+            _ => return None,
+        })
+    }
+
+    /// Legacy workspace the stage maps onto: Data and Process share the
+    /// explore plot machinery, Fit and Series keep their centers.
     pub fn workspace(self) -> Workspace {
         match self {
             Stage::Fit => Workspace::Fit,
@@ -117,22 +146,60 @@ impl Stage {
     }
 
     pub fn is_processing(self) -> bool {
-        matches!(
-            self,
-            Stage::Data | Stage::Normalize | Stage::Background | Stage::Transform
-        )
+        matches!(self, Stage::Data | Stage::Process)
     }
 
-    /// Limit fitted overlays to their owning stage without clearing the user's
-    /// toggle preferences, so returning to Normalize restores its fit.
+    /// Limit fitted overlays to the Process stage without clearing the user's
+    /// toggle preferences, so returning to Process restores them.
     pub(crate) fn plot_options(
         self,
         mut view: crate::plotting::ViewOptions,
     ) -> crate::plotting::ViewOptions {
-        view.show_pre &= self == Self::Normalize;
-        view.show_post &= self == Self::Normalize;
-        view.show_bkg &= self == Self::Background;
+        view.show_pre &= self == Self::Process;
+        view.show_post &= self == Self::Process;
+        view.show_bkg &= self == Self::Process;
         view
+    }
+}
+
+/// The three collapsible inspector sections of the Process stage, in
+/// pipeline order: pre-/post-edge normalization, AUTOBK background removal
+/// (μ(E) → χ(k)), and the forward/back Fourier transforms (χ(k) → χ(R) → χ(q)).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ProcessSection {
+    Normalize,
+    Background,
+    Transform,
+}
+
+impl ProcessSection {
+    pub const ALL: [ProcessSection; 3] = [
+        ProcessSection::Normalize,
+        ProcessSection::Background,
+        ProcessSection::Transform,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Normalize => "Normalize",
+            Self::Background => "Background",
+            Self::Transform => "Transform",
+        }
+    }
+
+    /// `ui.sections` key recording that the user collapsed this section.
+    /// Sections start expanded, so the key marks the exception.
+    pub(crate) fn collapsed_key(self) -> &'static str {
+        match self {
+            Self::Normalize => "process-normalize-collapsed",
+            Self::Background => "process-background-collapsed",
+            Self::Transform => "process-transform-collapsed",
+        }
+    }
+
+    /// Position among the inspector's scroll children (for scrolling to it).
+    pub fn index(self) -> usize {
+        Self::ALL.iter().position(|s| *s == self).unwrap_or(0)
     }
 }
 
@@ -143,30 +210,13 @@ pub enum PlotScope {
     Marked,
 }
 
-/// μ(E)-family quantity for the Data / Normalize plot.
+/// μ(E)-family quantity for the Data plot. In Process it chooses normalized
+/// or flattened μ(E) for the second linked plot.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum EQuantity {
     Mu,
     Norm,
     Flat,
-}
-
-/// Background stage main view.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum BkgView {
-    /// μ(E) with the AUTOBK spline over |χ(R)| with the R < Rbkg region.
-    Energy,
-    /// k-weighted χ(k) over |χ(R)|.
-    K,
-}
-
-/// Transform stage main view.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum TfView {
-    K,
-    R,
-    Q,
-    Both,
 }
 
 /// Fit stage main view.
@@ -183,9 +233,6 @@ pub enum FitView {
 pub struct StageView {
     pub scope: PlotScope,
     pub e_quantity: EQuantity,
-    pub thumbnail_focus: Option<usize>,
-    pub bkg_view: BkgView,
-    pub tf_view: TfView,
     pub show_bkg: bool,
     pub show_re: bool,
     pub fit_view: FitView,
@@ -204,9 +251,6 @@ impl Default for StageView {
         Self {
             scope: PlotScope::Current,
             e_quantity: EQuantity::Norm,
-            thumbnail_focus: None,
-            bkg_view: BkgView::Energy,
-            tf_view: TfView::Both,
             show_bkg: true,
             show_re: false,
             fit_view: FitView::Both,
@@ -383,15 +427,43 @@ impl StudioApp {
         self.stage = stage;
         self.set_workspace(stage.workspace(), cx);
         if previous != stage {
-            self.view.show_kwin = stage == Stage::Transform;
+            self.view.show_kwin = stage == Stage::Process;
+            // An enlarged plot belongs to the Process grid; other stages show
+            // their own plots with the shared legend strip.
+            self.maximized = None;
             self.stage_view_changed(cx);
         }
+    }
+
+    /// Open the Process stage with `section` expanded and scrolled into view.
+    /// The former Normalize / Background / Transform commands land here.
+    pub(crate) fn focus_process_section(
+        &mut self,
+        section: ProcessSection,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_stage(Stage::Process, cx);
+        self.ui.sections.remove(section.collapsed_key());
+        self.set_side_panel_visible(assistant_shell::SidePanel::Inspector, true);
+        self.inspector_scroll.scroll_to_top_of_item(section.index());
+        cx.notify();
+    }
+
+    /// Keyboard/menu variant of [`Self::focus_process_section`]; see
+    /// [`Self::navigate_stage`] for the focus handling.
+    pub(crate) fn navigate_process_section(
+        &mut self,
+        section: ProcessSection,
+        window: &mut gpui::Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.root_focus.focus(window, cx);
+        self.focus_process_section(section, cx);
     }
 
     /// Stage view options feed the explore plot builders; changing them
     /// rebuilds the plots and re-syncs the drag handles.
     pub(crate) fn stage_view_changed(&mut self, cx: &mut Context<Self>) {
-        self.stage_view.thumbnail_focus = None;
         self.invalidate_explore_plots(cx);
         self.sync_handles(cx);
         cx.notify();
@@ -724,8 +796,8 @@ mod plot_overlay_tests {
                 sp: Arc::new(spectrum),
                 active: true,
             }];
-            // Normalize -> Background -> every other stage -> Normalize again.
-            for stage in Stage::ALL.into_iter().chain([Stage::Normalize]) {
+            // Every stage, then Process again: the preferences survive.
+            for stage in Stage::ALL.into_iter().chain([Stage::Process]) {
                 let visible = stage.plot_options(preferences);
                 let specs = quantity_quadrant_specs(
                     &traces,
@@ -735,19 +807,22 @@ mod plot_overlay_tests {
                     crate::params::Quantity::RawMu,
                 );
                 let keys = specs[0].series.iter().map(|s| s.key).collect::<Vec<_>>();
-                assert_eq!(keys.contains(&SeriesKey::Bkg), stage == Stage::Background);
-                assert_eq!(
-                    keys.contains(&SeriesKey::MbackFit),
-                    is_mback && stage == Stage::Normalize
-                );
+                let process = stage == Stage::Process;
+                // The linked μ(E) plot carries the spline and the selected
+                // normalization fit together.
+                assert_eq!(keys.contains(&SeriesKey::Bkg), process);
+                assert_eq!(keys.contains(&SeriesKey::MbackFit), is_mback && process);
                 for key in [SeriesKey::PreEdge, SeriesKey::PostEdge] {
-                    assert_eq!(keys.contains(&key), !is_mback && stage == Stage::Normalize);
+                    assert_eq!(keys.contains(&key), !is_mback && process);
                 }
-                if stage == Stage::Background {
-                    assert_eq!(keys, [SeriesKey::Trace(0), SeriesKey::Bkg]);
-                    // Turning Spline off also leaves no hidden normalization fit.
+                if !process {
+                    assert_eq!(keys, [SeriesKey::Trace(0)]);
+                } else {
+                    // Turning Spline and Pre/post off leaves no hidden fit.
                     let hidden = stage.plot_options(ViewOptions {
                         show_bkg: false,
+                        show_pre: false,
+                        show_post: false,
                         ..preferences
                     });
                     assert_eq!(
@@ -760,5 +835,54 @@ mod plot_overlay_tests {
             }
         }
         assert!(preferences.show_pre && preferences.show_post && preferences.show_bkg);
+    }
+}
+
+#[cfg(test)]
+mod stage_tests {
+    use super::{ProcessSection, Stage};
+
+    #[test]
+    fn five_stages_are_numbered_in_pipeline_order() {
+        assert_eq!(
+            Stage::ALL.map(Stage::name),
+            ["Data", "Process", "Fit", "Series", "Publish"]
+        );
+        for (i, stage) in Stage::ALL.into_iter().enumerate() {
+            assert_eq!(stage.number(), i + 1);
+            assert_eq!(stage.shortcut(), format!("⌘{}", i + 1));
+        }
+    }
+
+    #[test]
+    fn stage_names_round_trip_and_former_stages_map_to_process() {
+        for stage in Stage::ALL {
+            assert_eq!(Stage::parse(stage.name()), Some((stage, None)));
+            assert_eq!(
+                Stage::parse(&stage.name().to_lowercase()),
+                Some((stage, None))
+            );
+        }
+        // Saved assistant receipts and REXAFS_STAGE values from 0.2.14 and
+        // earlier name the three former processing stages.
+        for (name, section) in [
+            ("normalize", ProcessSection::Normalize),
+            ("Background", ProcessSection::Background),
+            ("TRANSFORM", ProcessSection::Transform),
+        ] {
+            assert_eq!(Stage::parse(name), Some((Stage::Process, Some(section))));
+            assert_eq!(Stage::parse(section.name()).unwrap().1, Some(section));
+        }
+        assert_eq!(Stage::parse("wavelet"), None);
+        assert_eq!(Stage::parse(""), None);
+    }
+
+    #[test]
+    fn process_sections_have_distinct_order_and_keys() {
+        let keys = ProcessSection::ALL.map(ProcessSection::collapsed_key);
+        assert!(keys[0] != keys[1] && keys[1] != keys[2] && keys[0] != keys[2]);
+        for (i, section) in ProcessSection::ALL.into_iter().enumerate() {
+            assert_eq!(section.index(), i);
+        }
     }
 }

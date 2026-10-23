@@ -18,8 +18,8 @@ described [below](#new-in-0212).
 
 ## Prepare the spectrum and structure
 
-1. Import the measurement and inspect its normalization and **Background**
-   result. The RMC input captures the processed spectrum and its preprocessing
+1. Import the measurement and inspect its normalization and background
+   (AUTOBK) result in **Process**. The RMC input captures the processed spectrum and its preprocessing
    information, including AUTOBK Rbkg. It does not rerun AUTOBK for each move.
 2. Select **RMC**, choose a fully occupied periodic structure and press
    **Use structure**. Resolve mixed or partial occupancy before refinement.
@@ -53,7 +53,7 @@ establish a calibrated structure.
 The next action stays at the upper right on each RMC page, matching path fitting.
 Fit settings places **Preview initial fit** beside **Run RMC →**.
 
-New jobs copy Transform windows, widths and forward sampling as well as k bounds
+New jobs copy the Process › Transform windows, widths and forward sampling as well as k bounds
 and weight. Explicit Back FT R bounds are used; otherwise the starting R range
 is Rbkg + 0.15 Å to max(4 Å, Rbkg + 1.15 Å). **Use spectrum ranges** copies these
 settings again after processing edits. It does not retarget a saved run. ReFEFF
@@ -67,7 +67,7 @@ imaginary R-space residuals**, using the same Fourier mapping as native path
 fitting. The magnitude plot is a diagnostic; matching magnitude alone is not
 the objective. Configured structural penalties are added separately.
 
-Starting k limits follow the spectrum's Transform settings within valid measured
+Starting k limits follow the spectrum's Process › Transform settings within valid measured
 and calculator support, including the window. Without an explicit Back FT lower
 bound, R minimum starts **0.15 Å above the saved AUTOBK Rbkg**. The desktop
 rejects R minimum below Rbkg, where background removal can produce artifacts.

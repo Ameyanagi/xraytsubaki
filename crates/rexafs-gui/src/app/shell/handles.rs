@@ -1,6 +1,12 @@
 //! Direct manipulation on plots: range parameters are shaded regions with
 //! draggable edges, E₀ / Rbkg are draggable lines.
 //!
+//! In the Process stage every range is drawn on each linked plot whose axis
+//! it lives on: the pre-edge (blue) and normalization (yellow) ranges and E₀
+//! on both μ(E) plots; the AUTOBK spline k range (yellow edges) on χ(k) and,
+//! converted to energy, on μ(E); the forward-FT k window (blue) on χ(k); and
+//! the back-FT R window (blue) with the Rbkg cutoff (yellow) on |χ(R)|.
+//!
 //! The geometry is painted by GPUI ([`StudioApp::handle_layer`], a canvas
 //! layered over the plot card) from the plot's current data→pixel mapping
 //! (`RuvizPlot::screen_at`), so a drag or hover frame only re-paints a
@@ -212,8 +218,19 @@ impl HandleKey {
         }
     }
 
+    /// Primary (accent) handles are the window each plot is mainly about;
+    /// secondary (warning-coloured) handles share a plot with one: the
+    /// normalization range beside the pre-edge range, the spline k range
+    /// beside the FT window, and Rbkg beside the back-FT R window.
     fn accent(self) -> bool {
-        !matches!(self, HandleKey::NormStart | HandleKey::NormEnd)
+        !matches!(
+            self,
+            HandleKey::NormStart
+                | HandleKey::NormEnd
+                | HandleKey::BkgKmin
+                | HandleKey::BkgKmax
+                | HandleKey::Rbkg
+        )
     }
 }
 
@@ -269,7 +286,7 @@ impl StudioApp {
         self.measurements.wavelet_drag = None;
         self.measurements.wavelet_armed = None;
         self.handles.hidden = !self.handles.hidden;
-        if self.stage == Stage::Normalize && self.normalization.open {
+        if self.stage == Stage::Process && self.normalization.open {
             self.rebuild_normalization_plot(true, cx);
         }
         if self.stage == Stage::Data && self.peaks.open {
@@ -340,136 +357,178 @@ impl StudioApp {
         if !self.spectrum_quantity.supports_exafs() {
             return (Vec::new(), Vec::new());
         }
-        let p = self.ui_params();
-        match (self.stage, plot) {
-            (Stage::Normalize, PLOT_MU | PLOT_NORM) => {
-                let Some(e0) = p.e0.or_else(|| sp.e0()) else {
-                    return (Vec::new(), Vec::new());
-                };
-                if self.spectrum_quantity.prepared_space().is_some() && !p.refit_prepared {
-                    // The component already has its declared scale. Only its
-                    // energy origin is editable; baseline ranges do not apply.
-                    return (vec![(HandleKey::E0, e0)], Vec::new());
-                }
-                let ranges = crate::params::normalization_ranges(sp);
-                let rel = |param: Option<f64>, from_sp: Option<f64>, default: f64| {
-                    param.or(from_sp).unwrap_or(default)
-                };
-                let pre1 = rel(p.pre_edge_start, ranges.map(|r| r[0]), -200.0);
-                let pre2 = rel(p.pre_edge_end, ranges.map(|r| r[1]), -30.0);
-                let nor1 = rel(p.norm_start, ranges.map(|r| r[2]), 150.0);
-                let emax = sp
-                    .energy
-                    .as_ref()
-                    .and_then(|e| e.iter().next_back().copied())
-                    .unwrap_or(e0 + 2000.0);
-                let nor2 = rel(p.norm_end, ranges.map(|r| r[3]), 2000.0).min(emax - e0);
-                (
-                    vec![
-                        (HandleKey::PreStart, e0 + pre1),
-                        (HandleKey::PreEnd, e0 + pre2),
-                        (HandleKey::NormStart, e0 + nor1),
-                        (HandleKey::NormEnd, e0 + nor2),
-                        (HandleKey::E0, e0),
-                    ],
-                    vec![
-                        Span {
-                            lo: Some(HandleKey::PreStart),
-                            hi: Some(HandleKey::PreEnd),
-                            fixed_lo: 0.0,
-                            accent: true,
-                        },
-                        Span {
-                            lo: Some(HandleKey::NormStart),
-                            hi: Some(HandleKey::NormEnd),
-                            fixed_lo: 0.0,
-                            accent: false,
-                        },
-                    ],
-                )
-            }
-            (Stage::Background, PLOT_CHIK | PLOT_MU | PLOT_NORM) => {
-                let a = match sp.background.as_ref() {
-                    Some(BackgroundMethod::AUTOBK(a)) => a,
-                    _ => return (Vec::new(), Vec::new()),
-                };
-                let lo = p.bkg_kmin.or(a.kmin).unwrap_or(0.0);
-                let available = background_k_domain(sp).map(|(_, hi)| hi).unwrap_or(0.0);
-                let hi = p.bkg_kmax.or(a.kmax).unwrap_or(available).min(available);
-                // On μ(E) the same k bounds sit at E₀ + k²/ETOK. The stored
-                // value stays in k, so the cut follows E₀ when it changes.
-                let (lo, hi) = match self.background_energy_e0(plot) {
-                    Some(e0) => (k_to_energy(lo, e0), k_to_energy(hi, e0)),
-                    None if plot == PLOT_CHIK => (lo, hi),
-                    None => return (Vec::new(), Vec::new()),
-                };
-                (
-                    vec![(HandleKey::BkgKmin, lo), (HandleKey::BkgKmax, hi)],
-                    vec![Span {
-                        lo: Some(HandleKey::BkgKmin),
-                        hi: Some(HandleKey::BkgKmax),
-                        fixed_lo: 0.0,
-                        accent: true,
-                    }],
-                )
-            }
-            (Stage::Transform, PLOT_CHIR) => {
-                let lo = p
-                    .bft_rmin
-                    .or_else(|| sp.xftr.as_ref().and_then(|f| f.rmin))
-                    .unwrap_or(0.0);
-                let hi = p
-                    .bft_rmax
-                    .or_else(|| sp.xftr.as_ref().and_then(|f| f.rmax))
-                    .unwrap_or(20.0);
-                (
-                    vec![(HandleKey::BftRmin, lo), (HandleKey::BftRmax, hi)],
-                    vec![Span {
-                        lo: Some(HandleKey::BftRmin),
-                        hi: Some(HandleKey::BftRmax),
-                        fixed_lo: 0.0,
-                        accent: true,
-                    }],
-                )
-            }
-            (Stage::Transform, PLOT_CHIK) => {
-                let (kmin, kmax, _, _) = self.fft_summary();
-                (
-                    vec![(HandleKey::FftKmin, kmin), (HandleKey::FftKmax, kmax)],
-                    vec![Span {
-                        lo: Some(HandleKey::FftKmin),
-                        hi: Some(HandleKey::FftKmax),
-                        fixed_lo: 0.0,
-                        accent: true,
-                    }],
-                )
-            }
-            (Stage::Background, PLOT_CHIR) => {
-                let rbkg = p
-                    .rbkg
-                    .or(match sp.background.as_ref() {
-                        Some(BackgroundMethod::AUTOBK(a)) => a.rbkg,
-                        _ => None,
-                    })
-                    .unwrap_or(1.0);
-                (
-                    vec![(HandleKey::Rbkg, rbkg)],
-                    vec![Span {
-                        lo: None,
-                        hi: Some(HandleKey::Rbkg),
-                        fixed_lo: 0.0,
-                        accent: true,
-                    }],
-                )
-            }
-            _ => (Vec::new(), Vec::new()),
+        if self.stage != Stage::Process {
+            return (Vec::new(), Vec::new());
         }
+        // Each plot lists its primary handles first: on a tie in distance
+        // the earlier handle arms (E₀ before a spline k-min at E₀).
+        let parts = match plot {
+            PLOT_MU => vec![
+                self.normalization_handles(sp),
+                self.spline_k_handles(plot, sp),
+            ],
+            PLOT_NORM => vec![self.normalization_handles(sp)],
+            PLOT_CHIK => vec![self.ft_k_handles(), self.spline_k_handles(plot, sp)],
+            PLOT_CHIR => vec![self.back_ft_r_handles(sp), self.rbkg_handles(sp)],
+            _ => Vec::new(),
+        };
+        parts.into_iter().fold(
+            (Vec::new(), Vec::new()),
+            |(mut specs, mut spans), (more_specs, more_spans)| {
+                specs.extend(more_specs);
+                spans.extend(more_spans);
+                (specs, spans)
+            },
+        )
+    }
+
+    /// Pre-edge and normalization ranges (stored relative to E₀) and E₀.
+    fn normalization_handles(
+        &self,
+        sp: &rexafs::prelude::XASSpectrum,
+    ) -> (Vec<(HandleKey, f64)>, Vec<Span>) {
+        let p = self.ui_params();
+        let Some(e0) = p.e0.or_else(|| sp.e0()) else {
+            return (Vec::new(), Vec::new());
+        };
+        if self.spectrum_quantity.prepared_space().is_some() && !p.refit_prepared {
+            // The component already has its declared scale. Only its
+            // energy origin is editable; baseline ranges do not apply.
+            return (vec![(HandleKey::E0, e0)], Vec::new());
+        }
+        let ranges = crate::params::normalization_ranges(sp);
+        let rel = |param: Option<f64>, from_sp: Option<f64>, default: f64| {
+            param.or(from_sp).unwrap_or(default)
+        };
+        let pre1 = rel(p.pre_edge_start, ranges.map(|r| r[0]), -200.0);
+        let pre2 = rel(p.pre_edge_end, ranges.map(|r| r[1]), -30.0);
+        let nor1 = rel(p.norm_start, ranges.map(|r| r[2]), 150.0);
+        let emax = sp
+            .energy
+            .as_ref()
+            .and_then(|e| e.iter().next_back().copied())
+            .unwrap_or(e0 + 2000.0);
+        let nor2 = rel(p.norm_end, ranges.map(|r| r[3]), 2000.0).min(emax - e0);
+        (
+            vec![
+                (HandleKey::PreStart, e0 + pre1),
+                (HandleKey::PreEnd, e0 + pre2),
+                (HandleKey::NormStart, e0 + nor1),
+                (HandleKey::NormEnd, e0 + nor2),
+                (HandleKey::E0, e0),
+            ],
+            vec![
+                Span {
+                    lo: Some(HandleKey::PreStart),
+                    hi: Some(HandleKey::PreEnd),
+                    fixed_lo: 0.0,
+                    accent: true,
+                },
+                Span {
+                    lo: Some(HandleKey::NormStart),
+                    hi: Some(HandleKey::NormEnd),
+                    fixed_lo: 0.0,
+                    accent: false,
+                },
+            ],
+        )
+    }
+
+    /// AUTOBK spline k range: in k on χ(k), at E₀ + k²/ETOK on μ(E). Edges
+    /// only, so the shaded FT window stays readable.
+    fn spline_k_handles(
+        &self,
+        plot: usize,
+        sp: &rexafs::prelude::XASSpectrum,
+    ) -> (Vec<(HandleKey, f64)>, Vec<Span>) {
+        let p = self.ui_params();
+        let a = match sp.background.as_ref() {
+            Some(BackgroundMethod::AUTOBK(a)) => a,
+            _ => return (Vec::new(), Vec::new()),
+        };
+        let lo = p.bkg_kmin.or(a.kmin).unwrap_or(0.0);
+        let available = background_k_domain(sp).map(|(_, hi)| hi).unwrap_or(0.0);
+        let hi = p.bkg_kmax.or(a.kmax).unwrap_or(available).min(available);
+        // On μ(E) the same k bounds sit at E₀ + k²/ETOK. The stored
+        // value stays in k, so the cut follows E₀ when it changes.
+        let (lo, hi) = match self.background_energy_e0(plot) {
+            Some(e0) => (k_to_energy(lo, e0), k_to_energy(hi, e0)),
+            None if plot == PLOT_CHIK => (lo, hi),
+            None => return (Vec::new(), Vec::new()),
+        };
+        (
+            vec![(HandleKey::BkgKmin, lo), (HandleKey::BkgKmax, hi)],
+            Vec::new(),
+        )
+    }
+
+    /// Forward-FT k window on χ(k).
+    fn ft_k_handles(&self) -> (Vec<(HandleKey, f64)>, Vec<Span>) {
+        let (kmin, kmax, _, _) = self.fft_summary();
+        (
+            vec![(HandleKey::FftKmin, kmin), (HandleKey::FftKmax, kmax)],
+            vec![Span {
+                lo: Some(HandleKey::FftKmin),
+                hi: Some(HandleKey::FftKmax),
+                fixed_lo: 0.0,
+                accent: true,
+            }],
+        )
+    }
+
+    /// Back-FT R window on |χ(R)|.
+    fn back_ft_r_handles(
+        &self,
+        sp: &rexafs::prelude::XASSpectrum,
+    ) -> (Vec<(HandleKey, f64)>, Vec<Span>) {
+        let p = self.ui_params();
+        let lo = p
+            .bft_rmin
+            .or_else(|| sp.xftr.as_ref().and_then(|f| f.rmin))
+            .unwrap_or(0.0);
+        let hi = p
+            .bft_rmax
+            .or_else(|| sp.xftr.as_ref().and_then(|f| f.rmax))
+            .unwrap_or(20.0);
+        (
+            vec![(HandleKey::BftRmin, lo), (HandleKey::BftRmax, hi)],
+            vec![Span {
+                lo: Some(HandleKey::BftRmin),
+                hi: Some(HandleKey::BftRmax),
+                fixed_lo: 0.0,
+                accent: true,
+            }],
+        )
+    }
+
+    /// Rbkg on |χ(R)|: AUTOBK removes the region R < Rbkg (shaded).
+    fn rbkg_handles(
+        &self,
+        sp: &rexafs::prelude::XASSpectrum,
+    ) -> (Vec<(HandleKey, f64)>, Vec<Span>) {
+        let rbkg = self
+            .ui_params()
+            .rbkg
+            .or(match sp.background.as_ref() {
+                Some(BackgroundMethod::AUTOBK(a)) => a.rbkg,
+                _ => None,
+            })
+            .unwrap_or(1.0);
+        (
+            vec![(HandleKey::Rbkg, rbkg)],
+            vec![Span {
+                lo: None,
+                hi: Some(HandleKey::Rbkg),
+                fixed_lo: 0.0,
+                accent: false,
+            }],
+        )
     }
 
     /// E₀ for converting the background k handles when `plot` is the
-    /// Background stage's energy-axis plot; `None` on k-axis plots.
+    /// Process stage's μ(E) plot; `None` on k-axis plots.
     fn background_energy_e0(&self, plot: usize) -> Option<f64> {
-        if self.stage != Stage::Background || !matches!(plot, PLOT_MU | PLOT_NORM) {
+        if self.stage != Stage::Process || plot != PLOT_MU {
             return None;
         }
         background_ek0(self.spectrum.as_deref()?)

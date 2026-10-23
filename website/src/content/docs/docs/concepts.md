@@ -38,16 +38,16 @@ of neighbors. Extracting and fitting EXAFS is the main purpose of rexafs.
 
 | Term | Meaning | Where it is used |
 |---|---|---|
-| **$E_0$** | The edge energy used as the energy origin. rexafs estimates it from the absorption derivative; it is an estimate, not a calibration. | [Normalize](/docs/desktop/processing/#normalization) |
-| **Pre-edge and post-edge lines** | Baselines fitted below and above the edge. The pre-edge line is subtracted; the post-edge fit defines the edge step. | [Normalize](/docs/desktop/processing/#normalization) |
+| **$E_0$** | The edge energy used as the energy origin. rexafs estimates it from the absorption derivative; it is an estimate, not a calibration. | [Process › Normalize](/docs/desktop/processing/#normalization) |
+| **Pre-edge and post-edge lines** | Baselines fitted below and above the edge. The pre-edge line is subtracted; the post-edge fit defines the edge step. | [Process › Normalize](/docs/desktop/processing/#normalization) |
 | **Edge step** | The size of the absorption jump at $E_0$. Dividing by it produces a spectrum that rises from 0 to 1. | [Processing equations](/docs/science/processing/#2-find-the-edge-and-normalize-the-absorption) |
-| **norm / flat** | Normalized absorption; the flattened version also removes the fitted post-edge trend so the region above the edge is level. | [Normalize](/docs/desktop/processing/#normalization) |
-| **k** | The photoelectron wave number in Å⁻¹, computed from the energy above $E_0$. EXAFS is analyzed on this axis. | [Background](/docs/desktop/processing/#background) |
-| **$\chi(k)$** | The EXAFS oscillations: the normalized absorption minus the smooth background, as a function of k. It is dimensionless. | [Background](/docs/desktop/processing/#background) |
+| **norm / flat** | Normalized absorption; the flattened version also removes the fitted post-edge trend so the region above the edge is level. | [Process › Normalize](/docs/desktop/processing/#normalization) |
+| **k** | The photoelectron wave number in Å⁻¹, computed from the energy above $E_0$. EXAFS is analyzed on this axis. | [Process › Background](/docs/desktop/processing/#background) |
+| **$\chi(k)$** | The EXAFS oscillations: the normalized absorption minus the smooth background, as a function of k. It is dimensionless. | [Process › Background](/docs/desktop/processing/#background) |
 | **AUTOBK** | The algorithm that estimates the smooth background with a spline chosen so that the low-R part of the Fourier transform is small. | [AUTOBK objective](/docs/science/autobk/) |
 | **$R_{\mathrm{bkg}}$** | The AUTOBK cutoff distance in Å. Fourier components below it are treated as background. The starting value is 1 Å. | [AUTOBK objective](/docs/science/autobk/) |
-| **k weight** | The power of k multiplied into $\chi(k)$ before transforming or plotting. It compensates for the decay of the oscillations at high k. The forward transform starts with weight 2. | [Transform](/docs/desktop/processing/#forward-transform) |
-| **Window** | A taper applied to $\chi(k)$ before the transform to reduce truncation ripples. rexafs starts with a Kaiser–Bessel window from 2 to 15 Å⁻¹. | [Transform](/docs/desktop/processing/#forward-transform) |
+| **k weight** | The power of k multiplied into $\chi(k)$ before transforming or plotting. It compensates for the decay of the oscillations at high k. The forward transform starts with weight 2. | [Process › Transform](/docs/desktop/processing/#forward-transform) |
+| **Window** | A taper applied to $\chi(k)$ before the transform to reduce truncation ripples. rexafs starts with a Kaiser–Bessel window from 2 to 15 Å⁻¹. | [Process › Transform](/docs/desktop/processing/#forward-transform) |
 | **$\chi(R)$** | The Fourier transform of weighted, windowed $\chi(k)$, as a function of distance R in Å. Its magnitude has peaks near neighbor distances, shifted by a scattering phase. | [Processing equations](/docs/science/processing/#4-transform-from-k-to-r) |
 | **Phase correction** | The shift between a peak in $\chi(R)$ and the actual interatomic distance. rexafs does not phase-correct plots; fitted distances come from the path model. | [Fit statistics](/docs/science/fitting-statistics/) |
 | **q and $\chi(q)$** | q is the back-transform coordinate in Å⁻¹; $\chi(q)$ is the signal reconstructed from a selected R range. | [Back transform](/docs/desktop/processing/#back-transform) |
@@ -81,7 +81,7 @@ of neighbors. Extracting and fitting EXAFS is the main purpose of rexafs.
 | **Group** | One imported spectrum with its own processing settings, or a derived result. Groups are listed in the side panel. | [Import and groups](/docs/desktop/import/#recipes-and-groups) |
 | **Current group and marks** | The current group is the one you edit and inspect. Marked groups receive comparison plots and bulk actions. | [Import and groups](/docs/desktop/import/#recipes-and-groups) |
 | **Recipe** | A saved column mapping that is reused for files with the same layout. | [Import and groups](/docs/desktop/import/#recipes-and-groups) |
-| **Stage** | One step of the desktop workflow: Data, Normalize, Background, Transform, Fit, Series or Publish. | [Desktop overview](/docs/desktop/) |
+| **Stage** | One step of the desktop workflow: Data, Process, Fit, Series or Publish. Process combines normalization, background removal and transforms; releases up to 0.2.14 show these as separate Normalize, Background and Transform stages. | [Desktop overview](/docs/desktop/) |
 | **Series** | A folder of scans treated as ordered frames, for browsing and trend plots. | [Series and trends](/docs/desktop/series/) |
 | **Project (`.rxs`)** | The saved analysis: settings, models, fit history and publication choices, with linked or embedded source data. The previous save is kept as `.rxs.bak`. | [Projects and recovery](/docs/desktop/projects/) |
 | **Analysis folder** | An export containing figures, data tables, captions, a printable report, a methods draft, references and the project. | [Publication and exports](/docs/desktop/publication/#analysis-folder-contents) |

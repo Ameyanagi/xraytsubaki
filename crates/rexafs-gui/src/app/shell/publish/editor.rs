@@ -775,7 +775,7 @@ impl StudioApp {
                 };
                 let tip = match placement {
                     Some(LegendPlacement::Auto) => {
-                        "Place the legend inside the plot where it covers the fewest curve points (recommended)."
+                        "Place the legend in the inside corner that covers the least of the curves, or above the plot when every corner covers data (recommended)."
                     }
                     Some(LegendPlacement::Outside) => {
                         "Place the legend to the right of the plot; the plot area narrows to make room."

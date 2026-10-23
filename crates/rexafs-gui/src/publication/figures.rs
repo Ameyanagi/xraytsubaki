@@ -508,18 +508,19 @@ impl FigureData {
     }
 
     pub fn plot(&self, options: &FigureOptions) -> Result<Plot, String> {
-        self.panel(options, true)
+        self.panel(options, false)
     }
 
-    /// Build one plot panel; `xlabel` false omits the default x-axis title.
-    fn panel(&self, options: &FigureOptions, xlabel: bool) -> Result<Plot, String> {
+    /// Build one plot panel. `fit_panel` marks the upper panel of a fit +
+    /// residual figure: no x-axis title, a shorter canvas, and no Outside legend.
+    fn panel(&self, options: &FigureOptions, fit_panel: bool) -> Result<Plot, String> {
         // Typst lays out every label. In SVG, plain labels (tick numbers, legend
         // names, typed titles) become editable `<text>`; math stays outlined.
         let mut plot = Plot::new()
             .typst(true)
             .svg_native_text(true)
             .ylabel(self.math_ylabel(options));
-        if xlabel {
+        if !fit_panel {
             plot = plot.xlabel(self.math_xlabel());
         }
         if let Some((min, max)) = self.xlim(options) {
@@ -532,6 +533,40 @@ impl FigureData {
         if let Some(xlim) = self.xlim(options) {
             let tick = plot.get_config().typography.tick_size() as f64;
             plot = plot.major_ticks_x(layout::x_tick_count(options.dimensions().0, tick, xlim));
+        }
+        if options.legend && options.legend_position == LegendPlacement::Auto {
+            let (width, height, _) = options.dimensions();
+            let visible: Vec<_> = self
+                .series(options)
+                .iter()
+                .filter(|s| s.visible(options) && !s.x.is_empty())
+                .collect();
+            let typography = &plot.get_config().typography;
+            let frame = layout::LegendFrame {
+                size_in: (
+                    width,
+                    if fit_panel {
+                        height * (1. - layout::RESIDUAL_FRACTION)
+                    } else {
+                        height
+                    },
+                ),
+                legend_pt: typography.legend_size() as f64,
+                tick_pt: typography.tick_size() as f64,
+                title: options.title.is_some(),
+                outside_ok: !fit_panel,
+            };
+            let ylim = options
+                .ymin
+                .zip(options.ymax)
+                .or_else(|| self.visible_ylim(options));
+            let placement = layout::auto_legend(&visible, self.xlim(options), ylim, &frame);
+            // Auto's outside fallback goes above the plot: it costs height,
+            // not width, so a long label cannot squeeze a narrow figure.
+            plot = plot.legend(match placement {
+                LegendPlacement::Outside => ruviz::core::LegendPosition::OutsideUpper,
+                corner => corner.position(),
+            });
         }
         let mut count = 0;
         for series in self.series(options) {

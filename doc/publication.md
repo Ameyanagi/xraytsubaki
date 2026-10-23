@@ -73,9 +73,18 @@ curves come from the processing/fit results; branding images are separate assets
 ## Legend, ticks, R range and labels (since 0.2.15)
 
 **Legend** places the legend: **Auto** (the default), **Upper left**, **Upper
-right**, **Lower left**, **Lower right**, **Outside** or **Off**. Auto uses
-ruviz's "best" placement, which scores the positions inside the plot against
-the drawn curves and picks the one covering the fewest of them. **Outside**
+right**, **Lower left**, **Lower right**, **Outside** or **Off**. Auto is
+resolved by rexafs: it estimates the legend box from the legend font size, the
+number of entries and the longest label, places it in each inside corner of the
+visible axis range, and picks the corner that covers the smallest share of the
+plotted curves (each curve is resampled along its line for this count). When
+every corner covers more than 0.5 % of the curves, the legend goes above the
+plot, which costs height rather than width so a long label cannot squeeze a
+narrow figure.
+The box size and the 0.5 % limit are rexafs estimates; ruviz's own "best"
+placement, used by earlier versions, could put the legend in the middle of a
+rising absorption edge. Implemented in
+[`auto_legend`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/figures/layout.rs). **Outside**
 puts the legend to the right of the plot and narrows the plot area. The choice
 is saved with the figure settings and copied by **Apply style to all figures**.
 Earlier versions always used Auto and offered only on/off.
@@ -112,7 +121,8 @@ about zero, draws a zero line and uses three y ticks; when it is too short for t
 minus the fitted model, in the units of the upper panel. The R-space residual
 is the difference of the magnitudes |χ(R)|, not the magnitude of the complex
 residual. The figure's CSV includes the data, fit and residual curves. With
-**Outside**, the legend uses Auto placement instead so the panels stay aligned.
+**Outside**, or when Auto finds no free corner, the legend takes the
+least-covered inside corner so the panels stay aligned.
 
 Enter a figure caption and processing/parameter/path-table captions in the editor;
 press **Enter** to apply text. Blank captions use factual descriptions of the

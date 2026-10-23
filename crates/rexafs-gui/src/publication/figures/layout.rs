@@ -13,9 +13,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum LegendPlacement {
-    /// Recommended default: ruviz's "best" placement, which scores the inside
-    /// corners and edges against a mask of the drawn curves and picks the
-    /// position covering the least data.
+    /// Recommended default: the inside corner whose estimated legend box covers
+    /// the least of the plotted curves, or above the plot when every corner covers
+    /// data (see [`auto_legend`]).
     #[default]
     Auto,
     /// Inside the plot, upper-left corner.
@@ -63,6 +63,135 @@ impl LegendPlacement {
             Self::LowerRight => LegendPosition::LowerRight,
             Self::Outside => LegendPosition::OutsideRight,
         }
+    }
+}
+
+/// Canvas and text sizes used to estimate where an automatic legend fits.
+pub(super) struct LegendFrame {
+    /// Canvas width and height in inches.
+    pub size_in: (f64, f64),
+    /// Legend and tick-label font sizes in points.
+    pub legend_pt: f64,
+    pub tick_pt: f64,
+    /// Whether a title takes space above the plot area.
+    pub title: bool,
+    /// Whether Auto may fall back to Outside when every corner covers data.
+    pub outside_ok: bool,
+}
+
+/// Inside corners in preference order when overlaps tie (matplotlib's order).
+const CORNERS: [LegendPlacement; 4] = [
+    LegendPlacement::UpperRight,
+    LegendPlacement::UpperLeft,
+    LegendPlacement::LowerRight,
+    LegendPlacement::LowerLeft,
+];
+/// Largest share of the curve samples a legend corner may cover before Auto
+/// gives up on the inside corners (rexafs choice: 0.5 %).
+const OVERLAP_LIMIT: f64 = 0.005;
+
+/// Resolve the Auto legend placement for the given visible curves.
+///
+/// rexafs estimates the legend box from the legend font size, the number of
+/// entries and the longest label (about 0.5 em per character plus 6 em for
+/// the line sample and padding; 1.7 em per entry), converts it to a fraction
+/// of an estimated plot area, and places it in each inside corner. Every curve
+/// is resampled along its line in axis-fraction coordinates (steps of 0.005,
+/// using the visible x and y limits), and the corner whose box holds the
+/// smallest share of those samples wins. If every corner covers more than
+/// 0.5 % of the curve, the result is Outside when allowed (drawn above the
+/// plot by `FigureData::panel`, not to the right); otherwise it
+/// takes the least-covered corner. ruviz's own "best" placement also scores
+/// edge and centre positions and can choose the middle of a rising edge,
+/// which is why rexafs resolves Auto itself.
+pub(super) fn auto_legend(
+    series: &[&FigureSeries],
+    xlim: Option<(f64, f64)>,
+    ylim: Option<(f64, f64)>,
+    frame: &LegendFrame,
+) -> LegendPlacement {
+    let extent = |values: &dyn Fn(&FigureSeries) -> &[f64]| {
+        series
+            .iter()
+            .flat_map(|s| values(s).iter().copied())
+            .filter(|v| v.is_finite())
+            .fold(None, |range: Option<(f64, f64)>, v| {
+                Some(range.map_or((v, v), |(lo, hi)| (lo.min(v), hi.max(v))))
+            })
+    };
+    let (Some((x0, x1)), Some((y0, y1))) = (
+        xlim.or_else(|| extent(&|s| &s.x)),
+        ylim.or_else(|| extent(&|s| &s.y)),
+    ) else {
+        return LegendPlacement::UpperRight;
+    };
+    if x1 <= x0 || y1 <= y0 {
+        return LegendPlacement::UpperRight;
+    }
+    let em = frame.legend_pt;
+    let chars = series
+        .iter()
+        .map(|s| s.label.chars().count())
+        .max()
+        .unwrap_or(0) as f64;
+    let (width_in, height_in) = frame.size_in;
+    let plot_w = (width_in * 72. - 8. * frame.tick_pt).max(width_in * 36.);
+    let title = if frame.title { 2.2 * em } else { 0. };
+    let plot_h = (height_in * 72. - 5. * frame.tick_pt - title).max(height_in * 36.);
+    // Box plus the gap ruviz leaves between the legend and the axes.
+    let box_w = ((chars * 0.5 + 6. + 0.5) * em / plot_w).min(1.);
+    let box_h = ((series.len() as f64 * 1.7 + 0.6 + 0.5) * em / plot_h).min(1.);
+
+    let mut samples = Vec::new();
+    for s in series {
+        let points: Vec<(f64, f64)> =
+            s.x.iter()
+                .zip(&s.y)
+                .filter(|(x, y)| x.is_finite() && y.is_finite())
+                .map(|(x, y)| ((x - x0) / (x1 - x0), (y - y0) / (y1 - y0)))
+                .collect();
+        samples.extend(points.first().copied());
+        for pair in points.windows(2) {
+            let ((ax, ay), (bx, by)) = (pair[0], pair[1]);
+            let steps = ((bx - ax).hypot(by - ay) / 0.005).ceil().clamp(1., 1000.) as usize;
+            samples.extend((1..=steps).map(|i| {
+                let t = i as f64 / steps as f64;
+                (ax + (bx - ax) * t, ay + (by - ay) * t)
+            }));
+        }
+    }
+    samples.retain(|(x, y)| (0. ..=1.).contains(x) && (0. ..=1.).contains(y));
+    if samples.is_empty() {
+        return LegendPlacement::UpperRight;
+    }
+    let overlap = |corner: LegendPlacement| {
+        let left = matches!(
+            corner,
+            LegendPlacement::UpperLeft | LegendPlacement::LowerLeft
+        );
+        let upper = matches!(
+            corner,
+            LegendPlacement::UpperLeft | LegendPlacement::UpperRight
+        );
+        let inside = samples
+            .iter()
+            .filter(|(x, y)| {
+                (if left { *x <= box_w } else { *x >= 1. - box_w })
+                    && (if upper { *y >= 1. - box_h } else { *y <= box_h })
+            })
+            .count();
+        inside as f64 / samples.len() as f64
+    };
+    let (best, share) = CORNERS
+        .into_iter()
+        .map(|corner| (corner, overlap(corner)))
+        .fold((CORNERS[0], f64::INFINITY), |best, next| {
+            if next.1 < best.1 { next } else { best }
+        });
+    if share > OVERLAP_LIMIT && frame.outside_ok {
+        LegendPlacement::Outside
+    } else {
+        best
     }
 }
 
@@ -228,9 +357,9 @@ pub(super) fn fit_residual(
         .map(|(lo, hi)| lo.abs().max(hi.abs()))
         .filter(|v| *v > 0.)
         .unwrap_or(1.);
-    let top = top_data.panel(&top_options, false)?;
+    let top = top_data.panel(&top_options, true)?;
     let strip = strip_data
-        .panel(&strip_options, true)?
+        .panel(&strip_options, false)?
         .ylim(-half, half)
         .major_ticks_y(3)
         .hline_styled(0., Color::from_gray(140), 0.8, LineStyle::Solid);
@@ -378,6 +507,90 @@ mod tests {
         assert!(ticks[1] - ticks[0] >= 20., "{ticks:?}");
         // k axes have short labels and keep the default density.
         assert_eq!(x_tick_count(3.3, 8.1, (0., 14.)), 10);
+    }
+
+    #[test]
+    fn auto_legend_picks_an_empty_corner() {
+        let curve = |label: &str, x: Vec<f64>, y: Vec<f64>| FigureSeries {
+            key: label.into(),
+            label: label.into(),
+            x,
+            y,
+            dashed: false,
+            optional: false,
+        };
+        let frame = |outside_ok| LegendFrame {
+            size_in: (3.3, 2.5),
+            legend_pt: 8.1,
+            tick_pt: 8.1,
+            title: false,
+            outside_ok,
+        };
+        // XANES-like edge step: low on the left, rising through the middle,
+        // high on the right. Free corners: upper left and lower right.
+        let energy: Vec<f64> = (0..400).map(|i| 8300. + i as f64 * 0.25).collect();
+        let step: Vec<f64> = energy
+            .iter()
+            .map(|e| 1. / (1. + (-(e - 8345.) / 2.).exp()))
+            .collect();
+        let xanes = curve("ni_metal_rt", energy, step);
+        let pick = auto_legend(
+            &[&xanes],
+            Some((8300., 8400.)),
+            Some((-0.05, 1.05)),
+            &frame(true),
+        );
+        assert!(
+            matches!(
+                pick,
+                LegendPlacement::LowerRight | LegendPlacement::UpperLeft
+            ),
+            "{pick:?}"
+        );
+        // A label nearly as wide as a 3.3 in plot fits no corner: go outside.
+        let long = FigureSeries {
+            label: "Ni metal foil, room temperature, transmission".into(),
+            ..xanes.clone()
+        };
+        assert_eq!(
+            auto_legend(
+                &[&long],
+                Some((8300., 8400.)),
+                Some((-0.05, 1.05)),
+                &frame(true)
+            ),
+            LegendPlacement::Outside
+        );
+        // |χ(R)| first-shell peak near 2.2 Å on 0–6 Å: the upper right is empty.
+        let r: Vec<f64> = (0..300).map(|i| i as f64 * 0.02).collect();
+        let peak: Vec<f64> = r
+            .iter()
+            .map(|r| (-(r - 2.2_f64).powi(2) * 6.).exp())
+            .collect();
+        let data = curve("Data |χ(R)|", r.clone(), peak.clone());
+        let fit = curve("Fit |χ(R)|", r, peak.iter().map(|y| 0.9 * y).collect());
+        assert_eq!(
+            auto_legend(
+                &[&data, &fit],
+                Some((0., 6.)),
+                Some((-0.05, 1.05)),
+                &frame(true)
+            ),
+            LegendPlacement::UpperRight
+        );
+        // A curve filling the whole plot leaves no free corner.
+        let x: Vec<f64> = (0..200).map(|i| i as f64 / 199.).collect();
+        let zigzag: Vec<f64> = x.iter().map(|x| (x * 80.).sin() * 0.5 + 0.5).collect();
+        let busy = curve("Busy", x, zigzag);
+        let span = (Some((0., 1.)), Some((0., 1.)));
+        assert_eq!(
+            auto_legend(&[&busy], span.0, span.1, &frame(true)),
+            LegendPlacement::Outside
+        );
+        assert_ne!(
+            auto_legend(&[&busy], span.0, span.1, &frame(false)),
+            LegendPlacement::Outside
+        );
     }
 
     #[test]

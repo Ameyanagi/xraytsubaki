@@ -1397,6 +1397,37 @@ impl XASSpectrum {
         adjustments
     }
 
+    /// Reasons not to trust the calculated normalization (since 0.2.15).
+    ///
+    /// For pre/post-edge normalization this flags a post-edge fit with fewer
+    /// than five points or narrower than 20 eV, and an edge step that is
+    /// non-finite, non-positive or below 10⁻³ of the μ span (see
+    /// [`super::normalization_checks`]); for MBACK only the edge-step check
+    /// applies. Results are reported, never changed. Empty before
+    /// normalization and for the legacy `ndarray-compat` backend. Calculates nothing.
+    pub fn normalization_warnings(&self) -> Vec<super::normalization_checks::NormalizationWarning> {
+        #[cfg(not(feature = "ndarray-compat"))]
+        if let (Some(energy), Some(mu)) = (&self.energy, &self.mu) {
+            match &self.normalization {
+                Some(normalization::NormalizationMethod::PrePostEdge(method)) => {
+                    return method.normalization_warnings(energy, mu);
+                }
+                Some(method) => {
+                    let mu_span = mu.max() - mu.min();
+                    return method
+                        .get_edge_step()
+                        .and_then(|step| {
+                            super::normalization_checks::edge_step_warning(step, mu_span)
+                        })
+                        .into_iter()
+                        .collect();
+                }
+                None => {}
+            }
+        }
+        Vec::new()
+    }
+
     /// Copy normalized absorption in edge-step units on the current energy grid.
     /// Returns `None` until normalization succeeds or after it is invalidated.
     /// When `preserves_prepared_values()` is true this copies the supplied

@@ -85,7 +85,9 @@ pub(crate) fn param_text(key: ParamKey) -> ParamText {
         NormStart => text(
             "Post-edge start (eV)",
             "Lower end of the post-edge polynomial fit, in eV relative to E₀. \
-             Auto uses +150 eV. Larch: norm1; Athena: normalization range.",
+             Auto uses +150 eV. Larch: norm1; Athena: normalization range. \
+             A fit over fewer than 5 points or 20 eV, or a negative or near-zero \
+             edge step, is flagged in amber here and in the Problems drawer.",
         ),
         NormEnd => text(
             "Post-edge end (eV)",

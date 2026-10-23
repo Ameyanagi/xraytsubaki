@@ -24,7 +24,7 @@ independent physical measurements.
    **This spectrum** gives that spectrum its own value and Fit toggle. Paths
    referencing the same name within a spectrum still share that variable.
    New multi-spectrum setups start distance/disorder variables per spectrum.
-5. Set each spectrum's k/R range. **Transform (k)** follows that file's processing
+5. Set each spectrum's k/R range. **Transform (k)** follows that file's Process › Transform
    k-weight, including per-file overrides. Number buttons select manual fit
    weights. New models follow the transform; old projects keep saved weights.
 6. **Advanced** exposes expressions for each path in the selected spectrum.

@@ -30,8 +30,8 @@ Rust. The browser previews offer [spectrum processing](/app/) and
 ## A typical analysis
 
 1. **Import** a spectrum and check its columns and energy unit.
-2. **Normalize** after checking the edge energy and baseline windows.
-3. **Extract and transform EXAFS** with AUTOBK and a Fourier transform.
+2. **Process**: normalize after checking the edge energy and baseline windows.
+3. **Process**: extract and transform EXAFS with AUTOBK and a Fourier transform.
 4. **Fit** scattering paths from a structure; inspect residuals and correlations.
 5. **Save and export** a `.rxs` project, figures and data.
 

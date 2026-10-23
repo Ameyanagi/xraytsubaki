@@ -4,12 +4,12 @@ Use **Publish** to adjust figures and captions, save individual PNG/SVG files, o
 
 | Asset | Contents |
 |---|---|
-| `analysis.md` | Requested settings, source comments, current model, historical fit inputs, values, uncertainties, path distances and journal |
+| `analysis.md` | Requested settings, source comments, current model, historical fit inputs, fit statistics tables, values, uncertainties, path distances and journal |
 | `resolved.md` | Per-spectrum processing outputs recomputed at export time |
 | `figures/*.png`, `figures/*.svg` | Spectra, fit overlays and residuals using the saved dimensions/style; native canvas size and rexafs’s 300 DPI when unset |
-| `report.html`, `captions.md` | Vector figures and tables with numbered captions, plus manuscript caption text |
+| `report.html`, `captions.md` | Browser-printable vector figures with retained aspect ratios, semantic tables, numbered captions, units and uncertainty definitions; for each fit, a statistics table (R-factor, χ², reduced χ² when noise was estimated, N_idp / N_var, fit space, k and R ranges, k-weights, windows and correlations with \|r\| ≥ 0.10); manuscript caption text |
 | `data/*.json` | Processed arrays and available full fit results |
-| `methods.md` | Editable methods draft with missing experimental details identified |
+| `methods.md` | Methods draft generated from the values actually used: E₀, pre-edge and normalization ranges and polynomial order (or MBACK), background method with R_bkg, k range and k-weight, transform k range, k-weight and window, and for each fit its space, k/R ranges, k-weights, windows, FEFF engine (ReFEFF or FEFF10), varied parameters and N_idp. Steps that were not run are omitted; only cited works are listed. The Experiment section is left for you to complete |
 | `references.md`, `references.bib` | Algorithm references and reminders to cite the actual data, structures and FEFF backend |
 | `state.json`, `project.rxs` | Structured analysis context and project |
 | `batch-results.csv` | Batch results when available; the manifest flags stale results |

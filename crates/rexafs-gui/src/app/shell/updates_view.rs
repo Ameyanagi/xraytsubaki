@@ -132,7 +132,7 @@ impl StudioApp {
         .detach();
         cx.notify();
     }
-    fn set_update_channel(&mut self, channel: UpdateChannel, cx: &mut Context<Self>) {
+    pub(crate) fn set_update_channel(&mut self, channel: UpdateChannel, cx: &mut Context<Self>) {
         if self.updates.downloading
             || self.updates.installing
             || channel == self.structure.settings.update_channel
@@ -153,7 +153,7 @@ impl StudioApp {
         self.updates.downloaded = None;
         self.check_for_updates(cx);
     }
-    fn toggle_startup_update_check(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn toggle_startup_update_check(&mut self, cx: &mut Context<Self>) {
         let mut settings = self.structure.settings.clone();
         settings.check_updates_on_startup =
             Some(!settings.check_updates_on_startup.unwrap_or(true));

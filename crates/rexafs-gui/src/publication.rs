@@ -2,6 +2,7 @@
 pub(crate) mod assistant_context;
 pub(crate) mod figures;
 pub(crate) mod fit_table;
+pub(crate) mod methods;
 pub(crate) mod report;
 pub(crate) mod supporting;
 use crate::{params::PipelineParams, plotting, project::ProjectFile, theme::Theme};
@@ -158,7 +159,8 @@ impl Snapshot {
             text.push_str("No completed fits recorded.\n\n");
         }
         for fit in &self.project.fit_history {
-            text.push_str(&format!("### Fit {} — {}\n\nR factor: {:.6}; reduced χ²: {}; χ²: {:.6}; N independent: {:.3}; varying parameters: {}.\n\n", fit.id, cell(&fit.group), fit.r_factor, fit.reduced_chi_square_text(), fit.chi_square, fit.n_idp, fit.n_vary));
+            text.push_str(&format!("### Fit {} — {}\n\n", fit.id, cell(&fit.group)));
+            text.push_str(&table.next().unwrap().markdown());
             text.push_str(&table.next().unwrap().markdown());
             text.push_str(&table.next().unwrap().markdown());
             text.push_str("\nRecorded inputs, per-spectrum ranges, path expressions and solver diagnostics:\n\n```json\n");
@@ -397,6 +399,8 @@ pub(crate) fn export(mut snapshot: Snapshot, destination: &Path) -> Result<PathB
     }
     let tables = snapshot.tables();
     fs::write(destination.join("analysis.md"), snapshot.markdown()).map_err(|e| e.to_string())?;
+    fs::write(destination.join("methods.md"), methods::markdown(&snapshot))
+        .map_err(|e| e.to_string())?;
     if snapshot.batch_stale {
         errors.push(
             "Batch results are stale: they do not reflect the current model/settings.".into(),
@@ -406,7 +410,6 @@ pub(crate) fn export(mut snapshot: Snapshot, destination: &Path) -> Result<PathB
         fs::write(destination.join("batch-results.csv"), csv).map_err(|e| e.to_string())?;
     }
     fs::write(destination.join("resolved.md"), resolved).map_err(|e| e.to_string())?;
-    fs::write(destination.join("methods.md"),"# Experimental and analysis methods — draft\n\n## Experiment\n\nSample composition, preparation, beamline, detector geometry, temperature and acquisition details: **supply from the experimental record**. They are not inferred from curve shape. Check file metadata before completing this section.\n\n## Analysis\n\nXAS spectra were processed with rexafs. Pre-edge subtraction and post-edge normalization were followed by AUTOBK spline background removal and Fourier transformation. Per-spectrum settings, resolved outputs and selected fit ranges are in analysis.md and resolved.md. FEFF path files, expressions, shared and local parameters, solver diagnostics and uncertainties are recorded for each completed fit. Select the relevant successful fit before describing conclusions.\n\nDistances for multiple-scattering paths denote half the total path length. Reported standard errors reflect the fit covariance; they do not include all experimental or model uncertainty. R-space spectra are not phase corrected.\n").map_err(|e|e.to_string())?;
     fs::write(destination.join("references.md"), REFERENCES).map_err(|e| e.to_string())?;
     fs::write(destination.join("references.bib"), BIBTEX).map_err(|e| e.to_string())?;
     write_json(

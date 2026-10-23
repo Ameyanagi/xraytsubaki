@@ -409,7 +409,7 @@ impl StudioApp {
                         app.rekey_after_catalog_change();
                         app.fluorescence.close();
                         app.select_entry(DERIVED_BASE + index, cx);
-                        app.set_stage(Stage::Normalize, cx);
+                        app.focus_process_section(super::ProcessSection::Normalize, cx);
                         app.status = "Corrected group added · choose final normalization".into();
                     }
                 }

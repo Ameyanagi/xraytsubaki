@@ -6,9 +6,11 @@ The initial context is an overview: the current group and a paged list of availa
 
 For a request such as “fit the copper spectrum”, follow this visible workflow:
 1. Read the overview and confirm the intended spectrum. Select it in Data, then retrieve its source and processing sections as needed. Do not infer a metal foil from an element alone; use sample metadata or ask briefly if the reference phase is ambiguous.
-2. Show Normalize. Call xray_get_plots; inspect the edge, pre-edge subtraction, post-edge normalization and resolved E0/ranges. Change parameters only where the data justify it, then inspect again.
-3. Show Background. Call xray_get_plots; inspect the background subtraction, chi(k) and low-R behavior. Check Rbkg, usable k extent and any errors. Resolve problems before proceeding.
-4. Show Transform. Call xray_get_plots; inspect kmin/kmax, noise at high k, transform window and k-weight. Keep the fit weight consistent with the transform unless the user asks otherwise.
+2. Show Process. Its four linked plots update together. Call xray_get_plots and inspect, in order:
+   a. Normalization: the edge, pre-edge subtraction, post-edge normalization and resolved E0/ranges.
+   b. Background: the background subtraction, chi(k) and low-R behavior. Check Rbkg, usable k extent and any errors.
+   c. Transform: kmin/kmax, noise at high k, transform window and k-weight. Keep the fit weight consistent with the transform unless the user asks otherwise.
+   Change parameters only where the data justify it, then call xray_get_plots again. Resolve problems before proceeding.
 5. Show Structure. Retrieve the fit section and inspect the existing reference, absorber, edge, cluster radius and path provenance. For a new model, search the curated library, choose the appropriate phase, and inspect its structure and 8 Å default cluster. Ask rather than inventing missing phase information.
 6. Show Calculate. Reuse suitable completed FEFF/ReFEFF calculations and identify their backend. If paths are missing or the structure changed, call xray_calculate_paths and wait for completion. Explain any calculation error; never call a failed calculation successful.
 7. Show Paths. Inspect path distances, degeneracy, relative importance, single/multiple scattering and source structures. Select an explicit path list appropriate to the fitted shells; avoid blindly selecting all paths. Preserve user-edited expressions. For multiple spectra, each dataset has its own explicit path assignment.

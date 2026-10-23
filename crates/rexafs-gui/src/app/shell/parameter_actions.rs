@@ -1,5 +1,5 @@
 //! Scoped copying and comparison of requested processing settings.
-use super::{PlotScope, Stage, button, journal::UndoOp};
+use super::{PlotScope, ProcessSection, Stage, button, journal::UndoOp};
 use crate::{
     app::{EnumParam, ParamKey, StudioApp},
     params::PipelineParams,
@@ -88,7 +88,11 @@ pub(crate) enum ParamScope {
     /// Every processing stage, excluding raw-input interpretation and calibration.
     All,
     Mapping,
+    /// Data: the import settings. Process: every processing setting (the
+    /// same keys as `All`).
     Stage(Stage),
+    /// One section of the Process stage inspector.
+    Process(ProcessSection),
     Section(&'static str),
     Field(&'static str),
 }
@@ -100,13 +104,14 @@ impl ParamScope {
             Self::Field(key) => s.key == key,
             Self::Section(section) => s.section == section,
             Self::Stage(Stage::Data) => s.section == "Import",
-            Self::Stage(Stage::Normalize) => {
+            Self::Stage(Stage::Process) => s.section != "Import",
+            Self::Process(ProcessSection::Normalize) => {
                 matches!(s.section, "Edge" | "Pre-edge line" | "Normalization")
             }
-            Self::Stage(Stage::Background) => {
+            Self::Process(ProcessSection::Background) => {
                 matches!(s.section, "AUTOBK" | "Clamps & window" | "Solver")
             }
-            Self::Stage(Stage::Transform) => matches!(
+            Self::Process(ProcessSection::Transform) => matches!(
                 s.section,
                 "Forward FT  k → R" | "Back FT  R → q" | "Advanced"
             ),
@@ -124,9 +129,11 @@ impl ParamScope {
         }
     }
 
+    /// Scope of the inspector header's Apply button: all processing settings
+    /// in Process; each section's menu offers its own narrower scope.
     pub(crate) fn default_for_stage(stage: Stage) -> Option<Self> {
         match stage {
-            Stage::Normalize | Stage::Background | Stage::Transform => Some(Self::Stage(stage)),
+            Stage::Process => Some(Self::Stage(stage)),
             _ => None,
         }
     }
@@ -143,6 +150,7 @@ impl ParamScope {
             Self::All => "All processing settings",
             Self::Mapping => "Column mapping (same detection mode only)",
             Self::Stage(s) => s.name(),
+            Self::Process(s) => s.name(),
             Self::Section(s) => s,
             Self::Field(k) => SETTINGS
                 .iter()
@@ -762,9 +770,10 @@ mod tests {
         let defaults = populated_params(DetectionMode::Transmission);
         for scope in [
             ParamScope::Stage(Stage::Data),
-            ParamScope::Stage(Stage::Normalize),
-            ParamScope::Stage(Stage::Background),
-            ParamScope::Stage(Stage::Transform),
+            ParamScope::Stage(Stage::Process),
+            ParamScope::Process(ProcessSection::Normalize),
+            ParamScope::Process(ProcessSection::Background),
+            ParamScope::Process(ProcessSection::Transform),
             ParamScope::Section("Import"),
             ParamScope::Field("e0"),
             ParamScope::Mapping,
@@ -850,7 +859,7 @@ mod tests {
         copy_scope(
             &mut dst,
             &PipelineParams::default(),
-            ParamScope::Stage(Stage::Transform),
+            ParamScope::Process(ProcessSection::Transform),
         );
         assert_eq!(dst.fft_kweight, None);
         assert_eq!(dst.rbkg, Some(1.4));
@@ -997,9 +1006,9 @@ mod tests {
     #[test]
     fn stage_copies_change_exactly_their_processing_keys() {
         use crate::params::DetectionMode::*;
-        let stages: &[(Stage, &[&str])] = &[
+        let stages: &[(ProcessSection, &[&str])] = &[
             (
-                Stage::Normalize,
+                ProcessSection::Normalize,
                 &[
                     "mback",
                     "e0",
@@ -1014,7 +1023,7 @@ mod tests {
                 ],
             ),
             (
-                Stage::Background,
+                ProcessSection::Background,
                 &[
                     "rbkg",
                     "bkg_kmin",
@@ -1043,7 +1052,7 @@ mod tests {
                 ],
             ),
             (
-                Stage::Transform,
+                ProcessSection::Transform,
                 &[
                     "fft_kmin",
                     "fft_kmax",
@@ -1080,7 +1089,7 @@ mod tests {
                     let before = serde_json::to_value(&dst).unwrap();
                     let source = serde_json::to_value(&src).unwrap();
                     let raw_before = dst.raw_fingerprint();
-                    copy_scope(&mut dst, &src, ParamScope::Stage(stage));
+                    copy_scope(&mut dst, &src, ParamScope::Process(stage));
                     let after = serde_json::to_value(&dst).unwrap();
                     for (key, value) in after.as_object().unwrap() {
                         let expected = if keys.contains(&key.as_str()) {
@@ -1094,6 +1103,25 @@ mod tests {
                     assert_eq!(dst.raw_fingerprint(), raw_before);
                 }
             }
+        }
+    }
+
+    #[test]
+    fn process_stage_scope_is_the_union_of_its_three_sections() {
+        for setting in SETTINGS {
+            let in_sections = ProcessSection::ALL
+                .iter()
+                .filter(|&&section| ParamScope::Process(section).contains(setting))
+                .count();
+            let in_process = ParamScope::Stage(Stage::Process).contains(setting);
+            // Every processing setting belongs to exactly one section.
+            assert_eq!(in_sections, usize::from(in_process), "{}", setting.key);
+            assert_eq!(
+                in_process,
+                ParamScope::All.contains(setting),
+                "{}",
+                setting.key
+            );
         }
     }
 
@@ -1133,17 +1161,16 @@ mod tests {
             );
         }
         for stage in Stage::ALL {
-            let expected = match stage {
-                Stage::Normalize | Stage::Background | Stage::Transform => {
-                    Some(ParamScope::Stage(stage))
-                }
-                _ => None,
-            };
+            let expected = (stage == Stage::Process).then_some(ParamScope::Stage(stage));
             assert_eq!(ParamScope::default_for_stage(stage), expected);
         }
         assert_eq!(
-            ParamScope::Stage(Stage::Normalize).apply_label(3),
+            ParamScope::Process(ProcessSection::Normalize).apply_label(3),
             "Apply Normalize to 3"
+        );
+        assert_eq!(
+            ParamScope::Stage(Stage::Process).apply_label(3),
+            "Apply Process to 3"
         );
         assert_eq!(ParamScope::All.copy_action(), ParamScope::All);
     }

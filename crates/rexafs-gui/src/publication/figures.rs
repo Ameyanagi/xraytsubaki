@@ -4,6 +4,9 @@ use ruviz::prelude::{LineStyle, Plot};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
+mod layout;
+pub(crate) use layout::LegendPlacement;
+
 fn weighted_unit(weight: f64) -> String {
     if weight.abs() < 1e-9 {
         "(dimensionless)".into()
@@ -51,6 +54,8 @@ pub(crate) struct FigureOptions {
     pub ymax: Option<f64>,
     /// Show the visible-series legend; true by default.
     pub legend: bool,
+    /// Legend placement when shown; Auto (least overlap with curves) by default.
+    pub legend_position: LegendPlacement,
     /// Show the plot grid; None defaults to true.
     pub grid: Option<bool>,
     /// Draw applicable processing guides; false by default.
@@ -80,6 +85,7 @@ impl Default for FigureOptions {
             ymin: None,
             ymax: None,
             legend: true,
+            legend_position: LegendPlacement::Auto,
             grid: None,
             guides: false,
             hidden: BTreeSet::new(),
@@ -103,7 +109,7 @@ impl FigureSettings {
     }
 
     /// Copy the appearance of figure type `source` (canvas size, DPI, font and
-    /// line width, legend, grid and guides) to every figure type in `keys` and
+    /// line width, legend and its placement, grid and guides) to every figure type in `keys` and
     /// to every type that already has stored options. Titles, labels, captions,
     /// axis limits and curve visibility stay per figure, because they depend on
     /// the plotted quantity.
@@ -126,6 +132,7 @@ impl FigureSettings {
             options.font_size = style.font_size;
             options.line_width = style.line_width;
             options.legend = style.legend;
+            options.legend_position = style.legend_position;
             options.grid = style.grid;
             options.guides = style.guides;
         }
@@ -250,14 +257,15 @@ impl FigureOptions {
         if let Some(size) = self.font_size {
             plot = plot.font_size(size as f32);
         }
+        // Typed text is literal; only `$…$` spans are Typst math.
         if let Some(title) = &self.title {
-            plot = plot.title(title.clone());
+            plot = plot.title(layout::typst_label(title));
         }
         if let Some(label) = &self.xlabel {
-            plot = plot.xlabel(label.clone());
+            plot = plot.xlabel(layout::typst_label(label));
         }
         if let Some(label) = &self.ylabel {
-            plot = plot.ylabel(label.clone());
+            plot = plot.ylabel(layout::typst_label(label));
         }
         if let (Some(min), Some(max)) = (self.xmin, self.xmax) {
             plot = plot.xlim(min, max);
@@ -269,7 +277,7 @@ impl FigureOptions {
             plot = plot.grid(grid);
         }
         if self.legend {
-            plot = plot.legend_best();
+            plot = plot.legend(self.legend_position.position());
         }
         Ok(plot)
     }
@@ -302,6 +310,8 @@ pub(crate) struct FigureData {
     pub normalized_series: Option<Vec<FigureSeries>>,
     pub guides: Vec<f64>,
     pub default_xlim: Option<(f64, f64)>,
+    /// Data − fit curve drawn in a strip below the main panel (fit + residual).
+    pub residual: Option<Vec<FigureSeries>>,
 }
 
 impl FigureData {
@@ -332,8 +342,8 @@ impl FigureData {
     pub(crate) fn math_xlabel(&self) -> &str {
         match self.key {
             "mu-energy" | "xanes" | "flattened-mu" => "$E$ (eV)",
-            "chi-k" | "fit-k" | "residual-k" => "$k$ ($\"Å\"^(-1)$)",
-            "chi-r" | "fit-r" | "residual-r" => "$R$ (Å)",
+            "chi-k" | "fit-k" | "residual-k" | "fit-residual-k" => "$k$ ($\"Å\"^(-1)$)",
+            "chi-r" | "fit-r" | "residual-r" | "fit-residual-r" => "$R$ (Å)",
             "chi-q" | "fit-q" => "$q$ ($\"Å\"^(-1)$)",
             _ => &self.xlabel,
         }
@@ -395,6 +405,7 @@ impl FigureData {
             .series(options)
             .iter()
             .filter(|s| s.visible(options) && !s.x.is_empty())
+            .chain(self.residual.iter().flatten())
             .collect();
         if series.is_empty() {
             return Err("Select at least one curve with available data.".into());
@@ -452,6 +463,12 @@ impl FigureData {
                 "EXAFS data, fitted model and selected components in R space; radial coordinates are not phase corrected"
             }
             "fit-q" => "Back-transformed EXAFS data and fitted model",
+            "fit-residual-k" => {
+                "EXAFS data and fitted model in k space (upper panel), with the weighted residual, data minus fit, in the same units on a shared horizontal axis (lower panel)"
+            }
+            "fit-residual-r" => {
+                "EXAFS data and fitted model magnitudes in R space (upper panel), with the difference of the magnitudes on a shared horizontal axis (lower panel); this is not the magnitude of the complex residual, and radial coordinates are not phase corrected"
+            }
             "residual-k" => "Weighted EXAFS residual, defined as data minus fitted model",
             "residual-r" => {
                 "Difference between the magnitudes of the data and fitted Fourier transforms; this is not the magnitude of the complex residual"
@@ -462,6 +479,7 @@ impl FigureData {
             .series(options)
             .iter()
             .filter(|s| !s.x.is_empty() && s.visible(options))
+            .chain(self.residual.iter().flatten())
             .map(|s| {
                 format!(
                     "{} ({})",
@@ -490,13 +508,21 @@ impl FigureData {
     }
 
     pub fn plot(&self, options: &FigureOptions) -> Result<Plot, String> {
+        self.panel(options, false)
+    }
+
+    /// Build one plot panel. `fit_panel` marks the upper panel of a fit +
+    /// residual figure: no x-axis title, a shorter canvas, and no Outside legend.
+    fn panel(&self, options: &FigureOptions, fit_panel: bool) -> Result<Plot, String> {
         // Typst lays out every label. In SVG, plain labels (tick numbers, legend
         // names, typed titles) become editable `<text>`; math stays outlined.
         let mut plot = Plot::new()
             .typst(true)
             .svg_native_text(true)
-            .xlabel(self.math_xlabel())
             .ylabel(self.math_ylabel(options));
+        if !fit_panel {
+            plot = plot.xlabel(self.math_xlabel());
+        }
         if let Some((min, max)) = self.xlim(options) {
             plot = plot.xlim(min, max);
         }
@@ -504,6 +530,44 @@ impl FigureData {
             plot = plot.ylim(min, max);
         }
         let mut plot = options.apply(plot)?;
+        if let Some(xlim) = self.xlim(options) {
+            let tick = plot.get_config().typography.tick_size() as f64;
+            plot = plot.major_ticks_x(layout::x_tick_count(options.dimensions().0, tick, xlim));
+        }
+        if options.legend && options.legend_position == LegendPlacement::Auto {
+            let (width, height, _) = options.dimensions();
+            let visible: Vec<_> = self
+                .series(options)
+                .iter()
+                .filter(|s| s.visible(options) && !s.x.is_empty())
+                .collect();
+            let typography = &plot.get_config().typography;
+            let frame = layout::LegendFrame {
+                size_in: (
+                    width,
+                    if fit_panel {
+                        height * (1. - layout::RESIDUAL_FRACTION)
+                    } else {
+                        height
+                    },
+                ),
+                legend_pt: typography.legend_size() as f64,
+                tick_pt: typography.tick_size() as f64,
+                title: options.title.is_some(),
+                outside_ok: !fit_panel,
+            };
+            let ylim = options
+                .ymin
+                .zip(options.ymax)
+                .or_else(|| self.visible_ylim(options));
+            let placement = layout::auto_legend(&visible, self.xlim(options), ylim, &frame);
+            // Auto's outside fallback goes above the plot: it costs height,
+            // not width, so a long label cannot squeeze a narrow figure.
+            plot = plot.legend(match placement {
+                LegendPlacement::Outside => ruviz::core::LegendPosition::OutsideUpper,
+                corner => corner.position(),
+            });
+        }
         let mut count = 0;
         for series in self.series(options) {
             if !series.visible(options) || series.x.is_empty() {
@@ -547,13 +611,19 @@ pub(crate) fn render_figure(
     data: &FigureData,
     options: &FigureOptions,
 ) -> Result<RenderedFigure, String> {
-    let plot = data.plot(options)?;
-    let config = plot.get_config();
-    let mut svg = physical_svg_size(
-        plot.render_to_svg().map_err(|e| e.to_string())?,
-        config.canvas_size(),
-        config.figure.dpi as f64,
-    );
+    let (png, mut svg) = match &data.residual {
+        Some(residual) => layout::fit_residual(data, residual, options)?,
+        None => {
+            let plot = data.plot(options)?;
+            let config = plot.get_config();
+            let svg = physical_svg_size(
+                plot.render_to_svg().map_err(|e| e.to_string())?,
+                config.canvas_size(),
+                config.figure.dpi as f64,
+            );
+            (plot.render_png_bytes().map_err(|e| e.to_string())?, svg)
+        }
+    };
     if let Some(start) = svg.find("<svg")
         && let Some(end) = svg[start..].find('>')
     {
@@ -571,10 +641,7 @@ pub(crate) fn render_figure(
             );
         }
     }
-    Ok(RenderedFigure {
-        png: plot.render_png_bytes().map_err(|e| e.to_string())?,
-        svg,
-    })
+    Ok(RenderedFigure { png, svg })
 }
 
 /// Give the root `<svg>` element a physical size in inches.
@@ -668,6 +735,8 @@ fn publication_kmax(kmax: Option<f64>, data: Option<&[f64]>) -> Option<f64> {
         .map(|v| v + 1.)
 }
 
+/// Upper |χ(R)| display limit: 6 Å, or the fit/window maximum plus 0.5 Å
+/// rounded up to a whole ångström when that is larger.
 fn publication_rmax(fit_rmax: Option<f64>) -> f64 {
     match fit_rmax.filter(|v| v.is_finite() && *v > 6.) {
         Some(max) => (max + 0.5).ceil(),
@@ -675,9 +744,22 @@ fn publication_rmax(fit_rmax: Option<f64>) -> f64 {
     }
 }
 
+/// Upper |χ(R)| display limit for a processed spectrum. It follows
+/// [`publication_rmax`] for the back-transform R window, ignores a window that
+/// reaches past the displayed transform (such as the 20 Å library default) and
+/// never exceeds that displayed maximum (`rmax_out`, 10 Å by default).
+fn spectrum_rmax(window_rmax: Option<f64>, rmax_out: Option<f64>) -> f64 {
+    let shown = rmax_out.filter(|v| v.is_finite() && *v > 0.).unwrap_or(10.);
+    publication_rmax(window_rmax.filter(|v| *v <= shown)).min(shown)
+}
+
 pub(crate) fn spectrum_figures(sp: Arc<XASSpectrum>, label: &str) -> Vec<FigureData> {
     let weight = sp.kweight().copied().unwrap_or(2.);
     let kmax = publication_kmax(sp.xftf.as_ref().and_then(|ft| ft.kmax), sp.k());
+    let rmax = spectrum_rmax(
+        sp.xftr.as_ref().and_then(|ft| ft.rmax),
+        sp.xftf.as_ref().and_then(|ft| ft.rmax_out),
+    );
     let e0 = sp
         .normalization
         .as_ref()
@@ -725,6 +807,7 @@ pub(crate) fn spectrum_figures(sp: Arc<XASSpectrum>, label: &str) -> Vec<FigureD
                 normalized_series,
                 guides: e0.into_iter().collect(),
                 default_xlim: (energy[0] < end).then_some((energy[0], end)),
+                residual: None,
             })
         });
     let opts = plotting::ViewOptions {
@@ -775,11 +858,12 @@ pub(crate) fn spectrum_figures(sp: Arc<XASSpectrum>, label: &str) -> Vec<FigureD
             },
             default_xlim: match key {
                 "chi-k" => kmax.map(|max| (0., max)),
-                "chi-r" => Some((0., 6.)),
+                "chi-r" => Some((0., rmax)),
                 _ => None,
             },
             guides: spec.vlines.into_iter().map(|(x, _, _, _)| x).collect(),
             normalized_series: None,
+            residual: None,
             series: spec
                 .series
                 .into_iter()
@@ -857,8 +941,8 @@ pub(crate) fn fit_figures(result: &FeffFitResult) -> Vec<FigureData> {
         xlabel: xlabel.into(),
         ylabel,
         math_ylabel: match key {
-            "fit-k" => math_chik_label(kw),
-            "fit-r" => math_chir_label(kw),
+            "fit-k" | "fit-residual-k" => math_chik_label(kw),
+            "fit-r" | "fit-residual-r" => math_chir_label(kw),
             "fit-q" => format!("$op(\"Re\") chi(q)$ {}", math_unit(kw)),
             "residual-k" => format!("Residual {}", math_chik_label(kw)),
             "residual-r" => format!("Residual {}", math_chir_label(kw)),
@@ -868,10 +952,13 @@ pub(crate) fn fit_figures(result: &FeffFitResult) -> Vec<FigureData> {
         normalized_series: None,
         guides: vec![],
         default_xlim: match key {
-            "fit-r" | "residual-r" => Some((0., publication_rmax(result.rmax))),
-            "fit-k" | "residual-k" => publication_kmax(result.kmax, Some(&k)).map(|max| (0., max)),
+            "fit-r" | "residual-r" | "fit-residual-r" => Some((0., publication_rmax(result.rmax))),
+            "fit-k" | "residual-k" | "fit-residual-k" => {
+                publication_kmax(result.kmax, Some(&k)).map(|max| (0., max))
+            }
             _ => None,
         },
+        residual: None,
     };
     let mut output = vec![
         figure(
@@ -939,6 +1026,21 @@ pub(crate) fn fit_figures(result: &FeffFitResult) -> Vec<FigureData> {
             )],
         ),
     ];
+    // Fit + residual: the data and fit curves above a residual strip that
+    // shares the x axis. Added before optional components so only the data
+    // and fit appear in the upper panel.
+    for (key, label, fit, residual) in [
+        ("fit-residual-k", "Fit + residual · χ(k)", 0, 3),
+        ("fit-residual-r", "Fit + residual · |χ(R)|", 1, 4),
+    ] {
+        let figure = FigureData {
+            key,
+            label: label.into(),
+            residual: Some(output[residual].series.clone()),
+            ..output[fit].clone()
+        };
+        output.push(figure);
+    }
     for (key, label, values) in [
         ("real-data", "Re data", &result.data_chir_re),
         ("real-fit", "Re fit", &result.model_chir_re),
@@ -1054,6 +1156,17 @@ mod tests {
                 render_figure(xanes, &normalized).unwrap().png,
             )
             .unwrap();
+            let narrow = FigureOptions {
+                width: Some(3.3),
+                height: Some(2.5),
+                font_size: Some(9.),
+                ..Default::default()
+            };
+            fs::write(
+                dir.join("xanes-3.3in-9pt.png"),
+                render_figure(xanes, &narrow).unwrap().png,
+            )
+            .unwrap();
         }
     }
 
@@ -1127,6 +1240,100 @@ mod tests {
         }
     }
     #[test]
+    fn spectrum_r_range_follows_the_transform_window() {
+        assert_eq!(spectrum_rmax(None, None), 6.);
+        assert_eq!(spectrum_rmax(Some(3.), None), 6.);
+        assert_eq!(spectrum_rmax(Some(7.2), None), 8.);
+        // The 20 Å library default lies past the displayed transform.
+        assert_eq!(spectrum_rmax(Some(20.), None), 6.);
+        assert_eq!(spectrum_rmax(Some(7.2), Some(7.5)), 7.5);
+        assert_eq!(spectrum_rmax(None, Some(5.)), 5.);
+    }
+
+    #[test]
+    fn fit_residual_stacks_panels_on_a_shared_axis() {
+        let k: Vec<f64> = (0..200).map(|i| i as f64 * 0.05).collect();
+        let data: Vec<f64> = k
+            .iter()
+            .map(|k| (2. * k).sin() * (-0.1 * k).exp())
+            .collect();
+        let model: Vec<f64> = data.iter().map(|y| 0.9 * y).collect();
+        let r: Vec<f64> = (0..100).map(|i| i as f64 * 0.06).collect();
+        let peak: Vec<f64> = r
+            .iter()
+            .map(|r| (-(r - 2.2_f64).powi(2) * 8.).exp())
+            .collect();
+        let result = FeffFitResult {
+            kweight: 2.,
+            k: nalgebra::DVector::from_vec(k.clone()),
+            data_chi: nalgebra::DVector::from_vec(data),
+            model_chi: nalgebra::DVector::from_vec(model),
+            r: nalgebra::DVector::from_vec(r.clone()),
+            data_chir_re: nalgebra::DVector::from_vec(peak.clone()),
+            data_chir_im: nalgebra::DVector::from_vec(vec![0.; r.len()]),
+            model_chir_mag: nalgebra::DVector::from_vec(peak.iter().map(|y| 0.8 * y).collect()),
+            ..Default::default()
+        };
+        let figures = fit_figures(&result);
+        for key in ["fit-residual-k", "fit-residual-r"] {
+            let figure = figures.iter().find(|f| f.key == key).unwrap();
+            let residual = figure.residual.as_ref().unwrap();
+            assert_eq!(residual[0].key, "residual");
+            assert_eq!(
+                figure
+                    .series
+                    .iter()
+                    .map(|s| s.key.as_str())
+                    .collect::<Vec<_>>(),
+                ["data", "fit"]
+            );
+            let options = FigureOptions {
+                width: Some(3.3),
+                height: Some(3.),
+                font_size: Some(9.),
+                ..Default::default()
+            };
+            let csv = figure.csv(&options).unwrap();
+            assert!(csv.lines().next().unwrap().contains("Residual"));
+            assert!(figure.caption(&options).contains("lower panel"));
+            let rendered = render_figure(figure, &options).unwrap();
+            assert_eq!(png_size(&rendered.png), (990, 900));
+            assert!(
+                rendered
+                    .svg
+                    .contains(r#"width="3.3in" height="3in" viewBox="0 0 990 900""#)
+            );
+            assert!(rendered.svg.starts_with("<svg") && rendered.svg.matches("<svg").count() >= 3);
+            assert!(rendered.svg.contains(r#"id="residual-"#));
+            if let Some(dir) = std::env::var_os("REXAFS_PUBLICATION_QA_DIR") {
+                fs::create_dir_all(&dir).unwrap();
+                fs::write(Path::new(&dir).join(format!("{key}.png")), &rendered.png).unwrap();
+                fs::write(Path::new(&dir).join(format!("{key}.svg")), &rendered.svg).unwrap();
+                fs::write(
+                    Path::new(&dir).join(format!("{key}-default.png")),
+                    render_figure(figure, &FigureOptions::default())
+                        .unwrap()
+                        .png,
+                )
+                .unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn typed_labels_with_typst_markup_characters_render_literally() {
+        let options = FigureOptions {
+            title: Some("Ni #2 [foil] @beamline".into()),
+            xlabel: Some("E_0 * <shift>".into()),
+            ylabel: Some(r"Signal \ $mu(E)$".into()),
+            ..Default::default()
+        };
+        let rendered = render_figure(&sample(), &options).unwrap();
+        assert!(rendered.svg.contains("Ni #2 [foil] @beamline"));
+        assert!(rendered.svg.contains("E_0 * &lt;shift&gt;"));
+    }
+
+    #[test]
     fn flattened_publication_preserves_library_values_in_figure_and_csv() {
         let file = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../rexafs/tests/testfiles/xraylarch_d867/xafsdata/cu_150k.xmu");
@@ -1187,6 +1394,7 @@ mod tests {
             math_ylabel: "$mu(E)$".into(),
             normalized_series: None,
             default_xlim: None,
+            residual: None,
             guides: vec![],
             series: vec![FigureSeries {
                 key: "data".into(),

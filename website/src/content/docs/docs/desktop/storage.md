@@ -10,6 +10,9 @@ downloads and inactive updater app copies, and shows their combined logical file
 size before deletion. Filesystem compression or shared blocks can make the actual
 change in free disk space different from the displayed size.
 
+**Unreleased (source builds after 0.2.14):** **About rexafs** opens an About
+panel instead of the Help menu, so use Help → Storage or the command palette.
+
 [![Storage lists old installer and updater files with their sizes and folder buttons](/screenshots/0.2.13/storage.jpg)](/screenshots/0.2.13/storage.jpg)
 
 *Full, unedited window from the signed 0.2.13 release. This machine had 24

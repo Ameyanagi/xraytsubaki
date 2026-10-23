@@ -66,6 +66,11 @@ models a smooth background; it does not correct fluorescence over-absorption.
 
 ## Desktop workflow (0.2.10)
 
+*Builds after 0.2.14:* the **Normalize** stage described below is the
+**Normalize** section of the **Process** stage, with the same controls. Its
+plots appear in the Process 2 × 2 grid of linked plots, and the **Pre/post**,
+**MBACK fit** and **Spline** toggles share one plot bar.
+
 In **Normalize**, choose **Polynomial** or **MBACK** at the top of the parameter
 sidebar. Selecting MBACK replaces the method-specific controls in that same
 sidebar; it keeps the ordinary normalization plot and range handles visible.
@@ -105,9 +110,10 @@ units. This puts the fitted line in the same units as the measured absorption.
 MBACK's auxiliary pre/post curves are not displayed. In a comparison the fit
 belongs to the active spectrum and follows its waterfall display offset.
 Plot/data exports include the fitted line while it is visible.
-Normalization fits appear only in **Normalize**. **Background** uses its own
-**Spline** toggle for AUTOBK. Returning to Normalize restores its fit-toggle
-preference without adding an extra curve to the Background plot.
+In 0.2.14 and earlier, normalization fits appear only in **Normalize**.
+**Background** uses its own **Spline** toggle for AUTOBK. Returning to Normalize
+restores its fit-toggle preference without adding an extra curve to the
+Background plot.
 
 Changing method preserves the previous successful normalization in an immutable
 local artifact before changing the pipeline. **Compare methods…** retains the

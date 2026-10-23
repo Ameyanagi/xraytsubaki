@@ -2,11 +2,11 @@
 import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { resolve, relative } from 'node:path';
 const root=resolve(import.meta.dirname,'../..');
-function files(dir){return readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?files(resolve(dir,e.name)):[resolve(dir,e.name)]);}
+function files(dir){return readdirSync(dir,{withFileTypes:true}).sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0).flatMap(e=>e.isDirectory()?files(resolve(dir,e.name)):[resolve(dir,e.name)]);}
 const sources=[
  'py-rexafs/python/rexafs/__init__.pyi','py-rexafs/python/rexafs/io.pyi',
  'py-rexafs/src/lib.rs','crates/rexafs-wasm/src/lib.rs',
- ...readdirSync(resolve(root,'js-rexafs')).filter(p=>p.endsWith('.d.ts')).map(p=>'js-rexafs/'+p),
+ ...readdirSync(resolve(root,'js-rexafs')).sort().filter(p=>p.endsWith('.d.ts')).map(p=>'js-rexafs/'+p),
  ...files(resolve(root,'crates/rexafs/src')).filter(p=>p.endsWith('.rs')).map(p=>relative(root,p)),
 ];
 const found=new Map();

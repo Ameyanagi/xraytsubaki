@@ -177,13 +177,18 @@ points, stops processing with an error naming the setting. See
 for the exact rules.
 
 *Unreleased (planned for 0.2.15):* the Problems drawer, opened from the status
-bar or **Show problems** in the command palette, also lists a degenerate
+bar or **Show problems** in the command palette, also lists an unreliable
 normalization, a failed Wavelet map and XANES peak-fit failures or warnings. Each
 kind appears at most once per group, keyed by its full file path, and clears when
-a later calculation succeeds. Normalization is degenerate when the post-edge and
-pre-edge lines meet at E₀, so the edge step is about zero and normalized data
-are meaningless; move E₀ onto the edge or widen the pre-edge and normalization
-ranges.
+a later calculation succeeds. Normalization is unreliable when the post-edge fit
+uses fewer than 5 points (Larch's limit) or spans less than 20 eV, or when the
+edge step at E₀ is negative or nearly zero; normalized μ(E), χ(k) and χ(R) can
+then be wrong by orders of magnitude while the curves still look ordinary. The
+same reasons appear in amber under **Post-edge start**; nothing is
+changed automatically. Widen the post-edge (normalization) range, and check E₀
+and the pre-edge range. See
+[processing theory](https://github.com/Ameyanagi/rexafs/blob/dev/doc/processing-theory.md)
+for the thresholds.
 
 ## Background
 

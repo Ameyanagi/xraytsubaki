@@ -79,6 +79,7 @@ pub use xafs::fluorescence::{
     AbsorptionMode, FluorescenceCorrection, FluorescenceCorrectionResult, FluorescenceError,
 };
 pub use xafs::normalization::{MBack, NormalizationMethod, PrePostEdge};
+pub use xafs::normalization_checks::NormalizationWarning;
 pub use xafs::ranges::RangeAdjustment;
 pub use xafs::xasgroup::XASGroup as Group;
 pub use xafs::xasspectrum::XASSpectrum as Spectrum;

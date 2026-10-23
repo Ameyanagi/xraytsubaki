@@ -56,6 +56,8 @@
 - Add a Multi-panel mode to Publish that lays out XANES, χ(k), χ(R) and fit
   figures as labelled (a), (b), (c) panels at journal column widths, with a
   combined caption and PNG, TIFF, SVG and PDF export.
+- Fit publication legend boxes to their labels (ruviz 0.15.2); legends no
+  longer show empty space to the right of the series names.
 
 ## 0.2.14 (2026-09-24)
 

@@ -1,3 +1,4 @@
+mod composer;
 mod editor;
 mod supporting;
 use crate::publication::figures::{FigureData, FigureSettings, RenderedFigure};
@@ -30,6 +31,8 @@ pub(crate) struct PublishState {
     pub(super) preview_running: bool,
     pub(super) preview: Option<Arc<RenderedFigure>>,
     pub(super) image: Option<Arc<gpui::Image>>,
+    /// Multi-panel composer view and its preview.
+    pub(super) composer: composer::ComposerState,
 }
 /// One-line scope of the report bundle: the current group, the marked groups
 /// added to it and the completed fits that the report will include.

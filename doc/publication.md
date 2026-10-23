@@ -165,6 +165,74 @@ residual. The figure's CSV includes the data, fit and residual curves. With
 **Outside**, or when Auto finds no free corner, the legend takes the
 least-covered inside corner so the panels stay aligned.
 
+## Multi-panel figures (since 0.2.15)
+
+**Multi-panel**, at the top of the Publish controls, composes several figures
+into one grid of labelled panels, (a), (b), (c)…, for a journal figure. Panels
+come from the figures available in **Single figure**: XANES, flattened μ(E),
+χ(k), |χ(R)|, χ(q) and, after a fit, the fit, residual and fit + residual
+figures (path contributions are curves you can show in the fit figures). The
+first time it opens, the composer suggests XANES, χ(k), |χ(R)| and, when a fit
+exists, Fit + residual · χ(k). **Add panel** appends a figure; the arrow moves a
+panel earlier and × removes it. Panels fill each row from left to right, at
+most 12 panels.
+
+**Journal width** sets the total figure width to a publisher's column width.
+The values are maximum widths from the publishers' author guides, checked in
+October 2026; individual journals can differ, so check the target journal:
+
+| Preset | Width |
+| --- | --- |
+| ACS · 1 column / 2 columns | 84.7 mm (240 pt) / 177.8 mm (504 pt), [JACS author guidelines](https://researcher-resources.acs.org/publish/author_guidelines?coden=jacsat), "Size" |
+| RSC · 1 column / 2 columns | 83 mm / 171 mm, [RSC submission guidelines](https://rsc.org/globalassets/05-journals-books-databases/our-journals/natural-product-reports/npr-viewpoint-submission-guidelines.pdf) |
+| Elsevier · 1 column / 2 columns | 90 mm / 190 mm, [Elsevier artwork sizing](https://www.elsevier.com/about/policies-and-standards/author/artwork-and-media-instructions/artwork-sizing) |
+
+**Width (mm)** accepts any other width. **Columns** (1–4, 2 by default) sets
+the panels per row; each panel is the width divided by the column count, rounded
+down to whole pixels. **Panel height (mm)** is blank (Auto) for ¾ of the panel
+width. Each panel must be at least 25.4 mm (1 in) on each side.
+
+**Font size** (8 pt by default), **Line width** (blank keeps the renderer
+default) and **DPI** (600 by default) apply to every panel, so all panels share
+the same text and curve weights. Everything else inside a panel comes from that
+figure's **Single figure** settings: axis labels, axis limits, visible curves,
+flattened or normalized μ(E), legend, grid and guides. Titles are left out
+because the panel labels identify the panels. Legends stay inside the plot (an
+**Outside** or crowded **Auto** legend takes the least-covered inside corner),
+because a legend outside one panel would shrink its plot area.
+
+rexafs aligns the panels by giving every panel the same fixed margins: the
+widest left margin any panel needs for its y tick labels and axis title, and
+likewise for the other sides. The plot areas of a row therefore share their top
+and bottom edges, and those of a column share their left and right edges. Each
+panel is rendered separately by ruviz and the panels are tiled into one image
+and nested into one SVG, the same technique as the fit + residual figure. The
+bold panel labels sit at the top-left corner of each panel, at the axis-title
+font size. The recipe (panels, width, columns, height, font, line width, DPI)
+is saved in the `.rxs` project with the other figure settings.
+
+The preview is rendered at up to 200 DPI; **Fit** fits it to the pane and
+**True size** shows it at 96 pixels per inch, close to its printed size (the
+exact size depends on the display). **Save figure** renders at the chosen DPI:
+
+- **PNG** and **TIFF** are raster images with the resolution recorded in the
+  file; TIFF is RGB with lossless LZW compression.
+- **SVG** is vector, with the printed size in inches (for example
+  `width="7in"`); plain labels and the panel labels are editable text.
+- **PDF** is vector, converted from the SVG by ruviz (svg2pdf); its page is the
+  printed figure size.
+
+The caption below the preview joins each panel's caption after its label, for
+example "(a) Flattened, edge-step-normalized X-ray absorption spectrum… (b) …";
+**Copy caption** copies it. Panels whose figure is unavailable, such as a fit
+panel before any fit has run, are skipped, listed under the preview and kept in
+the recipe. Each panel shows one spectrum: overlays of several samples with
+vertical offsets, an inset, per-curve colours and a matplotlib script for the
+whole grid are not available yet. The composer is implemented in
+[`composer.rs`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/figures/composer.rs).
+
+## Captions
+
 Enter a figure caption and processing/parameter/path-table captions in the editor;
 press **Enter** to apply text. Blank captions use factual descriptions of the
 selected curves or table definitions. **Copy caption** transfers the current

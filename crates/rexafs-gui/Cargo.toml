@@ -17,7 +17,10 @@ path = "src/main.rs"
 # git-pinned gpui 0.2.2 (zed rev 3060e417...) shared with ruviz-gpui, so there
 # is exactly one gpui in the tree.
 gpui = { workspace = true }
-ruviz = { workspace = true, features = ["typst-math"] }
+# `pdf` converts composed publication figures from SVG to vector PDF.
+ruviz = { workspace = true, features = ["typst-math", "pdf"] }
+# LZW-compressed TIFF, with a DPI tag, for composed publication figures.
+tiff = { version = "0.11", default-features = false, features = ["lzw"] }
 ruviz-gpui = { workspace = true }
 
 # Platform entry point: gpui 0.2.2 has no zero-arg `Application::new()`; the

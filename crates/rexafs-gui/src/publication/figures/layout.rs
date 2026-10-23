@@ -288,22 +288,110 @@ fn closing_dollar(text: &str) -> Option<usize> {
     None
 }
 
+/// Fixed `[left, right, top, bottom]` panel margins, in inches.
+pub(super) type Frame = [f64; 4];
+
+/// Font sizes and paddings of a panel, in points, read from its ruviz config.
+/// They feed rexafs's margin estimates, which assume tick labels about
+/// [`CHAR_EM`] wide per character and axis titles 1.5 font sizes tall.
+pub(super) struct Metrics {
+    tick: f64,
+    label: f64,
+    title: f64,
+    tick_pad: f64,
+    label_pad: f64,
+    title_pad: f64,
+}
+
+impl Metrics {
+    pub(super) fn of(plot: &Plot) -> Self {
+        let config = plot.get_config();
+        Self {
+            tick: config.typography.tick_size() as f64,
+            label: config.typography.label_size() as f64,
+            title: config.typography.title_size() as f64,
+            tick_pad: config.spacing.tick_pad as f64,
+            label_pad: config.spacing.label_pad as f64,
+            title_pad: config.spacing.title_pad as f64,
+        }
+    }
+
+    /// Axis-title font size in points (composed figures reuse it for their
+    /// panel labels).
+    pub(super) fn label_pt(&self) -> f64 {
+        self.label
+    }
+
+    /// Tick-label font size in points.
+    pub(super) fn tick_pt(&self) -> f64 {
+        self.tick
+    }
+
+    /// Left margin holding y tick labels `chars` characters wide (at least
+    /// three) and the rotated y-axis title.
+    pub(super) fn left(&self, chars: usize) -> f64 {
+        (chars.max(3) as f64 * CHAR_EM * self.tick
+            + self.tick_pad
+            + 1.5 * self.label
+            + self.label_pad
+            + 4.)
+            / 72.
+    }
+
+    /// Right margin holding half of the last x tick label.
+    pub(super) fn right(&self, chars: usize) -> f64 {
+        ((chars as f64 * CHAR_EM * self.tick / 2. + 4.) / 72.).max(0.12)
+    }
+
+    /// Bottom margin holding the x tick labels and the x-axis title.
+    pub(super) fn bottom(&self) -> f64 {
+        (1.3 * self.tick + self.tick_pad + 1.5 * self.label + self.label_pad + 4.) / 72.
+    }
+
+    /// Top margin: room for a title, or a thin edge without one.
+    pub(super) fn top(&self, title: bool) -> f64 {
+        if title {
+            (1.4 * self.title + self.title_pad + 4.) / 72.
+        } else {
+            0.1
+        }
+    }
+}
+
+/// Widest label, in characters, of ruviz's `ticks`-target ticks for a range.
+pub(super) fn tick_chars(range: Option<(f64, f64)>, ticks: usize) -> Option<usize> {
+    range.map(|(lo, hi)| widest_label(&ruviz::axes::generate_ticks(lo, hi, ticks)))
+}
+
 /// Share of the canvas height given to the residual strip (rexafs choice).
 pub(crate) const RESIDUAL_FRACTION: f64 = 0.28;
 
-/// Render the fit panel above a residual strip that shares its x axis.
+/// The two built panels of a fit + residual figure, before their margins are
+/// fixed. `frame` holds the margins this figure needs on its own; a composed
+/// multi-panel figure can widen them so that neighbouring panels line up.
+pub(super) struct FitResidual {
+    top: Plot,
+    strip: Plot,
+    top_px: f64,
+    total_px: f64,
+    dpi: f64,
+    metrics: Metrics,
+    pub frame: Frame,
+}
+
+/// Build the fit panel above a residual strip that shares its x axis.
 ///
 /// Both panels are separate ruviz plots with identical fixed left and right
 /// margins, so their plot areas and x ticks line up. The upper panel has no
 /// x label, and its bottom margin is smaller than ruviz's tick padding, which
 /// places its x tick labels outside its canvas. The strip is symmetric about
-/// zero, carries a zero line and the x label. Returns PNG bytes and an SVG
-/// that nests both panel SVGs.
-pub(super) fn fit_residual(
+/// zero, carries a zero line and the x label. [`FitResidual::render`] draws
+/// them.
+pub(super) fn fit_residual_panels(
     data: &FigureData,
     residual: &[FigureSeries],
     options: &FigureOptions,
-) -> Result<(Vec<u8>, String), String> {
+) -> Result<FitResidual, String> {
     options.validate()?;
     let (width, height, dpi) = options.dimensions();
     let total_px = (height * dpi).round();
@@ -365,71 +453,99 @@ pub(super) fn fit_residual(
         .hline_styled(0., Color::from_gray(140), 0.8, LineStyle::Solid);
 
     // Shared horizontal margins, from the wider y tick labels of the two panels.
-    let config = top.get_config();
-    let (tick, label, title) = (
-        config.typography.tick_size() as f64,
-        config.typography.label_size() as f64,
-        config.typography.title_size() as f64,
-    );
-    let (tick_pad, label_pad, title_pad) = (
-        config.spacing.tick_pad as f64,
-        config.spacing.label_pad as f64,
-        config.spacing.title_pad as f64,
-    );
-    let ytick_chars = [top_ylim, Some((-half, half))]
+    let metrics = Metrics::of(&top);
+    let ytick_chars = [tick_chars(top_ylim, 10), tick_chars(Some((-half, half)), 3)]
         .into_iter()
-        .zip([10, 3])
-        .filter_map(|(range, ticks)| range.map(|r| (r, ticks)))
-        .map(|((lo, hi), ticks)| widest_label(&ruviz::axes::generate_ticks(lo, hi, ticks)))
+        .flatten()
         .max()
-        .unwrap_or(5)
-        .max(3);
-    let xtick_chars = data
-        .xlim(options)
-        .map(|(lo, hi)| widest_label(&ruviz::axes::generate_ticks(lo, hi, 10)))
-        .unwrap_or(4);
-    let left =
-        (ytick_chars as f64 * CHAR_EM * tick + tick_pad + 1.5 * label + label_pad + 4.) / 72.;
-    let right = ((xtick_chars as f64 * CHAR_EM * tick / 2. + 4.) / 72.).max(0.12);
-    let top_margin = if options.title.is_some() {
-        (1.4 * title + title_pad + 4.) / 72.
-    } else {
-        0.1
-    };
-    // Below ruviz's tick padding, so the upper panel's x tick labels fall
-    // outside its canvas and the two panels sit close together.
-    let gap = 0.5 * tick_pad / 72.;
-    let bottom = (1.3 * tick + tick_pad + 1.5 * label + label_pad + 4.) / 72.;
-    let strip_height = (total_px - top_px) / dpi;
-    // A short strip cannot fit "Residual" along its plot area; abbreviate.
-    let strip_plot_pt = (strip_height - 0.06 - bottom) * 72.;
-    let strip = strip.ylabel(if strip_plot_pt >= 8. * CHAR_EM * label {
-        "Residual"
-    } else {
-        "Res."
-    });
-    let top = panel_frame(top, top_px / dpi, [left, right, top_margin, gap]);
-    let strip = panel_frame(strip, strip_height, [left, right, 0.06, bottom]);
+        .unwrap_or(5);
+    let xtick_chars = tick_chars(data.xlim(options), 10).unwrap_or(4);
+    let frame = [
+        metrics.left(ytick_chars),
+        metrics.right(xtick_chars),
+        metrics.top(options.title.is_some()),
+        metrics.bottom(),
+    ];
+    Ok(FitResidual {
+        top,
+        strip,
+        top_px,
+        total_px,
+        dpi,
+        metrics,
+        frame,
+    })
+}
 
-    let (upper, lower) = (
-        top.render().map_err(|e| e.to_string())?,
-        strip.render().map_err(|e| e.to_string())?,
-    );
-    if upper.width != lower.width {
-        return Err("The fit and residual panels rendered at different widths.".into());
+impl FitResidual {
+    /// Render both panels with the given margins: `frame[2]` is the upper
+    /// panel's top margin and `frame[3]` the strip's bottom margin. Returns
+    /// the stacked RGBA image and an SVG that nests both panel SVGs.
+    pub(super) fn render(
+        self,
+        [left, right, top_margin, bottom]: Frame,
+    ) -> Result<(Image, String), String> {
+        let dpi = self.dpi;
+        // Below ruviz's tick padding, so the upper panel's x tick labels fall
+        // outside its canvas and the two panels sit close together.
+        let gap = 0.5 * self.metrics.tick_pad / 72.;
+        let strip_height = (self.total_px - self.top_px) / dpi;
+        // A short strip cannot fit "Residual" along its plot area; abbreviate.
+        let strip_plot_pt = (strip_height - 0.06 - bottom) * 72.;
+        let strip = self
+            .strip
+            .ylabel(if strip_plot_pt >= 8. * CHAR_EM * self.metrics.label {
+                "Residual"
+            } else {
+                "Res."
+            });
+        let top = panel_frame(self.top, self.top_px / dpi, [left, right, top_margin, gap]);
+        let strip = panel_frame(strip, strip_height, [left, right, 0.06, bottom]);
+
+        let (upper, lower) = (
+            top.render().map_err(|e| e.to_string())?,
+            strip.render().map_err(|e| e.to_string())?,
+        );
+        if upper.width != lower.width {
+            return Err("The fit and residual panels rendered at different widths.".into());
+        }
+        let mut pixels = upper.pixels;
+        pixels.extend_from_slice(&lower.pixels);
+        let (width, height) = (upper.width, upper.height + lower.height);
+        let (top_svg, strip_svg) = (
+            top.render_to_svg().map_err(|e| e.to_string())?,
+            strip.render_to_svg().map_err(|e| e.to_string())?,
+        );
+        let svg = nest_svgs(
+            &[
+                (&top_svg, "fit", 0, 0),
+                (&strip_svg, "residual", 0, upper.height),
+            ],
+            "",
+            (width, height),
+        );
+        Ok((Image::new(width, height, pixels), svg))
     }
-    let mut pixels = upper.pixels;
-    pixels.extend_from_slice(&lower.pixels);
-    let png = Image::new(upper.width, upper.height + lower.height, pixels)
+}
+
+/// Render the fit panel above a residual strip that shares its x axis (see
+/// [`fit_residual_panels`]). Returns PNG bytes and an SVG that nests both
+/// panel SVGs.
+pub(super) fn fit_residual(
+    data: &FigureData,
+    residual: &[FigureSeries],
+    options: &FigureOptions,
+) -> Result<(Vec<u8>, String), String> {
+    let panels = fit_residual_panels(data, residual, options)?;
+    let (dpi, frame) = (panels.dpi, panels.frame);
+    let (image, svg) = panels.render(frame)?;
+    let png = image
         .encode_png_with_dpi(dpi as f32)
         .map_err(|e| e.to_string())?;
-    let svg = stack_svgs(
-        &top.render_to_svg().map_err(|e| e.to_string())?,
-        &strip.render_to_svg().map_err(|e| e.to_string())?,
-        (upper.width, upper.height, lower.height),
-        dpi,
-    );
-    Ok((png, svg))
+    Ok((
+        png,
+        physical_svg_size(svg, (image.width, image.height), dpi),
+    ))
 }
 
 fn widest_label(ticks: &[f64]) -> usize {
@@ -443,7 +559,7 @@ fn widest_label(ticks: &[f64]) -> usize {
 /// Set a panel's height and fixed `[left, right, top, bottom]` margins, all in
 /// inches. The config is edited directly because `Plot::size` clamps heights
 /// below 1 inch, which a residual strip may need.
-fn panel_frame(plot: Plot, height: f64, [left, right, top, bottom]: [f64; 4]) -> Plot {
+pub(super) fn panel_frame(plot: Plot, height: f64, [left, right, top, bottom]: Frame) -> Plot {
     let mut config = plot.get_config().clone();
     config.figure.height = height as f32;
     config.margins = MarginConfig::Fixed {
@@ -455,24 +571,33 @@ fn panel_frame(plot: Plot, height: f64, [left, right, top, bottom]: [f64; 4]) ->
     plot.plot_config(config)
 }
 
-/// Nest two panel SVGs, one above the other, in a single SVG document.
-/// Element IDs get a per-panel prefix so glyph and clip definitions from the
-/// two Typst/ruviz documents cannot collide.
-fn stack_svgs(upper: &str, lower: &str, (width, top, bottom): (u32, u32, u32), dpi: f64) -> String {
-    let nest = |svg: &str, prefix: &str, y: u32| {
+/// Nest panel SVGs in one SVG document of `size` pixels. Each part is
+/// `(svg, id prefix, x, y)`, with its offset in pixels. Element IDs get the
+/// per-panel prefix so glyph and clip definitions from the separate
+/// Typst/ruviz documents cannot collide. `extra` is appended last, so it draws
+/// above every panel; composed figures put their panel labels there.
+///
+/// The result keeps pixel `width`/`height`, so it can itself be nested; give
+/// a finished figure its printed size with [`physical_svg_size`].
+pub(super) fn nest_svgs(
+    parts: &[(&str, &str, u32, u32)],
+    extra: &str,
+    (width, height): (u32, u32),
+) -> String {
+    let nest = |svg: &str, prefix: &str, x: u32, y: u32| {
         let body = &svg[svg.find("<svg").unwrap_or(0)..];
-        body.replacen("<svg", &format!(r#"<svg x="0" y="{y}""#), 1)
+        body.replacen("<svg", &format!(r#"<svg x="{x}" y="{y}""#), 1)
             .replace(r#"id=""#, &format!(r#"id="{prefix}-"#))
             .replace("url(#", &format!("url(#{prefix}-"))
             .replace(r##"href="#"##, &format!(r##"href="#{prefix}-"##))
     };
-    let height = top + bottom;
-    let svg = format!(
-        r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="{width}" height="{height}">{}{}</svg>"#,
-        nest(upper, "fit", 0),
-        nest(lower, "residual", top),
-    );
-    physical_svg_size(svg, (width, height), dpi)
+    let body: String = parts
+        .iter()
+        .map(|(svg, prefix, x, y)| nest(svg, prefix, *x, *y))
+        .collect();
+    format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="{width}" height="{height}">{body}{extra}</svg>"#,
+    )
 }
 
 #[cfg(test)]

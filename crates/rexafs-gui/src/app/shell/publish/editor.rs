@@ -570,6 +570,9 @@ impl StudioApp {
                         ),
                 )
             });
+        if self.publish.composer.open {
+            return self.composer_panel(header, cx);
+        }
         let style_open = !self.ui.sections.contains("Publication style closed");
         let caption_open = self.ui.sections.contains("Publication caption");
         let mut controls = div()
@@ -582,7 +585,9 @@ impl StudioApp {
             .flex_col()
             .gap_2()
             .pr_3();
-        controls = controls.child(heading(&t, "Figures"));
+        controls = controls
+            .child(self.publish_mode_switch(cx))
+            .child(heading(&t, "Figures"));
         let more_figures = self.ui.sections.contains("Publication more figures");
         for common in [true, false] {
             if !common {

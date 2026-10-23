@@ -4,6 +4,7 @@ use ruviz::prelude::{LineStyle, Plot};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
+pub(crate) mod composer;
 mod layout;
 pub(crate) use layout::LegendPlacement;
 
@@ -101,6 +102,8 @@ pub(crate) struct FigureSettings {
     /// Settings are shared by figure type across a multi-spectrum export.
     pub figures: BTreeMap<String, FigureOptions>,
     pub table_captions: BTreeMap<String, String>,
+    /// The multi-panel figure recipe (see [`composer::CompositeRecipe`]).
+    pub composite: composer::CompositeRecipe,
 }
 impl FigureSettings {
     /// Return an owned copy of settings for a figure type, or its defaults.

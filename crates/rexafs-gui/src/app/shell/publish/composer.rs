@@ -196,9 +196,17 @@ impl StudioApp {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    let dpi = settings.composite.dpi.min(PREVIEW_DPI);
-                    let composed = compose(&settings.composite, &figures, &settings, Some(dpi))?;
-                    Ok::<_, String>((composed.png()?, composed))
+                    let recipe = &settings.composite;
+                    let composed = compose(
+                        recipe,
+                        &figures,
+                        &settings,
+                        Some(recipe.dpi.min(PREVIEW_DPI)),
+                    )?;
+                    // Report the exported size; the preview raster uses a lower DPI.
+                    let rendered = recipe.panels.len() - composed.missing.len();
+                    let size_mm = recipe.grid(rendered, recipe.dpi).size_mm();
+                    Ok::<_, String>((composed.png()?, size_mm, composed))
                 })
                 .await;
             this.update(cx, |app, cx| {
@@ -208,10 +216,10 @@ impl StudioApp {
                 }
                 state.running = false;
                 match result {
-                    Ok((png, composed)) => {
+                    Ok((png, size_mm, composed)) => {
                         state.image =
                             Some(Arc::new(gpui::Image::from_bytes(ImageFormat::Png, png)));
-                        state.size_mm = composed.grid.size_mm();
+                        state.size_mm = size_mm;
                         state.missing = composed.missing;
                         state.caption = composed.caption;
                     }

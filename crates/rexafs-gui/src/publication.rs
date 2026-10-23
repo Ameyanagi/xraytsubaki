@@ -1,8 +1,10 @@
 //! A local, inspectable analysis record. The Assistant uses a separate summary.
 pub(crate) mod assistant_context;
 pub(crate) mod figures;
+pub(crate) mod fit_table;
 pub(crate) mod methods;
 pub(crate) mod report;
+pub(crate) mod supporting;
 use crate::{params::PipelineParams, plotting, project::ProjectFile, theme::Theme};
 use rexafs::prelude::{FeffFitResult, XASSpectrum};
 use serde_json::{Value, json};

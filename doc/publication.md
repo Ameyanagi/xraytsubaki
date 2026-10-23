@@ -159,3 +159,69 @@ early and leave a partial directory, possibly without a manifest. Resolve the
 reported cause and retry into a new directory. The analysis folder is written
 file by file; it does not have the atomic replacement/backup behavior of a saved
 `.rxs` project. See the [folder exporter](https://github.com/Ameyanagi/rexafs/blob/v0.2.4/crates/rexafs-gui/src/publication.rs#L248).
+
+## Fit parameter table
+
+Since 0.2.15, **Export fit table…** in the Publish header saves the per-path
+parameters of the latest recorded fit in three files with the name you choose:
+`.tex` (a LaTeX `table` using the booktabs package; add
+`\usepackage{booktabs}` to the preamble), `.csv` and `.docx` (a Word table that
+Word, LibreOffice and Pages open). Each row is one scattering path; the columns
+are the coordination number N, the amplitude reduction factor S₀², the energy
+shift ΔE₀ (eV), the distance R = R_eff + ΔR (Å; half the total path length for
+multiple scattering) and the mean-square relative displacement σ² (Å², the
+Debye–Waller parameter). The caption gives the fit number, group, R factor,
+reduced χ², the number of independent points N_idp and of varied parameters
+N_vary.
+
+Uncertainties are one standard error from the fit covariance, propagated
+through path expressions; they do not include all experimental or model
+uncertainty. The tables round them for reading:
+
+1. The uncertainty is rounded to one significant figure, or two when its
+   leading digit is 1: 0.00292 → 0.003, 0.0435 → 0.04, 0.0149 → 0.015.
+   A carry to a power of ten keeps two figures (0.0096 → 0.010).
+2. The value is rounded to the same decimal place, for example
+   2.5434 ± 0.0149 → 2.543 ± 0.015.
+
+This is the convention of J. R. Taylor, *An Introduction to Error Analysis*,
+2nd ed. (University Science Books, 1997), §2.2, and is consistent with the
+BIPM *Guide to the Expression of Uncertainty in Measurement* (JCGM 100:2008,
+§7.2.6, [doi:10.59161/JCGM100-2008E](https://doi.org/10.59161/JCGM100-2008E)),
+which asks for at most two significant digits in an uncertainty and a value
+rounded consistently with it. Parameters held constant are written
+"12 (fixed)" rather than "± 0". A value without a usable uncertainty (not
+estimated, zero or not finite) is given to four significant figures with a
+dagger (†) and a note. The CSV has one row per path and parameter, with the
+unrounded value and uncertainty (17 significant digits), the rounded pair and a
+status (`fitted`, `fixed`, `no_uncertainty` or `unavailable`). See the
+[table formatter](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/fit_table.rs).
+
+## Supporting-information bundle
+
+Since 0.2.15, **Export supporting information…** saves one `.zip` for a
+journal's supporting information. It contains the complete analysis folder of
+**Publish report…** (report, figures as PNG/SVG/CSV, processed JSON arrays,
+`project.rxs`, captions, methods and references) and adds:
+
+- `data/csv/`: plain CSV columns for every included spectrum (energy, μ(E),
+  normalized and flattened μ(E); k, χ(k), k-weighted χ(k); R, |χ(R)|, Re and Im
+  χ(R)) and for every completed fit (measured and model χ(k), k-weighted, the k
+  window, and measured and model |χ(R)|);
+- `tables/`: the fit parameter table of every recorded fit, as LaTeX, CSV and
+  Word;
+- `SUPPORTING-INFORMATION.md`: a list of the contents;
+- `manifest-sha256.txt`: the SHA-256 checksum of every other file. In the
+  unpacked folder, `shasum -a 256 -c manifest-sha256.txt` (macOS) or
+  `sha256sum -c manifest-sha256.txt` (Linux) verifies that no file changed.
+
+The bundled `project.rxs` is always self-contained: it embeds the original
+spectra and referenced FEFF inputs with their SHA-256 checksums, as
+**Raw: embedded** does, even when the open project links to its sources by
+path (the open project and **Publish report…** keep their own setting). The
+archive therefore opens in rexafs on another computer without the source
+folders. If a source file cannot be read, or the embedded inputs would exceed
+the 1 GiB limit, the export stops with an error instead of writing a project
+with broken links. The archive is written next to its destination and moved into
+place only when complete. See the
+[bundle exporter](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/supporting.rs).

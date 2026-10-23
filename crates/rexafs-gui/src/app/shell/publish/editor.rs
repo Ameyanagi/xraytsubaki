@@ -68,7 +68,7 @@ fn preset_icon(t: &Theme, index: usize, preset: StylePreset, selected: bool) -> 
 
 /// Attach a hover tooltip and matching accessibility description to a control,
 /// so explanations live on the control instead of as text under it.
-fn with_tip(control: Control, t: &Theme, text: impl Into<SharedString>) -> Control {
+pub(super) fn with_tip(control: Control, t: &Theme, text: impl Into<SharedString>) -> Control {
     let tip = Tooltip {
         label: text.into(),
         theme: *t,
@@ -79,7 +79,7 @@ fn with_tip(control: Control, t: &Theme, text: impl Into<SharedString>) -> Contr
 }
 
 /// Grey out a control and ignore its clicks while `enabled` is false.
-fn enabled_when(control: Control, enabled: bool) -> Control {
+pub(super) fn enabled_when(control: Control, enabled: bool) -> Control {
     control.when(!enabled, |d| {
         d.disabled(true).opacity(0.45).cursor_default()
     })
@@ -464,6 +464,7 @@ impl StudioApp {
                         )
                         .on_click(cx.listener(|this, _, _, cx| this.copy_analysis_record(cx))),
                     )
+                    .children(self.manuscript_export_buttons(cx))
                     .child(
                         enabled_when(
                             with_tip(

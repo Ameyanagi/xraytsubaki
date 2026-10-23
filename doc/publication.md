@@ -70,6 +70,60 @@ contributions without vertical offsets. R-space residuals explicitly represent
 the difference of magnitudes, rather than a complex residual. All scientific
 curves come from the processing/fit results; branding images are separate assets.
 
+## Legend, ticks, R range and labels (since 0.2.15)
+
+**Legend** places the legend: **Auto** (the default), **Upper left**, **Upper
+right**, **Lower left**, **Lower right**, **Outside** or **Off**. Auto is
+resolved by rexafs: it estimates the legend box from the legend font size, the
+number of entries and the longest label, places it in each inside corner of the
+visible axis range, and picks the corner that covers the smallest share of the
+plotted curves (each curve is resampled along its line for this count). When
+every corner covers more than 0.5 % of the curves, the legend goes above the
+plot, which costs height rather than width so a long label cannot squeeze a
+narrow figure.
+The box size and the 0.5 % limit are rexafs estimates; ruviz's own "best"
+placement, used by earlier versions, could put the legend in the middle of a
+rising absorption edge. Implemented in
+[`auto_legend`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/figures/layout.rs). **Outside**
+puts the legend to the right of the plot and narrows the plot area. The choice
+is saved with the figure settings and copied by **Apply style to all figures**.
+Earlier versions always used Auto and offered only on/off.
+
+At narrow widths rexafs lowers the number of x-axis ticks so neighbouring tick
+labels do not overlap: it estimates each label's width from its digits and the
+tick font size and keeps the densest ruviz tick spacing that leaves about one
+character of space between labels. For example, a 3.3 in XANES figure with
+9 pt text uses 20 eV instead of 10 eV spacing; the 6.4 in default keeps its
+ticks. This is a rexafs estimate implemented in
+[`x_tick_count`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/figures/layout.rs).
+
+The processed-spectrum |χ(R)| figure no longer stops at a fixed 6 Å. It shows at
+least 0–6 Å, extends to the back-transform R window's upper limit plus 0.5 Å
+(rounded up to a whole ångström) when that is larger, and never extends past
+the displayed transform range (10 Å by default). Fit |χ(R)| figures use the
+same rule with the fit's R range. **X min** and **X max** override either default.
+
+Titles and axis labels you type are shown literally: characters that Typst
+would treat as markup, such as `#`, `_`, `*`, `[`, `]`, `@`, `<`, `>` and `\`,
+appear as typed. Text between a pair of dollar signs is still Typst math, so
+`Copper · $k^2 chi(k)$` works; type `\$` for a literal dollar sign. Earlier
+versions passed typed labels to Typst unchanged, so such characters could be
+reinterpreted or stop the figure from rendering.
+
+## Fit + residual
+
+After a fit, **More figures** includes **Fit + residual · χ(k)** and **Fit +
+residual · |χ(R)|**. Each shows the data and fitted model in the upper panel
+and the residual in a strip below (28% of the figure height, a rexafs choice).
+Both panels share the x axis: they use the same x limits and margins, and only
+the strip carries x tick labels and the x-axis title. The strip is symmetric
+about zero, draws a zero line and uses three y ticks; when it is too short for the word, its axis title shortens to "Res.". The k-space residual is the k-weighted data
+minus the fitted model, in the units of the upper panel. The R-space residual
+is the difference of the magnitudes |χ(R)|, not the magnitude of the complex
+residual. The figure's CSV includes the data, fit and residual curves. With
+**Outside**, or when Auto finds no free corner, the legend takes the
+least-covered inside corner so the panels stay aligned.
+
 Enter a figure caption and processing/parameter/path-table captions in the editor;
 press **Enter** to apply text. Blank captions use factual descriptions of the
 selected curves or table definitions. **Copy caption** transfers the current

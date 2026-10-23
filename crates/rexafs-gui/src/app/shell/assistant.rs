@@ -1704,9 +1704,6 @@ impl AssistantWindow {
                 let mut contents = vec![json!({"type":"inputText","text":json!({"spectrum":file,"stage":stage.name(),"resolved":settings,"fit_preview_ranges":ranges,"historical_fit_result":fit.is_some(),"images_included":images,"note":if images {"Inspect these plots; numerical convergence alone is not a quality judgment."} else {"Plots are disabled. Only numerical settings are provided; do not claim visual inspection."}}).to_string()})];
                 if images {
                     for (name, plot) in plots {
-                        if stage == super::Stage::Normalize && !matches!(name, "normalized-mu" | "mu-energy") { continue; }
-                        if stage == super::Stage::Background && name == "chi-q" { continue; }
-                        if stage == super::Stage::Transform && !matches!(name, "chi-k" | "chi-r" | "chi-q") { continue; }
                         let png = plot.size_px(1000, 650).render_png_bytes().map_err(|e| e.to_string())?;
                         contents.push(json!({"type":"inputText","text":name}));
                         contents.push(json!({"type":"inputImage","imageUrl":format!("data:image/png;base64,{}",base64::engine::general_purpose::STANDARD.encode(png))}));
@@ -2526,12 +2523,13 @@ impl AssistantWindow {
                             let lines = diff(&json!(before), &json!(next));
                             *app.edit_params() = next.clone();
                             let stamp = app.active_fingerprint();
-                            let stage = if args["changes"].as_object().is_some_and(|m| m.keys().any(|k| k.starts_with("fft_") || k.starts_with("bft_"))) {
-                                super::Stage::Transform
+                            let section = if args["changes"].as_object().is_some_and(|m| m.keys().any(|k| k.starts_with("fft_") || k.starts_with("bft_"))) {
+                                super::ProcessSection::Transform
                             } else if args["changes"].as_object().is_some_and(|m| m.keys().any(|k| k.starts_with("bkg_") || k == "rbkg")) {
-                                super::Stage::Background
-                            } else { super::Stage::Normalize };
-                            app.set_stage(stage, cx);
+                                super::ProcessSection::Background
+                            } else { super::ProcessSection::Normalize };
+                            let stage = super::Stage::Process;
+                            app.focus_process_section(section, cx);
                             app.record_param_edit(target, None, before, next, "Assistant: update processing".into());
                             app.sync_param_fields(cx);
                             app.schedule_recompute(cx);
@@ -2580,19 +2578,13 @@ impl AssistantWindow {
                         !targets.is_empty()
                             && targets.iter().all(|target| {
                                 target.as_ref().is_some_and(|target| {
-                                    [
-                                        super::Stage::Normalize,
-                                        super::Stage::Background,
-                                        super::Stage::Transform,
-                                    ]
-                                    .iter()
-                                    .all(|stage| checks.contains(&(target.clone(), *stage)))
+                                    checks.contains(&(target.clone(), super::Stage::Process))
                                 })
                             })
                     })
                     .unwrap_or(false);
                 if !inspected {
-                    self.tool_response(id,Err("Before fitting, navigate to Normalize, Background and Transform and call xray_get_plots in each stage for every assigned spectrum with its current processing settings.".into()), cx);
+                    self.tool_response(id,Err("Before fitting, navigate to Process and call xray_get_plots for every assigned spectrum with its current processing settings.".into()), cx);
                     return;
                 }
                 let started = self

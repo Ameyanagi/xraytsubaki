@@ -241,9 +241,9 @@ results; Publish exports add calculated data files with metadata headers and
 companion provenance JSON. Derivative and χ-space LCF arrays remain available
 in analysis JSON, but currently cannot be added as calculated groups.
 
-Recovered norm/flat component groups can continue through **Background →
-Transform → Fit**. Their values and unit edge step are preserved by default.
-Normalize offers E₀ and an optional **Refit pre/post-edge** action, which enables
+Recovered norm/flat component groups can continue through background removal
+and transforms in **Process**, then **Fit**. Their values and unit edge step are
+preserved by default. The Normalize section offers E₀ and an optional **Refit pre/post-edge** action, which enables
 the ordinary baseline and edge-step controls even for flattened input. The
 original recovered arrays remain stored, and disabling the option restores
 the default path. Residual groups remain
@@ -254,7 +254,8 @@ analysis APIs are not yet exposed by the Python or TypeScript bindings.
 
 [![A recovered MCR component processed through background subtraction and Fourier transformation in rexafs 0.2.11](/screenshots/0.2.11/mcr-component-fft.jpg)](/screenshots/0.2.11/mcr-component-fft.jpg)
 
-The component was added with **Add to Groups** and opened in **Transform**.
+The component was added with **Add to Groups** and opened in the 0.2.11
+**Transform** stage, now part of **Process**.
 The plots demonstrate subsequent processing over its retained coverage; they
 do not establish a physically unique component or validate a structural model.
 These captures were made through computer use from the signed 0.2.11 Mac app.

@@ -195,10 +195,10 @@ impl Draft {
         self.structural.validate()?;
         self.evolution_settings()?;
         if spectrum.k().is_none() || spectrum.chi().is_none() {
-            return Err("Prepare χ(k) in Background before starting RMC.".into());
+            return Err("Prepare χ(k) in Process › Background before starting RMC.".into());
         }
         let rbkg = crate::fitting::spectrum_rbkg(spectrum)
-            .ok_or("Prepare the spectrum with AUTOBK in Background first.")?;
+            .ok_or("Prepare the spectrum with AUTOBK in Process › Background first.")?;
         self.ranges.validate_background(rbkg)?;
         if !self.s02.is_finite() || self.s02 <= 0. {
             return Err("S₀² must be positive. Use an independently calibrated amplitude.".into());
@@ -255,7 +255,7 @@ impl Draft {
         let k = spectrum
             .k()
             .filter(|k| k.len() >= 2)
-            .ok_or("Prepare χ(k) in Background first.")?;
+            .ok_or("Prepare χ(k) in Process › Background first.")?;
         let transform = self.transform();
         let step = transform.kstep.unwrap_or(k[1] - k[0]);
         let lo = (transform.kmin - transform.dk / 2. - step).max(k[0]);
@@ -300,7 +300,7 @@ impl Draft {
     ) -> Result<(), String> {
         let k = spectrum
             .k()
-            .ok_or("Prepare the spectrum in Background first.")?;
+            .ok_or("Prepare the spectrum in Process › Background first.")?;
         let rbkg = crate::fitting::spectrum_rbkg(spectrum)
             .ok_or("The processed spectrum needs a saved AUTOBK Rbkg.")?;
         if k.len() < 2 || !rbkg.is_finite() {

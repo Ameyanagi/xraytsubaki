@@ -6,6 +6,13 @@ Status: **proposal, 2026-09-02** — awaiting review. Supersedes the shell/works
 parts of `gui-ux-design.md` (2026-06-10); the scaling/async principles of that
 document still apply and are not repeated here.
 
+Later change (issue #142, after 0.2.14): the separate Normalize, Background
+and Transform stages were merged into one **Process** stage, so the stage strip
+now reads `Data · Process · Fit · Series · Publish` (⌘1–⌘5). Process keeps the
+former stages' controls as collapsible Normalize, Background and Transform
+inspector sections and shows μ(E), normalized μ(E), kʷχ(k) and |χ(R)| as four
+linked plots. The stage list and shortcuts below are the original proposal.
+
 Interactive prototype (real Ru K-edge data from `Ru_QAS.dat`, draggable
 ranges, all six stages): see the "rexafs Studio" artifact linked from the
 session that produced this document.

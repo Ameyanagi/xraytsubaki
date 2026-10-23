@@ -214,7 +214,7 @@ impl StudioApp {
         &self,
         cx: &mut Context<Self>,
     ) -> Option<gpui::AnyElement> {
-        if !self.wavelet.colors_open || !self.wavelet.open || self.stage != Stage::Transform {
+        if !self.wavelet.colors_open || !self.wavelet.open || self.stage != Stage::Process {
             return None;
         }
         let focus = self.wavelet.menu_focus.as_ref()?;

@@ -717,7 +717,7 @@ mod tests {
         t.apply(
             Event::Receipt(Receipt::change(
                 "Cu",
-                super::super::Stage::Normalize,
+                super::super::Stage::Process,
                 vec!["E₀: Auto → 8979 eV".into()],
                 1,
             )),

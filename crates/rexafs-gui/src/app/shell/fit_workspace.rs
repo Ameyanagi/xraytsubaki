@@ -111,7 +111,7 @@ impl StudioApp {
             return Some("Load a spectrum to fit.");
         };
         if s.k().is_none() || s.chi().is_none() {
-            return Some("Prepare χ(k) in Background before fitting.");
+            return Some("Prepare χ(k) in Process › Background before fitting.");
         }
         if !self.fit_paths.iter().any(|p| p.spec.enabled) {
             return Some("Select at least one scattering path in Paths.");

@@ -196,9 +196,15 @@ history, additional analyses and the action journal. Imported comments and
 previous-conversation content are labelled as data. Verify the chosen phase,
 paths, ranges and scientific interpretation before relying on a fit.
 
-The Assistant follows the app's Data → Normalize → Background → Transform →
-Structure → Calculate → Paths → Model → Results workflow. Each assigned spectrum's
-current processing must be inspected before an Assistant fit can run. Plot access
+The Assistant follows the app's Data → Process → Structure → Calculate → Paths →
+Model → Results workflow. Each assigned spectrum's current processing must be
+inspected before an Assistant fit can run. In builds after 0.2.14, Process
+replaces the separate Normalize, Background and Transform stages: the stages
+that `xray_navigate` accepts are `data`, `process`, `fit`, `series` and
+`publish`, and one `xray_get_plots` inspection of Process satisfies both the
+pre-fit check and the LCF/PCA inspection check. Saved receipts that name
+`normalize`, `background` or `transform` open Process with the matching section
+expanded. Plot access
 lets the model assess the result; it does not certify scientific quality.
 
 Assistant processing edits target the current spectrum and are validated by

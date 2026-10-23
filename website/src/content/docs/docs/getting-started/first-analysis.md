@@ -26,8 +26,13 @@ measurement. The same workflow applies, but its measured arrays and fit results 
 
 ## 2. Inspect normalization
 
-Open **Normalize**. Inspect the estimated $E_0$ and the blue pre-edge and yellow
-post-edge fit windows. A blank numeric field means **Auto**; its placeholder shows
+Open **Process** (Cmd/Ctrl+2). Its four linked plots show measured μ(E),
+normalized μ(E), $k^w\chi(k)$ (χ(k) multiplied by $k$ to the power $w$) and
+the Fourier magnitude $|\chi(R)|$; they update together after every edit. On the μ(E) plots, inspect the estimated $E_0$ and the
+blue pre-edge and yellow post-edge fit windows; the **Normalize** section of the
+inspector holds their settings. In 0.2.14 and earlier, these steps use the
+separate **Normalize**, **Background** and **Transform** stages shown in the
+screenshots. A blank numeric field means **Auto**; its placeholder shows
 the current resolved value. Select **norm** for edge-step-normalized absorption,
 or **flat** to remove the fitted post-edge trend from that display.
 
@@ -41,18 +46,22 @@ $E_0$ is an estimate, not an energy calibration.
 
 ## 3. Extract EXAFS and transform it
 
-Open **Background**, select **χ(k)** and inspect the oscillations. The recommended
+Inspect the oscillations on the χ(k) plot; enlarge it with the button in its
+header, or double-click its title, and press Esc to return to the grid. The
+**Background** section holds the AUTOBK settings. The recommended
 AUTOBK cutoff is $R_\mathrm{bkg}=1$ Å; the background fit uses $k$ weight 1 by default.
 A higher cutoff can remove structural signal as well as background.
 
-Open **Transform**, then **k + R**. The default forward window is 2–15 Å⁻¹,
+The **Transform** section holds the forward Fourier transform settings, and its
+k window is drawn on the χ(k) plot. The default forward window is 2–15 Å⁻¹,
 with weight 2 and a Kaiser–Bessel window. Choose a useful upper limit for the
-signal-to-noise range of your actual spectrum; this example uses 12 Å⁻¹. The lower plot displays the
+signal-to-noise range of your actual spectrum; this example uses 12 Å⁻¹. The $|\chi(R)|$ plot displays the
 magnitude of the Fourier transform. Its peak locations are not phase corrected.
 
 [![Full transform window showing weighted EXAFS and Fourier magnitude together](/screenshots/0.2.11/transform.jpg)](/screenshots/0.2.11/transform.jpg)
 
-*The Cu spectrum in k and R, with forward-transform controls. rexafs 0.2.11, macOS.*
+*The Cu spectrum in k and R, with forward-transform controls, in the 0.2.11
+Transform stage. rexafs 0.2.11, macOS.*
 
 ## 4. Save and export
 

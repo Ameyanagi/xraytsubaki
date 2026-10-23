@@ -403,13 +403,13 @@ mod tests {
         );
         let r = Receipt::change(
             "/data/Cu.dat",
-            Stage::Normalize,
+            Stage::Process,
             vec!["E₀: Auto → 8979 eV".into()],
             1,
         );
         assert!(
             r.text()
-                .contains("Cu.dat · Normalize\nE₀: Auto → 8979 eV\nThis spectrum\nRecalculating…")
+                .contains("Cu.dat · Process\nE₀: Auto → 8979 eV\nThis spectrum\nRecalculating…")
         );
     }
     #[test]

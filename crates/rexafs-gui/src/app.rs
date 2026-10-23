@@ -465,6 +465,7 @@ actions!(
         FrameFirst,
         FrameLast,
         StageData,
+        StageProcess,
         StageNormalize,
         StageBackground,
         StageTransform,
@@ -569,13 +570,13 @@ pub fn studio_keybindings() -> Vec<KeyBinding> {
         KeyBinding::new("shift-right", FrameJumpFwd, Some("Operando && !TextInput")),
         KeyBinding::new("home", FrameFirst, Some("Operando && !TextInput")),
         KeyBinding::new("end", FrameLast, Some("Operando && !TextInput")),
+        // ⌘1…⌘5 follow `Stage::number`. StageNormalize, StageBackground and
+        // StageTransform stay unbound: they open a section of Process.
         KeyBinding::new("secondary-1", StageData, Some("Studio && !Assistant")),
-        KeyBinding::new("secondary-2", StageNormalize, Some("Studio && !Assistant")),
-        KeyBinding::new("secondary-3", StageBackground, Some("Studio && !Assistant")),
-        KeyBinding::new("secondary-4", StageTransform, Some("Studio && !Assistant")),
-        KeyBinding::new("secondary-5", StageFit, Some("Studio && !Assistant")),
-        KeyBinding::new("secondary-6", StageSeries, Some("Studio && !Assistant")),
-        KeyBinding::new("secondary-7", StagePublish, Some("Studio && !Assistant")),
+        KeyBinding::new("secondary-2", StageProcess, Some("Studio && !Assistant")),
+        KeyBinding::new("secondary-3", StageFit, Some("Studio && !Assistant")),
+        KeyBinding::new("secondary-4", StageSeries, Some("Studio && !Assistant")),
+        KeyBinding::new("secondary-5", StagePublish, Some("Studio && !Assistant")),
         KeyBinding::new(
             "secondary-b",
             ToggleDataPanel,
@@ -2721,9 +2722,55 @@ mod keybinding_tests {
     use gpui::{Action, KeyBinding, KeyContext};
 
     use super::{
-        ExploreEscape, FocusFilter, FrameFirst, FrameLast, StageData, StageSeries,
+        ExploreEscape, FocusFilter, FrameFirst, FrameLast, StageBackground, StageData, StageFit,
+        StageNormalize, StageProcess, StagePublish, StageSeries, StageTransform,
         ToggleContextPanel, ToggleDataPanel, studio_keybindings,
     };
+    use crate::app::shell::Stage;
+
+    #[test]
+    fn stage_shortcuts_follow_the_five_stage_numbers() {
+        let bindings = studio_keybindings();
+        let command = if cfg!(target_os = "macos") {
+            "cmd"
+        } else {
+            "ctrl"
+        };
+        let table = [
+            (binding::<StageData>(&bindings), Stage::Data),
+            (binding::<StageProcess>(&bindings), Stage::Process),
+            (binding::<StageFit>(&bindings), Stage::Fit),
+            (binding::<StageSeries>(&bindings), Stage::Series),
+            (binding::<StagePublish>(&bindings), Stage::Publish),
+        ];
+        assert_eq!(table.len(), Stage::ALL.len());
+        for (binding, stage) in table {
+            let key = gpui::Keystroke::parse(&format!("{command}-{}", stage.number())).unwrap();
+            assert_eq!(binding.match_keystrokes(&[key]), Some(false), "{stage:?}");
+            assert_eq!(stage.shortcut(), format!("⌘{}", stage.number()));
+        }
+        // ⌘6 and ⌘7 (formerly Series and Publish) are no longer bound, and
+        // the former processing stages are reached through Process.
+        for n in [6, 7] {
+            let key = gpui::Keystroke::parse(&format!("{command}-{n}")).unwrap();
+            assert!(
+                bindings
+                    .iter()
+                    .all(|b| b.match_keystrokes(std::slice::from_ref(&key)).is_none())
+            );
+        }
+        for action in [
+            gpui::Action::boxed_clone(&StageNormalize),
+            gpui::Action::boxed_clone(&StageBackground),
+            gpui::Action::boxed_clone(&StageTransform),
+        ] {
+            assert!(
+                bindings
+                    .iter()
+                    .all(|b| !b.action().partial_eq(action.as_ref()))
+            );
+        }
+    }
 
     fn binding<A: Action + 'static>(bindings: &[KeyBinding]) -> &KeyBinding {
         bindings
@@ -3274,16 +3321,11 @@ impl StudioApp {
         let params = PipelineParams::default();
         let param_fields = Self::build_param_fields(theme, cx);
         // Scripted launches (screenshots) can pick the initial stage.
-        let initial_stage = match crate::settings::env_var("STAGE").ok().as_deref() {
-            Some("data") => Stage::Data,
-            Some("normalize") => Stage::Normalize,
-            Some("background") => Stage::Background,
-            Some("transform") => Stage::Transform,
-            Some("fit") => Stage::Fit,
-            Some("series") => Stage::Series,
-            Some("publish") => Stage::Publish,
-            _ => Stage::Data,
-        };
+        // The former stage names (normalize, background, transform) open Process.
+        let initial_stage = crate::settings::env_var("STAGE")
+            .ok()
+            .and_then(|name| Stage::parse(&name))
+            .map_or(Stage::Data, |(stage, _)| stage);
 
         let structure = shell::structure_view::StructureState::new(theme, cx);
         let mut app = Self {
@@ -3811,12 +3853,13 @@ impl StudioApp {
     /// Chip action: copy the global section back over the override,
     /// dropping the override entirely once nothing diverges anymore.
     fn reset_section_override(&mut self, section: ParamSection, cx: &mut Context<Self>) {
-        let scope = shell::parameter_actions::ParamScope::Stage(match section {
-            ParamSection::Import => Stage::Data,
-            ParamSection::Norm => Stage::Normalize,
-            ParamSection::Bkg => Stage::Background,
-            ParamSection::Fft => Stage::Transform,
-        });
+        use shell::{ProcessSection, parameter_actions::ParamScope};
+        let scope = match section {
+            ParamSection::Import => ParamScope::Stage(Stage::Data),
+            ParamSection::Norm => ParamScope::Process(ProcessSection::Normalize),
+            ParamSection::Bkg => ParamScope::Process(ProcessSection::Background),
+            ParamSection::Fft => ParamScope::Process(ProcessSection::Transform),
+        };
         self.reset_scope(scope, cx);
     }
 
@@ -6313,7 +6356,7 @@ impl StudioApp {
             self.stage_view.show_re
         };
         self.view.show_im = self.stage == Stage::Fit && self.stage_view.fit_show_im;
-        self.view.show_bkg = self.stage_view.show_bkg && self.stage == Stage::Background;
+        self.view.show_bkg = self.stage_view.show_bkg && self.stage == Stage::Process;
         let (indices, total) = self.compare_indices();
         let mut traces: Vec<QuadTrace> = Vec::new();
 
@@ -6460,7 +6503,7 @@ impl StudioApp {
         }
         self.plot_coverage =
             std::array::from_fn(|i| specs[i].coverage(total, sampled, traces.len()));
-        if self.stage == Stage::Background
+        if self.stage == Stage::Process
             && let Some((_, hi)) = self
                 .spectrum
                 .as_ref()
@@ -8631,7 +8674,7 @@ impl StudioApp {
         };
         self.select_entry(ix, cx);
         self.sync_param_fields(cx);
-        self.set_stage(shell::Stage::Normalize, cx);
+        self.focus_process_section(shell::ProcessSection::Normalize, cx);
     }
 
     fn cancel_batch_fit(&mut self, cx: &mut Context<Self>) {
@@ -10682,18 +10725,26 @@ impl Render for StudioApp {
                     this.navigate_stage(Stage::Data, window, cx);
                 }))
                 .on_action(
+                    cx.listener(|this: &mut Self, _: &StageProcess, window, cx| {
+                        this.navigate_stage(Stage::Process, window, cx);
+                    }),
+                )
+                .on_action(
                     cx.listener(|this: &mut Self, _: &StageNormalize, window, cx| {
-                        this.navigate_stage(Stage::Normalize, window, cx);
+                        let section = shell::ProcessSection::Normalize;
+                        this.navigate_process_section(section, window, cx);
                     }),
                 )
                 .on_action(
                     cx.listener(|this: &mut Self, _: &StageBackground, window, cx| {
-                        this.navigate_stage(Stage::Background, window, cx);
+                        let section = shell::ProcessSection::Background;
+                        this.navigate_process_section(section, window, cx);
                     }),
                 )
                 .on_action(
                     cx.listener(|this: &mut Self, _: &StageTransform, window, cx| {
-                        this.navigate_stage(Stage::Transform, window, cx);
+                        let section = shell::ProcessSection::Transform;
+                        this.navigate_process_section(section, window, cx);
                     }),
                 )
                 .on_action(cx.listener(|this: &mut Self, _: &StageFit, window, cx| {

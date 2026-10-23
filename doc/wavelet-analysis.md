@@ -116,6 +116,11 @@ no separate Python or JavaScript numerical algorithm is introduced.
 
 ## Desktop workflow (0.2.10)
 
+*Builds after 0.2.14:* Transform is a section of the **Process** stage. Its view
+selector offers **Linked plots**, **χ(q)** and **Wavelet**; **Wavelet settings**
+sits in the Transform section of the inspector. The rest of this section
+describes the 0.2.10 layout.
+
 Select a spectrum, then **Transform → Wavelet** in the shared
 **k · R · k + R · q · Wavelet** view selector. The selector stays visible in
 every Transform view. In Wavelet, choose **Magnitude**, **Real**, **Imaginary** or

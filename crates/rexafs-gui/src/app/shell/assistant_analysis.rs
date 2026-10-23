@@ -108,23 +108,12 @@ impl StudioApp {
         }
         for &ix in references.iter().chain(std::iter::once(&target)) {
             let operand = self.tool_target(ix).ok_or("Group is unavailable")?;
-            let stages = if space == LcfSpaceChoice::Chi {
-                &[super::Stage::Normalize, super::Stage::Background][..]
-            } else {
-                &[super::Stage::Normalize][..]
-            };
-            if !stages
-                .iter()
-                .all(|stage| inspected.contains(&(operand.clone(), *stage)))
-            {
+            // Process shows normalized μ(E) and χ(k) together, so one
+            // inspection covers both energy-space and χ analyses.
+            if !inspected.contains(&(operand.clone(), super::Stage::Process)) {
                 return Err(format!(
-                    "Navigate to {} and call xray_get_plots in Normalize{} before analysis",
-                    operand.label,
-                    if space == LcfSpaceChoice::Chi {
-                        " and Background"
-                    } else {
-                        ""
-                    }
+                    "Navigate to {} and call xray_get_plots in Process before analysis",
+                    operand.label
                 ));
             }
             if self

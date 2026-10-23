@@ -124,7 +124,7 @@ impl StudioApp {
                         false,
                     ),
                     &t,
-                    "Save one .zip for journal supporting information: the report and figures, spectra and fit curves as CSV, the project file, fit parameter tables and a SHA-256 checksum manifest.",
+                    "Save one .zip for journal supporting information: the report and figures, spectra and fit curves as CSV, a self-contained project file (raw data embedded), fit parameter tables and a SHA-256 checksum manifest.",
                 ),
                 ready,
             )

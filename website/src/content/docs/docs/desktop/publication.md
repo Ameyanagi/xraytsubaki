@@ -187,8 +187,14 @@ journal's supporting information. It contains the complete analysis folder of
   unpacked folder, `shasum -a 256 -c manifest-sha256.txt` (macOS) or
   `sha256sum -c manifest-sha256.txt` (Linux) verifies that no file changed.
 
-Select **Raw: embedded** before exporting if the project file must contain the
-original spectra. The archive is written next to its destination and moved into
+The bundled `project.rxs` is always self-contained: it embeds the original
+spectra and referenced FEFF inputs with their SHA-256 checksums, as
+**Raw: embedded** does, even when the open project links to its sources by
+path (the open project and **Publish report…** keep their own setting). The
+archive therefore opens in rexafs on another computer without the source
+folders. If a source file cannot be read, or the embedded inputs would exceed
+the 1 GiB limit, the export stops with an error instead of writing a project
+with broken links. The archive is written next to its destination and moved into
 place only when complete. See the
 [bundle exporter](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/supporting.rs).
 

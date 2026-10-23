@@ -162,7 +162,8 @@ buttons or **Left/Right** browse frames without changing the series membership.
 Click the preview to use the keys; while editing a field they move its text cursor.
 **Shift+Left/Right** moves about 1% of the series, and **Home/End** selects its
 first/last frame. The metric and range remain unchanged. Drag a boundary
-line or its tab above the plot, as in Normalize and Transform. Point measurements
+line or its tab above the plot, as on the Process plots (the Normalize and
+Transform stages in 0.2.14 and earlier). Point measurements
 have one handle; intervals have two. The fields retain the selected origin,
 including offsets from each frame’s E₀. Handles stop at the measured endpoints
 and cannot cross. Historical result previews retain their saved ranges.

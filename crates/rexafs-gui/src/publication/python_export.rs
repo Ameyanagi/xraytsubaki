@@ -430,6 +430,7 @@ mod tests {
                 },
             ],
             normalized_series: None,
+            residual: None,
             guides: vec![1.5],
             default_xlim: Some((0., 2.)),
         }

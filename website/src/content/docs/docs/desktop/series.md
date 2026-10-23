@@ -73,10 +73,11 @@ physical time trend. [Input and capture provenance](/licenses/#desktop-0214-rele
 
 ## Measure a wavelet region
 
-Set up the map in [**Transform → Wavelet**](/docs/desktop/processing/#forward-transform),
+Set up the map in [**Process → Wavelet**](/docs/desktop/processing/#forward-transform)
+(**Transform → Wavelet** in 0.2.14 and earlier),
 then open **Series → Add trend… → Wavelet**. Choose **Use Transform settings**
-to copy that setup. Select **Integral**, **Maximum** or **Mean**, then drag the
-k–R rectangle or enter its four bounds. k is in Å⁻¹ and R is in Å.
+to copy that setup from the Transform section. Select **Integral**, **Maximum**
+or **Mean**, then drag the k–R rectangle or enter its four bounds. k is in Å⁻¹ and R is in Å.
 
 [![Series wavelet integral with a selected k–R rectangle and Calculate all frames](/screenshots/0.2.11/series-wavelet.jpg)](/screenshots/0.2.11/series-wavelet.jpg)
 

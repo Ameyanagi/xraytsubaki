@@ -84,7 +84,7 @@ The default Rust backend, desktop, Python and JavaScript retain **Input grid**.
 It weights and windows the supplied k samples without resampling. Projects and
 serialized FFT settings that omit the new field retain this behavior.
 
-Choose **Transform → Advanced → sampling grid → Larch grid** for the extended
+Choose **Process › Transform → Advanced → sampling grid → Larch grid** for the extended
 window domain used by XrayLarch. Equivalent API settings are:
 
 ```python

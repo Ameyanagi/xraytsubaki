@@ -6,6 +6,9 @@ downloads and inactive updater app copies, and shows their combined logical file
 size before deletion. Filesystem compression or shared blocks can make the actual
 change in free disk space different from the displayed size.
 
+**Unreleased (source builds after 0.2.14):** **About rexafs** opens an About
+panel instead of the Help menu, so use Help → Storage or the command palette.
+
 **Open storage folder** opens the hidden `~/.rexafs` directory in the system file
 manager. **Open installer downloads** opens its `updates` folder. On macOS, the
 view also provides buttons for retained `.rexafs-update-*` transaction folders

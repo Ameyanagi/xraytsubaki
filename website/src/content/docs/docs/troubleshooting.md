@@ -11,7 +11,7 @@ see the [glossary](/docs/concepts/).
 |---|---|
 | Import remains pending | Select the main signal, assign columns, confirm axis units and revalidate. |
 | The imported point count is smaller than the file | Inspect parser diagnostics for skipped rows and excluded non-finite detector calculations; review the source-line examples before accepting the import. |
-| Normalize reports an inverse-transform error | The desktop computes the full pipeline, including back FT. Inspect the collapsed Back FT settings or reset the Transform stage. |
+| Normalization reports an inverse-transform error | The desktop computes the full pipeline, including back FT. In **Process › Transform**, inspect the collapsed Back FT settings or reset that section from its **…** menu (reset the Transform stage in 0.2.14 and earlier). |
 | Apply to marked affects fewer groups than expected | The current group and processing-locked groups are excluded. Hidden marks can still be selected; review the marked count. |
 | A Series trend misses a brief feature | The overview is sampled to at most 192 frames. Inspect individual frames or calculate the batch/LCF trend for All frames. |
 | The edge is at the wrong energy | Check eV versus keV and calibration; an automatic edge estimate is not a reference calibration. |

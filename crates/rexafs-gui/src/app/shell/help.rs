@@ -2,6 +2,7 @@
 use super::button;
 use crate::{app::StudioApp, licenses};
 use gpui::{Context, FocusHandle, IntoElement, MouseButton, SharedString, div, prelude::*, px};
+mod app_info;
 mod storage;
 
 #[derive(Default)]
@@ -11,6 +12,7 @@ pub(crate) struct HelpState {
     focus: Option<FocusHandle>,
     return_focus: Option<FocusHandle>,
     storage: Option<storage::StorageView>,
+    info: Option<app_info::InfoPanel>,
     storage_generation: u64,
 }
 
@@ -23,7 +25,7 @@ struct LicenseReader {
 
 impl HelpState {
     pub(crate) fn is_open(&self) -> bool {
-        self.menu || self.reader.is_some() || self.storage.is_some()
+        self.menu || self.reader.is_some() || self.storage.is_some() || self.info.is_some()
     }
 }
 
@@ -60,6 +62,7 @@ impl StudioApp {
         self.help.menu = false;
         self.help.reader = None;
         self.help.storage = None;
+        self.help.info = None;
         let focus = self
             .help
             .return_focus
@@ -127,6 +130,7 @@ impl StudioApp {
         let documents = licenses::documents();
         let text = documents[0].read().unwrap_or_else(|error| error).into();
         self.help.menu = false;
+        self.help.info = None;
         self.help.reader = Some(LicenseReader {
             documents,
             selected: 0,
@@ -145,6 +149,8 @@ impl StudioApp {
             div().id("help-overlay"),
             if self.help.storage.is_some() {
                 "Storage"
+            } else if let Some(info) = self.help.info {
+                info.title()
             } else {
                 "Help"
             },
@@ -176,6 +182,18 @@ impl StudioApp {
                     .justify_center()
                     .bg(gpui::rgba(0x00000099))
                     .child(self.storage_panel(cx))
+                    .into_any_element(),
+            );
+        }
+        if let Some(info) = self.help.info {
+            return Some(
+                overlay
+                    .flex()
+                    .p_4()
+                    .items_center()
+                    .justify_center()
+                    .bg(gpui::rgba(0x00000099))
+                    .child(self.info_panel(info, cx))
                     .into_any_element(),
             );
         }

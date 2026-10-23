@@ -465,6 +465,7 @@ actions!(
         FrameFirst,
         FrameLast,
         StageData,
+        StageProcess,
         StageNormalize,
         StageBackground,
         StageTransform,
@@ -472,6 +473,8 @@ actions!(
         StageSeries,
         StagePublish,
         ShowHelp,
+        ShowAbout,
+        ShowPreferences,
         ShowLicenses,
         ShowStorage,
         ShowUpdates,
@@ -567,13 +570,13 @@ pub fn studio_keybindings() -> Vec<KeyBinding> {
         KeyBinding::new("shift-right", FrameJumpFwd, Some("Operando && !TextInput")),
         KeyBinding::new("home", FrameFirst, Some("Operando && !TextInput")),
         KeyBinding::new("end", FrameLast, Some("Operando && !TextInput")),
+        // ⌘1…⌘5 follow `Stage::number`. StageNormalize, StageBackground and
+        // StageTransform stay unbound: they open a section of Process.
         KeyBinding::new("secondary-1", StageData, Some("Studio && !Assistant")),
-        KeyBinding::new("secondary-2", StageNormalize, Some("Studio && !Assistant")),
-        KeyBinding::new("secondary-3", StageBackground, Some("Studio && !Assistant")),
-        KeyBinding::new("secondary-4", StageTransform, Some("Studio && !Assistant")),
-        KeyBinding::new("secondary-5", StageFit, Some("Studio && !Assistant")),
-        KeyBinding::new("secondary-6", StageSeries, Some("Studio && !Assistant")),
-        KeyBinding::new("secondary-7", StagePublish, Some("Studio && !Assistant")),
+        KeyBinding::new("secondary-2", StageProcess, Some("Studio && !Assistant")),
+        KeyBinding::new("secondary-3", StageFit, Some("Studio && !Assistant")),
+        KeyBinding::new("secondary-4", StageSeries, Some("Studio && !Assistant")),
+        KeyBinding::new("secondary-5", StagePublish, Some("Studio && !Assistant")),
         KeyBinding::new(
             "secondary-b",
             ToggleDataPanel,
@@ -595,6 +598,8 @@ pub fn studio_keybindings() -> Vec<KeyBinding> {
             Some("Explore && !TextInput && !Assistant"),
         ),
         KeyBinding::new("secondary-k", PaletteOpen, Some("Studio && !Assistant")),
+        // macOS Settings… convention (Cmd+,); Ctrl+, on other platforms.
+        KeyBinding::new("secondary-,", ShowPreferences, Some("Studio && !Assistant")),
         KeyBinding::new("escape", PaletteClose, Some("Palette")),
         KeyBinding::new(
             "secondary-z",
@@ -873,8 +878,9 @@ fn push_problem(problems: &mut Vec<JobError>, problem: JobError) {
 /// Prefix of the one Problems-drawer warning per group about limited ranges.
 const RANGE_WARNING_PREFIX: &str = "Ranges limited to the measured data";
 
-/// Prefix of the one Problems-drawer warning per group about a collapsed edge step.
-const EDGE_STEP_WARNING_PREFIX: &str = "Normalization degenerate";
+/// Prefix of the one Problems-drawer warning per group about an untrustworthy
+/// normalization: a short or narrow post-edge fit, or a tiny or negative edge step.
+const EDGE_STEP_WARNING_PREFIX: &str = "Normalization unreliable";
 /// Prefix of the one Problems-drawer error per group about a failed wavelet map.
 const WAVELET_PROBLEM_PREFIX: &str = "Wavelet map failed";
 /// Prefix of the one Problems-drawer entry per group from a XANES peak fit.
@@ -903,22 +909,37 @@ fn replace_problem(
     }
 }
 
-/// Warning for a collapsed pre-/post-edge normalization, or `None`.
+/// Problems-drawer warning for an untrustworthy normalization, or `None`.
 ///
-/// The edge step is the post-edge line minus the pre-edge line at E₀, in μ
-/// units. When the two lines meet or cross at E₀ (E₀ off the edge, or fit
-/// ranges outside the data), rexafs floors the automatic step at 1e-12 to
-/// avoid dividing by zero, so normalized μ(E) and χ(k) are scaled by ~10¹²
-/// and meaningless. A rexafs-specific heuristic flags any non-finite step or
-/// one below a millionth of the measured μ span (`mu_span`, max − min).
-fn edge_step_warning(edge_step: Option<f64>, mu_span: f64) -> Option<String> {
-    let step = edge_step?;
-    (!step.is_finite() || (mu_span.is_finite() && step <= 1e-6 * mu_span)).then(|| {
+/// `warnings` come from `Spectrum::normalization_warnings` in the core crate:
+/// a post-edge fit with fewer than five points (Larch's limit) or narrower than
+/// 20 eV, or an edge step that is non-finite, non-positive or below 10⁻³ of the
+/// μ span. The edge step is the post-edge curve minus the pre-edge line at E₀;
+/// a non-positive one is floored at 1e-12, which scales normalized μ(E), χ(k)
+/// and χ(R) by up to ~10¹². The core reports these; it never changes settings.
+fn normalization_warning(warnings: &[rexafs::NormalizationWarning]) -> Option<String> {
+    (!warnings.is_empty()).then(|| {
         format!(
-            "{EDGE_STEP_WARNING_PREFIX}: edge step ≈ 0. Check E₀ and the pre-edge and \
-             normalization ranges."
+            "{EDGE_STEP_WARNING_PREFIX}: {}. Widen the post-edge (normalization) range \
+             and check E₀ and the pre-edge range.",
+            normalization_reasons(warnings)
         )
     })
+}
+
+/// Amber note under the post-edge fit minimum for the same warnings, or `None`.
+fn normalization_note(warnings: &[rexafs::NormalizationWarning]) -> Option<String> {
+    (!warnings.is_empty()).then(|| {
+        format!(
+            "{EDGE_STEP_WARNING_PREFIX}: {}",
+            normalization_reasons(warnings)
+        )
+    })
+}
+
+fn normalization_reasons(warnings: &[rexafs::NormalizationWarning]) -> String {
+    let reasons: Vec<String> = warnings.iter().map(ToString::to_string).collect();
+    reasons.join("; ")
 }
 
 /// Context-panel field, label and unit for a core range adjustment.
@@ -2601,23 +2622,33 @@ fn filter_match_lower(name: &str, pattern: &str) -> bool {
 mod range_warning_tests {
     use super::{
         EDGE_STEP_WARNING_PREFIX, JobError, ProblemSeverity, RANGE_WARNING_PREFIX,
-        edge_step_warning, range_warning, replace_problem,
+        normalization_note, normalization_warning, range_warning, replace_problem,
     };
-    use rexafs::RangeAdjustment;
+    use rexafs::{NormalizationWarning, RangeAdjustment};
 
     #[test]
-    fn collapsed_edge_steps_warn_and_real_steps_do_not() {
-        // Core floor for an automatic step whose lines meet at E₀.
-        assert!(
-            edge_step_warning(Some(1e-12), 2.0)
-                .unwrap()
-                .starts_with(EDGE_STEP_WARNING_PREFIX)
+    fn normalization_warnings_join_into_one_problem_and_one_note() {
+        assert_eq!(normalization_warning(&[]), None);
+        assert_eq!(normalization_note(&[]), None);
+        let warnings = [
+            NormalizationWarning::NarrowPostEdge { span: 7.94 },
+            NormalizationWarning::SmallEdgeStep {
+                edge_step: -8.128,
+                mu_span: 2.65,
+            },
+        ];
+        assert_eq!(
+            normalization_warning(&warnings).unwrap(),
+            format!(
+                "{EDGE_STEP_WARNING_PREFIX}: post-edge fit spans only 7.9 eV (at least 20 eV \
+                 needed); edge step is negative (-8.128). Widen the post-edge (normalization) \
+                 range and check E₀ and the pre-edge range."
+            )
         );
-        assert!(edge_step_warning(Some(f64::NAN), 2.0).is_some());
-        assert_eq!(edge_step_warning(Some(0.8), 2.0), None);
-        // Recovered/normalized input keeps its unit step.
-        assert_eq!(edge_step_warning(Some(1.0), 1.2), None);
-        assert_eq!(edge_step_warning(None, 2.0), None);
+        assert_eq!(
+            normalization_note(&warnings[1..]).unwrap(),
+            "Normalization unreliable: edge step is negative (-8.128)"
+        );
     }
 
     #[test]
@@ -2691,9 +2722,55 @@ mod keybinding_tests {
     use gpui::{Action, KeyBinding, KeyContext};
 
     use super::{
-        ExploreEscape, FocusFilter, FrameFirst, FrameLast, StageData, StageSeries,
+        ExploreEscape, FocusFilter, FrameFirst, FrameLast, StageBackground, StageData, StageFit,
+        StageNormalize, StageProcess, StagePublish, StageSeries, StageTransform,
         ToggleContextPanel, ToggleDataPanel, studio_keybindings,
     };
+    use crate::app::shell::Stage;
+
+    #[test]
+    fn stage_shortcuts_follow_the_five_stage_numbers() {
+        let bindings = studio_keybindings();
+        let command = if cfg!(target_os = "macos") {
+            "cmd"
+        } else {
+            "ctrl"
+        };
+        let table = [
+            (binding::<StageData>(&bindings), Stage::Data),
+            (binding::<StageProcess>(&bindings), Stage::Process),
+            (binding::<StageFit>(&bindings), Stage::Fit),
+            (binding::<StageSeries>(&bindings), Stage::Series),
+            (binding::<StagePublish>(&bindings), Stage::Publish),
+        ];
+        assert_eq!(table.len(), Stage::ALL.len());
+        for (binding, stage) in table {
+            let key = gpui::Keystroke::parse(&format!("{command}-{}", stage.number())).unwrap();
+            assert_eq!(binding.match_keystrokes(&[key]), Some(false), "{stage:?}");
+            assert_eq!(stage.shortcut(), format!("⌘{}", stage.number()));
+        }
+        // ⌘6 and ⌘7 (formerly Series and Publish) are no longer bound, and
+        // the former processing stages are reached through Process.
+        for n in [6, 7] {
+            let key = gpui::Keystroke::parse(&format!("{command}-{n}")).unwrap();
+            assert!(
+                bindings
+                    .iter()
+                    .all(|b| b.match_keystrokes(std::slice::from_ref(&key)).is_none())
+            );
+        }
+        for action in [
+            gpui::Action::boxed_clone(&StageNormalize),
+            gpui::Action::boxed_clone(&StageBackground),
+            gpui::Action::boxed_clone(&StageTransform),
+        ] {
+            assert!(
+                bindings
+                    .iter()
+                    .all(|b| !b.action().partial_eq(action.as_ref()))
+            );
+        }
+    }
 
     fn binding<A: Action + 'static>(bindings: &[KeyBinding]) -> &KeyBinding {
         bindings
@@ -3244,16 +3321,11 @@ impl StudioApp {
         let params = PipelineParams::default();
         let param_fields = Self::build_param_fields(theme, cx);
         // Scripted launches (screenshots) can pick the initial stage.
-        let initial_stage = match crate::settings::env_var("STAGE").ok().as_deref() {
-            Some("data") => Stage::Data,
-            Some("normalize") => Stage::Normalize,
-            Some("background") => Stage::Background,
-            Some("transform") => Stage::Transform,
-            Some("fit") => Stage::Fit,
-            Some("series") => Stage::Series,
-            Some("publish") => Stage::Publish,
-            _ => Stage::Data,
-        };
+        // The former stage names (normalize, background, transform) open Process.
+        let initial_stage = crate::settings::env_var("STAGE")
+            .ok()
+            .and_then(|name| Stage::parse(&name))
+            .map_or(Stage::Data, |(stage, _)| stage);
 
         let structure = shell::structure_view::StructureState::new(theme, cx);
         let mut app = Self {
@@ -3781,12 +3853,13 @@ impl StudioApp {
     /// Chip action: copy the global section back over the override,
     /// dropping the override entirely once nothing diverges anymore.
     fn reset_section_override(&mut self, section: ParamSection, cx: &mut Context<Self>) {
-        let scope = shell::parameter_actions::ParamScope::Stage(match section {
-            ParamSection::Import => Stage::Data,
-            ParamSection::Norm => Stage::Normalize,
-            ParamSection::Bkg => Stage::Background,
-            ParamSection::Fft => Stage::Transform,
-        });
+        use shell::{ProcessSection, parameter_actions::ParamScope};
+        let scope = match section {
+            ParamSection::Import => ParamScope::Stage(Stage::Data),
+            ParamSection::Norm => ParamScope::Process(ProcessSection::Normalize),
+            ParamSection::Bkg => ParamScope::Process(ProcessSection::Background),
+            ParamSection::Fft => ParamScope::Process(ProcessSection::Transform),
+        };
         self.reset_scope(scope, cx);
     }
 
@@ -5203,7 +5276,8 @@ impl StudioApp {
     /// Mark range fields that processing limited to this scan's data: explicit
     /// values get an amber note and one Problems warning for the group; automatic
     /// values show the used value in their placeholder. Settings are unchanged.
-    /// A collapsed edge step adds its own Problems warning for the group.
+    /// An untrustworthy normalization (core `normalization_warnings`) adds an
+    /// amber note under the post-edge fit minimum and its own Problems warning.
     fn show_range_adjustments(&mut self, ix: usize, sp: &XASSpectrum, cx: &mut Context<Self>) {
         let adjustments = if self.effective_params(ix).mback.is_some() {
             Vec::new()
@@ -5211,19 +5285,29 @@ impl StudioApp {
             sp.range_adjustments()
         };
         let params = self.effective_params(ix).clone();
+        let warnings = sp.normalization_warnings();
         let mut explicit = Vec::new();
         for (key, field) in &self.param_fields {
             let adjustment = adjustments
                 .iter()
                 .find(|a| range_adjustment_field(a.field).is_some_and(|(k, ..)| k == *key));
             let user_set = param_field_value(*key, &params).is_some();
-            let note = adjustment.filter(|_| user_set).map(|a| {
+            let range_note = adjustment.filter(|_| user_set).map(|a| {
                 let unit = range_adjustment_field(a.field).map_or("", |(.., unit)| unit);
-                SharedString::from(format!(
+                format!(
                     "Used {}: limited by the measured data",
                     range_used_text(a, unit)
-                ))
+                )
             });
+            // The post-edge fit minimum also carries the normalization warning.
+            let warning_note = (*key == ParamKey::NormStart)
+                .then(|| normalization_note(&warnings))
+                .flatten();
+            let note = match (range_note, warning_note) {
+                (Some(a), Some(b)) => Some(format!("{a}. {b}")),
+                (a, b) => a.or(b),
+            }
+            .map(SharedString::from);
             if let Some(a) = adjustment {
                 if user_set {
                     explicit.push(*a);
@@ -5245,13 +5329,11 @@ impl StudioApp {
             RANGE_WARNING_PREFIX,
             range_warning(&explicit).map(|m| (ProblemSeverity::Warning, m)),
         );
-        let mu_span = sp.mu.as_ref().map_or(f64::NAN, |mu| mu.max() - mu.min());
-        let edge_step = sp.normalization.as_ref().and_then(|n| n.get_edge_step());
         replace_problem(
             &mut self.job_errors,
             &label,
             EDGE_STEP_WARNING_PREFIX,
-            edge_step_warning(edge_step, mu_span).map(|m| (ProblemSeverity::Warning, m)),
+            normalization_warning(&warnings).map(|m| (ProblemSeverity::Warning, m)),
         );
     }
 
@@ -6274,7 +6356,7 @@ impl StudioApp {
             self.stage_view.show_re
         };
         self.view.show_im = self.stage == Stage::Fit && self.stage_view.fit_show_im;
-        self.view.show_bkg = self.stage_view.show_bkg && self.stage == Stage::Background;
+        self.view.show_bkg = self.stage_view.show_bkg && self.stage == Stage::Process;
         let (indices, total) = self.compare_indices();
         let mut traces: Vec<QuadTrace> = Vec::new();
 
@@ -6421,7 +6503,7 @@ impl StudioApp {
         }
         self.plot_coverage =
             std::array::from_fn(|i| specs[i].coverage(total, sampled, traces.len()));
-        if self.stage == Stage::Background
+        if self.stage == Stage::Process
             && let Some((_, hi)) = self
                 .spectrum
                 .as_ref()
@@ -8592,7 +8674,7 @@ impl StudioApp {
         };
         self.select_entry(ix, cx);
         self.sync_param_fields(cx);
-        self.set_stage(shell::Stage::Normalize, cx);
+        self.focus_process_section(shell::ProcessSection::Normalize, cx);
     }
 
     fn cancel_batch_fit(&mut self, cx: &mut Context<Self>) {
@@ -10621,6 +10703,10 @@ impl Render for StudioApp {
                     this.navigate_stage(Stage::Publish, window, cx)
                 }))
                 .on_action(cx.listener(|this, _: &ShowHelp, _, cx| this.open_help(cx)))
+                .on_action(cx.listener(|this, _: &ShowAbout, _, cx| this.open_about(cx)))
+                .on_action(
+                    cx.listener(|this, _: &ShowPreferences, _, cx| this.open_preferences(cx)),
+                )
                 .on_action(cx.listener(|this, _: &ShowLicenses, _, cx| this.open_licenses(cx)))
                 .on_action(cx.listener(|this, _: &ShowStorage, _, cx| this.open_storage(cx)))
                 .on_action(cx.listener(|this, _: &ShowUpdates, _, cx| this.open_updates(cx)))
@@ -10639,18 +10725,26 @@ impl Render for StudioApp {
                     this.navigate_stage(Stage::Data, window, cx);
                 }))
                 .on_action(
+                    cx.listener(|this: &mut Self, _: &StageProcess, window, cx| {
+                        this.navigate_stage(Stage::Process, window, cx);
+                    }),
+                )
+                .on_action(
                     cx.listener(|this: &mut Self, _: &StageNormalize, window, cx| {
-                        this.navigate_stage(Stage::Normalize, window, cx);
+                        let section = shell::ProcessSection::Normalize;
+                        this.navigate_process_section(section, window, cx);
                     }),
                 )
                 .on_action(
                     cx.listener(|this: &mut Self, _: &StageBackground, window, cx| {
-                        this.navigate_stage(Stage::Background, window, cx);
+                        let section = shell::ProcessSection::Background;
+                        this.navigate_process_section(section, window, cx);
                     }),
                 )
                 .on_action(
                     cx.listener(|this: &mut Self, _: &StageTransform, window, cx| {
-                        this.navigate_stage(Stage::Transform, window, cx);
+                        let section = shell::ProcessSection::Transform;
+                        this.navigate_process_section(section, window, cx);
                     }),
                 )
                 .on_action(cx.listener(|this: &mut Self, _: &StageFit, window, cx| {

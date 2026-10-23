@@ -223,6 +223,18 @@
     ]
   },
   {
+    "url": "https://github.com/xraypy/xraylarch/blob/247278cefbb16eda04c91f79fc1b43df000fa498/larch/xafs/pre_edge.py#L297-L301",
+    "sources": [
+      "crates/rexafs/src/xafs/normalization_checks.rs"
+    ]
+  },
+  {
+    "url": "https://github.com/xraypy/xraylarch/blob/247278cefbb16eda04c91f79fc1b43df000fa498/larch/xafs/pre_edge.py#L313",
+    "sources": [
+      "crates/rexafs/src/xafs/normalization_checks.rs"
+    ]
+  },
+  {
     "url": "https://github.com/xraypy/xraylarch/blob/860d8a690c81eefb0e61dee4ca3703ef4b67e93d/larch/xafs/xafsft.py#L41",
     "sources": [
       "crates/rexafs/src/xafs/xafsutils.rs",

@@ -287,7 +287,8 @@ checkpoint, initial/best XYZ, configuration JSON preserving periodic cells,
 experimental/initial/best k and R CSV files, convergence settings/report and a
 Markdown summary. Ordinary XYZ alone does not preserve a periodic cell.
 
-Wavelet display is under **Transform → Wavelet**. After integration with the
+Wavelet display is under **Process → Wavelet** (**Transform → Wavelet** in
+0.2.14 and earlier). After integration with the
 current `dev` branch, the desktop uses its retained Cauchy-wavelet workspace,
 including linked plots, region measurements and saved map history; see
 [Wavelet analysis](wavelet-analysis.md). This display does not change the RMC

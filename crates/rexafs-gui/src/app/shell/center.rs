@@ -1,13 +1,17 @@
-//! Center for the four processing stages: a plot bar, the stage's main
-//! plot(s) with drag handles, the shared legend strip, and the four-thumbnail
-//! ripple strip.
+//! Center for the Data and Process stages: a plot bar, the stage's main
+//! plot(s) with drag handles, the shared legend strip, and (in Data) the
+//! four-thumbnail ripple strip.
+//!
+//! Process shows four linked plots in a 2 × 2 grid — μ(E), normalized μ(E),
+//! kʷχ(k) and |χ(R)| — built from the same processing result, so one edit
+//! updates all of them. Any plot can be enlarged and restored.
 
 use gpui::{
     ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, div, prelude::*, px,
 };
 
 use super::{
-    BkgView, EQuantity, MONO, PlotScope, Stage, StageStatus, TfView, chip, segment, segmented,
+    EQuantity, MONO, PlotScope, ProcessSection, Stage, StageStatus, chip, segment, segmented,
 };
 use crate::app::{ParamKey, StudioApp};
 use crate::theme::Theme;
@@ -33,64 +37,6 @@ fn bar_divider(t: &Theme) -> gpui::Div {
 
 impl StudioApp {
     pub(crate) fn stage_center(&mut self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        if matches!(self.stage, Stage::Background | Stage::Transform)
-            && self
-                .current_group_index()
-                .is_some_and(|i| !self.correction_sources(i).is_empty())
-        {
-            return div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_3()
-                        .p_4()
-                        .child("Use the original spectrum for EXAFS")
-                        .child(
-                            div()
-                                .text_size(px(12.))
-                                .text_color(self.theme.text_muted)
-                                .child("This fluorescence correction is qualified for XANES."),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .gap_2()
-                                .child(
-                                    super::button(
-                                        &self.theme,
-                                        "fluo-normalize-return",
-                                        "Normalize",
-                                        true,
-                                    )
-                                    .on_click(
-                                        cx.listener(|a, _, _, cx| {
-                                            a.set_stage(Stage::Normalize, cx)
-                                        }),
-                                    ),
-                                )
-                                .child(
-                                    super::button(
-                                        &self.theme,
-                                        "fluo-history-return",
-                                        "Correction history",
-                                        false,
-                                    )
-                                    .on_click(cx.listener(
-                                        |a, _, _, cx| {
-                                            a.set_stage(Stage::Data, cx);
-                                            a.open_fluorescence(cx);
-                                        },
-                                    )),
-                                ),
-                        ),
-                );
-        }
         if self.fluorescence.open && !self.fluorescence_matches_current() {
             self.fluorescence.close();
         }
@@ -101,31 +47,41 @@ impl StudioApp {
                 .flex()
                 .child(self.fluorescence_center(cx));
         }
-        if self.stage == Stage::Transform && self.wavelet.open && !self.wavelet_matches_current() {
-            self.open_wavelet(cx);
-        }
-        if self.stage == Stage::Transform && self.wavelet.open {
-            return div()
-                .flex_1()
-                .min_w_0()
-                .min_h_0()
-                .flex()
-                .flex_col()
-                .child(self.plot_bar(cx))
-                .child(self.wavelet_center(cx));
-        }
         if self.stage == Stage::Data && self.peaks.open {
             return div().flex_1().min_w_0().flex().child(self.peak_center(cx));
         }
         if self.normalization.open && !self.normalization_matches_current() {
             self.normalization.open = false;
         }
-        if self.stage == Stage::Normalize && self.normalization.open {
-            return div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .child(self.normalization_center(cx));
+        // A group without χ(k) (for example a difference spectrum) has no
+        // wavelet view; drop it so the plot bar keeps its controls.
+        if self.wavelet.open && !process_views(self.spectrum_quantity).wavelet {
+            self.wavelet.hide();
+        }
+        match (self.stage == Stage::Process)
+            .then(|| active_process_overlay(self.wavelet.open, self.normalization.open))
+        {
+            Some(ProcessOverlay::Normalization) => {
+                return div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .child(self.normalization_center(cx));
+            }
+            Some(ProcessOverlay::Wavelet) => {
+                if !self.wavelet_matches_current() {
+                    self.open_wavelet(cx);
+                }
+                return div()
+                    .flex_1()
+                    .min_w_0()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
+                    .child(self.plot_bar(cx))
+                    .child(self.wavelet_center(cx));
+            }
+            _ => {}
         }
         let t = self.theme;
         let ready = self.quadrants.len() > PLOT_CHIQ;
@@ -139,6 +95,9 @@ impl StudioApp {
             .flex()
             .flex_col()
             .child(self.plot_bar(cx));
+        if self.stage == Stage::Process && self.xanes_only() {
+            column = column.child(self.xanes_only_notice(cx));
+        }
         if let Some(weight) = self.mixed_overlay_weight {
             column = column.child(div().px_3().py_1().text_size(px(11.5)).text_color(t.warn)
                 .child(format!("Mixed FT weights: χ(k) uses k^{weight} for all curves. R/q curves retain each group's weight (shown in the legend).")));
@@ -200,21 +159,43 @@ impl StudioApp {
         // First-run caption: it disappears for good after the first handle drag.
         let range_hint = !self.handles.hidden
             && !self.structure.settings.range_hint_seen
-            && matches!(
-                self.stage,
-                Stage::Normalize | Stage::Background | Stage::Transform
-            );
-        for (position, (index, title)) in plots.into_iter().enumerate() {
-            area = area.child(self.plot_card(index, title, cx));
-            if position == 0 && range_hint {
-                area = area.child(
+            && self.stage == Stage::Process;
+        let hint = || {
+            div()
+                .flex_none()
+                .px_3()
+                .text_size(px(11.))
+                .text_color(t.text_muted)
+                .child("Drag the tabs at the top of a plot to change its range")
+        };
+        if self.stage == Stage::Process && plots.len() > 1 {
+            // Linked plots, two per row: μ(E) | normalized μ(E) over
+            // kʷχ(k) | |χ(R)|.
+            let mut cards = plots
+                .into_iter()
+                .map(|(index, title)| self.plot_card(index, title, cx).into_any_element())
+                .collect::<Vec<_>>()
+                .into_iter();
+            let mut grid = div().flex_1().min_h_0().min_w_0().flex().flex_col().gap_2();
+            while let Some(first) = cards.next() {
+                grid = grid.child(
                     div()
-                        .flex_none()
-                        .px_3()
-                        .text_size(px(11.))
-                        .text_color(t.text_muted)
-                        .child("Drag the blue tabs to change the range"),
+                        .flex_1()
+                        .min_h_0()
+                        .min_w_0()
+                        .flex()
+                        .gap_2()
+                        .child(first)
+                        .children(cards.next()),
                 );
+            }
+            area = area.child(grid).when(range_hint, |d| d.child(hint()));
+        } else {
+            for (position, (index, title)) in plots.into_iter().enumerate() {
+                area = area.child(self.plot_card(index, title, cx));
+                if position == 0 && range_hint {
+                    area = area.child(hint());
+                }
             }
         }
         if self.stage == Stage::Data
@@ -300,7 +281,44 @@ impl StudioApp {
         {
             column = column.child(self.legend_strip());
         }
-        column.when(self.ui.overview, |d| d.child(self.thumbnail_strip(cx)))
+        // The Process grid already shows the four overview quantities.
+        column.when(self.ui.overview && self.stage != Stage::Process, |d| {
+            d.child(self.thumbnail_strip(cx))
+        })
+    }
+
+    /// Whether the current group carries a fluorescence self-absorption
+    /// correction. Such corrections are qualified for XANES only, so Process
+    /// keeps normalization but withholds background removal and transforms.
+    pub(crate) fn xanes_only(&self) -> bool {
+        self.current_group_index()
+            .is_some_and(|i| !self.correction_sources(i).is_empty())
+    }
+
+    fn xanes_only_notice(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let t = self.theme;
+        div()
+            .flex_none()
+            .px_3()
+            .py_1()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap_2()
+            .text_size(px(11.5))
+            .text_color(t.warn)
+            .child(
+                "This fluorescence correction is qualified for XANES. Use the original \
+                 spectrum for EXAFS; χ(k) and |χ(R)| are not shown.",
+            )
+            .child(
+                super::button(&t, "fluo-history-return", "Correction history", false).on_click(
+                    cx.listener(|a, _, _, cx| {
+                        a.set_stage(Stage::Data, cx);
+                        a.open_fluorescence(cx);
+                    }),
+                ),
+            )
     }
 
     fn analysis_view_bar(
@@ -527,6 +545,10 @@ impl StudioApp {
         stage_plot_selection(
             self.stage,
             self.stage_view,
+            ProcessLayout {
+                enlarged: self.maximized,
+                xanes_only: self.xanes_only(),
+            },
             self.fft_summary().3,
             self.mixed_overlay_weight.is_some(),
             self.processing_plot_quantity(),
@@ -543,46 +565,73 @@ impl StudioApp {
         }
     }
 
-    fn transform_view_selector(&self, cx: &mut Context<Self>) -> gpui::Div {
+    /// Process main view: the four linked plots, the χ(q) back-transform, or
+    /// the wavelet transform of χ(k).
+    fn process_view_selector(&self, views: ProcessViews, cx: &mut Context<Self>) -> gpui::Div {
         let t = self.theme;
-        let mut choices = segmented(&t).flex_none();
-        for (index, (view, label)) in [
-            (TfView::K, "k"),
-            (TfView::R, "R"),
-            (TfView::Both, "k + R"),
-            (TfView::Q, "q"),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            choices = choices.child(
+        let q = self.maximized == Some(PLOT_CHIQ);
+        segmented(&t)
+            .flex_none()
+            .child(
                 segment(
                     &t,
-                    ("transform-view", index),
-                    label,
-                    !self.wavelet.open && self.stage_view.tf_view == view,
-                    index == 0,
+                    ("process-view", 0_usize),
+                    "Linked plots",
+                    !self.wavelet.open && !q,
+                    true,
                 )
-                .on_click(cx.listener(move |app, _, _, cx| {
-                    app.wavelet.hide();
-                    app.stage_view.tf_view = view;
-                    if view == TfView::Q {
-                        app.ui.sections.insert("back-transform");
-                    }
+                .on_click(cx.listener(|app, _, _, cx| {
+                    show_process_overlay(
+                        &mut app.wavelet,
+                        &mut app.normalization,
+                        ProcessOverlay::Plots,
+                    );
+                    app.maximized = None;
                     app.stage_view_changed(cx);
                 })),
-            );
-        }
-        choices.child(
-            segment(
-                &t,
-                ("transform-view", 4_usize),
-                "Wavelet",
-                self.wavelet.open,
-                false,
             )
-            .on_click(cx.listener(|app, _, _, cx| app.open_wavelet(cx))),
-        )
+            .when(views.q, |d| {
+                d.child(
+                    segment(
+                        &t,
+                        ("process-view", 1_usize),
+                        "χ(q)",
+                        !self.wavelet.open && q,
+                        false,
+                    )
+                    .on_click(cx.listener(|app, _, _, cx| {
+                        show_process_overlay(
+                            &mut app.wavelet,
+                            &mut app.normalization,
+                            ProcessOverlay::Plots,
+                        );
+                        app.ui.sections.insert("back-transform");
+                        app.maximized = Some(PLOT_CHIQ);
+                        app.stage_view_changed(cx);
+                    })),
+                )
+            })
+            .child(
+                segment(
+                    &t,
+                    ("process-view", 2_usize),
+                    "Wavelet",
+                    self.wavelet.open,
+                    false,
+                )
+                .on_click(cx.listener(|app, _, _, cx| app.open_wavelet(cx))),
+            )
+    }
+
+    /// Enlarge one linked plot, or restore the grid when it is already
+    /// enlarged. ESC also restores the grid.
+    fn toggle_enlarged(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.maximized = if self.maximized.is_some() {
+            None
+        } else {
+            Some(index)
+        };
+        self.stage_view_changed(cx);
     }
 
     /// Compare toggle, its overlay options and the colour menu: one cluster on
@@ -692,8 +741,12 @@ impl StudioApp {
                 .child(div().text_color(t.text).child("Alignment · dμ/dE"))
                 .child(div().text_color(t.text_muted).child("XANES"));
         }
-        if self.stage == Stage::Transform {
-            bar = bar.child(self.transform_view_selector(cx));
+        let process = self.stage == Stage::Process;
+        // The view selector precedes the quantity guard so that a χ(k)-only
+        // group keeps its way into (and out of) the wavelet view.
+        let views = process_views(self.spectrum_quantity);
+        if process && views.wavelet {
+            bar = bar.child(self.process_view_selector(views, cx));
             if self.wavelet.open {
                 return bar
                     .child(bar_divider(&t))
@@ -701,10 +754,11 @@ impl StudioApp {
                     .child(div().flex_1())
                     .child(self.wavelet_toolbar_actions(cx));
             }
+            bar = bar.child(bar_divider(&t));
         }
         if self.stage.is_processing()
             && (!self.spectrum_quantity.supports_exafs()
-                || (matches!(self.stage, Stage::Data | Stage::Normalize)
+                || (self.stage == Stage::Data
                     && self.processing_plot_quantity().prepared_space().is_some()))
         {
             return bar
@@ -712,178 +766,150 @@ impl StudioApp {
                 .child(bar_divider(&t))
                 .child(self.compare_cluster(cx));
         }
+        // Data: which μ(E) quantity the single plot shows. Process: whether
+        // the second linked plot is normalized or flattened μ(E), unless the
+        // stored quantity fixes it (a prepared μnorm or flattened group).
+        let fixed = fixed_norm_view(self.processing_plot_quantity());
+        let energy_views: &[(EQuantity, &str)] = if process && fixed.is_some() {
+            &[]
+        } else if process {
+            &[(EQuantity::Norm, "norm"), (EQuantity::Flat, "flat")]
+        } else {
+            &[
+                (EQuantity::Mu, "μ(E)"),
+                (EQuantity::Norm, "norm"),
+                (EQuantity::Flat, "flat"),
+            ]
+        };
         let mut choices = segmented(&t).flex_none();
-        match self.stage {
-            Stage::Data | Stage::Normalize => {
-                for (index, (quantity, label)) in [
-                    (EQuantity::Mu, "μ(E)"),
-                    (EQuantity::Norm, "norm"),
-                    (EQuantity::Flat, "flat"),
-                ]
-                .into_iter()
-                .enumerate()
-                {
-                    choices = choices.child(
-                        segment(
-                            &t,
-                            ("energy-view", index),
-                            label,
-                            v.e_quantity == quantity,
-                            index == 0,
-                        )
-                        .on_click(cx.listener(move |app, _, _, cx| {
-                            app.stage_view.e_quantity = quantity;
-                            app.stage_view_changed(cx);
-                        })),
-                    );
-                }
-            }
-            Stage::Background => {
-                for (index, (view, label)) in [(BkgView::Energy, "μ(E)"), (BkgView::K, "χ(k)")]
-                    .into_iter()
-                    .enumerate()
-                {
-                    choices = choices.child(
-                        segment(
-                            &t,
-                            ("background-view", index),
-                            label,
-                            v.bkg_view == view,
-                            index == 0,
-                        )
-                        .on_click(cx.listener(move |app, _, _, cx| {
-                            app.stage_view.bkg_view = view;
-                            app.stage_view_changed(cx);
-                        })),
-                    );
-                }
-            }
-            _ => {}
+        for (index, &(quantity, label)) in energy_views.iter().enumerate() {
+            let on = if process && quantity == EQuantity::Norm {
+                v.e_quantity != EQuantity::Flat
+            } else {
+                v.e_quantity == quantity
+            };
+            choices = choices.child(
+                segment(&t, ("energy-view", index), label, on, index == 0).on_click(cx.listener(
+                    move |app, _, _, cx| {
+                        app.stage_view.e_quantity = quantity;
+                        app.stage_view_changed(cx);
+                    },
+                )),
+            );
         }
-        if self.stage != Stage::Transform {
-            bar = bar.child(choices);
+        if !energy_views.is_empty() {
+            bar = bar.child(choices).child(bar_divider(&t));
         }
-        bar = bar.child(bar_divider(&t));
-        match self.stage {
-            Stage::Data | Stage::Normalize => {
-                bar =
-                    bar.child(chip(&t, "common-e0", "E₀", self.view.show_e0).on_click(
-                        cx.listener(|a, _, _, c| {
-                            a.view.show_e0 = !a.view.show_e0;
-                            a.stage_view_changed(c);
-                        }),
-                    ))
-                    .child(
-                        chip(&t, "common-derivative", "dμ/dE", self.view.show_deriv).on_click(
-                            cx.listener(|a, _, _, c| {
-                                a.view.show_deriv = !a.view.show_deriv;
-                                a.stage_view_changed(c);
-                            }),
-                        ),
-                    );
-                if self.stage == Stage::Normalize {
-                    bar = bar.child(
-                        chip(
-                            &t,
-                            "common-pre-post",
-                            if self.ui_params().mback.is_some() {
-                                "MBACK fit"
-                            } else {
-                                "Pre/post"
-                            },
-                            self.view.show_pre && self.view.show_post,
-                        )
-                        .w(px(80.))
-                        .justify_center()
-                        .on_click(cx.listener(|a, _, _, c| {
-                            let on = !(a.view.show_pre && a.view.show_post);
-                            a.view.show_pre = on;
-                            a.view.show_post = on;
-                            if on {
-                                // Both methods' fits are in input mu units,
-                                // so show their matching axis.
-                                a.stage_view.e_quantity = EQuantity::Mu;
-                            }
-                            a.stage_view_changed(c);
-                        })),
-                    );
-                }
-            }
-            Stage::Background => {
-                bar = bar.child(self.kweight_buttons(cx)).child(
+        bar = bar
+            .child(
+                chip(&t, "common-e0", "E₀", self.view.show_e0).on_click(cx.listener(
+                    |a, _, _, c| {
+                        a.view.show_e0 = !a.view.show_e0;
+                        a.stage_view_changed(c);
+                    },
+                )),
+            )
+            .child(
+                chip(&t, "common-derivative", "dμ/dE", self.view.show_deriv).on_click(cx.listener(
+                    |a, _, _, c| {
+                        a.view.show_deriv = !a.view.show_deriv;
+                        a.stage_view_changed(c);
+                    },
+                )),
+            );
+        if process {
+            // Fitted curves on μ(E): the normalization fit and the AUTOBK
+            // spline. Both are in input μ units, like the μ(E) plot.
+            bar = bar
+                .child(
+                    chip(
+                        &t,
+                        "common-pre-post",
+                        if self.ui_params().mback.is_some() {
+                            "MBACK fit"
+                        } else {
+                            "Pre/post"
+                        },
+                        self.view.show_pre && self.view.show_post,
+                    )
+                    .w(px(80.))
+                    .justify_center()
+                    .on_click(cx.listener(|a, _, _, c| {
+                        let on = !(a.view.show_pre && a.view.show_post);
+                        a.view.show_pre = on;
+                        a.view.show_post = on;
+                        a.stage_view_changed(c);
+                    })),
+                )
+                .child(
                     chip(&t, "common-spline", "Spline", v.show_bkg).on_click(cx.listener(
                         |a, _, _, c| {
                             a.stage_view.show_bkg = !a.stage_view.show_bkg;
                             a.stage_view_changed(c);
                         },
                     )),
-                );
-            }
-            Stage::Transform => {
-                bar = bar
-                    .child(self.kweight_buttons(cx))
-                    .child(
-                        chip(&t, "common-real", "Re", v.show_re).on_click(cx.listener(
-                            |a, _, _, c| {
-                                a.stage_view.show_re = !a.stage_view.show_re;
-                                a.stage_view_changed(c);
-                            },
-                        )),
-                    )
-                    .child(
-                        chip(&t, "common-window", "Window", self.view.show_kwin).on_click(
-                            cx.listener(|a, _, _, c| {
-                                a.view.show_kwin = !a.view.show_kwin;
-                                a.invalidate_explore_plots(c);
-                                c.notify();
-                            }),
-                        ),
-                    );
-            }
-            _ => {}
-        }
-        if matches!(self.stage, Stage::Data | Stage::Normalize) {
-            bar = bar.child(bar_divider(&t));
-            for (i, label, range) in [
-                (0, "XANES", Some((-20., 80.))),
-                (1, "−200…+800", Some((-200., 800.))),
-                (2, "Full spectrum", None),
-            ] {
-                bar = bar.child(
-                    chip(
-                        &t,
-                        SharedString::from(format!("view-energy-{i}")),
-                        label,
-                        self.view.energy_view_range == range,
-                    )
-                    .on_click(cx.listener(move |app, _, _, cx| {
-                        app.view.energy_view_range = range;
-                        app.analysis.shown = None;
-                        app.analysis.plot = None;
-                        app.quadrants.clear();
-                        app.quad_bindings.clear();
-                        app.stage_view_changed(cx);
+                )
+                .child(bar_divider(&t))
+                .child(self.kweight_buttons(cx))
+                .child(
+                    chip(&t, "common-real", "Re", v.show_re).on_click(cx.listener(|a, _, _, c| {
+                        a.stage_view.show_re = !a.stage_view.show_re;
+                        a.stage_view_changed(c);
                     })),
+                )
+                .child(
+                    chip(&t, "common-window", "Window", self.view.show_kwin).on_click(cx.listener(
+                        |a, _, _, c| {
+                            a.view.show_kwin = !a.view.show_kwin;
+                            a.invalidate_explore_plots(c);
+                            c.notify();
+                        },
+                    )),
                 );
-            }
+        }
+        // Energy-axis zoom presets for the μ(E) plots.
+        bar = bar.child(bar_divider(&t));
+        for (i, label, range) in [
+            (0, "XANES", Some((-20., 80.))),
+            (1, "−200…+800", Some((-200., 800.))),
+            (2, "Full spectrum", None),
+        ] {
+            bar = bar.child(
+                chip(
+                    &t,
+                    SharedString::from(format!("view-energy-{i}")),
+                    label,
+                    self.view.energy_view_range == range,
+                )
+                .on_click(cx.listener(move |app, _, _, cx| {
+                    app.view.energy_view_range = range;
+                    app.analysis.shown = None;
+                    app.analysis.plot = None;
+                    app.quadrants.clear();
+                    app.quad_bindings.clear();
+                    app.stage_view_changed(cx);
+                })),
+            );
         }
         bar.child(bar_divider(&t))
             .child(self.compare_cluster(cx))
             .child(div().flex_1())
             .child(self.plot_ranges_button(cx))
-            .child(
-                icon_button(
-                    &t,
-                    "plot-overview",
-                    Icon::Grid,
-                    "Overview plots",
-                    self.ui.overview,
+            .when(!process, |d| {
+                d.child(
+                    icon_button(
+                        &t,
+                        "plot-overview",
+                        Icon::Grid,
+                        "Overview plots",
+                        self.ui.overview,
+                    )
+                    .on_click(cx.listener(|app, _, _, cx| {
+                        app.ui.overview = !app.ui.overview;
+                        cx.notify();
+                    })),
                 )
-                .on_click(cx.listener(|app, _, _, cx| {
-                    app.ui.overview = !app.ui.overview;
-                    cx.notify();
-                })),
-            )
+            })
             .child(
                 icon_button(
                     &t,
@@ -1016,6 +1042,8 @@ impl StudioApp {
         let plot = self.quadrants[index].1.clone();
         let label = self.current_group_label();
         let overlay = self.handle_overlay(index, cx);
+        let enlargeable = self.stage == Stage::Process;
+        let enlarged = self.maximized.is_some();
         div()
             .id(SharedString::from(format!("plot-card-{index}")))
             .flex_1()
@@ -1043,16 +1071,33 @@ impl StudioApp {
                     .items_center()
                     .gap_2()
                     .text_size(px(11.5))
-                    .child(div().font_weight(gpui::FontWeight::MEDIUM).child(title))
                     .child(
+                        // Title area (not the buttons): double-click enlarges
+                        // or restores a linked plot.
                         div()
+                            .id(SharedString::from(format!("plot-title-{index}")))
                             .min_w_0()
-                            .overflow_hidden()
-                            .text_ellipsis()
-                            .text_color(t.text_muted)
-                            .child(label),
+                            .flex_1()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .when(enlargeable, |d| {
+                                d.on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
+                                    if event.click_count() == 2 {
+                                        this.toggle_enlarged(index, cx);
+                                    }
+                                }))
+                            })
+                            .child(div().font_weight(gpui::FontWeight::MEDIUM).child(title))
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .overflow_hidden()
+                                    .text_ellipsis()
+                                    .text_color(t.text_muted)
+                                    .child(label),
+                            ),
                     )
-                    .child(div().flex_1())
                     .child(
                         icon_button(
                             &t,
@@ -1071,7 +1116,29 @@ impl StudioApp {
                         format!("plot-export-{index}"),
                         super::plot_export::Target::Quadrant(index),
                         cx,
-                    )),
+                    ))
+                    .when(enlargeable, |d| {
+                        d.child(
+                            icon_button(
+                                &t,
+                                SharedString::from(format!("plot-enlarge-{index}")),
+                                if enlarged {
+                                    Icon::Minimize
+                                } else {
+                                    Icon::Maximize
+                                },
+                                if enlarged {
+                                    "Show the linked plots · Esc or double-click the title"
+                                } else {
+                                    "Enlarge this plot · or double-click the title"
+                                },
+                                enlarged,
+                            )
+                            .on_click(
+                                cx.listener(move |this, _, _, cx| this.toggle_enlarged(index, cx)),
+                            ),
+                        )
+                    }),
             )
             .when(
                 self.stage_view.scope == PlotScope::Marked && self.stage != Stage::Fit,
@@ -1113,14 +1180,20 @@ impl StudioApp {
     fn thumbnail_strip(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = self.theme;
         let kw = self.fft_summary().3;
-        let captions: [(Stage, String); 4] = [
-            (Stage::Normalize, "norm μ(E)".into()),
-            (Stage::Background, crate::plotting::chik_label(kw)),
+        // Each thumbnail opens Process with its plot enlarged.
+        let captions: [(ProcessSection, usize, String); 4] = [
+            (ProcessSection::Normalize, PLOT_NORM, "norm μ(E)".into()),
             (
-                Stage::Transform,
+                ProcessSection::Background,
+                PLOT_CHIK,
+                crate::plotting::chik_label(kw),
+            ),
+            (
+                ProcessSection::Transform,
+                PLOT_CHIK,
                 format!("{} · window", crate::plotting::chik_label(kw)),
             ),
-            (Stage::Transform, "|χ(R)|".into()),
+            (ProcessSection::Transform, PLOT_CHIR, "|χ(R)|".into()),
         ];
         let mut strip = div()
             .h(px(118.))
@@ -1130,9 +1203,8 @@ impl StudioApp {
             .px_3()
             .pt_2()
             .pb_3();
-        for (i, (stage, caption)) in captions.into_iter().enumerate() {
-            let active = self.stage_view.thumbnail_focus == Some(i);
-            let (status, _) = self.stage_summary(stage);
+        for (i, (section, plot, caption)) in captions.into_iter().enumerate() {
+            let (status, _) = self.process_section_summary(section);
             let dot = if status == StageStatus::Idle {
                 t.text_muted
             } else {
@@ -1148,22 +1220,18 @@ impl StudioApp {
                     .rounded_md()
                     .bg(t.raised)
                     .border_1()
-                    .border_color(if active { t.accent } else { t.border })
+                    .border_color(t.border)
                     .cursor_pointer()
                     .hover(|d| d.border_color(t.accent))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
-                        this.set_stage(stage, cx);
+                        this.set_stage(Stage::Process, cx);
                         this.stage_view.scope = PlotScope::Current;
                         this.stage_view.e_quantity = EQuantity::Norm;
-                        this.stage_view.bkg_view = BkgView::K;
-                        this.stage_view.tf_view = if i == 3 { TfView::R } else { TfView::K };
                         this.stage_view.show_re = false;
                         this.view.show_deriv = false;
                         this.view.show_kwin = i == 2;
+                        this.maximized = Some(plot);
                         this.stage_view_changed(cx);
-                        this.stage_view.thumbnail_focus = Some(i);
-                        this.invalidate_explore_plots(cx);
-                        cx.notify();
                     }))
                     .child(
                         div()
@@ -1190,18 +1258,96 @@ impl StudioApp {
     }
 }
 
+/// Auxiliary views that replace the Process linked plots. At most one is
+/// shown; activating one closes the other (see [`show_process_overlay`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum ProcessOverlay {
+    Plots,
+    Wavelet,
+    /// Normalization comparison or MBACK atomic match.
+    Normalization,
+}
+
+/// The overlay to draw. The normalization views are opened from the
+/// Normalize section without going through the view selector, so they win
+/// over a wavelet view left open underneath; closing them returns to it.
+pub(crate) fn active_process_overlay(
+    wavelet_open: bool,
+    normalization_open: bool,
+) -> ProcessOverlay {
+    if normalization_open {
+        ProcessOverlay::Normalization
+    } else if wavelet_open {
+        ProcessOverlay::Wavelet
+    } else {
+        ProcessOverlay::Plots
+    }
+}
+
+/// Keep only `overlay` open (its own flag is set by its opener).
+pub(crate) fn show_process_overlay(
+    wavelet: &mut super::wavelet::WaveletState,
+    normalization: &mut super::normalization::NormalizationState,
+    overlay: ProcessOverlay,
+) {
+    if overlay != ProcessOverlay::Wavelet {
+        wavelet.hide();
+    }
+    if overlay != ProcessOverlay::Normalization {
+        normalization.open = false;
+    }
+}
+
+/// Which Process views a stored quantity supports.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct ProcessViews {
+    /// χ(q) back-transform of a processed absorption spectrum.
+    pub q: bool,
+    /// Wavelet transform: absorption spectra and confirmed χ(k) input.
+    pub wavelet: bool,
+}
+
+pub(crate) fn process_views(quantity: crate::params::Quantity) -> ProcessViews {
+    let exafs = quantity.supports_exafs();
+    ProcessViews {
+        q: exafs,
+        wavelet: exafs || quantity == crate::params::Quantity::ChiK,
+    }
+}
+
+/// The normalized-plot representation fixed by a prepared quantity:
+/// `quantity_quadrant_specs` always draws stored μnorm as normalized and
+/// stored flattened μ(E) as flattened, whatever the norm/flat choice.
+pub(crate) fn fixed_norm_view(quantity: crate::params::Quantity) -> Option<EQuantity> {
+    match quantity {
+        crate::params::Quantity::NormalizedMu => Some(EQuantity::Norm),
+        crate::params::Quantity::FlattenedMu => Some(EQuantity::Flat),
+        _ => None,
+    }
+}
+
+/// Process grid state that changes which linked plots are shown.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct ProcessLayout {
+    /// Plot slot shown alone (`PLOT_CHIQ` for the χ(q) view); `None` shows
+    /// the grid.
+    pub enlarged: Option<usize>,
+    /// XANES-only correction: normalization plots only.
+    pub xanes_only: bool,
+}
+
 /// Shared main-view selection for freshly created and reopened groups.
 pub(crate) fn stage_plot_selection(
     stage: Stage,
     v: super::StageView,
+    layout: ProcessLayout,
     kw: f64,
     mixed_weights: bool,
     quantity: crate::params::Quantity,
 ) -> Vec<(usize, SharedString)> {
     if stage.is_processing()
         && (!quantity.supports_exafs()
-            || (matches!(stage, Stage::Data | Stage::Normalize)
-                && quantity.prepared_space().is_some()))
+            || (stage == Stage::Data && quantity.prepared_space().is_some()))
     {
         return vec![if quantity == crate::params::Quantity::ChiK {
             (PLOT_CHIK, crate::plotting::chik_label(kw).into())
@@ -1222,36 +1368,39 @@ pub(crate) fn stage_plot_selection(
     } else {
         crate::plotting::chir_label(kw).into()
     };
-    if let Some(i) = v.thumbnail_focus {
-        return vec![match i {
-            0 => (PLOT_NORM, "normalized μ(E)".into()),
-            1 => (PLOT_CHIK, chik),
-            2 => (PLOT_CHIK, format!("{} · window", chik).into()),
-            _ => (PLOT_CHIR, chir),
-        }];
-    }
     match stage {
-        Stage::Data | Stage::Normalize => vec![match v.e_quantity {
+        Stage::Data => vec![match v.e_quantity {
             EQuantity::Mu => (PLOT_MU, "μ(E)".into()),
             EQuantity::Norm => (PLOT_NORM, "normalized μ(E)".into()),
             EQuantity::Flat => (PLOT_NORM, "flattened μ(E)".into()),
         }],
-        Stage::Background => match v.bkg_view {
-            BkgView::Energy => vec![
-                (PLOT_MU, "μ(E) with AUTOBK spline".into()),
-                (
-                    PLOT_CHIR,
-                    "|χ(R)| · R < Rbkg is the background region".into(),
-                ),
-            ],
-            BkgView::K => vec![(PLOT_CHIK, chik), (PLOT_CHIR, chir)],
-        },
-        Stage::Transform => match v.tf_view {
-            TfView::K => vec![(PLOT_CHIK, chik)],
-            TfView::R => vec![(PLOT_CHIR, chir)],
-            TfView::Q => vec![(PLOT_CHIQ, "χ(q) back-transform".into())],
-            TfView::Both => vec![(PLOT_CHIK, chik), (PLOT_CHIR, chir)],
-        },
+        Stage::Process => {
+            let mu: SharedString = if quantity.prepared_space().is_some() {
+                quantity.label().into()
+            } else {
+                "μ(E)".into()
+            };
+            let flat = fixed_norm_view(quantity).unwrap_or(v.e_quantity) == EQuantity::Flat;
+            let norm: SharedString = if flat {
+                "flattened μ(E)".into()
+            } else {
+                "normalized μ(E)".into()
+            };
+            let mut plots = vec![(PLOT_MU, mu), (PLOT_NORM, norm)];
+            if !layout.xanes_only {
+                plots.extend([(PLOT_CHIK, chik), (PLOT_CHIR, chir)]);
+            }
+            match layout.enlarged {
+                Some(PLOT_CHIQ) if !layout.xanes_only => {
+                    vec![(PLOT_CHIQ, "χ(q) back-transform".into())]
+                }
+                Some(index) if plots.iter().any(|(i, _)| *i == index) => {
+                    plots.retain(|(i, _)| *i == index);
+                    plots
+                }
+                _ => plots,
+            }
+        }
         Stage::Fit | Stage::Series | Stage::Publish => Vec::new(),
     }
 }
@@ -1325,9 +1474,10 @@ mod tests {
                 false,
                 group.quantity,
             );
-            for stage in [Stage::Data, Stage::Normalize] {
+            for stage in [Stage::Data, Stage::Process] {
                 let view = StageView::default();
-                let selected = stage_plot_selection(stage, view, 2., false, group.quantity);
+                let layout = ProcessLayout::default();
+                let selected = stage_plot_selection(stage, view, layout, 2., false, group.quantity);
                 assert_eq!(selected.len(), 1);
                 assert_eq!(selected[0].1.as_ref(), "Δμnorm");
                 let plot = &specs[selected[0].0];
@@ -1346,5 +1496,133 @@ mod tests {
             assert_default_view(&reopened.derived[0]);
         }
         std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn process_shows_four_linked_plots_and_enlarges_one() {
+        use crate::params::Quantity;
+        let view = StageView::default();
+        let select = |layout| {
+            stage_plot_selection(Stage::Process, view, layout, 2., false, Quantity::RawMu)
+                .into_iter()
+                .map(|(i, _)| i)
+                .collect::<Vec<_>>()
+        };
+        let grid = ProcessLayout::default();
+        assert_eq!(select(grid), [PLOT_MU, PLOT_NORM, PLOT_CHIK, PLOT_CHIR]);
+        for plot in [PLOT_MU, PLOT_NORM, PLOT_CHIK, PLOT_CHIR, PLOT_CHIQ] {
+            let enlarged = ProcessLayout {
+                enlarged: Some(plot),
+                ..grid
+            };
+            assert_eq!(select(enlarged), [plot]);
+        }
+        // A XANES-only correction keeps normalization and withholds χ.
+        let xanes = ProcessLayout {
+            xanes_only: true,
+            ..grid
+        };
+        assert_eq!(select(xanes), [PLOT_MU, PLOT_NORM]);
+        for plot in [PLOT_CHIK, PLOT_CHIQ] {
+            let hidden = ProcessLayout {
+                enlarged: Some(plot),
+                xanes_only: true,
+            };
+            assert_eq!(select(hidden), [PLOT_MU, PLOT_NORM]);
+        }
+        // The flat/norm choice titles the second plot; Data keeps one plot.
+        let flat = StageView {
+            e_quantity: EQuantity::Flat,
+            ..view
+        };
+        let titles = stage_plot_selection(Stage::Process, flat, grid, 2., false, Quantity::RawMu);
+        assert_eq!(titles[1].1.as_ref(), "flattened μ(E)");
+        let data = stage_plot_selection(Stage::Data, flat, grid, 2., false, Quantity::RawMu);
+        assert_eq!(data.len(), 1);
+    }
+
+    #[test]
+    fn process_views_follow_the_stored_quantity() {
+        use crate::params::Quantity;
+        for quantity in [
+            Quantity::RawMu,
+            Quantity::NormalizedMu,
+            Quantity::FlattenedMu,
+        ] {
+            assert_eq!(
+                process_views(quantity),
+                ProcessViews {
+                    q: true,
+                    wavelet: true
+                }
+            );
+        }
+        // Confirmed χ(k) keeps its wavelet entry; differences have neither.
+        assert_eq!(
+            process_views(Quantity::ChiK),
+            ProcessViews {
+                q: false,
+                wavelet: true
+            }
+        );
+        for quantity in [
+            Quantity::NormalizedDifference,
+            Quantity::FlattenedDifference,
+        ] {
+            assert!(!process_views(quantity).wavelet && !process_views(quantity).q);
+        }
+    }
+
+    #[test]
+    fn opening_one_process_overlay_closes_the_other() {
+        use super::super::{normalization::NormalizationState, wavelet::WaveletState};
+        let open = || {
+            let mut wavelet = WaveletState::default();
+            let mut normalization = NormalizationState::default();
+            wavelet.open = true;
+            normalization.open = true;
+            (wavelet, normalization)
+        };
+        let (wavelet, normalization) = open();
+        // The comparison opened from the Normalize section is shown on top.
+        assert_eq!(
+            active_process_overlay(wavelet.open, normalization.open),
+            ProcessOverlay::Normalization
+        );
+        let (mut wavelet, mut normalization) = open();
+        show_process_overlay(&mut wavelet, &mut normalization, ProcessOverlay::Wavelet);
+        assert!(wavelet.open && !normalization.open);
+        assert_eq!(
+            active_process_overlay(wavelet.open, normalization.open),
+            ProcessOverlay::Wavelet
+        );
+        // Linked plots, χ(q) and assistant navigation close both.
+        let (mut wavelet, mut normalization) = open();
+        show_process_overlay(&mut wavelet, &mut normalization, ProcessOverlay::Plots);
+        assert!(!wavelet.open && !normalization.open);
+        assert_eq!(
+            active_process_overlay(wavelet.open, normalization.open),
+            ProcessOverlay::Plots
+        );
+    }
+
+    #[test]
+    fn normalized_plot_title_matches_a_fixed_prepared_quantity() {
+        use crate::params::Quantity;
+        let grid = ProcessLayout::default();
+        for (quantity, choice, title) in [
+            (Quantity::NormalizedMu, EQuantity::Flat, "normalized μ(E)"),
+            (Quantity::FlattenedMu, EQuantity::Norm, "flattened μ(E)"),
+            (Quantity::RawMu, EQuantity::Flat, "flattened μ(E)"),
+            (Quantity::RawMu, EQuantity::Norm, "normalized μ(E)"),
+        ] {
+            let view = StageView {
+                e_quantity: choice,
+                ..StageView::default()
+            };
+            let plots = stage_plot_selection(Stage::Process, view, grid, 2., false, quantity);
+            assert_eq!(plots[1], (PLOT_NORM, title.into()), "{quantity:?}");
+        }
+        assert_eq!(fixed_norm_view(Quantity::RawMu), None);
     }
 }

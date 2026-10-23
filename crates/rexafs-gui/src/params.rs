@@ -3861,4 +3861,48 @@ mod tests {
         assert_eq!(import.fluor_cols, Some(vec![4]));
         assert_eq!(import.mu_col, None);
     }
+
+    /// Issue #172: Ni foil cropped to 8318–8452 eV with a 100–110 eV post-edge
+    /// range processed but gave |χ(R)| ≈ 10¹² without a warning.
+    #[test]
+    fn narrow_post_edge_range_on_a_short_scan_is_reported() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../rexafs/tests/testfiles/xraylarch_d867/xafsdata/ni_metal_rt.xdi"
+        );
+        let (energy, mu): (Vec<f64>, Vec<f64>) = std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .filter(|line| !line.starts_with('#'))
+            .map(|line| {
+                let mut columns = line.split_whitespace().map(|v| v.parse::<f64>().unwrap());
+                (columns.next().unwrap(), columns.next().unwrap())
+            })
+            .filter(|(e, _)| (8318.0..=8452.0).contains(e))
+            .unzip();
+        let narrow = PipelineParams {
+            norm_start: Some(100.0),
+            norm_end: Some(110.0),
+            ..Default::default()
+        };
+        let spectrum = process_arrays(energy.clone(), mu.clone(), &narrow).unwrap();
+        let kinds: Vec<_> = spectrum
+            .normalization_warnings()
+            .iter()
+            .map(std::mem::discriminant)
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                std::mem::discriminant(&rexafs::NormalizationWarning::NarrowPostEdge { span: 0.0 }),
+                std::mem::discriminant(&rexafs::NormalizationWarning::SmallEdgeStep {
+                    edge_step: 0.0,
+                    mu_span: 0.0
+                }),
+            ]
+        );
+        // Desktop defaults on the same scan are trusted.
+        let spectrum = process_arrays(energy, mu, &PipelineParams::default()).unwrap();
+        assert!(spectrum.normalization_warnings().is_empty());
+    }
 }

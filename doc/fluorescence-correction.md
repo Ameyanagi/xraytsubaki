@@ -184,11 +184,14 @@ from E₀ and polynomial degree. Blank intervals use the core defaults above; th
 resolved intervals and numerical warnings appear beside the preview.
 
 **Add corrected spectrum →** retains the calculation before adding an independent
-group and opens **Normalize** for final polynomial or MBACK processing. The input
+group and opens **Process** (the **Normalize** stage in 0.2.14 and earlier) for
+final polynomial or MBACK processing. The input
 group remains available. Normalization, energy-space LCF/PCA/MCR and peak fitting
 can use the corrected group. Background, EXAFS transforms, wavelets and RMC must
 use the uncorrected input. This restriction follows calculated LCF/MCR outputs,
-merged groups, processing-tool results and duplicates.
+merged groups, processing-tool results and duplicates. In builds after 0.2.14,
+Process shows only the two μ(E) plots for such a group, with a notice, and its
+Background and Transform sections show the XANES-only notice.
 
 Open **Fluorescence correction…** on a corrected descendant to inspect its ancestor
 calculation, open the original group when available, or export the numerical

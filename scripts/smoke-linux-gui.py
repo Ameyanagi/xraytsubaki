@@ -70,7 +70,7 @@ def main():
                 assert int(geometry["WIDTH"]) <= int(desktop[0]), geometry
                 assert int(geometry["HEIGHT"]) <= int(desktop[1]), geometry
                 checks.append("window-fits-display")
-                # Select Normalize, then its raw μ(E) tab. The diagnostics report
+                # Select Process, then its raw μ(E) tab. The diagnostics report
                 # this first plot's renderer. The quantity tabs precede the
                 # comparison controls, just after the default 280 px Groups
                 # panel. Coordinates are window-relative at the X11 smoke
@@ -103,9 +103,8 @@ def main():
                 previous = capture("opened-project")
                 checks.append("embedded-project-and-rendered-plot")
                 command("xdotool", "mousemove", "--window", window, "30", "20")
-                for key, name in [("ctrl+1", "data"), ("ctrl+2", "normalize"),
-                                  ("ctrl+3", "background"), ("ctrl+4", "transform"),
-                                  ("ctrl+5", "fit"), ("ctrl+7", "publish")]:
+                for key, name in [("ctrl+1", "data"), ("ctrl+2", "process"),
+                                  ("ctrl+3", "fit"), ("ctrl+5", "publish")]:
                     command("xdotool", "windowfocus", "--sync", window,
                             "key", "--clearmodifiers", "--delay", "100", key)
                     time.sleep(1)

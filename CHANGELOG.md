@@ -31,6 +31,26 @@
   2.557 Å") and fitted paths by their scatterers and distance.
 - Clear stale RMC run messages when a run ends, and report the outcome and
   completed attempts in the footer.
+- Merge Normalize, Background and Transform into one Process stage with linked
+  μ(E), normalized μ(E), kʷχ(k) and |χ(R)| plots that show every range on every
+  plot it affects; ⌘1–⌘5 now select Data, Process, Fit, Series and Publish.
+- Warn "Normalization unreliable" when the post-edge fit has too few points or
+  too short a span, or the edge step is not trustworthy, both in the problems
+  drawer and under Post-edge start.
+- Add Preferences (Settings…, ⌘, / Ctrl+,) and an About panel with version,
+  commit, update channel, licence and third-party notices.
+- Add a legend placement setting whose Auto choice avoids the data, use fewer x
+  ticks on narrow figures, extend the |χ(R)| range to the back-transform window,
+  and show typed figure labels literally.
+- Add "Fit + residual" figures for χ(k) and |χ(R)|.
+- Scale k-space publication figures symmetrically about zero.
+- Export a figure as CSV data plus an editable matplotlib script.
+- Export the latest fit's parameters as a LaTeX, CSV or Word table with
+  uncertainties rounded to their significant figures, and export a
+  supporting-information zip with the report, a self-contained project and CSV
+  data.
+- Add fit statistics tables to reports, and write the methods paragraph from
+  the settings actually applied.
 
 ## 0.2.14 (2026-09-24)
 

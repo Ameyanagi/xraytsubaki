@@ -1,4 +1,5 @@
 mod editor;
+mod supporting;
 use crate::publication::figures::{FigureData, FigureSettings, RenderedFigure};
 use crate::widgets::{numeric_field::NumericField, text_input::TextInput};
 use crate::{

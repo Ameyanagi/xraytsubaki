@@ -4,8 +4,9 @@ use ruviz::prelude::{LineStyle, Plot};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
+mod labels;
 mod layout;
-pub(crate) use layout::LegendPlacement;
+pub(crate) use layout::{LegendPlacement, typst_label};
 
 fn weighted_unit(weight: f64) -> String {
     if weight.abs() < 1e-9 {
@@ -339,19 +340,15 @@ impl FigureData {
         }
     }
 
+    /// Typst source of the x label; built-in labels are sans-serif text
+    /// markup (see [`labels`]).
     pub(crate) fn math_xlabel(&self) -> &str {
-        match self.key {
-            "mu-energy" | "xanes" | "flattened-mu" => "$E$ (eV)",
-            "chi-k" | "fit-k" | "residual-k" | "fit-residual-k" => "$k$ ($\"Å\"^(-1)$)",
-            "chi-r" | "fit-r" | "residual-r" | "fit-residual-r" => "$R$ (Å)",
-            "chi-q" | "fit-q" => "$q$ ($\"Å\"^(-1)$)",
-            _ => &self.xlabel,
-        }
+        labels::x_label(self.key).unwrap_or(&self.xlabel)
     }
 
     pub(crate) fn math_ylabel(&self, options: &FigureOptions) -> &str {
         if options.normalized && self.normalized_series.is_some() {
-            "Normalized $mu(E)$ (dimensionless)"
+            "Normalized _μ_(_E_) (dimensionless)"
         } else {
             &self.math_ylabel
         }
@@ -638,6 +635,15 @@ pub(crate) fn render_figure(
             (plot.render_png_bytes().map_err(|e| e.to_string())?, svg)
         }
     };
+    // ruviz names each outlined label by its Typst source; read built-in
+    // labels as their plain Unicode text (k²χ(k)), not markup (`_k_#super[2]`).
+    for (markup, plain) in [
+        (data.math_xlabel(), data.xlabel.as_str()),
+        (data.math_ylabel(options), data.ylabel(options)),
+    ] {
+        let aria = |text: &str| format!(r#"aria-label="{}""#, super::report::html(text));
+        svg = svg.replace(&aria(markup), &aria(plain));
+    }
     if let Some(start) = svg.find("<svg")
         && let Some(end) = svg[start..].find('>')
     {
@@ -713,27 +719,6 @@ pub(crate) fn quantity_figures(
         }
     }
     figures
-}
-
-fn math_unit(power: f64) -> String {
-    if power.abs() < 1e-9 {
-        "(dimensionless)".into()
-    } else {
-        format!("($\"Å\"^({})$)", -power)
-    }
-}
-
-fn math_chik_label(weight: f64) -> String {
-    let chi = if weight.abs() < 1e-9 {
-        "chi(k)".into()
-    } else {
-        format!("k^({weight}) chi(k)")
-    };
-    format!("${chi}$ {}", math_unit(weight))
-}
-
-fn math_chir_label(weight: f64) -> String {
-    format!("$abs(chi(R))$ {}", math_unit(weight + 1.))
 }
 
 fn publication_kmax(kmax: Option<f64>, data: Option<&[f64]>) -> Option<f64> {
@@ -816,7 +801,7 @@ pub(crate) fn spectrum_figures(sp: Arc<XASSpectrum>, label: &str) -> Vec<FigureD
                 label: "Energy · μ(E)".into(),
                 xlabel: "Energy (eV)".into(),
                 ylabel: "Flattened μ(E) (dimensionless)".into(),
-                math_ylabel: "Flattened $mu(E)$ (dimensionless)".into(),
+                math_ylabel: format!("Flattened {} (dimensionless)", labels::MU_E),
                 series: vec![series(flat.as_slice().to_vec())],
                 normalized_series,
                 guides: e0.into_iter().collect(),
@@ -864,10 +849,10 @@ pub(crate) fn spectrum_figures(sp: Arc<XASSpectrum>, label: &str) -> Vec<FigureD
                 _ => spec.ylabel,
             },
             math_ylabel: match key {
-                "mu-energy" => "$mu(E)$ (arb. units)".into(),
-                "chi-k" => math_chik_label(weight),
-                "chi-r" => math_chir_label(weight),
-                "chi-q" => format!("$op(\"Re\") chi(q)$ {}", math_unit(weight)),
+                "mu-energy" => format!("{} (arb. units)", labels::MU_E),
+                "chi-k" => labels::chik(weight),
+                "chi-r" => labels::chir(weight),
+                "chi-q" => labels::chiq(weight),
                 _ => String::new(),
             },
             default_xlim: match key {
@@ -955,11 +940,11 @@ pub(crate) fn fit_figures(result: &FeffFitResult) -> Vec<FigureData> {
         xlabel: xlabel.into(),
         ylabel,
         math_ylabel: match key {
-            "fit-k" | "fit-residual-k" => math_chik_label(kw),
-            "fit-r" | "fit-residual-r" => math_chir_label(kw),
-            "fit-q" => format!("$op(\"Re\") chi(q)$ {}", math_unit(kw)),
-            "residual-k" => format!("Residual {}", math_chik_label(kw)),
-            "residual-r" => format!("Residual {}", math_chir_label(kw)),
+            "fit-k" | "fit-residual-k" => labels::chik(kw),
+            "fit-r" | "fit-residual-r" => labels::chir(kw),
+            "fit-q" => labels::chiq(kw),
+            "residual-k" => format!("Residual {}", labels::chik(kw)),
+            "residual-r" => format!("Residual {}", labels::chir(kw)),
             _ => String::new(),
         },
         series,
@@ -1333,6 +1318,14 @@ mod tests {
             );
             assert!(rendered.svg.starts_with("<svg") && rendered.svg.matches("<svg").count() >= 3);
             assert!(rendered.svg.contains(r#"id="residual-"#));
+            // Built-in labels are sans text markup with plain accessible names.
+            assert!(!figure.math_ylabel(&options).contains('$'));
+            assert!(
+                rendered
+                    .svg
+                    .contains(&format!(r#"aria-label="{}""#, figure.ylabel(&options)))
+            );
+            assert!(!rendered.svg.contains("#super["));
             if let Some(dir) = std::env::var_os("REXAFS_PUBLICATION_QA_DIR") {
                 fs::create_dir_all(&dir).unwrap();
                 fs::write(Path::new(&dir).join(format!("{key}.png")), &rendered.png).unwrap();
@@ -1419,7 +1412,7 @@ mod tests {
             label: "Test".into(),
             xlabel: "Energy (eV)".into(),
             ylabel: "μ(E)".into(),
-            math_ylabel: "$mu(E)$".into(),
+            math_ylabel: labels::MU_E.into(),
             normalized_series: None,
             default_xlim: None,
             residual: None,
@@ -1455,7 +1448,11 @@ mod tests {
             rendered.svg.matches("<text").count() >= 5,
             "tick numbers are text"
         );
-        assert!(rendered.svg.contains(r#"role="img" aria-label="$mu(E)$""#));
+        assert!(rendered.svg.contains(r#"role="img" aria-label="μ(E)""#));
+        assert!(
+            !rendered.svg.contains("_μ_"),
+            "markup is not an accessible name"
+        );
         let options = FigureOptions {
             width: Some(4.),
             height: Some(3.),

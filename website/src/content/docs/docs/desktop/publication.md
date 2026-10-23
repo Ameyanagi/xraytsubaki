@@ -27,10 +27,12 @@ aspect ratio and uses the same PNG bytes as the individual save.
 
 SVG files keep plain labels (tick numbers, legend names, and titles or axis
 labels you type without math, such as `Energy (eV)`) as editable `<text>`, so a
-vector editor can select and retype them. Labels with Typst math, including the
-default axis labels such as `$E$ (eV)` and `$k^2 chi(k)$`, stay as glyph
-outlines (vector character shapes) so subscripts, superscripts and Greek
-letters look the same in every viewer. Editable text uses the viewer's copy of
+vector editor can select and retype them. Labels with italics, superscripts or
+Typst math, including the default axis labels such as *E* (eV) and
+*k*²*χ*(*k*) (Å⁻²), stay as glyph outlines (vector character shapes) so they
+look the same in every viewer. The default labels are drawn in the figure's
+sans-serif font (Arial by default) with italic variables; math you type between
+dollar signs uses Typst's serif math font. Editable text uses the viewer's copy of
 the figure font (Arial by default); a viewer without it substitutes a similar
 font. See the
 [SVG text option](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/figures.rs).

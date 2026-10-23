@@ -51,6 +51,8 @@
   data.
 - Add fit statistics tables to reports, and write the methods paragraph from
   the settings actually applied.
+- Draw built-in plot labels and legends in Arial-style sans-serif text instead
+  of serif Typst math, in the app, exported figures and matplotlib scripts.
 
 ## 0.2.14 (2026-09-24)
 

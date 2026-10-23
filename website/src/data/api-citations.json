@@ -34,9 +34,9 @@
   {
     "url": "https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.BSpline.html",
     "sources": [
-      "crates/rexafs/src/xafs/spline.rs",
       "crates/rexafs/src/xafs/mathutils.rs",
-      "crates/rexafs/src/xafs/mathutils_ndarray.rs"
+      "crates/rexafs/src/xafs/mathutils_ndarray.rs",
+      "crates/rexafs/src/xafs/spline.rs"
     ]
   },
   {
@@ -60,10 +60,10 @@
   {
     "url": "https://docs.scipy.org/doc/scipy/reference/generated/scipy.special.voigt_profile.html",
     "sources": [
-      "crates/rexafs/src/xafs/xafsutils.rs",
       "crates/rexafs/src/xafs/mathutils.rs",
-      "crates/rexafs/src/xafs/xafsutils_ndarray.rs",
-      "crates/rexafs/src/xafs/mathutils_ndarray.rs"
+      "crates/rexafs/src/xafs/mathutils_ndarray.rs",
+      "crates/rexafs/src/xafs/xafsutils.rs",
+      "crates/rexafs/src/xafs/xafsutils_ndarray.rs"
     ]
   },
   {
@@ -74,8 +74,8 @@
       "py-rexafs/src/lib.rs",
       "crates/rexafs-wasm/src/lib.rs",
       "js-rexafs/types.d.ts",
-      "crates/rexafs/src/xafs/normalization_ndarray.rs",
-      "crates/rexafs/src/xafs/normalization.rs"
+      "crates/rexafs/src/xafs/normalization.rs",
+      "crates/rexafs/src/xafs/normalization_ndarray.rs"
     ]
   },
   {
@@ -124,8 +124,8 @@
   {
     "url": "https://doi.org/10.1103/PhysRevB.48.9825",
     "sources": [
-      "crates/rexafs/src/xafs/fitting/types.rs",
-      "crates/rexafs/src/xafs/fitting/transform.rs"
+      "crates/rexafs/src/xafs/fitting/transform.rs",
+      "crates/rexafs/src/xafs/fitting/types.rs"
     ]
   },
   {
@@ -136,12 +136,12 @@
       "crates/rexafs-wasm/src/lib.rs",
       "js-rexafs/types.d.ts",
       "crates/rexafs/src/lib.rs",
-      "crates/rexafs/src/xafs/xrayfft_ndarray.rs",
-      "crates/rexafs/src/xafs/xrayfft.rs",
       "crates/rexafs/src/xafs/fitting/mod.rs",
       "crates/rexafs/src/xafs/fitting/path_model.rs",
       "crates/rexafs/src/xafs/rmc/mod.rs",
-      "crates/rexafs/src/xafs/structure/pathrank.rs"
+      "crates/rexafs/src/xafs/structure/pathrank.rs",
+      "crates/rexafs/src/xafs/xrayfft.rs",
+      "crates/rexafs/src/xafs/xrayfft_ndarray.rs"
     ]
   },
   {
@@ -160,8 +160,8 @@
     "url": "https://doi.org/10.2138/rmg.2014.78.2",
     "sources": [
       "js-rexafs/types.d.ts",
-      "crates/rexafs/src/xafs/io/reader/model.rs",
-      "crates/rexafs/src/xafs/io/mod.rs"
+      "crates/rexafs/src/xafs/io/mod.rs",
+      "crates/rexafs/src/xafs/io/reader/model.rs"
     ]
   },
   {
@@ -262,8 +262,8 @@
   {
     "url": "https://lmfit.github.io/lmfit-py/builtin_models.html",
     "sources": [
-      "crates/rexafs/src/xafs/analysis/peakfit/profiles.rs",
-      "crates/rexafs/src/xafs/analysis/peakfit/mod.rs"
+      "crates/rexafs/src/xafs/analysis/peakfit/mod.rs",
+      "crates/rexafs/src/xafs/analysis/peakfit/profiles.rs"
     ]
   },
   {
@@ -299,8 +299,8 @@
     "sources": [
       "crates/rexafs-wasm/src/lib.rs",
       "js-rexafs/types.d.ts",
-      "crates/rexafs/src/xafs/xrayfft_ndarray.rs",
-      "crates/rexafs/src/xafs/xrayfft.rs"
+      "crates/rexafs/src/xafs/xrayfft.rs",
+      "crates/rexafs/src/xafs/xrayfft_ndarray.rs"
     ]
   },
   {
@@ -342,15 +342,15 @@
       "py-rexafs/python/rexafs/__init__.pyi",
       "py-rexafs/src/lib.rs",
       "js-rexafs/types.d.ts",
-      "crates/rexafs/src/plot/mod.rs",
-      "crates/rexafs/src/lib.rs"
+      "crates/rexafs/src/lib.rs",
+      "crates/rexafs/src/plot/mod.rs"
     ]
   },
   {
     "url": "https://spglib.readthedocs.io/en/stable/definition.html",
     "sources": [
-      "crates/rexafs/src/xafs/structure/symmetry.rs",
-      "crates/rexafs/src/xafs/structure/lattice.rs"
+      "crates/rexafs/src/xafs/structure/lattice.rs",
+      "crates/rexafs/src/xafs/structure/symmetry.rs"
     ]
   },
   {

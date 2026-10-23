@@ -3,10 +3,140 @@
 //! physical values, their uncertainties and the expressions behind them.
 use crate::fit_details::Estimate;
 use crate::fitting::{FitHistoryEntry, FitPathSpec, fit_result_notices, high_correlations};
-use rexafs::xafs::fitting::FeffFitResult;
+use rexafs::prelude::FTWindow;
+use rexafs::xafs::fitting::{FeffFitResult, FeffFitTransform};
 
 /// Correlations weaker than this are left out, as in Larch.
-const CORRELATION_MIN: f64 = 0.1;
+pub(crate) const CORRELATION_MIN: f64 = 0.1;
+
+/// Readable name of a Fourier-transform window family.
+pub(crate) fn window_name(window: FTWindow) -> &'static str {
+    match window {
+        FTWindow::Hanning => "Hanning",
+        FTWindow::Parzen => "Parzen",
+        FTWindow::Welch => "Welch",
+        FTWindow::Gaussian => "Gaussian",
+        FTWindow::Sine => "sine",
+        FTWindow::KaiserBessel => "Kaiser–Bessel",
+        FTWindow::FHanning => "fractional Hanning",
+    }
+}
+
+/// The transforms a fit used, one per dataset. Fits recorded before rexafs
+/// stored them (`transforms` empty) used their ranges with the then-default
+/// taper: Kaiser–Bessel k window, dk = 4 Å⁻¹; Hanning R window, dR = 0 Å.
+/// The flag is true for that reconstructed fallback.
+pub(crate) fn fit_transforms(entry: &FitHistoryEntry) -> (Vec<FeffFitTransform>, bool) {
+    if !entry.transforms.is_empty() {
+        return (entry.transforms.clone(), false);
+    }
+    let transform = FeffFitTransform {
+        window: FTWindow::KaiserBessel,
+        dk: 4.0,
+        dk2: None,
+        rwindow: FTWindow::Hanning,
+        dr: 0.0,
+        dr2: None,
+        ..entry.ranges.transform()
+    };
+    (vec![transform], true)
+}
+
+/// Fit window description, e.g. "Kaiser–Bessel k window (dk = 4 Å⁻¹);
+/// Hanning R window (dR = 0 Å)". A k-space fit applies no k window to its
+/// residual (Larch semantics), but the transform still records one.
+pub(crate) fn window_text(t: &FeffFitTransform) -> String {
+    let taper = |a: f64, b: Option<f64>| match b {
+        Some(b) if b != a => format!("{a} / {b}"),
+        _ => format!("{a}"),
+    };
+    format!(
+        "{} k window (dk = {} Å⁻¹); {} R window (dR = {} Å)",
+        window_name(t.window),
+        taper(t.dk, t.dk2),
+        window_name(t.rwindow),
+        taper(t.dr, t.dr2)
+    )
+}
+
+/// k-weights of one transform: the list, or the single weight when empty.
+pub(crate) fn kweights_text(t: &FeffFitTransform) -> String {
+    let weights = if t.kweights.is_empty() {
+        vec![t.kweight]
+    } else {
+        t.kweights.clone()
+    };
+    weights
+        .iter()
+        .map(|k| format!("{k}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Fit statistics and the settings that define them, as (quantity, value)
+/// rows for reports: R-factor, χ², reduced χ² (only with a noise estimate),
+/// N_idp / N_var, fit space, k and R ranges, k-weights, windows and the
+/// correlations with |r| ≥ [`CORRELATION_MIN`]. Correlations need the full
+/// `result`; without it the row says they are unavailable. Joint fits with
+/// several transforms list ranges and windows for each dataset.
+pub(crate) fn summary_rows(
+    entry: &FitHistoryEntry,
+    result: Option<&FeffFitResult>,
+) -> Vec<(String, String)> {
+    let joint = entry.joint.as_ref();
+    let name = |n: &str| crate::joint_fitting::display_name(n, joint);
+    let mut rows = vec![
+        ("R-factor".to_string(), format!("{:.5}", entry.r_factor)),
+        ("χ²".into(), format!("{:.4e}", entry.chi_square)),
+        ("Reduced χ²".into(), entry.reduced_chi_square_text()),
+        (
+            "N_idp / N_var".into(),
+            format!("{:.1} / {}", entry.n_idp, entry.n_vary),
+        ),
+        ("Fit space".into(), entry.ranges.fitspace.label().into()),
+    ];
+    let (transforms, reconstructed) = fit_transforms(entry);
+    for (index, t) in transforms.iter().enumerate() {
+        let prefix = match joint.and_then(|j| j.datasets.get(index)) {
+            Some(d) if transforms.len() > 1 => format!("{}: ", d.label),
+            _ if transforms.len() > 1 => format!("Dataset {}: ", index + 1),
+            _ => String::new(),
+        };
+        rows.push((
+            format!("{prefix}k range (Å⁻¹)"),
+            format!("{:.2} – {:.2}", t.kmin, t.kmax),
+        ));
+        rows.push((
+            format!("{prefix}R range (Å)"),
+            format!("{:.2} – {:.2}", t.rmin, t.rmax),
+        ));
+        rows.push((format!("{prefix}k-weights"), kweights_text(t)));
+        let mut window = window_text(t);
+        if reconstructed {
+            window.push_str(" (not recorded; release default at fit time)");
+        }
+        rows.push((format!("{prefix}Window"), window));
+    }
+    let correlations = match result {
+        None => "Unavailable (full fit result not loaded)".to_string(),
+        Some(r) => {
+            let corr = high_correlations(r, CORRELATION_MIN);
+            if corr.is_empty() {
+                "None".into()
+            } else {
+                corr.iter()
+                    .map(|(a, b, c)| format!("{} / {}: {c:+.3}", name(a), name(b)))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            }
+        }
+    };
+    rows.push((
+        format!("Correlations (|r| ≥ {CORRELATION_MIN:.2})"),
+        correlations,
+    ));
+    rows
+}
 
 fn est(e: &Option<Estimate>, digits: usize, unit: &str) -> String {
     match e {
@@ -110,15 +240,17 @@ pub(crate) fn markdown(entry: &FitHistoryEntry, result: Option<&FeffFitResult>) 
         .map(|k| format!("{k}"))
         .collect::<Vec<_>>()
         .join(", ");
-    out.push_str("\n## Fit ranges\n\n| space | k-range (Å⁻¹) | k-weights | R-range (Å) | noise weighting |\n|---|---|---|---|---|\n");
+    let (transforms, _) = fit_transforms(entry);
+    out.push_str("\n## Fit ranges\n\n| space | k-range (Å⁻¹) | k-weights | R-range (Å) | window | noise weighting |\n|---|---|---|---|---|---|\n");
     out.push_str(&format!(
-        "| {} | {:.3} – {:.3} | {} | {:.3} – {:.3} | {} |\n",
+        "| {} | {:.3} – {:.3} | {} | {:.3} – {:.3} | {} | {} |\n",
         r.fitspace.label(),
         r.kmin,
         r.kmax,
         kweights,
         r.rmin,
         r.rmax,
+        transforms.first().map(window_text).unwrap_or_default(),
         if r.noise { "on" } else { "off" }
     ));
 

@@ -16,6 +16,18 @@ Save your project, then open **Help → Updates**. You can also search for
 use. Checks do not install software or upload spectra; the channel and startup
 preference are saved on this computer.
 
+**Unreleased (source builds after 0.2.14):** the application menu has
+**Settings…** (Cmd+, on macOS, Ctrl+, on Windows/Linux), which opens
+Preferences. It gathers the settings already saved in `~/.rexafs/settings.json`
+(or the file named by `REXAFS_SETTINGS`): the Dark/Light theme, the update
+channel and **Check for updates on startup**. It also lists the structure
+sources and Assistant choices saved there, which you still change where they are
+used, and shows the settings file location. Changes apply immediately and are
+saved at once, exactly as from **Switch theme** or the Updates panel.
+**About rexafs** now opens an About panel with the version, the CI commit (local
+builds show "local build"), the MIT OR Apache-2.0 licence, and links to
+**Licenses** and the source repository, instead of the Help menu.
+
 Desktop versions through 0.2.7 need one manual installation from the
 [download page](/download/) to acquire the new updater. On macOS, quit rexafs
 before moving the updated app into Applications; on Windows run the installer;

@@ -284,7 +284,9 @@ fn native_menus(blocked: bool, cx: &mut App) {
     use gpui::{Menu, MenuItem};
     cx.set_menus([
         Menu::new("rexafs").items([
-            MenuItem::action("About rexafs", app::ShowHelp).disabled(blocked),
+            MenuItem::action("About rexafs", app::ShowAbout).disabled(blocked),
+            MenuItem::separator(),
+            MenuItem::action("Settings…", app::ShowPreferences).disabled(blocked),
             MenuItem::separator(),
             MenuItem::action("Quit rexafs", app::Quit),
         ]),

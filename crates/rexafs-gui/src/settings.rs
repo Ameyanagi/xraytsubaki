@@ -150,6 +150,12 @@ fn settings_path() -> Option<PathBuf> {
     app_dir().map(|d| d.join("settings.json"))
 }
 
+/// Where settings are saved: `~/.rexafs/settings.json`, or the
+/// `REXAFS_SETTINGS` override. Shown in Preferences.
+pub fn location() -> Option<PathBuf> {
+    settings_path()
+}
+
 fn settings_read_path(current: &Path, explicit_override: bool) -> PathBuf {
     if !explicit_override && !current.exists() {
         if let Some(home) = current.parent().and_then(Path::parent) {

@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::errors::{DataError, NormalizationError};
 use super::mathutils::{self, MathUtils};
+use super::normalization_checks::{self, NormalizationWarning};
 use super::ranges::RangeAdjustment;
 use super::xafsutils;
 
@@ -654,6 +655,51 @@ impl PrePostEdge {
             .unwrap_or_default()
     }
 
+    /// Reasons not to trust the last normalization (since 0.2.15).
+    ///
+    /// Checks the post-edge window that was fitted on `energy` (eV, the grid
+    /// that was normalized) and the edge step against the span of `mu`: fewer
+    /// than five fitted points (the count below which Larch `pre_edge` caps the
+    /// degree), a window narrower than 20 eV, or an edge step that is
+    /// non-finite, non-positive or below 10⁻³ of the μ span. The step checked is
+    /// the fitted one before the 1e-12 floor, or the explicit `edge_step` when
+    /// one was set. See [`super::normalization_checks`] for the thresholds and
+    /// their sources. Empty before normalization or when the arrays do not match
+    /// the results. Fits nothing and changes nothing.
+    pub fn normalization_warnings(
+        &self,
+        energy: &DVector<f64>,
+        mu: &DVector<f64>,
+    ) -> Vec<NormalizationWarning> {
+        let (Some(pre), Some(post), Some(e0)) = (&self.pre_edge, &self.post_edge, self.e0) else {
+            return Vec::new();
+        };
+        let n = energy.len();
+        if n == 0 || mu.len() != n || pre.len() != n || post.len() != n {
+            return Vec::new();
+        }
+        let Ok(windows) = self.fit_windows(energy.as_slice()) else {
+            return Vec::new();
+        };
+        let Ok(ie0) = mathutils::index_nearest_sorted(energy.as_slice(), &e0) else {
+            return Vec::new();
+        };
+        let (p1, p2) = windows.post;
+        let fitted = post[ie0] - pre[ie0];
+        // `normalize` stores max(fitted, 1e-12) for an automatic step; any other
+        // stored value was set explicitly and is the one that was used.
+        let edge_step = match self.edge_step {
+            Some(step) if step != fitted.max(1.0e-12) => step,
+            _ => fitted,
+        };
+        normalization_checks::post_edge_warnings(
+            p2 - p1,
+            energy[p2 - 1] - energy[p1],
+            edge_step,
+            mu.max() - mu.min(),
+        )
+    }
+
     fn validate_inputs(energy: &DVector<f64>, mu: &DVector<f64>) -> Result<(), NormalizationError> {
         if energy.len() != mu.len() {
             return Err(DataError::LengthMismatch {
@@ -1241,5 +1287,73 @@ mod tests {
                 other => panic!("expected InvalidFitRange, got {other:?}"),
             }
         }
+    }
+
+    /// Ni foil (Larch `ni_metal_rt.xdi`) cropped to 8318–8452 eV, as in issue #172.
+    fn short_ni_scan() -> (DVector<f64>, DVector<f64>) {
+        let path =
+            String::from(TOP_DIR) + "/tests/testfiles/xraylarch_d867/xafsdata/ni_metal_rt.xdi";
+        let (energy, mu): (Vec<f64>, Vec<f64>) = std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .filter(|line| !line.starts_with('#'))
+            .map(|line| {
+                let mut columns = line.split_whitespace().map(|v| v.parse::<f64>().unwrap());
+                (columns.next().unwrap(), columns.next().unwrap())
+            })
+            .filter(|(e, _)| (8318.0..=8452.0).contains(e))
+            .unzip();
+        (DVector::from_vec(energy), DVector::from_vec(mu))
+    }
+
+    #[test]
+    fn narrow_post_edge_window_is_reported_not_changed() {
+        let (energy, mu) = short_ni_scan();
+        // Issue #172: a quadratic through 100–110 eV extrapolates to a negative
+        // step at E0, which the 1e-12 floor turns into a ~1e12 scale factor.
+        let mut settings = PrePostEdge {
+            norm_start: Some(100.0),
+            norm_end: Some(110.0),
+            ..PrePostEdge::default()
+        };
+        settings.normalize(&energy, &mu).unwrap();
+        assert_eq!(settings.edge_step, Some(1e-12));
+        let warnings = settings.normalization_warnings(&energy, &mu);
+        assert!(matches!(
+            warnings[..],
+            [
+                NormalizationWarning::NarrowPostEdge { span },
+                NormalizationWarning::SmallEdgeStep { edge_step, .. },
+            ] if span < 10.0 && edge_step < -1.0
+        ));
+        // Settings are reported, not rewritten.
+        assert_eq!(settings.norm_polyorder, Some(2));
+
+        // The automatic window on the same scan is trusted.
+        let mut automatic = PrePostEdge::new();
+        automatic.normalize(&energy, &mu).unwrap();
+        assert!(automatic.normalization_warnings(&energy, &mu).is_empty());
+    }
+
+    #[test]
+    fn ordinary_and_explicit_step_normalizations_have_no_warnings() {
+        let (energy, mu) = edge(8133.0, 8800.0);
+        let mut settings = PrePostEdge {
+            e0: Some(8333.0),
+            ..PrePostEdge::default()
+        };
+        settings.normalize(&energy, &mu).unwrap();
+        assert!(settings.normalization_warnings(&energy, &mu).is_empty());
+
+        let mut explicit = PrePostEdge {
+            edge_step: Some(0.9),
+            ..PrePostEdge::default()
+        };
+        explicit.normalize(&energy, &mu).unwrap();
+        assert!(explicit.normalization_warnings(&energy, &mu).is_empty());
+        // Before normalization there is nothing to check.
+        assert!(PrePostEdge::default()
+            .normalization_warnings(&energy, &mu)
+            .is_empty());
     }
 }

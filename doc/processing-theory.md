@@ -145,11 +145,34 @@ The automatic edge step is the post-edge line minus the pre-edge line at the gri
 point nearest $E_0$. When the two lines meet or cross there, rexafs floors the step
 at $10^{-12}$ to avoid dividing by zero (`PrePostEdge` in
 `crates/rexafs/src/xafs/normalization.rs`), which scales the normalized
-spectrum and $\chi(k)$ by about $10^{12}$. The desktop application treats a
-non-finite step, or one at most $10^{-6}$ of the measured $\mu(E)$ span
-(maximum minus minimum), as a degenerate normalization and adds one warning per
-group to the Problems drawer. This threshold is a rexafs heuristic, not a
-published criterion.
+spectrum and $\chi(k)$ by about $10^{12}$.
+
+*Unreleased (planned for 0.2.15):* `Spectrum::normalization_warnings()` (Rust,
+`crates/rexafs/src/xafs/normalization_checks.rs`) reports, without changing any
+setting or result, a normalization that should not be trusted:
+
+- the post-edge fit uses fewer than 5 measured points. This is the count below
+  which Larch `pre_edge` caps the polynomial degree at 1 (`pre_edge.py`, lines
+  297–301); rexafs applies the same cap and also warns, because even a line
+  through so few points is a poor estimate of the post-edge trend;
+- the fitted post-edge energies span less than 20 eV. This rexafs heuristic is
+  about one EXAFS oscillation near the edge: a first shell at $R\approx2.5$ Å
+  has period $\Delta k=\pi/R\approx1.3$ Å⁻¹, about 20 eV at $k=2$ Å⁻¹. A
+  narrower window follows the oscillation, not the smooth trend, and its
+  extrapolation back to $E_0$ can be far off;
+- the edge step (before the $10^{-12}$ floor, or the explicit step when one is
+  set) is non-finite, zero, negative, or below $10^{-3}$ of the measured
+  $\mu(E)$ span (maximum minus minimum). This threshold is a rexafs heuristic.
+  Larch instead takes the absolute value of a negative step (`pre_edge.py`,
+  line 313), which silently inverts the normalized spectrum.
+
+For example, a nickel foil scan ending 120 eV above $E_0$ with a 100–110 eV
+post-edge range and degree 2 fits six points over 7.9 eV; the extrapolated step
+is −8.1 although $\mu(E)$ itself spans only 2.7, and the floor scales the
+normalized spectrum by about $10^{12}$. MBACK results get only the edge-step check. The
+desktop application lists the reasons as one "Normalization unreliable" warning
+per group in the Problems drawer and in amber under **Post-edge start**.
+Earlier development builds flagged only a step at most $10^{-6}$ of the span.
 
 The unreleased full [MBACK normalization](mback-normalization.md) provides a
 separate atomic-reference method with an explicit absorber and edge, positive

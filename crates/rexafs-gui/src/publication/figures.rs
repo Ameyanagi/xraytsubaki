@@ -353,7 +353,7 @@ impl FigureData {
 
     /// Autoscale only the displayed interval; a noisy high-k tail must not
     /// flatten the useful signal. The series and exported CSV keep every point.
-    fn visible_ylim(&self, options: &FigureOptions) -> Option<(f64, f64)> {
+    pub(crate) fn visible_ylim(&self, options: &FigureOptions) -> Option<(f64, f64)> {
         let (xmin, xmax) = self.xlim(options)?;
         let mut ymin = f64::INFINITY;
         let mut ymax = f64::NEG_INFINITY;

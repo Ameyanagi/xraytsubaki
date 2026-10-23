@@ -421,6 +421,49 @@ impl StudioApp {
         .detach();
     }
 
+    /// Write the selected figure's curve data and an editable matplotlib
+    /// script into a new folder (see `publication::python_export`).
+    fn export_publication_python(&mut self, cx: &mut Context<Self>) {
+        if !self.require_publication_source(cx) {
+            return;
+        }
+        self.refresh_publication_source(cx);
+        let Some(figure) = self.publish.figures.get(self.publish.selected).cloned() else {
+            return;
+        };
+        let options = self.publish.settings.options(figure.key);
+        let name = format!("rexafs-{}-matplotlib", figure.key);
+        let home = crate::settings::home_dir().unwrap_or_else(std::env::temp_dir);
+        let rx = cx.prompt_for_new_path(&home, Some(&name));
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(path))) = rx.await {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move {
+                        crate::publication::python_export::write_python_export(
+                            &figure, &options, &path,
+                        )
+                    })
+                    .await;
+                this.update(cx, |app, cx| {
+                    match result {
+                        Ok(script) => {
+                            app.set_status(
+                                crate::app::StatusKind::Success,
+                                format!("Saved {}", script.display()),
+                            );
+                            app.publish.saved_figure = Some(script);
+                        }
+                        Err(error) => app.publish.error = Some(error),
+                    }
+                    cx.notify();
+                })
+                .ok();
+            }
+        })
+        .detach();
+    }
+
     pub(crate) fn publish_panel(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
         self.refresh_publication_source(cx);
         let t = self.theme;
@@ -898,6 +941,22 @@ impl StudioApp {
                 })),
             );
         }
+        let python_enabled = figure.is_some() && ready;
+        save = save.child(
+            enabled_when(
+                with_tip(
+                    button(&t, "export-figure-python", "Data + Python script…", false),
+                    &t,
+                    "Export data + Python script: a new folder with one CSV per visible curve and make_figure.py, which redraws this figure with matplotlib.",
+                ),
+                python_enabled,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if python_enabled {
+                    this.export_publication_python(cx);
+                }
+            })),
+        );
         if let Some(path) = self.publish.saved_figure.clone() {
             save = save.child(
                 icon_button(

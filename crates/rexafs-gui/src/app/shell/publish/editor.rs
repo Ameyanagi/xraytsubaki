@@ -6,7 +6,7 @@ use crate::app::shell::{
     segment, segmented,
 };
 use crate::icons::Icon;
-use crate::publication::figures::{StylePreset, fit_figures, render_figure};
+use crate::publication::figures::{LegendPlacement, StylePreset, fit_figures, render_figure};
 use crate::theme::Theme;
 use crate::widgets::numeric_field::{FieldEvent, FieldKind};
 use crate::widgets::text_input::InputEvent;
@@ -630,6 +630,7 @@ impl StudioApp {
                     || options.grid.is_some()
                     || options.guides
                     || !options.legend
+                    || options.legend_position != LegendPlacement::Auto
                     || !options.hidden.is_empty()
                     || !options.shown.is_empty()
                     || options.xmin.is_some()
@@ -692,7 +693,7 @@ impl StudioApp {
                                 false,
                             ),
                             &t,
-                            "Copy size, DPI, font size, line width, legend, grid and guides from this figure to every figure in the report.",
+                            "Copy size, DPI, font size, line width, legend and its placement, grid and guides from this figure to every figure in the report.",
                         )
                         .on_click(cx.listener(|this, _, _, cx| {
                             let keys: Vec<&'static str> =
@@ -729,22 +730,6 @@ impl StudioApp {
                     .flex_wrap()
                     .gap_1()
                     .child(
-                        chip(&t, "publication-legend", "Legend", options.legend).on_click(
-                            cx.listener(|this, _, _, cx| {
-                                if let Some(f) = this.publish.figures.get(this.publish.selected) {
-                                    let o = this
-                                        .publish
-                                        .settings
-                                        .figures
-                                        .entry(f.key.into())
-                                        .or_default();
-                                    o.legend = !o.legend;
-                                    this.refresh_publication_preview(cx);
-                                }
-                            }),
-                        ),
-                    )
-                    .child(
                         chip(&t, "publication-grid", "Grid", options.grid.unwrap_or(true))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 if let Some(f) = this.publish.figures.get(this.publish.selected) {
@@ -776,6 +761,57 @@ impl StudioApp {
                         ),
                     ),
             );
+            controls = controls.child(heading(&t, "Legend"));
+            let mut legend = div().flex().flex_wrap().gap_1();
+            for (i, placement) in LegendPlacement::ALL
+                .into_iter()
+                .map(Some)
+                .chain([None])
+                .enumerate()
+            {
+                let selected = match placement {
+                    Some(p) => options.legend && options.legend_position == p,
+                    None => !options.legend,
+                };
+                let tip = match placement {
+                    Some(LegendPlacement::Auto) => {
+                        "Place the legend inside the plot where it covers the fewest curve points (recommended)."
+                    }
+                    Some(LegendPlacement::Outside) => {
+                        "Place the legend to the right of the plot; the plot area narrows to make room."
+                    }
+                    Some(_) => "Place the legend in this corner of the plot.",
+                    None => "Hide the legend.",
+                };
+                legend = legend.child(
+                    with_tip(
+                        chip(
+                            &t,
+                            ("publication-legend", i),
+                            placement.map_or("Off", LegendPlacement::label),
+                            selected,
+                        ),
+                        &t,
+                        tip,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if let Some(f) = this.publish.figures.get(this.publish.selected) {
+                            let o = this
+                                .publish
+                                .settings
+                                .figures
+                                .entry(f.key.into())
+                                .or_default();
+                            o.legend = placement.is_some();
+                            if let Some(p) = placement {
+                                o.legend_position = p;
+                            }
+                            this.refresh_publication_preview(cx);
+                        }
+                    })),
+                );
+            }
+            controls = controls.child(legend);
             for (label, field) in ["Title", "X label", "Y label"]
                 .into_iter()
                 .zip(self.publish.labels.iter().take(3))
@@ -786,7 +822,7 @@ impl StudioApp {
                 div()
                     .text_size(px(11.))
                     .text_color(t.text_muted)
-                    .child("Typst math: $k^2 chi(k)$"),
+                    .child("Text is literal; Typst math in $…$, e.g. $k^2 chi(k)$"),
             );
             controls = controls.child(heading(&t, "Axis limits"));
             for field in self.publish.numbers.iter().skip(5) {

@@ -78,6 +78,50 @@ and visible curves. Fit figures show model/data components and path contribution
 without vertical offsets. R-space residuals show the difference of magnitudes,
 not a complex residual. Scientific curves come from processing/fit results.
 
+### Legend, ticks, R range and labels (since 0.2.15)
+
+**Legend** places the legend: **Auto** (the default), **Upper left**, **Upper
+right**, **Lower left**, **Lower right**, **Outside** or **Off**. Auto uses
+ruviz's "best" placement, which scores the positions inside the plot against
+the drawn curves and picks the one covering the fewest of them. **Outside**
+puts the legend to the right of the plot and narrows the plot area. The choice
+is saved with the figure settings and copied by **Apply style to all figures**.
+Earlier versions always used Auto and offered only on/off.
+
+At narrow widths rexafs lowers the number of x-axis ticks so neighbouring tick
+labels do not overlap: it estimates each label's width from its digits and the
+tick font size and keeps the densest ruviz tick spacing that leaves about one
+character of space between labels. For example, a 3.3 in XANES figure with
+9 pt text uses 20 eV instead of 10 eV spacing; the 6.4 in default keeps its
+ticks. This is a rexafs estimate implemented in
+[`x_tick_count`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/figures/layout.rs).
+
+The processed-spectrum |χ(R)| figure no longer stops at a fixed 6 Å. It shows at
+least 0–6 Å, extends to the back-transform R window's upper limit plus 0.5 Å
+(rounded up to a whole ångström) when that is larger, and never extends past
+the displayed transform range (10 Å by default). Fit |χ(R)| figures use the
+same rule with the fit's R range. **X min** and **X max** override either default.
+
+Titles and axis labels you type are shown literally: characters that Typst
+would treat as markup, such as `#`, `_`, `*`, `[`, `]`, `@`, `<`, `>` and `\`,
+appear as typed. Text between a pair of dollar signs is still Typst math, so
+`Copper · $k^2 chi(k)$` works; type `\$` for a literal dollar sign. Earlier
+versions passed typed labels to Typst unchanged, so such characters could be
+reinterpreted or stop the figure from rendering.
+
+### Fit + residual
+
+After a fit, **More figures** includes **Fit + residual · χ(k)** and **Fit +
+residual · |χ(R)|**. Each shows the data and fitted model in the upper panel
+and the residual in a strip below (28% of the figure height, a rexafs choice).
+Both panels share the x axis: they use the same x limits and margins, and only
+the strip carries x tick labels and the x-axis title. The strip is symmetric
+about zero, draws a zero line and uses three y ticks; when it is too short for the word, its axis title shortens to "Res.". The k-space residual is the k-weighted data
+minus the fitted model, in the units of the upper panel. The R-space residual
+is the difference of the magnitudes |χ(R)|, not the magnitude of the complex
+residual. The figure's CSV includes the data, fit and residual curves. With
+**Outside**, the legend uses Auto placement instead so the panels stay aligned.
+
 ## Captions
 
 Enter figure and processing/parameter/path-table captions in the editor; press

@@ -472,6 +472,8 @@ actions!(
         StageSeries,
         StagePublish,
         ShowHelp,
+        ShowAbout,
+        ShowPreferences,
         ShowLicenses,
         ShowStorage,
         ShowUpdates,
@@ -595,6 +597,8 @@ pub fn studio_keybindings() -> Vec<KeyBinding> {
             Some("Explore && !TextInput && !Assistant"),
         ),
         KeyBinding::new("secondary-k", PaletteOpen, Some("Studio && !Assistant")),
+        // macOS Settings… convention (Cmd+,); Ctrl+, on other platforms.
+        KeyBinding::new("secondary-,", ShowPreferences, Some("Studio && !Assistant")),
         KeyBinding::new("escape", PaletteClose, Some("Palette")),
         KeyBinding::new(
             "secondary-z",
@@ -10656,6 +10660,10 @@ impl Render for StudioApp {
                     this.navigate_stage(Stage::Publish, window, cx)
                 }))
                 .on_action(cx.listener(|this, _: &ShowHelp, _, cx| this.open_help(cx)))
+                .on_action(cx.listener(|this, _: &ShowAbout, _, cx| this.open_about(cx)))
+                .on_action(
+                    cx.listener(|this, _: &ShowPreferences, _, cx| this.open_preferences(cx)),
+                )
                 .on_action(cx.listener(|this, _: &ShowLicenses, _, cx| this.open_licenses(cx)))
                 .on_action(cx.listener(|this, _: &ShowStorage, _, cx| this.open_storage(cx)))
                 .on_action(cx.listener(|this, _: &ShowUpdates, _, cx| this.open_updates(cx)))

@@ -58,6 +58,7 @@ fn publication_samples_keep_order_and_panel_options_after_rxs_reopen() {
             offset_step: 0.3,
             reverse: true,
             label_mode: CurveLabelMode::CurveEnd,
+            inset: None,
         },
         CompositePanel {
             samples: Some(Vec::new()),
@@ -106,17 +107,105 @@ fn publication_named_recipe_panel_strings_load_from_rxs() {
             .collect::<Vec<_>>(),
         ["xanes", "chi-k"]
     );
-    assert!(
-        recipe
-            .panels
-            .iter()
-            .all(|panel| panel.samples.is_none() && panel.offset_step == 0. && !panel.reverse)
-    );
+    assert!(recipe.panels.iter().all(|panel| panel.samples.is_none()
+        && panel.offset_step == 0.
+        && !panel.reverse
+        && panel.inset.is_none()));
     save_with_storage(&path, &reopened, DataStorage::Paths).unwrap();
     let saved = json_file(&path);
     assert!(saved["publication"]["recipes"][0]["recipe"]["panels"][0].is_object());
     let again = load_with_cache_root(&path, || Ok(temp.path().join("cache"))).unwrap();
     assert_eq!(again.publication, reopened.publication);
+}
+
+#[test]
+fn publication_panel_objects_without_insets_load_from_rxs() {
+    use crate::group_identity::GroupId;
+    use crate::publication::figures::composer::CurveLabelMode;
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("legacy-panel-objects.rxs");
+    save_with_storage(&path, &ProjectFile::default(), DataStorage::Paths).unwrap();
+    let mut saved = json_file(&path);
+    saved["publication"] = serde_json::json!({
+        "recipes": [{"name": "Figure 1", "recipe": {"panels": [{
+            "key": "xanes",
+            "samples": ["result:9", "result:2"],
+            "offset_step": 0.3,
+            "reverse": true,
+            "label_mode": "curve_end"
+        }]}}]
+    });
+    std::fs::write(&path, serde_json::to_vec(&saved).unwrap()).unwrap();
+    let reopened = load_with_cache_root(&path, || Ok(temp.path().join("cache"))).unwrap();
+    let panel = &reopened.publication.active_recipe().recipe.panels[0];
+    assert_eq!(panel.key, "xanes");
+    assert_eq!(
+        panel.samples,
+        Some(vec![GroupId::legacy_result(9), GroupId::legacy_result(2)])
+    );
+    assert_eq!(panel.offset_step, 0.3);
+    assert!(panel.reverse);
+    assert_eq!(panel.label_mode, CurveLabelMode::CurveEnd);
+    assert!(panel.inset.is_none());
+    save_with_storage(&path, &reopened, DataStorage::Paths).unwrap();
+    let again = load_with_cache_root(&path, || Ok(temp.path().join("cache"))).unwrap();
+    assert_eq!(again.publication, reopened.publication);
+}
+
+#[test]
+fn publication_panel_insets_survive_rxs_save_and_reopen() {
+    use crate::publication::figures::composer::{
+        CompositePanel, InsetKind, InsetPlacement, PanelInset,
+    };
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("panel-insets.rxs");
+    let mut project = ProjectFile::default();
+    project.publication.active_composite_mut().panels = [
+        (
+            "xanes",
+            InsetKind::PreEdge,
+            InsetPlacement::LowerRight,
+            true,
+        ),
+        (
+            "flattened-mu",
+            InsetKind::Edge,
+            InsetPlacement::UpperLeft,
+            false,
+        ),
+        (
+            "mu-energy",
+            InsetKind::Difference,
+            InsetPlacement::CenterRight,
+            true,
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, (key, kind, placement, follow_offset))| {
+        let mut inset = PanelInset::new(kind);
+        inset.energy_range = (-5.5 - index as f64, 12.25 + index as f64);
+        inset.placement = placement;
+        inset.follow_offset = follow_offset;
+        CompositePanel {
+            inset: Some(inset),
+            ..CompositePanel::from(key)
+        }
+    })
+    .collect();
+    for storage in [DataStorage::Paths, DataStorage::Embedded] {
+        save_with_storage(&path, &project, storage).unwrap();
+        let saved = json_file(&path);
+        let panels = &saved["publication"]["recipes"][0]["recipe"]["panels"];
+        assert!(panels[0]["inset"].is_object());
+        assert_eq!(
+            panels[0]["inset"]["energy_range"],
+            serde_json::json!([-5.5, 12.25])
+        );
+        assert_eq!(panels[1]["inset"]["follow_offset"], false);
+        let reopened = load_with_cache_root(&path, || Ok(temp.path().join("cache"))).unwrap();
+        assert_eq!(reopened.publication, project.publication);
+    }
 }
 
 #[test]

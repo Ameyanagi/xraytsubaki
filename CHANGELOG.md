@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add optional publication-panel insets for pre-edge and white-line detail or
+  normalized differences from the first selected sample, with editable E₀-relative
+  ranges, placement and scaled display offsets in previews and image exports.
+  Save inset choices per panel while preserving older project recipes.
 - Select several workspace samples per publication composer panel, share or
   override their ordered selection, and stack main curves with vertical offsets.
   Set short figure labels with full sample names retained in captions; curve-end

@@ -129,6 +129,7 @@ mod tests {
                     guides: vec![],
                     default_xlim: Some((0., 1.)),
                     residual: None,
+                    e0: None,
                 })],
             })
             .collect();

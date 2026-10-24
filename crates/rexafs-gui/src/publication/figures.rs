@@ -361,7 +361,12 @@ pub(crate) struct FigureData {
     pub ylabel: String,
     pub math_ylabel: String,
     pub series: Vec<FigureSeries>,
+    /// Normalized curves for the normalized display choice or difference
+    /// insets. Raw μ(E) panels retain their raw display even when this is set.
     pub normalized_series: Option<Vec<FigureSeries>>,
+    /// Processed absorption-edge energy E₀ in eV, when available. Insets use
+    /// this value independently of visible processing guides or axis limits.
+    pub e0: Option<f64>,
     pub guides: Vec<f64>,
     pub default_xlim: Option<(f64, f64)>,
     /// Data − fit curve drawn in a strip below the main panel (fit + residual).
@@ -378,6 +383,7 @@ impl FigureData {
 
     pub(crate) fn series(&self, options: &FigureOptions) -> &[FigureSeries] {
         if options.normalized
+            && self.key != "mu-energy"
             && let Some(series) = &self.normalized_series
         {
             return series;
@@ -386,7 +392,7 @@ impl FigureData {
     }
 
     pub(crate) fn ylabel(&self, options: &FigureOptions) -> &str {
-        if options.normalized && self.normalized_series.is_some() {
+        if options.normalized && self.key != "mu-energy" && self.normalized_series.is_some() {
             "Normalized μ(E) (dimensionless)"
         } else {
             &self.ylabel
@@ -400,7 +406,7 @@ impl FigureData {
     }
 
     pub(crate) fn math_ylabel(&self, options: &FigureOptions) -> &str {
-        if options.normalized && self.normalized_series.is_some() {
+        if options.normalized && self.key != "mu-energy" && self.normalized_series.is_some() {
             "Normalized _μ_(_E_) (dimensionless)"
         } else {
             &self.math_ylabel
@@ -881,6 +887,7 @@ pub(crate) fn spectrum_figures(sp: Arc<XASSpectrum>, label: &str) -> Vec<FigureD
                 math_ylabel: format!("Flattened {} (dimensionless)", labels::MU_E),
                 series: vec![series(flat.as_slice().to_vec())],
                 normalized_series,
+                e0,
                 guides: e0.into_iter().collect(),
                 default_xlim: (energy[0] < end).then_some((energy[0], end)),
                 residual: None,
@@ -902,7 +909,7 @@ pub(crate) fn spectrum_figures(sp: Arc<XASSpectrum>, label: &str) -> Vec<FigureD
         color_index: 0,
         color: None,
         label: label.into(),
-        sp,
+        sp: sp.clone(),
         active: true,
     }];
     let mut figures: Vec<_> = ["mu-energy", "normalized-mu", "chi-k", "chi-r", "chi-q"]
@@ -938,7 +945,25 @@ pub(crate) fn spectrum_figures(sp: Arc<XASSpectrum>, label: &str) -> Vec<FigureD
                 _ => None,
             },
             guides: spec.vlines.into_iter().map(|(x, _, _, _)| x).collect(),
-            normalized_series: None,
+            normalized_series: if key == "mu-energy" {
+                sp.energy
+                    .as_ref()
+                    .zip(sp.norm())
+                    .filter(|(energy, norm)| energy.len() == norm.len())
+                    .map(|(energy, norm)| {
+                        vec![FigureSeries {
+                            key: "series-0".into(),
+                            label: label.into(),
+                            x: energy.as_slice().to_vec(),
+                            y: norm.as_slice().to_vec(),
+                            dashed: false,
+                            optional: false,
+                        }]
+                    })
+            } else {
+                None
+            },
+            e0,
             residual: None,
             series: spec
                 .series
@@ -1026,6 +1051,7 @@ pub(crate) fn fit_figures(result: &FeffFitResult) -> Vec<FigureData> {
         },
         series,
         normalized_series: None,
+        e0: None,
         guides: vec![],
         default_xlim: match key {
             "fit-r" | "residual-r" | "fit-residual-r" => Some((0., publication_rmax(result.rmax))),
@@ -1496,6 +1522,7 @@ mod tests {
     fn sample() -> FigureData {
         FigureData {
             key: "test",
+            e0: None,
             label: "Test".into(),
             xlabel: "Energy (eV)".into(),
             ylabel: "μ(E)".into(),

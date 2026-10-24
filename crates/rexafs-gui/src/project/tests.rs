@@ -1,26 +1,103 @@
 use super::*;
 
+fn publication_export_snapshot(
+    project: ProjectFile,
+    current: Vec<std::sync::Arc<crate::publication::figures::FigureData>>,
+) -> crate::publication::Snapshot {
+    crate::publication::Snapshot {
+        project,
+        current: PathBuf::new(),
+        spectra: Vec::new(),
+        results: Default::default(),
+        composer: crate::publication::composed::ComposerInput {
+            current,
+            samples: Vec::new(),
+        },
+        analysis: Value::Null,
+        batch_csv: None,
+        batch_stale: false,
+        journal: Vec::new(),
+        screen: Value::Null,
+    }
+}
+
 #[test]
-fn publication_recipes_migrate_old_rxs_and_save_only_the_new_format() {
+fn publication_recipes_migrate_old_rxs_export_and_save_only_the_new_format() {
     use crate::publication::figures::composer::CompositeRecipe;
+    use crate::publication::figures::{FigureData, FigureSeries};
+    use std::sync::Arc;
+
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("legacy.rxs");
     let recipe = CompositeRecipe {
         panels: vec!["xanes".into(), "chi-k".into()],
         columns: 1,
         width_mm: 90.,
-        dpi: 300.,
+        panel_height_mm: Some(38.1),
+        dpi: 72.,
         ..Default::default()
     };
     save_with_storage(&path, &ProjectFile::default(), DataStorage::Paths).unwrap();
     let mut legacy = json_file(&path);
     legacy["publication"] = serde_json::json!({"composite": recipe});
     legacy["publication"]["composite"]["panels"] = serde_json::json!(["xanes", "chi-k"]);
+    legacy["publication"]["figures"] =
+        serde_json::json!({"xanes": {"caption": "Legacy XANES caption."}});
     std::fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
     let mut project = load_with_cache_root(&path, || Ok(temp.path().join("cache"))).unwrap();
     assert_eq!(project.publication.recipes().len(), 1);
     assert_eq!(project.publication.active_recipe().name, "Figure 1");
     assert_eq!(project.publication.active_recipe().recipe, recipe);
+
+    // Synthetic display curves exercise export compatibility without depending
+    // on scientific processing or external measurement files.
+    let current = [("xanes", "Energy (eV)"), ("chi-k", "k (1/Å)")]
+        .into_iter()
+        .map(|(key, xlabel)| {
+            Arc::new(FigureData {
+                key,
+                label: key.into(),
+                xlabel: xlabel.into(),
+                ylabel: "Signal (dimensionless)".into(),
+                math_ylabel: "Signal (dimensionless)".into(),
+                series: vec![FigureSeries {
+                    key: "signal".into(),
+                    label: "Synthetic sample".into(),
+                    x: vec![1., 2., 3.],
+                    y: vec![0., 0.5, 1.],
+                    dashed: false,
+                    optional: false,
+                }],
+                normalized_series: None,
+                e0: None,
+                guides: Vec::new(),
+                default_xlim: None,
+                residual: None,
+            })
+        })
+        .collect();
+    let folder = temp.path().join("legacy-report");
+    crate::publication::export(
+        publication_export_snapshot(project.clone(), current),
+        &folder,
+    )
+    .unwrap();
+    for suffix in [".png", ".svg", ".pdf", "-caption.txt"] {
+        assert!(
+            folder
+                .join(format!("figures/composed/figure-1{suffix}"))
+                .is_file()
+        );
+    }
+    let caption =
+        std::fs::read_to_string(folder.join("figures/composed/figure-1-caption.txt")).unwrap();
+    assert!(caption.contains("(a) Legacy XANES caption."));
+    let report = std::fs::read_to_string(folder.join("report.html")).unwrap();
+    assert!(report.contains("figures/composed/figure-1.svg"));
+    assert!(report.contains(&caption));
+    let captions = std::fs::read_to_string(folder.join("captions.md")).unwrap();
+    assert!(captions.contains(&caption));
+
     project.publication.duplicate_recipe();
     project.publication.rename_recipe("SI Figure S4").unwrap();
     let saved = temp.path().join("named.rxs");
@@ -317,7 +394,10 @@ fn publication_panel_insets_survive_rxs_save_and_reopen() {
 fn publication_recipes_default_when_old_rxs_has_no_recipe_or_publication() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("no-recipe.rxs");
-    for publication in [None, Some(serde_json::json!({"figures": {}}))] {
+    for (index, publication) in [None, Some(serde_json::json!({"figures": {}}))]
+        .into_iter()
+        .enumerate()
+    {
         save_with_storage(&path, &ProjectFile::default(), DataStorage::Paths).unwrap();
         let mut input = json_file(&path);
         if let Some(publication) = publication {
@@ -340,6 +420,14 @@ fn publication_recipes_default_when_old_rxs_has_no_recipe_or_publication() {
         assert!(json["publication"].get("composite").is_none());
         let restored = load_with_cache_root(&path, || Ok(temp.path().join("cache"))).unwrap();
         assert_eq!(restored.publication, project.publication);
+        let folder = temp.path().join(format!("default-report-{index}"));
+        crate::publication::export(publication_export_snapshot(restored, Vec::new()), &folder)
+            .unwrap();
+        assert!(folder.join("project.rxs").is_file());
+        assert!(folder.join("report.html").is_file());
+        let manifest: Value =
+            serde_json::from_slice(&std::fs::read(folder.join("manifest.json")).unwrap()).unwrap();
+        assert!(manifest["figures"].as_array().unwrap().is_empty());
     }
 }
 

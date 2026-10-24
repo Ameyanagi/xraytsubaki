@@ -402,6 +402,7 @@ mod tests {
             batch_csv: None,
             batch_stale: false,
             journal: vec![],
+            composer: Default::default(),
             screen: Value::Null,
         };
         snapshot.resolve_spectra();

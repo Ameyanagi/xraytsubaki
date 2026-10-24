@@ -2,7 +2,11 @@
 use super::*;
 use crate::group_identity::GroupId;
 use crate::params::Quantity;
-use crate::publication::figures::{composer::CompositeSample, quantity_figures};
+use crate::publication::composed::{ComposerInput, SampleInput};
+use crate::publication::figures::{
+    composer::{CompositeRecipe, CompositeSample},
+    quantity_figures,
+};
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{Hash, Hasher};
 
@@ -62,7 +66,74 @@ fn composer_sample_indices(
         .collect()
 }
 
+/// Unique sample dependencies of the requested recipes. Panel overrides replace
+/// the shared selection, and fit panels always use the current fitted dataset.
+fn recipe_sample_ids<'a>(
+    recipes: impl IntoIterator<Item = &'a CompositeRecipe>,
+) -> BTreeSet<GroupId> {
+    recipes
+        .into_iter()
+        .flat_map(|recipe| {
+            recipe
+                .panels
+                .iter()
+                .filter(|panel| !panel.uses_current_fit())
+                .flat_map(|panel| panel.samples.as_ref().unwrap_or(&recipe.samples))
+        })
+        .cloned()
+        .collect()
+}
+
 impl StudioApp {
+    /// Capture every recipe's workspace sources before export. Resolving IDs here
+    /// preserves unmarked samples and sources outside the saved project's scope;
+    /// processing missing cache entries runs later on the export worker.
+    pub(super) fn composer_export_input(&self) -> ComposerInput {
+        let samples = self
+            .composer_export_sample_ids()
+            .into_iter()
+            .filter_map(|id| {
+                let ix = self.menu_index(&id)?;
+                let target = self.tool_target(ix)?;
+                let color = self.group_plot_color(ix).unwrap_or_else(|| {
+                    self.theme
+                        .plot_theme()
+                        .get_color(self.group_color_index(ix))
+                });
+                Some(SampleInput {
+                    id,
+                    color: format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b),
+                    spectrum: SpectrumInput {
+                        label: target.label,
+                        path: target.path,
+                        params: self.effective_params(ix).clone(),
+                        group: ix
+                            .checked_sub(DERIVED_BASE)
+                            .and_then(|index| self.derived.get(index))
+                            .cloned(),
+                        data: self.composer_sample_spectrum(ix),
+                        source_error: None,
+                    },
+                })
+            })
+            .collect();
+        ComposerInput {
+            current: self.publication_figures(),
+            samples,
+        }
+    }
+
+    /// Dependencies of active and inactive recipes for export and revision checks.
+    pub(super) fn composer_export_sample_ids(&self) -> BTreeSet<GroupId> {
+        recipe_sample_ids(
+            self.publish
+                .settings
+                .recipes()
+                .iter()
+                .map(|named| &named.recipe),
+        )
+    }
+
     /// Offer the current group first, followed by marked groups in workspace order.
     pub(super) fn composer_sample_choices(&self) -> Vec<(GroupId, String)> {
         // Marks remain eligible when their rows are filtered out or folded.
@@ -86,14 +157,7 @@ impl StudioApp {
 
     /// Gather only the IDs needed by non-fit panels; rendering retains list order.
     fn composer_sample_ids(&self) -> BTreeSet<GroupId> {
-        let recipe = &self.publish.settings.active_recipe().recipe;
-        recipe
-            .panels
-            .iter()
-            .filter(|panel| !panel.uses_current_fit())
-            .flat_map(|panel| panel.samples.as_ref().unwrap_or(&recipe.samples))
-            .cloned()
-            .collect()
+        recipe_sample_ids([&self.publish.settings.active_recipe().recipe])
     }
 
     /// The same processed revision used by workspace overlays. A standalone
@@ -288,6 +352,45 @@ mod tests {
         catalog::{Catalog, FileMeta},
         params::DerivedSpectrum,
     };
+
+    #[test]
+    fn publication_export_collects_inactive_recipe_samples_and_panel_overrides() {
+        use crate::publication::figures::composer::CompositePanel;
+        let id = GroupId::legacy_result;
+        let recipes = [
+            CompositeRecipe {
+                samples: vec![id(1), id(2)],
+                panels: vec!["xanes".into(), "fit-k".into()],
+                ..Default::default()
+            },
+            CompositeRecipe {
+                samples: vec![id(99)],
+                panels: vec![
+                    CompositePanel {
+                        samples: Some(vec![id(3), id(2)]),
+                        ..CompositePanel::from("chi-k")
+                    },
+                    CompositePanel {
+                        samples: Some(vec![]),
+                        ..CompositePanel::from("xanes")
+                    },
+                    CompositePanel {
+                        samples: Some(vec![id(98)]),
+                        ..CompositePanel::from("fit-r")
+                    },
+                ],
+                ..Default::default()
+            },
+        ];
+        assert_eq!(
+            recipe_sample_ids(&recipes),
+            BTreeSet::from([id(1), id(2), id(3)])
+        );
+        assert_eq!(
+            recipe_sample_ids([&recipes[1]]),
+            BTreeSet::from([id(2), id(3)])
+        );
+    }
 
     fn sample_catalog() -> Catalog {
         let mut catalog = Catalog::default();

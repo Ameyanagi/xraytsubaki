@@ -6,9 +6,7 @@ use crate::app::shell::{
     segment, segmented,
 };
 use crate::icons::Icon;
-use crate::publication::figures::{
-    LegendPlacement, SERIES_PALETTE, StylePreset, fit_figures, render_figure,
-};
+use crate::publication::figures::{LegendPlacement, SERIES_PALETTE, StylePreset, render_figure};
 use crate::theme::Theme;
 use crate::widgets::numeric_field::{FieldEvent, FieldKind};
 use crate::widgets::text_input::InputEvent;
@@ -245,22 +243,7 @@ impl StudioApp {
             .figures
             .get(self.publish.selected)
             .map(|f| f.key);
-        let current = self.tool_target(self.selected.unwrap_or(crate::app::NO_ENTRY));
-        let mut figures = publication_spectrum_figures(
-            current.as_ref(),
-            self.spectrum_group.as_ref(),
-            self.spectrum.as_ref(),
-            self.spectrum_quantity,
-            self.stale_plots.is_some(),
-            self.load_running,
-        );
-        if let Some(result) = &self.fit_result {
-            figures.extend(fit_figures(&crate::joint_fitting::result_view(
-                result,
-                self.joint.result_index,
-            )));
-        }
-        self.publish.figures = figures.into_iter().map(Arc::new).collect();
+        self.publish.figures = self.publication_figures();
         self.publish.selected = self
             .publish
             .figures

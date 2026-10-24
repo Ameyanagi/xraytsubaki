@@ -330,15 +330,35 @@ pub(crate) fn write(
 <p>Figures and tables retain the selected settings. Complete the experimental methods and captions with sample and acquisition details before submission. The numerical record and export notices accompany this report.</p><h2>Figures</h2>"#,
         env!("CARGO_PKG_VERSION")
     );
+    let mut composed_heading = false;
     for asset in assets {
         let n = asset["number"].as_u64().unwrap();
         let caption = asset["caption"].as_str().unwrap();
-        captions.push_str(&format!("**Figure {n}.** {}\n\n", cell(caption)));
-        let csv_link = asset["csv"]
+        let name = asset["recipe_name"]
             .as_str()
-            .map(|path| format!(" · <a href=\"{}\">Data CSV</a>", html(path)))
+            .map(|name| format!("{name}. "))
             .unwrap_or_default();
-        report.push_str(&format!("<figure id=\"figure-{n}\"><img src=\"{}\" alt=\"{}\"><figcaption><strong>Figure {n}.</strong> {} <a href=\"{}\">PNG</a> · <a href=\"{}\">SVG</a>{csv_link}</figcaption></figure>",html(asset["svg"].as_str().unwrap()),html(caption),html(caption),html(asset["file"].as_str().unwrap()),html(asset["svg"].as_str().unwrap())));
+        if !name.is_empty() && !composed_heading {
+            report.push_str("<h2>Composed figures</h2>");
+            composed_heading = true;
+        }
+        captions.push_str(&format!(
+            "**Figure {n}.** {}{}\n\n",
+            cell(&name),
+            cell(caption)
+        ));
+        let mut links = String::new();
+        for (key, label) in [
+            ("csv", "Data CSV"),
+            ("pdf", "PDF"),
+            ("caption_file", "Combined caption"),
+            ("python", "Matplotlib script and adjacent CSV data"),
+        ] {
+            if let Some(path) = asset[key].as_str() {
+                links.push_str(&format!(" · <a href=\"{}\">{label}</a>", html(path)));
+            }
+        }
+        report.push_str(&format!("<figure id=\"figure-{n}\"><img src=\"{}\" alt=\"{}\"><figcaption><strong>Figure {n}.</strong> {}{} <a href=\"{}\">PNG</a> · <a href=\"{}\">SVG</a>{links}</figcaption></figure>",html(asset["svg"].as_str().unwrap()),html(&format!("{name}{caption}")),html(&name),html(caption),html(asset["file"].as_str().unwrap()),html(asset["svg"].as_str().unwrap())));
     }
     report.push_str("<h2>Tables</h2>");
     for table in tables {
@@ -387,6 +407,7 @@ mod tests {
             batch_csv: None,
             batch_stale: false,
             journal: vec![],
+            composer: Default::default(),
             screen: Value::Null,
         };
         let tables = snapshot.tables();
@@ -451,6 +472,7 @@ mod tests {
             batch_csv: None,
             batch_stale: false,
             journal: vec![],
+            composer: Default::default(),
             screen: Value::Null,
         };
         let stats = snapshot.tables()[0].markdown();
@@ -483,6 +505,7 @@ mod tests {
             batch_csv: None,
             batch_stale: false,
             journal: vec![],
+            composer: Default::default(),
             screen: Value::Null,
         };
         let used = |snapshot: &Snapshot, setting: &str| {

@@ -1,4 +1,4 @@
-//! Export one Publish figure as data files plus an editable matplotlib script.
+//! Export single or composed Publish figures as data plus editable matplotlib scripts.
 //!
 //! The folder holds one CSV per visible curve (`series-01.csv`, …) and
 //! `make_figure.py`, which redraws the figure with [matplotlib] using the
@@ -19,9 +19,12 @@
 //!
 //! [matplotlib]: https://matplotlib.org/stable/users/explain/text/mathtext.html
 
-use super::figures::{FigureData, FigureOptions, typst_label};
+use super::figures::{FigureData, FigureOptions, FigureSeries, typst_label};
 use ruviz::prelude::Plot;
 use std::{fs, path::Path};
+
+mod composite;
+pub(crate) use composite::write_composite_python_export;
 
 /// File name of the generated script inside the export folder.
 pub(crate) const SCRIPT_NAME: &str = "make_figure.py";
@@ -51,33 +54,21 @@ pub(crate) fn python_export(
     }
     let default = Plot::new();
     let config = default.get_config();
-    let theme = default.get_theme();
     // ruviz stores defaults as f32; round so 6.4 is not written as 6.400000095.
-    let round = |v: f64| (v * 1e4).round() / 1e4;
     let (width, height, dpi) = options.dimensions();
-    let (width, height) = (round(width), round(height));
-    let font_size = round(
+    let (width, height) = (round_default(width), round_default(height));
+    let font_size = round_default(
         options
             .font_size
             .unwrap_or(config.typography.base_size as f64),
     );
-    let line_width = round(options.line_width.unwrap_or(config.lines.data_width as f64));
-    // Typed labels are literal outside `$…$`, exactly as in the rendered figure.
-    let xlabel = match &options.xlabel {
-        Some(typed) => axis_label(&typst_label(typed), typed),
-        None => axis_label(data.math_xlabel(), &data.xlabel),
-    };
-    let ylabel = match &options.ylabel {
-        Some(typed) => axis_label(&typst_label(typed), typed),
-        None => axis_label(data.math_ylabel(options), data.ylabel(options)),
-    };
+    let line_width = round_default(options.line_width.unwrap_or(config.lines.data_width as f64));
+    let (xlabel, ylabel) = axis_labels(data, options);
     let title = options
         .title
         .as_deref()
         .map(|t| axis_label(&typst_label(t), t))
         .map_or("None".into(), |t| py_str(&t));
-    let limit =
-        |pair: Option<(f64, f64)>| pair.map_or("None".into(), |(a, b)| format!("({a:?}, {b:?})"));
     let guides = if options.guides {
         data.guides
             .iter()
@@ -92,23 +83,8 @@ pub(crate) fn python_export(
     let mut entries = String::new();
     for (i, s) in series.iter().enumerate() {
         let file = format!("series-{:02}.csv", i + 1);
-        let quote = crate::fitting::csv_field;
-        let mut csv = format!(
-            "{},{}\n",
-            quote(&format!("{}: {}", s.label, data.xlabel)),
-            quote(&format!("{}: {}", s.label, data.ylabel(options)))
-        );
-        for (x, y) in s.x.iter().zip(&s.y) {
-            csv.push_str(&format!("{x:.16e},{y:.16e}\n"));
-        }
-        let color = options
-            .series_colors
-            .get(&s.key)
-            .cloned()
-            .unwrap_or_else(|| {
-                let color = theme.get_color(i);
-                format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
-            });
+        let csv = series_csv(s, &data.xlabel, data.ylabel(options), &s.y)?;
+        let color = series_color(s, options, i);
         entries.push_str(&format!(
             "    {{\"file\": {}, \"label\": {}, \"color\": {}, \"linestyle\": \"{}\"}},\n",
             py_str(&file),
@@ -133,10 +109,11 @@ SERIES list (curve label, colour, line style "-" solid or "--" dashed), then
 run the script again. Labels use matplotlib mathtext: text between $...$ is
 math, for example $k^{{2}} \chi(k)$, drawn in the same sans-serif font as the
 text; write \$ for a literal dollar sign.
-Each CSV holds one curve as two columns (x, y) with a one-line header; the
+Each CSV holds one curve as two columns (x, y) with one CSV header record; the
 data are the full arrays from rexafs, and the axis limits only set the view.
 """
 from pathlib import Path
+import csv
 
 import matplotlib
 
@@ -164,30 +141,12 @@ GUIDES = [{guides}]  # x positions of dashed vertical guides
 SERIES = [
 {entries}]
 
-plt.rcParams.update(
-    {{
-        "font.family": "sans-serif",
-        "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans"],
-        "font.size": FONT_SIZE,
-        "axes.labelsize": FONT_SIZE,
-        "axes.titlesize": 1.4 * FONT_SIZE,
-        "xtick.labelsize": 0.9 * FONT_SIZE,
-        "ytick.labelsize": 0.9 * FONT_SIZE,
-        "legend.fontsize": 0.9 * FONT_SIZE,
-        # Draw $...$ math in the sans-serif text font, not serif Computer Modern.
-        "mathtext.fontset": "custom",
-        "mathtext.rm": "sans",
-        "mathtext.it": "sans:italic",
-        "mathtext.bf": "sans:bold",
-        "mathtext.cal": "sans",
-        "svg.fonttype": "none",  # keep SVG text editable
-        "pdf.fonttype": 42,  # embed TrueType fonts in the PDF
-    }}
-)
+{python_style}
+{load_series}
 
 fig, ax = plt.subplots(figsize=(WIDTH_IN, HEIGHT_IN), layout="constrained")
 for series in SERIES:
-    x, y = np.loadtxt(HERE / series["file"], delimiter=",", skiprows=1, unpack=True, ndmin=2)
+    x, y = load_series(series["file"])
     ax.plot(
         x,
         y,
@@ -218,8 +177,8 @@ print(f"Saved figure.pdf, figure.svg and figure.png in {{HERE}}")
         script = SCRIPT_NAME,
         xlabel = py_str(&xlabel),
         ylabel = py_str(&ylabel),
-        xlim = limit(data.xlim(options)),
-        ylim = limit(
+        xlim = py_limit(data.xlim(options)),
+        ylim = py_limit(
             options
                 .ymin
                 .zip(options.ymax)
@@ -228,6 +187,8 @@ print(f"Saved figure.pdf, figure.svg and figure.png in {{HERE}}")
         legend = py_bool(options.legend),
         grid = py_bool(options.grid.unwrap_or(true)),
         guide_color = GUIDE_COLOR,
+        python_style = PYTHON_STYLE,
+        load_series = PYTHON_LOAD_SERIES,
     );
     files.insert(0, (SCRIPT_NAME.into(), script));
     Ok(files)
@@ -241,12 +202,105 @@ pub(crate) fn write_python_export(
     folder: &Path,
 ) -> Result<std::path::PathBuf, String> {
     let files = python_export(data, options)?;
+    write_files(&files, folder)
+}
+
+/// Write a generated bundle into a new directory, preserving existing exports.
+fn write_files(files: &[(String, String)], folder: &Path) -> Result<std::path::PathBuf, String> {
     fs::create_dir(folder).map_err(|e| format!("{}: {e}", folder.display()))?;
-    for (name, contents) in &files {
+    for (name, contents) in files {
         fs::write(folder.join(name), contents).map_err(|e| e.to_string())?;
     }
     Ok(folder.join(SCRIPT_NAME))
 }
+
+/// Round renderer defaults stored as f32 to readable decimal settings.
+fn round_default(value: f64) -> f64 {
+    (value * 1e4).round() / 1e4
+}
+
+/// Convert built-in Typst labels and literal user overrides by the same rules.
+fn axis_labels(data: &FigureData, options: &FigureOptions) -> (String, String) {
+    let xlabel = match &options.xlabel {
+        Some(typed) => axis_label(&typst_label(typed), typed),
+        None => axis_label(data.math_xlabel(), &data.xlabel),
+    };
+    let ylabel = match &options.ylabel {
+        Some(typed) => axis_label(&typst_label(typed), typed),
+        None => axis_label(data.math_ylabel(options), data.ylabel(options)),
+    };
+    (xlabel, ylabel)
+}
+
+/// Resolve explicit colours without consuming a different automatic palette slot.
+fn series_color(series: &FigureSeries, options: &FigureOptions, index: usize) -> String {
+    options
+        .series_colors
+        .get(&series.key)
+        .cloned()
+        .unwrap_or_else(|| {
+            let color = Plot::new().get_theme().get_color(index);
+            format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
+        })
+}
+
+/// Preserve one curve's complete grid and exact unshifted ordinates as x/y CSV.
+fn series_csv(
+    series: &FigureSeries,
+    xlabel: &str,
+    ylabel: &str,
+    y: &[f64],
+) -> Result<String, String> {
+    if series.x.len() != y.len() || series.x.len() != series.y.len() {
+        return Err("A curve has mismatched x and y arrays.".into());
+    }
+    let quote = crate::fitting::csv_field;
+    let mut csv = format!(
+        "{},{}\n",
+        quote(&format!("{}: {xlabel}", series.label)),
+        quote(&format!("{}: {ylabel}", series.label))
+    );
+    for (x, y) in series.x.iter().zip(y) {
+        csv.push_str(&format!("{x:.16e},{y:.16e}\n"));
+    }
+    Ok(csv)
+}
+
+/// A Python axis-limit tuple, or automatic limits.
+fn py_limit(pair: Option<(f64, f64)>) -> String {
+    pair.map_or("None".into(), |(a, b)| format!("({a:?}, {b:?})"))
+}
+
+/// Shared sans-serif mathtext and editable vector-output settings.
+const PYTHON_STYLE: &str = r#"plt.rcParams.update(
+    {
+        "font.family": "sans-serif",
+        "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans"],
+        "font.size": FONT_SIZE,
+        "axes.labelsize": FONT_SIZE,
+        "axes.titlesize": 1.4 * FONT_SIZE,
+        "xtick.labelsize": 0.9 * FONT_SIZE,
+        "ytick.labelsize": 0.9 * FONT_SIZE,
+        "legend.fontsize": 0.9 * FONT_SIZE,
+        # Draw $...$ math in the sans-serif text font, not serif Computer Modern.
+        "mathtext.fontset": "custom",
+        "mathtext.rm": "sans",
+        "mathtext.it": "sans:italic",
+        "mathtext.bf": "sans:bold",
+        "mathtext.cal": "sans",
+        "svg.fonttype": "none",  # keep SVG text editable
+        "pdf.fonttype": 42,  # embed TrueType fonts in the PDF
+    }
+)
+"#;
+
+/// Read one logical CSV header, including quoted names that span physical lines.
+const PYTHON_LOAD_SERIES: &str = r#"
+def load_series(filename):
+    with (HERE / filename).open(encoding="utf-8", newline="") as stream:
+        next(csv.reader(stream))
+        return np.loadtxt(stream, delimiter=",", unpack=True, ndmin=2)
+"#;
 
 fn py_bool(value: bool) -> &'static str {
     if value { "True" } else { "False" }

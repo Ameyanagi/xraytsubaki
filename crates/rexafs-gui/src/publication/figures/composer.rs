@@ -489,7 +489,7 @@ impl CompositeRecipe {
     /// Settings for one panel: the figure type's own options with this
     /// recipe's size, resolution, font size, line width and series colours,
     /// and no title. Recipe colours replace matching figure keys only.
-    fn panel_options(&self, mut base: FigureOptions, grid: &Grid) -> FigureOptions {
+    pub(crate) fn panel_options(&self, mut base: FigureOptions, grid: &Grid) -> FigureOptions {
         base.series_colors.extend(self.series_colors.clone());
         FigureOptions {
             width: Some(grid.cell_px.0 as f64 / grid.dpi),
@@ -591,8 +591,18 @@ pub(crate) struct PreparedPanel {
     pub data: FigureData,
     pub options: FigureOptions,
     pub offset_caption: Option<String>,
+    /// Shifts in source-series order; None leaves the ordinates unchanged.
+    pub offsets: Vec<Option<DisplayOffset>>,
     /// Curves and independent limits resolved once by the preview worker.
-    inset: Option<inset::PreparedInset>,
+    pub inset: Option<inset::PreparedInset>,
+}
+
+/// A transient display shift. Retaining the original y values lets data exports
+/// preserve them exactly, without subtracting a rounded floating-point offset.
+pub(crate) struct DisplayOffset {
+    /// Additive displacement in the curve's vertical-axis units.
+    pub value: f64,
+    pub unshifted_y: Vec<f64>,
 }
 
 /// Available panels and reasons for omitted samples or panels. The editor reuses
@@ -638,6 +648,7 @@ pub(crate) fn prepare_panels(
                     data: data.clone(),
                     options,
                     offset_caption: None,
+                    offsets: Vec::new(),
                     inset: None,
                 }),
                 None => prepared.missing.push(panel.key.clone()),
@@ -676,6 +687,7 @@ pub(crate) fn prepare_panels(
                     data: data.as_ref().clone(),
                     options,
                     offset_caption: None,
+                    offsets: Vec::new(),
                     inset: None,
                 });
             }
@@ -693,6 +705,7 @@ pub(crate) fn prepare_panels(
         data.guides.clear();
         data.default_xlim = None;
         let mut offsets = Vec::new();
+        let mut display_offsets = Vec::new();
         let mut applied_offset = false;
         for (position, sample, source) in found {
             let Some(main) = source
@@ -724,6 +737,10 @@ pub(crate) fn prepare_panels(
                     panel.key
                 ));
             }
+            display_offsets.push((offset != 0.).then(|| DisplayOffset {
+                value: offset,
+                unshifted_y: curve.y.clone(),
+            }));
             if offset != 0. {
                 for value in &mut curve.y {
                     let shifted = *value + offset;
@@ -768,6 +785,7 @@ pub(crate) fn prepare_panels(
         }
         prepared.panels.push(PreparedPanel {
             index, data, options,
+            offsets: display_offsets,
             inset: None,
             offset_caption: applied_offset.then(|| format!(
                 "Spectra offset vertically by {} in vertical-axis units for clarity. Display offsets in sample order: {}.", panel.offset_step, offsets.join(", ")
@@ -1241,7 +1259,7 @@ fn render_end_labels(
 /// would shrink one panel's plot area and break the alignment with its
 /// neighbours, so the composer keeps legends inside (as the fit + residual
 /// figure does).
-fn resolve_inside_legend(
+pub(crate) fn resolve_inside_legend(
     data: &FigureData,
     options: &mut FigureOptions,
     inset: Option<InsetPlacement>,

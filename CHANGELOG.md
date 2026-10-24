@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Export the active multi-panel recipe as unshifted curve CSVs and an editable
+  matplotlib script, including fit residual strips and panel insets. Edit main
+  and inset display offsets in the script, then save PDF, SVG and PNG at the
+  recipe's printed size and DPI with only Python 3, numpy and matplotlib.
 - Add optional publication-panel insets for pre-edge and white-line detail or
   normalized differences from the first selected sample, with editable E₀-relative
   ranges, placement and scaled display offsets in previews and image exports.

@@ -11,13 +11,15 @@ use ruviz::prelude::{Color, Plot};
 use ruviz::render::typst_text::{TypstRasterOutput, literal_text_snippet, render_raster};
 
 /// Copied display data and limits resolved independently of the main panel.
-pub(super) struct PreparedInset {
+pub(crate) struct PreparedInset {
     pub data: FigureData,
     pub options: FigureOptions,
     pub placement: InsetPlacement,
     /// Literal quantity name placed inside the axes, such as `μ(E)` or `Δμ`.
     pub quantity: &'static str,
     pub caption: String,
+    /// Shifts in source-series order, with exact ordinates before stacking.
+    pub offsets: Vec<Option<super::DisplayOffset>>,
 }
 
 /// The outer inset canvas, including the entire row of energy tick labels.

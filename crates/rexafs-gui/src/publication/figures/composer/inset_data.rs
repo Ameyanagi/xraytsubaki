@@ -1,6 +1,8 @@
 //! Resolve inset display arrays before rendering, without changing spectra.
 use super::inset::PreparedInset;
-use super::{CompositePanel, CompositeRecipe, CompositeSample, InsetKind, PreparedPanel};
+use super::{
+    CompositePanel, CompositeRecipe, CompositeSample, DisplayOffset, InsetKind, PreparedPanel,
+};
 use crate::publication::figures::{FigureData, FigureOptions, FigureSeries};
 use std::borrow::Borrow;
 
@@ -176,6 +178,7 @@ pub(super) fn prepare(
     } else {
         0.
     };
+    let mut offsets = Vec::new();
     for (curve, position) in curves.iter_mut().zip(positions) {
         let offset_index = if ids.len() <= 1 {
             0
@@ -188,6 +191,10 @@ pub(super) fn prepare(
         if !offset.is_finite() {
             return Err(error("the scaled display offset is too large."));
         }
+        offsets.push((offset != 0.).then(|| DisplayOffset {
+            value: offset,
+            unshifted_y: curve.y.clone(),
+        }));
         for y in &mut curve.y {
             let shifted = *y + offset;
             if y.is_finite() && !shifted.is_finite() {
@@ -235,6 +242,7 @@ pub(super) fn prepare(
         placement: inset.placement,
         quantity,
         caption,
+        offsets,
     }))
 }
 

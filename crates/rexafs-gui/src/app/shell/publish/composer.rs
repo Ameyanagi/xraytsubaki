@@ -10,13 +10,14 @@ use crate::group_identity::GroupId;
 use crate::icons::Icon;
 use crate::publication::figures::composer::{
     CompositePanel, CompositeRecipe, CurveLabelMode, InsetKind, InsetPlacement, JOURNAL_WIDTHS,
-    MAX_PANELS, MM_PER_INCH, PanelInset, PreparedComposition, compose_prepared, compose_samples,
-    panel_label, prepare_panels,
+    MAX_PANELS, MM_PER_INCH, PanelInset, PreparedComposition, SampleColours, compose_prepared,
+    compose_samples, panel_label, prepare_panels,
 };
-use crate::theme::Theme;
+use crate::theme::{Theme, ThemeMode};
 use crate::widgets::numeric_field::{FieldEvent, FieldKind};
 use crate::widgets::text_input::InputEvent;
 use gpui::{Focusable, ImageFormat, ObjectFit, SharedString, Window, div, img, prelude::*, px};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Logical pixels per inch used by the true-size preview: the CSS reference
 /// of 96 px per inch. A display's physical pixel density differs, so the
@@ -24,6 +25,16 @@ use gpui::{Focusable, ImageFormat, ObjectFit, SharedString, Window, div, img, pr
 const TRUE_SIZE_PX_PER_INCH: f32 = 96.;
 /// Highest preview resolution; exports always use the recipe's DPI.
 const PREVIEW_DPI: f64 = 200.;
+
+/// Separate entities let a shared row and an independent panel row show the
+/// same sample simultaneously without sharing focus or cursor state.
+type SampleLabelKey = (Option<usize>, GroupId);
+
+struct SampleLabelField {
+    input: Entity<TextInput>,
+    workspace_label: String,
+    theme_mode: ThemeMode,
+}
 
 /// Session state of the multi-panel composer. Named recipes live in
 /// `PublishState::settings`; selection changes discard the preview immediately.
@@ -52,6 +63,10 @@ pub(crate) struct ComposerState {
     panel_inset_range: Vec<Entity<NumericField>>,
     /// Reject panel edits queued before changing the selection or inset kind.
     panel_fields_generation: u64,
+    /// Retain label inputs across redraws so typing preserves focus and selection.
+    sample_labels: BTreeMap<SampleLabelKey, SampleLabelField>,
+    /// Reject label edits from a recipe or project that is no longer active.
+    sample_labels_generation: u64,
     /// Figures and settings that produced the current preview.
     source: Option<(Vec<usize>, Vec<u8>)>,
     /// Background preparation for this source/settings revision, shared by
@@ -101,10 +116,12 @@ impl ComposerState {
         let generation = self.generation + 1;
         let fields_generation = self.fields_generation + 1;
         let panel_fields_generation = self.panel_fields_generation + 1;
+        let sample_labels_generation = self.sample_labels_generation + 1;
         *self = Self {
             generation,
             fields_generation,
             panel_fields_generation,
+            sample_labels_generation,
             ..Default::default()
         };
     }
@@ -210,6 +227,8 @@ impl StudioApp {
         self.publish.composer.delete_recipe = None;
         self.publish.composer.selected_panel = 0;
         self.publish.composer.colour_series = None;
+        self.publish.composer.sample_labels.clear();
+        self.publish.composer.sample_labels_generation += 1;
         self.invalidate_composer_preview();
         self.composer_fields(cx);
         cx.notify();
@@ -744,6 +763,130 @@ impl StudioApp {
         }
     }
 
+    /// Synchronize visible label editors without replacing their entities.
+    /// Figure labels belong to the recipe, so editing either sample list also
+    /// updates the other list while leaving workspace names and caches intact.
+    fn composer_sample_label_fields(
+        &mut self,
+        choices: &[(GroupId, String)],
+        recipe: &CompositeRecipe,
+        cx: &mut Context<Self>,
+    ) {
+        let selected_panel = self.publish.composer.selected_panel;
+        let mut scopes = vec![None];
+        if recipe
+            .panels
+            .get(selected_panel)
+            .is_some_and(|panel| !panel.uses_current_fit() && panel.samples.is_some())
+        {
+            scopes.push(Some(selected_panel));
+        }
+        let keys: BTreeSet<_> = scopes
+            .iter()
+            .flat_map(|scope| choices.iter().map(move |(id, _)| (*scope, id.clone())))
+            .collect();
+        // Dropped rows reject queued events by entity identity, including when
+        // the same sample reappears later in the current/marked list.
+        self.publish
+            .composer
+            .sample_labels
+            .retain(|key, _| keys.contains(key));
+        let theme = self.theme;
+        let generation = self.publish.composer.sample_labels_generation;
+        for scope in scopes {
+            for (id, workspace_label) in choices {
+                let key = (scope, id.clone());
+                let value = recipe.figure_labels.get(id).cloned().unwrap_or_default();
+                if let Some(field) = self.publish.composer.sample_labels.get_mut(&key) {
+                    if field.input.read(cx).text() != value {
+                        field
+                            .input
+                            .update(cx, |input, cx| input.set_text(value, cx));
+                    }
+                    if field.workspace_label != *workspace_label {
+                        field.input.update(cx, |input, cx| {
+                            input.set_placeholder(workspace_label.clone(), cx);
+                            input
+                                .set_accessible_name(format!("Figure label for {workspace_label}"));
+                        });
+                        field.workspace_label.clone_from(workspace_label);
+                    }
+                    if field.theme_mode != theme.mode {
+                        field
+                            .input
+                            .update(cx, |input, cx| input.set_theme(theme, cx));
+                        field.theme_mode = theme.mode;
+                    }
+                    continue;
+                }
+                let input = cx.new(|cx| {
+                    let mut input = TextInput::new(workspace_label.clone(), value, theme, cx);
+                    input.set_accessible_name(format!("Figure label for {workspace_label}"));
+                    input
+                });
+                let event_key = key.clone();
+                cx.subscribe(&input, move |this, input, event, cx| {
+                    let InputEvent::Edited(text) = event else {
+                        return;
+                    };
+                    if this.publish.composer.sample_labels_generation != generation
+                        || this
+                            .publish
+                            .composer
+                            .sample_labels
+                            .get(&event_key)
+                            .is_none_or(|field| field.input.entity_id() != input.entity_id())
+                        || event_key.0.is_some_and(|index| {
+                            this.publish.composer.selected_panel != index
+                                || this
+                                    .publish
+                                    .settings
+                                    .active_recipe()
+                                    .recipe
+                                    .panels
+                                    .get(index)
+                                    .is_none_or(|panel| {
+                                        panel.uses_current_fit() || panel.samples.is_none()
+                                    })
+                        })
+                    {
+                        return;
+                    }
+                    let id = &event_key.1;
+                    let value = text.to_string();
+                    let labels = &mut this.composite().figure_labels;
+                    if value.is_empty() {
+                        labels.remove(id);
+                    } else {
+                        labels.insert(id.clone(), value.clone());
+                    }
+                    // Programmatic changes emit no Edited event, so the other
+                    // visible editor stays in sync without a feedback loop.
+                    for ((_, other_id), field) in &this.publish.composer.sample_labels {
+                        if other_id == id
+                            && field.input.entity_id() != input.entity_id()
+                            && field.input.read(cx).text() != value
+                        {
+                            field
+                                .input
+                                .update(cx, |input, cx| input.set_text(value.clone(), cx));
+                        }
+                    }
+                    cx.notify();
+                })
+                .detach();
+                self.publish.composer.sample_labels.insert(
+                    key,
+                    SampleLabelField {
+                        input,
+                        workspace_label: workspace_label.clone(),
+                        theme_mode: theme.mode,
+                    },
+                );
+            }
+        }
+    }
+
     /// Choose shared samples, or a panel's independent ordered sample list.
     fn composer_sample_checklist(
         &self,
@@ -760,6 +903,7 @@ impl StudioApp {
         let mut checklist = div().flex().flex_col().gap_1().child(
             div()
                 .flex()
+                .items_center()
                 .gap_1()
                 .child(
                     button(
@@ -798,6 +942,15 @@ impl StudioApp {
                         }
                         cx.notify();
                     })),
+                )
+                .child(div().flex_1())
+                .child(
+                    div()
+                        .w(px(128.))
+                        .flex_none()
+                        .text_size(px(11.))
+                        .text_color(t.text_muted)
+                        .child("Figure label"),
                 ),
         );
         let mut rows = div()
@@ -808,31 +961,49 @@ impl StudioApp {
             .flex_col();
         for (index, (id, label)) in choices.iter().enumerate() {
             let id = id.clone();
-            rows = rows.child(
-                sample_check(
-                    &t,
-                    SharedString::from(format!("composer-sample-{scope}-{index}")),
-                    label.clone(),
-                    selected.contains(&id),
-                )
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    let recipe = this.composite();
-                    let samples = if let Some(index) = panel_index {
-                        let Some(panel) = recipe.panels.get_mut(index) else {
-                            return;
-                        };
-                        panel.samples.get_or_insert_with(Vec::new)
-                    } else {
-                        &mut recipe.samples
+            let label_field = self
+                .publish
+                .composer
+                .sample_labels
+                .get(&(panel_index, id.clone()));
+            let check = sample_check(
+                &t,
+                SharedString::from(format!("composer-sample-{scope}-{index}")),
+                label.clone(),
+                selected.contains(&id),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                let recipe = this.composite();
+                let samples = if let Some(index) = panel_index {
+                    let Some(panel) = recipe.panels.get_mut(index) else {
+                        return;
                     };
-                    if samples.contains(&id) {
-                        samples.retain(|sample| sample != &id);
-                    } else {
-                        samples.push(id.clone());
-                    }
-                    cx.notify();
-                })),
-            );
+                    panel.samples.get_or_insert_with(Vec::new)
+                } else {
+                    &mut recipe.samples
+                };
+                if samples.contains(&id) {
+                    samples.retain(|sample| sample != &id);
+                } else {
+                    samples.push(id.clone());
+                }
+                cx.notify();
+            }));
+            let mut row = div()
+                .flex()
+                .items_center()
+                .gap_1()
+                .child(div().flex_1().min_w_0().child(check));
+            if let Some(field) = label_field {
+                row = row.child(
+                    div()
+                        .w(px(128.))
+                        .flex_none()
+                        .min_w_0()
+                        .child(field.input.clone()),
+                );
+            }
+            rows = rows.child(row);
         }
         checklist = checklist.child(rows);
         if choices.is_empty() {
@@ -962,7 +1133,7 @@ impl StudioApp {
         controls = controls
             .child(div().flex().child(labels))
             .child(div().text_size(px(11.)).text_color(t.text_muted).child(
-            "Legend uses the figure's legend setting. Curve ends label samples beside the curves.",
+            "Legend uses the figure's legend setting and appears in the first eligible panel unless Legend in every panel is enabled. Curve ends label samples beside the curves.",
         ));
         if panel.supports_inset() {
             controls = controls.child(self.composer_panel_inset_controls(index, panel, cx));
@@ -1347,6 +1518,7 @@ impl StudioApp {
         let t = self.theme;
         let recipe = self.publish.settings.active_recipe().recipe.clone();
         let choices = self.composer_sample_choices();
+        self.composer_sample_label_fields(&choices, &recipe, cx);
         let samples = self.composer_samples();
         let prepared = self.publish.composer.prepared.clone();
         let ready = prepared
@@ -1372,6 +1544,12 @@ impl StudioApp {
                     .child("Current sample first, followed by marked workspace samples. This list is shared by panels unless overridden below."),
             )
             .child(self.composer_sample_checklist(&choices, &recipe.samples, None, cx))
+            .child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(t.text_muted)
+                    .child("Figure labels apply throughout this recipe. Leave a label blank to use its workspace name."),
+            )
             .child(heading(&t, "Panels"));
 
         let available: Vec<_> = self
@@ -1505,12 +1683,53 @@ impl StudioApp {
         }
         controls = controls.child(add);
 
-        controls = controls.child(heading(&t, "Colours"));
+        controls = controls.child(heading(&t, "Sample colours"));
+        let mut sample_colours = segmented(&t);
+        for (index, (mode, label, tip)) in [
+            (
+                SampleColours::Ordered,
+                "Ordered",
+                "Assign the composer's default colours in sample order.",
+            ),
+            (
+                SampleColours::OkabeIto,
+                "Okabe–Ito",
+                "Assign colours from the Okabe–Ito palette in sample order.",
+            ),
+            (
+                SampleColours::Workspace,
+                "Workspace",
+                "Use the colours assigned to samples in the workspace.",
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            sample_colours = sample_colours.child(
+                with_tip(
+                    segment(
+                        &t,
+                        ("composer-sample-colours", index),
+                        label,
+                        recipe.sample_colours == mode,
+                        index == 0,
+                    ),
+                    &t,
+                    tip,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.composite().sample_colours = mode;
+                    cx.notify();
+                })),
+            );
+        }
+        controls = controls.child(div().flex().child(sample_colours));
+        controls = controls.child(heading(&t, "Curve colours"));
         controls = controls.child(
             div()
                 .text_size(px(11.))
                 .text_color(t.text_muted)
-                .child("Shared across panels. Auto uses workspace sample colours and each figure's colour settings."),
+                .child("Shared across panels. Auto uses the sample palette and each figure's colour settings; a curve colour overrides the sample palette."),
         );
         let mut seen = std::collections::BTreeSet::new();
         for panel in prepared.iter().flat_map(|prepared| &prepared.panels) {
@@ -1619,9 +1838,33 @@ impl StudioApp {
         for field in &self.publish.composer.fields {
             controls = controls.child(field.clone());
         }
+        controls = controls
+            .child(
+                sample_check(&t, "composer-grid", "Grid", recipe.grid)
+                    .description("Show grid lines in every main panel. Insets keep their grid off.")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        let recipe = this.composite();
+                        recipe.grid = !recipe.grid;
+                        cx.notify();
+                    })),
+            )
+            .child(
+                sample_check(
+                    &t,
+                    "composer-legend-every-panel",
+                    "Legend in every panel",
+                    recipe.legend_every_panel,
+                )
+                .description("Show legends in every eligible panel instead of only the first eligible panel. Curve-end labels and each figure's legend setting still apply.")
+                .on_click(cx.listener(|this, _, _, cx| {
+                    let recipe = this.composite();
+                    recipe.legend_every_panel = !recipe.legend_every_panel;
+                    cx.notify();
+                })),
+            );
         controls = controls.child(
             div().text_size(px(11.)).text_color(t.text_muted).child(
-                "Size, font, line width and DPI apply to every panel. Axis labels, limits, curves, legend, grid and guides come from each figure's Single figure settings; titles are replaced by panel labels.",
+                "Size, font, line width, DPI and grid apply to every panel. Axis labels, limits, curves and guides come from each figure's Single figure settings. Legends also follow those settings and the controls above; titles are replaced by panel labels.",
             ),
         );
 
@@ -1901,6 +2144,7 @@ mod tests {
         let prepared = Arc::new(PreparedComposition {
             panels: Vec::new(),
             missing: vec!["chi-r".into()],
+            sample_names: Vec::new(),
         });
         state.prepared = Some(prepared.clone());
 
@@ -1932,6 +2176,7 @@ mod tests {
             prepared: Some(Arc::new(PreparedComposition {
                 panels: Vec::new(),
                 missing: Vec::new(),
+                sample_names: Vec::new(),
             })),
             generation: 7,
             fields_generation: 3,
@@ -1971,6 +2216,7 @@ mod tests {
             generation: 7,
             fields_generation: 3,
             panel_fields_generation: 5,
+            sample_labels_generation: 9,
             selected_panel: 2,
             caption: "Caption from the previous project.".into(),
             ..Default::default()
@@ -1980,6 +2226,8 @@ mod tests {
         assert_eq!(state.fields_generation, 4);
         assert_eq!(state.panel_fields_generation, 6);
         assert!(state.panel_inset_range.is_empty());
+        assert_eq!(state.sample_labels_generation, 10);
+        assert!(state.sample_labels.is_empty());
         assert_eq!(state.selected_panel, 0);
         assert!(!state.open);
         assert!(!state.recipe_menu);

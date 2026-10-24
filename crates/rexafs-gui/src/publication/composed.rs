@@ -19,6 +19,8 @@ pub(crate) struct ComposerInput {
 pub(crate) struct SampleInput {
     /// Durable workspace group ID retained in the recipe.
     pub id: GroupId,
+    /// Whether this is the current workspace group, which empty selections use.
+    pub is_current: bool,
     /// Workspace plot colour as an opaque lowercase `#rrggbb` value.
     pub color: String,
     /// Current label, quantity, effective parameters and any cached spectrum.
@@ -66,6 +68,7 @@ pub(super) fn write(
             };
             CompositeSample {
                 id: source.id.clone(),
+                is_current: source.is_current,
                 label: spectrum.label(),
                 color: source.color.clone(),
                 figures,
@@ -189,6 +192,8 @@ pub(super) mod tests {
             width_mm: 101.6,
             panel_height_mm: Some(76.2),
             dpi: 72.,
+            // Check that workspace colours pass through to the script.
+            sample_colours: crate::publication::figures::composer::SampleColours::Workspace,
             ..Default::default()
         };
         settings.rename_recipe("A/B").unwrap();
@@ -244,6 +249,7 @@ pub(super) mod tests {
         cached.source = Some("/missing/rexafs-composer-cached.dat".into());
         let cached_sample = SampleInput {
             id: GroupId::legacy_result(3),
+            is_current: false,
             color: "#0072b2".into(),
             spectrum: SpectrumInput {
                 label: cached.label.clone(),
@@ -267,6 +273,7 @@ pub(super) mod tests {
                     cached_sample,
                     SampleInput {
                         id: GroupId::legacy_result(2),
+                        is_current: false,
                         color: "#d55e00".into(),
                         spectrum: SpectrumInput {
                             label: other.label.clone(),

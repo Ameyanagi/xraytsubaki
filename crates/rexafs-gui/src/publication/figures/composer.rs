@@ -16,11 +16,12 @@ use ruviz::core::Image;
 use ruviz::prelude::Plot;
 use serde::{Deserialize, Serialize};
 use std::borrow::Borrow;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
-use unicode_segmentation::UnicodeSegmentation;
 
 mod offsets;
+#[cfg(test)]
+mod print_style;
 
 mod inset;
 mod inset_data;
@@ -201,9 +202,52 @@ pub(crate) const JOURNAL_WIDTHS: [JournalWidth; 6] = [
 pub(crate) enum CurveLabelMode {
     #[default]
     Legend,
-    /// Sample names beside the last visible point, shortened with an ellipsis
-    /// to reserve at most 35% of the panel width. Captions retain full names.
+    /// Complete figure labels beside the last visible point. Labels exceeding
+    /// the 35% panel-width allowance produce a validation error.
     CurveEnd,
+}
+
+/// Default colours for panels containing multiple samples. rexafs chooses one
+/// recipe-wide order: shared IDs selected by a spectrum panel first, then
+/// panel-only IDs in panel/list order, deduplicated with missing IDs retained.
+/// This project choice keeps automatic colours consistent across panel subsets
+/// and reorderings. Explicit full-key per-figure colours and recipe colours
+/// take precedence over this palette.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SampleColours {
+    /// ruviz's Viridis map, evenly sampled from 0 to 0.82 in recipe-wide order.
+    /// rexafs omits the brightest end to improve readability on white paper.
+    /// Viridis was designed by Nathaniel Smith and Stéfan van der Walt:
+    /// <https://bids.github.io/colormap/>.
+    #[default]
+    Ordered,
+    /// Eight categorical colours from Okabe and Ito's colour-universal design
+    /// palette (2008), cycling after eight samples:
+    /// <https://jfly.uni-koeln.de/color/>.
+    OkabeIto,
+    /// Use each sample's current workspace plot colour.
+    Workspace,
+}
+
+impl SampleColours {
+    fn color(self, position: usize, count: usize, workspace: &str) -> String {
+        match self {
+            Self::Ordered => {
+                let t = 0.82 * position as f64 / count.saturating_sub(1).max(1) as f64;
+                let color = ruviz::render::ColorMap::viridis().sample(t);
+                format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
+            }
+            Self::OkabeIto => {
+                const PALETTE: [&str; 8] = [
+                    "#000000", "#e69f00", "#56b4e9", "#009e73", "#f0e442", "#0072b2", "#d55e00",
+                    "#cc79a7",
+                ];
+                PALETTE[position % PALETTE.len()].into()
+            }
+            Self::Workspace => workspace.into(),
+        }
+    }
 }
 
 /// One panel in reading order. Old projects may store only the figure key;
@@ -305,6 +349,8 @@ impl CompositePanel {
 #[derive(Clone)]
 pub(crate) struct CompositeSample {
     pub id: GroupId,
+    /// Resolve an empty sample selection against the current workspace group.
+    pub is_current: bool,
     pub label: String,
     /// Workspace plot colour as an opaque lowercase `#rrggbb` value.
     pub color: String,
@@ -316,11 +362,13 @@ pub(crate) struct CompositeSample {
 /// project as the contents of a named entry in `publication.recipes`.
 ///
 /// Per-figure settings from the single-figure editor still apply inside each
-/// panel: axis labels, axis limits, visible curves, legend placement, grid,
-/// guides and the flattened/normalized choice. The recipe replaces the size,
-/// resolution, font size and line width, and drops titles, because panel
-/// labels identify the panels. Explicit recipe series colours override the
-/// corresponding per-figure colours; other series keep their figure settings.
+/// panel: axis labels, axis limits, visible curves, guides and the
+/// flattened/normalized choice. The recipe replaces size, resolution, font
+/// size, line width and grid, and drops titles because panel labels identify
+/// panels. Main axes have inward ticks on all sides and four minor ticks per
+/// interval. Inset energy ticks point inward, with no grid or legend. Main
+/// legends use automatic inside placement. Explicit recipe
+/// series colours override per-figure colours and the sample palette.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct CompositeRecipe {
@@ -329,6 +377,23 @@ pub(crate) struct CompositeRecipe {
     /// Ordered sample IDs shared by panels without their own selection. Empty
     /// uses the current sample. Missing IDs are retained and reported on render.
     pub samples: Vec<GroupId>,
+    /// Short figure labels by durable sample ID. Empty or whitespace-only
+    /// values use the workspace label. Captions record differing full names
+    /// once; missing IDs and their labels are retained across project saves.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub figure_labels: BTreeMap<GroupId, String>,
+    /// Multi-sample palette in recipe-wide sample order; Ordered defaults to
+    /// Viridis over 0–0.82. A panel containing one selected sample keeps its
+    /// ordinary figure colours.
+    pub sample_colours: SampleColours,
+    /// Show grid lines in every composed panel, replacing its figure setting;
+    /// false by default. Insets keep their grid off. Single-figure exports
+    /// retain their own grid setting.
+    pub grid: bool,
+    /// Repeat multi-sample legends; false shows only the first eligible one.
+    /// Fit and single-sample panels retain their own legend visibility; insets
+    /// never show a legend.
+    pub legend_every_panel: bool,
     /// Panels per row, 1–4; 2 by default. A figure with fewer panels uses
     /// one column per panel.
     pub columns: usize,
@@ -356,6 +421,10 @@ impl Default for CompositeRecipe {
         Self {
             panels: Vec::new(),
             samples: Vec::new(),
+            figure_labels: BTreeMap::new(),
+            sample_colours: SampleColours::default(),
+            grid: false,
+            legend_every_panel: false,
             columns: 2,
             width_mm: 177.8,
             panel_height_mm: None,
@@ -397,6 +466,15 @@ impl Grid {
 }
 
 impl CompositeRecipe {
+    /// Resolve a short figure label without changing the workspace name.
+    fn figure_label<'a>(&'a self, sample: &'a CompositeSample) -> &'a str {
+        self.figure_labels
+            .get(&sample.id)
+            .map(String::as_str)
+            .filter(|label| !label.trim().is_empty())
+            .unwrap_or(&sample.label)
+    }
+
     /// Starting panels for a new recipe: XANES, χ(k) and |χ(R)| of the current
     /// spectrum, plus the k-space fit + residual when a fit is available.
     pub fn suggested_panels<'a>(
@@ -502,6 +580,7 @@ impl CompositeRecipe {
             font_size: Some(self.font_size),
             line_width: self.line_width,
             title: None,
+            grid: Some(self.grid),
             ..base
         }
     }
@@ -614,13 +693,67 @@ pub(crate) struct DisplayOffset {
 pub(crate) struct PreparedComposition {
     pub panels: Vec<PreparedPanel>,
     pub missing: Vec<String>,
+    /// Renamed samples in first-use order: short figure label and full workspace
+    /// name. Captions include this key once, independently of panel count.
+    pub sample_names: Vec<(String, String)>,
+}
+
+/// Preserve ordinary single-source helper labels while replacing its main label
+/// only when the recipe explicitly supplies one, in both normalization variants.
+fn apply_figure_label(recipe: &CompositeRecipe, sample: &CompositeSample, data: &mut FigureData) {
+    if recipe
+        .figure_labels
+        .get(&sample.id)
+        .is_some_and(|label| !label.trim().is_empty())
+    {
+        for series in std::iter::once(&mut data.series).chain(data.normalized_series.iter_mut()) {
+            if let Some(main) = series.first_mut() {
+                main.label = recipe.figure_label(sample).into();
+            }
+        }
+    }
+}
+
+fn record_sample_name(
+    recipe: &CompositeRecipe,
+    sample: &CompositeSample,
+    visible: bool,
+    seen: &mut BTreeSet<GroupId>,
+    names: &mut Vec<(String, String)>,
+) {
+    let label = recipe.figure_label(sample);
+    if visible && label != sample.label && seen.insert(sample.id.clone()) {
+        names.push((label.into(), sample.label.clone()));
+    }
+}
+
+/// One palette order for the whole composition, so a shared legend remains
+/// meaningful when later panels select a subset or reorder their samples.
+/// rexafs puts used shared IDs first, then panel-only IDs in reading order.
+/// Missing IDs keep their slots and do not recolour surviving samples.
+fn sample_colour_order(recipe: &CompositeRecipe) -> Vec<&GroupId> {
+    let panel_ids: Vec<_> = recipe
+        .panels
+        .iter()
+        .filter(|panel| !panel.uses_current_fit())
+        .flat_map(|panel| panel.samples.as_deref().unwrap_or(&recipe.samples))
+        .collect();
+    let used: BTreeSet<_> = panel_ids.iter().copied().collect();
+    let mut seen = BTreeSet::new();
+    recipe
+        .samples
+        .iter()
+        .filter(|id| used.contains(id))
+        .chain(panel_ids)
+        .filter(|id| seen.insert(*id))
+        .collect()
 }
 
 /// Resolve panel sources without rendering. One selected sample retains all its
 /// original curves and keys. Multiple selected samples contribute only their
 /// first (main) curve, keyed as `group-id/series-key`, in saved sample order.
-/// Their labels and default colours come from the workspace, with full-key
-/// figure overrides followed by recipe overrides. Selected samples without
+/// Labels come from the recipe or workspace; colours use the sample palette,
+/// then full-key figure overrides followed by recipe overrides. Selected samples without
 /// main-curve data are skipped and reported. Fits retain current data.
 pub(crate) fn prepare_panels(
     recipe: &CompositeRecipe,
@@ -631,7 +764,10 @@ pub(crate) fn prepare_panels(
     let mut prepared = PreparedComposition {
         panels: Vec::new(),
         missing: Vec::new(),
+        sample_names: Vec::new(),
     };
+    let mut named_samples = BTreeSet::new();
+    let colour_order = sample_colour_order(recipe);
     for (index, panel) in recipe.panels.iter().enumerate() {
         if !panel.uses_current_fit() && !panel.offset_step.is_finite() {
             return Err(format!(
@@ -640,6 +776,7 @@ pub(crate) fn prepare_panels(
             ));
         }
         let mut options = settings.options(&panel.key);
+        options.grid = Some(recipe.grid);
         let ids = panel.samples.as_deref().unwrap_or(&recipe.samples);
         if panel.uses_current_fit() || ids.is_empty() {
             match current_figures
@@ -647,14 +784,31 @@ pub(crate) fn prepare_panels(
                 .map(Borrow::borrow)
                 .find(|data| data.key == panel.key)
             {
-                Some(data) => prepared.panels.push(PreparedPanel {
-                    index,
-                    data: data.clone(),
-                    options,
-                    offset_caption: None,
-                    offsets: Vec::new(),
-                    inset: None,
-                }),
+                Some(data) => {
+                    let mut data = data.clone();
+                    if !panel.uses_current_fit()
+                        && let Some(sample) = samples.iter().find(|sample| sample.is_current)
+                    {
+                        apply_figure_label(recipe, sample, &mut data);
+                        record_sample_name(
+                            recipe,
+                            sample,
+                            data.series(&options)
+                                .first()
+                                .is_some_and(|curve| curve.visible(&options)),
+                            &mut named_samples,
+                            &mut prepared.sample_names,
+                        );
+                    }
+                    prepared.panels.push(PreparedPanel {
+                        index,
+                        data,
+                        options,
+                        offset_caption: None,
+                        offsets: Vec::new(),
+                        inset: None,
+                    });
+                }
                 None => prepared.missing.push(panel.key.clone()),
             }
             continue;
@@ -682,13 +836,24 @@ pub(crate) fn prepare_panels(
             };
             found.push((position, sample, data));
         }
-        // A single explicitly requested sample has exactly the ordinary figure
-        // behaviour, including helpers, labels, colours and optional curves.
+        // One explicitly selected sample retains ordinary helpers, colours and
+        // optional curves; only an explicit figure label replaces its main name.
         if ids.len() == 1 {
-            if let Some((_, _, data)) = found.first() {
+            if let Some((_, sample, data)) = found.first() {
+                let mut data = data.as_ref().clone();
+                apply_figure_label(recipe, sample, &mut data);
+                record_sample_name(
+                    recipe,
+                    sample,
+                    data.series(&options)
+                        .first()
+                        .is_some_and(|curve| curve.visible(&options)),
+                    &mut named_samples,
+                    &mut prepared.sample_names,
+                );
                 prepared.panels.push(PreparedPanel {
                     index,
-                    data: data.as_ref().clone(),
+                    data,
                     options,
                     offset_caption: None,
                     offsets: Vec::new(),
@@ -727,7 +892,7 @@ pub(crate) fn prepare_panels(
             };
             let mut curve = main.clone();
             curve.key = format!("{}/{}", sample.id.as_str(), main.key);
-            curve.label = sample.label.clone();
+            curve.label = recipe.figure_label(sample).into();
             curve.optional = false;
             let offset_index = if panel.reverse {
                 ids.len() - 1 - position
@@ -756,21 +921,38 @@ pub(crate) fn prepare_panels(
                     }
                     *value = shifted;
                 }
-                applied_offset = true;
+                applied_offset |= curve.visible(&options);
             }
-            let formatted = offsets::format_offset(offset, panel.offset_step);
-            offsets.push(format!(
-                "{}: {}{}",
-                sample.label,
-                if formatted.starts_with('-') { "" } else { "+" },
-                formatted
-            ));
+            if curve.visible(&options) {
+                let formatted = offsets::format_offset(offset, panel.offset_step);
+                offsets.push(format!(
+                    "{}: {}{}",
+                    curve.label,
+                    if formatted.starts_with('-') { "" } else { "+" },
+                    formatted
+                ));
+            }
             // Multi-sample keys intentionally do not inherit a short main-curve
             // override: that would silently give every sample the same colour.
             options
                 .series_colors
                 .entry(curve.key.clone())
-                .or_insert_with(|| sample.color.clone());
+                .or_insert_with(|| {
+                    let slot = colour_order
+                        .iter()
+                        .position(|id| **id == sample.id)
+                        .unwrap();
+                    recipe
+                        .sample_colours
+                        .color(slot, colour_order.len(), &sample.color)
+                });
+            record_sample_name(
+                recipe,
+                sample,
+                curve.visible(&options),
+                &mut named_samples,
+                &mut prepared.sample_names,
+            );
             data.series.push(curve);
             if let Some((min, max)) = source.default_xlim {
                 data.default_xlim = Some(match data.default_xlim {
@@ -802,7 +984,27 @@ pub(crate) fn prepare_panels(
             )),
         });
     }
+    let mut legend_shown = false;
     for panel in &mut prepared.panels {
+        let spec = &recipe.panels[panel.index];
+        if !spec.uses_current_fit() {
+            if spec.label_mode == CurveLabelMode::CurveEnd {
+                panel.options.legend = false;
+            } else if spec.samples.as_deref().unwrap_or(&recipe.samples).len() > 1
+                && panel.options.legend
+            {
+                let multiple_visible = panel
+                    .data
+                    .series
+                    .iter()
+                    .filter(|curve| curve.visible(&panel.options) && !curve.x.is_empty())
+                    .count()
+                    > 1;
+                panel.options.legend =
+                    recipe.legend_every_panel || (multiple_visible && !legend_shown);
+                legend_shown |= panel.options.legend;
+            }
+        }
         panel
             .options
             .series_colors
@@ -860,6 +1062,7 @@ pub(crate) fn compose_prepared(
     let PreparedComposition {
         panels: chosen,
         missing,
+        sample_names,
     } = prepared;
     recipe.validate(chosen.len()).map_err(|error| {
         if chosen.is_empty() && !missing.is_empty() {
@@ -977,6 +1180,16 @@ pub(crate) fn compose_prepared(
         .iter()
         .map(|(svg, prefix, x, y)| (svg.as_str(), prefix.as_str(), *x, *y))
         .collect();
+    if !sample_names.is_empty() {
+        captions.push(format!(
+            "Sample labels: {}.",
+            sample_names
+                .iter()
+                .map(|(short, full)| format!("{short} ({full})"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
     let caption = captions.join(" ");
     let mut svg = super::physical_svg_size(
         layout::nest_svgs(&parts, &labels, (width, height)),
@@ -1000,7 +1213,7 @@ pub(crate) fn compose_prepared(
     })
 }
 
-/// Resolve the native panels, shared margins and fitted direct labels before
+/// Resolve the native panels, shared margins and complete direct labels before
 /// rendering. The Python exporter reuses this layout at the recipe's DPI.
 fn composition_layout(
     recipe: &CompositeRecipe,
@@ -1027,7 +1240,17 @@ fn composition_layout(
         options.validate()?;
         let (panel, needs) = match &data.residual {
             Some(residual) => {
-                let panels = layout::fit_residual_panels(data, residual, &options)?;
+                // Prevent the ordinary figure's Auto fallback from reserving an
+                // outside legend before applying composed-figure styling.
+                options.legend_position = LegendPlacement::UpperRight;
+                let mut panels = layout::fit_residual_panels(data, residual, &options)?;
+                panels.top = composed_legend(
+                    journal_axes(panels.top),
+                    options.legend,
+                    recipe.font_size,
+                    true,
+                );
+                panels.strip = journal_axes(panels.strip);
                 let needs = panels.frame;
                 (Built::FitResidual(Box::new(panels)), needs)
             }
@@ -1039,12 +1262,21 @@ fn composition_layout(
                     } else {
                         Vec::new()
                     };
-                resolve_inside_legend(
-                    data,
-                    &mut options,
-                    prepared.inset.as_ref().map(|inset| inset.placement),
+                let inset = prepared.inset.as_ref().map(|inset| inset.placement);
+                // Resolve the main legend before the inset covers its canvas.
+                // Other composed panels use ruviz's automatic inside position.
+                options.legend_position = if inset.is_some() {
+                    LegendPlacement::Auto
+                } else {
+                    LegendPlacement::UpperRight
+                };
+                resolve_inside_legend(data, &mut options, inset);
+                let plot = composed_legend(
+                    journal_axes(data.panel(&options, false)?),
+                    options.legend,
+                    recipe.font_size,
+                    inset.is_none(),
                 );
-                let plot = data.panel(&options, false)?;
                 let metrics = Metrics::of(&plot);
                 let ylim = options
                     .ymin
@@ -1080,43 +1312,30 @@ fn composition_layout(
         for panel in &mut built {
             if let Built::Single(_, labels) = panel {
                 for label in labels {
-                    fit_end_label(label, label_width, grid.dpi, recipe.font_size)?;
+                    validate_end_label(label, label_width)?;
                     frame[1] = frame[1].max(label.width_in + END_LABEL_PADDING_IN);
                 }
             }
         }
     }
 
+    let available_height = grid.cell_px.1 as f64 - (frame[2] + frame[3]) * grid.dpi;
+    for panel in &built {
+        if let Built::Single(_, labels) = panel {
+            validate_end_label_height(labels, available_height, grid.dpi)?;
+        }
+    }
     Ok((built, frame))
 }
 
-/// Native curve-end text keyed by each curve's source index, one map per panel.
-/// Fully clipped curves have no label; source indices preserve the association
-/// when earlier curves are hidden or clipped, or sample IDs are repeated.
-pub(crate) fn curve_end_label_texts(
+/// Validate the same panel geometry and complete curve-end labels as native
+/// rendering before the Python exporter creates any files.
+pub(crate) fn validate_composition_layout(
     recipe: &CompositeRecipe,
     chosen: &[&PreparedPanel],
     grid: &Grid,
-) -> Result<Vec<BTreeMap<usize, String>>, String> {
-    if !chosen.iter().any(|panel| {
-        panel.data.residual.is_none()
-            && recipe.panels.get(panel.index).is_some_and(|spec| {
-                !spec.uses_current_fit() && spec.label_mode == CurveLabelMode::CurveEnd
-            })
-    }) {
-        return Ok(chosen.iter().map(|_| BTreeMap::new()).collect());
-    }
-    let (panels, _) = composition_layout(recipe, chosen, grid)?;
-    Ok(panels
-        .into_iter()
-        .map(|panel| match panel {
-            Built::Single(_, labels) => labels
-                .into_iter()
-                .map(|label| (label.source_index, label.text))
-                .collect(),
-            Built::FitResidual(_) => BTreeMap::new(),
-        })
-        .collect())
+) -> Result<(), String> {
+    composition_layout(recipe, chosen, grid).map(|_| ())
 }
 
 /// Gap between a panel's top-left corner and its label, in points.
@@ -1127,7 +1346,6 @@ const CURVE_END_WIDTH_ERROR: &str = "Curve-end labels leave less than 0.5 in of 
 
 /// One literal label, measured at the output DPI before margins are fixed.
 struct EndLabel {
-    source_index: usize,
     text: String,
     color: ruviz::prelude::Color,
     raster: ruviz::render::typst_text::TypstRasterOutput,
@@ -1136,52 +1354,17 @@ struct EndLabel {
     y_fraction: f64,
 }
 
-/// Keep the longest fitting name prefix, measured with the same raster used in
-/// the figure. Both raster and SVG use this text; captions retain full names.
-fn fit_end_label(
-    label: &mut EndLabel,
-    max_width_in: f64,
-    dpi: f64,
-    font_pt: f64,
-) -> Result<(), String> {
-    if label.width_in <= max_width_in {
-        return Ok(());
+const CURVE_END_LABEL_TOO_LONG: &str =
+    "Curve-end labels are too long for this panel. Shorten the figure labels or use a legend.";
+
+/// Require complete labels in both raster and vector output. Geometry checks
+/// separately retain at least half an inch for the plotted data.
+fn validate_end_label(label: &EndLabel, max_width_in: f64) -> Result<(), String> {
+    if label.width_in > max_width_in {
+        Err(CURVE_END_LABEL_TOO_LONG.into())
+    } else {
+        Ok(())
     }
-    let render = |text: &str| {
-        ruviz::render::typst_text::render_raster(
-            &ruviz::render::typst_text::literal_text_snippet(text),
-            (font_pt * dpi / 72.) as f32,
-            label.color,
-            0.,
-            "curve-end label",
-        )
-        .map_err(|error| error.to_string())
-    };
-    let mut text = String::from("…");
-    let mut raster = render(&text)?;
-    if raster.pixmap.width() as f64 / dpi > max_width_in {
-        return Err(CURVE_END_WIDTH_ERROR.into());
-    }
-    // Search at grapheme boundaries so combining marks and other multi-codepoint
-    // characters stay intact when a name is shortened.
-    let boundaries: Vec<_> = label.text.grapheme_indices(true).map(|(i, _)| i).collect();
-    let (mut low, mut high) = (0, boundaries.len());
-    while low + 1 < high {
-        let middle = low + (high - low) / 2;
-        let candidate = format!("{}…", label.text[..boundaries[middle]].trim_end());
-        let measured = render(&candidate)?;
-        if measured.pixmap.width() as f64 / dpi <= max_width_in {
-            low = middle;
-            text = candidate;
-            raster = measured;
-        } else {
-            high = middle;
-        }
-    }
-    label.text = text;
-    label.width_in = raster.pixmap.width() as f64 / dpi;
-    label.raster = raster;
-    Ok(())
 }
 
 fn curve_end_labels(
@@ -1234,7 +1417,7 @@ fn curve_end_labels(
     let dpi = options.dimensions().2;
     let palette = Plot::new().get_theme();
     let mut labels = Vec::new();
-    for (index, (source_index, curve)) in visible.iter().enumerate() {
+    for (index, (_, curve)) in visible.iter().enumerate() {
         let mut endpoint: Option<(f64, f64)> = None;
         let mut include = |x: f64, y: f64| {
             if x.is_finite()
@@ -1281,7 +1464,6 @@ fn curve_end_labels(
         )
         .map_err(|error| error.to_string())?;
         labels.push(EndLabel {
-            source_index: *source_index,
             text: curve.label.clone(),
             color,
             width_in: raster.pixmap.width() as f64 / dpi,
@@ -1290,6 +1472,23 @@ fn curve_end_labels(
         });
     }
     Ok(labels)
+}
+
+/// Reject overlapping complete labels before either export is written.
+fn validate_end_label_height(labels: &[EndLabel], available: f64, dpi: f64) -> Result<(), String> {
+    if labels.is_empty() {
+        return Ok(());
+    }
+    let gap = 2. * dpi / 72.;
+    let required = labels
+        .iter()
+        .map(|label| label.raster.pixmap.height() as f64)
+        .sum::<f64>()
+        + gap * labels.len().saturating_sub(1) as f64;
+    if required > available {
+        return Err("Curve-end labels do not fit vertically. Use taller panels, fewer samples, a smaller font or a legend.".into());
+    }
+    Ok(())
 }
 
 /// Keep direct labels within the reserved margin, separating vertically
@@ -1310,14 +1509,7 @@ fn render_end_labels(
     let bottom = image.height as f64 - frame[3] * grid.dpi;
     let available = bottom - top;
     let gap = 2. * scale;
-    let required = labels
-        .iter()
-        .map(|label| label.raster.pixmap.height() as f64)
-        .sum::<f64>()
-        + gap * labels.len().saturating_sub(1) as f64;
-    if required > available {
-        return Err("Curve-end labels do not fit vertically. Use taller panels, fewer samples, a smaller font or a legend.".into());
-    }
+    validate_end_label_height(labels, available, grid.dpi)?;
     let mut order: Vec<_> = (0..labels.len()).collect();
     order.sort_by(|&a, &b| labels[a].y_fraction.total_cmp(&labels[b].y_fraction));
     let mut positions = Vec::new();
@@ -1436,6 +1628,32 @@ pub(crate) fn resolve_inside_legend(
     };
 }
 
+/// Journal axes apply only to composed panels, including residual strips and insets.
+/// Four minor ticks per major interval are a fixed rexafs choice; unlike
+/// Matplotlib's AutoMinorLocator, this does not adapt to each major step:
+/// <https://matplotlib.org/stable/api/ticker_api.html#matplotlib.ticker.AutoMinorLocator>.
+fn journal_axes(plot: Plot) -> Plot {
+    plot.tick_direction_inside()
+        .ticks_all_sides()
+        .minor_ticks(4)
+}
+
+/// The single extension point for composed legend appearance and placement.
+fn composed_legend(plot: Plot, visible: bool, font_pt: f64, best_position: bool) -> Plot {
+    if !visible {
+        return plot;
+    }
+    // Future ruviz style hook: legend_style(LegendStyle::invisible()) and
+    // legend_spacing(LegendSpacing { .. }) belong here once released.
+    let plot = plot.legend_font_size((font_pt - 1.).max(5.) as f32);
+    // An inset panel already has a corner chosen to avoid its opaque canvas.
+    if best_position {
+        plot.legend_best()
+    } else {
+        plot
+    }
+}
+
 /// Copy `image` into the RGBA canvas at `origin`, cropped to one cell.
 fn blit(canvas: &mut [u8], canvas_width: u32, image: &Image, origin: (u32, u32), cell: (u32, u32)) {
     let columns = image.width.min(cell.0) as usize * 4;
@@ -1480,7 +1698,7 @@ mod tests {
     use crate::publication::figures::{FigureSeries, fit_figures, spectrum_figures};
     use std::{path::Path, sync::Arc};
 
-    fn copper_figures() -> Vec<FigureData> {
+    pub(super) fn copper_figures() -> Vec<FigureData> {
         let file = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../rexafs/tests/testfiles/xraylarch_d867/xafsdata/cu_150k.xmu");
         let sp = Arc::new(
@@ -1515,7 +1733,7 @@ mod tests {
         })
     }
 
-    fn sample(id: u64, label: &str, color: &str) -> CompositeSample {
+    pub(super) fn sample(id: u64, label: &str, color: &str) -> CompositeSample {
         let main = FigureSeries {
             key: "series-0".into(),
             label: "Original label".into(),
@@ -1526,6 +1744,7 @@ mod tests {
         };
         CompositeSample {
             id: GroupId::legacy_result(id),
+            is_current: false,
             label: label.into(),
             color: color.into(),
             figures: vec![Arc::new(FigureData {
@@ -1730,6 +1949,7 @@ mod tests {
             .into_iter()
             .map(|id| CompositeSample {
                 id: GroupId::legacy_result(id),
+                is_current: false,
                 label: format!("Sample {id}"),
                 color: if id == 1 { "#0072b2" } else { "#e69f00" }.into(),
                 figures: figures.iter().cloned().map(Arc::new).collect(),
@@ -2019,6 +2239,7 @@ mod tests {
             .into_iter()
             .map(|id| CompositeSample {
                 id: GroupId::legacy_result(id),
+                is_current: false,
                 label: format!("Sample {id}"),
                 color: "#0072b2".into(),
                 figures: original.iter().cloned().map(Arc::new).collect(),
@@ -2194,7 +2415,7 @@ mod tests {
     }
 
     #[test]
-    fn long_curve_end_names_fit_in_both_outputs_and_remain_complete_in_captions() {
+    fn long_curve_end_names_require_short_labels_without_truncation() {
         let samples: Vec<_> = (1..=6)
             .map(|id| {
                 sample(
@@ -2204,7 +2425,7 @@ mod tests {
                 )
             })
             .collect();
-        let recipe = CompositeRecipe {
+        let mut recipe = CompositeRecipe {
             samples: samples.iter().map(|sample| sample.id.clone()).collect(),
             panels: vec![
                 CompositePanel {
@@ -2219,59 +2440,49 @@ mod tests {
         };
         let settings = FigureSettings::default();
         let empty: Vec<FigureData> = vec![];
-        let prepared = prepare_panels(&recipe, &empty, &samples, &settings).unwrap();
         for dpi in [100., recipe.dpi] {
-            let grid = recipe.grid(2, dpi);
-            let mut options = recipe.panel_options(prepared.panels[0].options.clone(), &grid);
-            let mut labels =
-                curve_end_labels(&prepared.panels[0].data, &mut options, recipe.font_size).unwrap();
-            let max_width = grid.cell_px.0 as f64 / dpi * 0.35 - END_LABEL_PADDING_IN;
-            let mut shortened = samples.clone();
-            for (label, sample) in labels.iter_mut().zip(&mut shortened) {
-                fit_end_label(label, max_width, dpi, recipe.font_size).unwrap();
-                assert!(
-                    label.text.starts_with(&sample.label[..12]),
-                    "{}",
-                    label.text
-                );
-                assert!(label.text.ends_with('…'));
-                assert!(sample.label.starts_with(label.text.trim_end_matches('…')));
-                assert!(label.width_in <= max_width);
-                sample.label.clone_from(&label.text);
-            }
-            let rendered = compose_prepared(&recipe, &prepared, Some(dpi)).unwrap();
-            let expected =
-                compose_samples(&recipe, &empty, &shortened, &settings, Some(dpi)).unwrap();
-            // Shortening the source names identically must produce the same
-            // raster, as well as the same visible SVG label strings.
-            assert_eq!(rendered.image.pixels, expected.image.pixels);
+            let error = compose_samples(&recipe, &empty, &samples, &settings, Some(dpi))
+                .err()
+                .unwrap();
+            assert_eq!(error, CURVE_END_LABEL_TOO_LONG);
+        }
+        recipe.figure_labels = samples
+            .iter()
+            .enumerate()
+            .map(|(i, sample)| (sample.id.clone(), format!("Frame {}", i + 1)))
+            .collect();
+        for dpi in [100., recipe.dpi] {
+            let rendered =
+                compose_samples(&recipe, &empty, &samples, &settings, Some(dpi)).unwrap();
             assert_eq!(
                 rendered.svg.matches("class=\"curve-end-label\"").count(),
                 12
             );
-            for (original, label) in samples.iter().zip(&labels) {
-                assert!(rendered.caption.contains(&original.label));
-                assert!(rendered.svg.contains(&format!(
-                    "<desc>{}",
-                    super::super::super::report::html(&rendered.caption)
-                )));
-                assert!(rendered.svg.contains(&format!(">{}</tspan>", label.text)));
+            for sample in &samples {
+                let short = &recipe.figure_labels[&sample.id];
+                assert!(rendered.svg.contains(&format!(">{short}</tspan>")));
                 assert!(
-                    !rendered
-                        .svg
-                        .contains(&format!(">{}</tspan>", original.label))
+                    rendered
+                        .caption
+                        .contains(&format!("{short} ({})", sample.label))
                 );
+                assert_eq!(rendered.caption.matches(&sample.label).count(), 1);
             }
         }
     }
 
     #[test]
-    fn curve_end_width_error_requires_insufficient_room_for_even_an_ellipsis() {
+    fn complete_end_labels_preserve_literal_text_and_report_the_allowance() {
         let data = sample(1, "A long sample name", "#0072b2");
         let mut options = FigureOptions::default();
-        let mut labels = curve_end_labels(&data.figures[0], &mut options, 8.).unwrap();
-        let error = fit_end_label(&mut labels[0], 0., options.dimensions().2, 8.).unwrap_err();
-        assert_eq!(error, CURVE_END_WIDTH_ERROR);
+        let labels = curve_end_labels(&data.figures[0], &mut options, 8.).unwrap();
+        let text = labels[0].text.clone();
+        assert_eq!(
+            validate_end_label(&labels[0], 0.).unwrap_err(),
+            CURVE_END_LABEL_TOO_LONG
+        );
+        assert_eq!(labels[0].text, text);
+        assert!(validate_end_label(&labels[0], labels[0].width_in).is_ok());
     }
 
     #[test]
@@ -2364,6 +2575,7 @@ mod tests {
                 ("future/key: [opaque]".into(), "#cc79a7".into()),
             ]),
             dpi: 300.,
+            ..Default::default()
         };
         let json = serde_json::to_string(&recipe).unwrap();
         assert_eq!(

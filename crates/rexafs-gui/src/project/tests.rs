@@ -121,6 +121,12 @@ fn publication_samples_keep_order_and_panel_options_after_rxs_reopen() {
     let samples = vec![GroupId::legacy_result(9), GroupId::legacy_result(2)];
     let recipe = project.publication.active_composite_mut();
     recipe.samples = samples.clone();
+    recipe
+        .figure_labels
+        .insert(samples[0].clone(), "Frame 9".into());
+    recipe.sample_colours = crate::publication::figures::composer::SampleColours::OkabeIto;
+    recipe.grid = true;
+    recipe.legend_every_panel = true;
     recipe.panels = vec![
         CompositePanel::from("xanes"),
         CompositePanel {
@@ -148,6 +154,10 @@ fn publication_samples_keep_order_and_panel_options_after_rxs_reopen() {
             recipe["panels"][1]["samples"],
             serde_json::json!(["result:2", "result:9"])
         );
+        assert_eq!(recipe["figure_labels"]["result:9"], "Frame 9");
+        assert_eq!(recipe["sample_colours"], "okabe_ito");
+        assert_eq!(recipe["grid"], true);
+        assert_eq!(recipe["legend_every_panel"], true);
         let reopened = load_with_cache_root(&path, || Ok(temp.path().join("cache"))).unwrap();
         assert_eq!(reopened.publication, project.publication);
     }
@@ -186,7 +196,7 @@ fn publication_named_recipe_panel_strings_load_from_rxs() {
 }
 
 #[test]
-fn legacy_publication_recipes_export_python_without_saved_schema_changes() {
+fn legacy_publication_recipes_export_python_without_mutating_saved_settings() {
     use crate::publication::figures::composer::{CompositeRecipe, prepare_panels};
     use crate::publication::figures::{FigureData, FigureSeries};
     use crate::publication::python_export::{SCRIPT_NAME, write_composite_python_export};
@@ -291,7 +301,8 @@ fn legacy_publication_recipes_export_python_without_saved_schema_changes() {
             serde_json::json!({
                 "panels": [{"key": "xanes", "samples": null, "offset_step": 0.0,
                     "reverse": false, "label_mode": "legend"}],
-                "samples": [], "columns": 2, "width_mm": 177.8,
+                "samples": [], "sample_colours": "ordered", "grid": false,
+                "legend_every_panel": false, "columns": 2, "width_mm": 177.8,
                 "panel_height_mm": null, "font_size": 8.0, "line_width": null, "dpi": 600.0
             })
         );

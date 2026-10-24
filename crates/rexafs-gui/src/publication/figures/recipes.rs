@@ -266,6 +266,7 @@ mod tests {
             line_width: Some(1.2),
             series_colors: BTreeMap::new(),
             dpi: 300.,
+            ..Default::default()
         };
         let settings: FigureSettings = serde_json::from_value(json!({
             "composite": recipe,

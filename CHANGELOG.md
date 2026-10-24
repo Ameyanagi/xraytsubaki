@@ -19,8 +19,12 @@
   Save inset choices per panel while preserving older project recipes.
 - Select several workspace samples per publication composer panel, share or
   override their ordered selection, and stack main curves with vertical offsets.
-  Keep workspace plot colours, choose legends or curve-end labels, process
-  uncached samples automatically, and preserve legacy recipes on project load.
+  Set short figure labels with full sample names retained in captions; curve-end
+  labels remain complete and report an error when they cannot fit. Choose an
+  ordered viridis, Okabe–Ito or workspace sample palette, default to one legend
+  per figure and no grid, and draw inward ticks on all four sides with four
+  minor ticks between major ticks. Process uncached samples automatically and
+  preserve legacy recipes on project load.
 
 - Choose per-curve colours in Publish from the eight-colour Okabe–Ito palette
   or Auto, and share colours across composer panels. Save choices in `.rxs`

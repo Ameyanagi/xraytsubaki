@@ -108,6 +108,7 @@ mod tests {
             .enumerate()
             .map(|(index, label)| CompositeSample {
                 id: GroupId::legacy_result(index as u64 + 1),
+                is_current: false,
                 label: label.into(),
                 color: "#0072b2".into(),
                 figures: vec![Arc::new(FigureData {

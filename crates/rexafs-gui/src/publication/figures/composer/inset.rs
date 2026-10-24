@@ -126,7 +126,7 @@ pub(super) fn render(
     // There is no independent y-tick-label switch in this ruviz release.
     // Disable its tick row and draw the measured x row below; a zero y-tick
     // count would still draw the two endpoint labels.
-    let plot = inset.data.panel(&options, false)?.ticks(false);
+    let plot = super::journal_axes(inset.data.panel(&options, false)?).ticks(false);
     let mut config = plot.get_config().clone();
     // The inset may be thinner than the main editor's 0.1 pt minimum.
     config.lines.data_width = (line_width.unwrap_or(default_width) * 0.7) as f32;

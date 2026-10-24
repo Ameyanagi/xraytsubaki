@@ -44,6 +44,12 @@ fn publication_samples_keep_order_and_panel_options_after_rxs_reopen() {
     let samples = vec![GroupId::legacy_result(9), GroupId::legacy_result(2)];
     let recipe = project.publication.active_composite_mut();
     recipe.samples = samples.clone();
+    recipe
+        .figure_labels
+        .insert(samples[0].clone(), "Frame 9".into());
+    recipe.sample_colours = crate::publication::figures::composer::SampleColours::OkabeIto;
+    recipe.grid = true;
+    recipe.legend_every_panel = true;
     recipe.panels = vec![
         CompositePanel::from("xanes"),
         CompositePanel {
@@ -71,6 +77,10 @@ fn publication_samples_keep_order_and_panel_options_after_rxs_reopen() {
             recipe["panels"][1]["samples"],
             serde_json::json!(["result:2", "result:9"])
         );
+        assert_eq!(recipe["figure_labels"]["result:9"], "Frame 9");
+        assert_eq!(recipe["sample_colours"], "okabe_ito");
+        assert_eq!(recipe["grid"], true);
+        assert_eq!(recipe["legend_every_panel"], true);
         let reopened = load_with_cache_root(&path, || Ok(temp.path().join("cache"))).unwrap();
         assert_eq!(reopened.publication, project.publication);
     }

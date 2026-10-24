@@ -119,6 +119,122 @@ fn publication_named_recipe_panel_strings_load_from_rxs() {
 }
 
 #[test]
+fn legacy_publication_recipes_export_python_without_mutating_saved_settings() {
+    use crate::publication::figures::composer::{CompositeRecipe, prepare_panels};
+    use crate::publication::figures::{FigureData, FigureSeries};
+    use crate::publication::python_export::{SCRIPT_NAME, write_composite_python_export};
+
+    let temp = tempfile::tempdir().unwrap();
+    for (format, recipe_fields) in [
+        (
+            "composite",
+            serde_json::json!({"composite": {"panels": ["xanes"]}}),
+        ),
+        (
+            "named",
+            serde_json::json!({"recipes": [{"name": "Figure 1", "recipe": {"panels": ["xanes"]}}]}),
+        ),
+    ] {
+        let path = temp.path().join(format!("legacy-{format}.rxs"));
+        save_with_storage(&path, &ProjectFile::default(), DataStorage::Paths).unwrap();
+        let mut historical = json_file(&path);
+        historical["publication"] = recipe_fields;
+        historical["publication"]["figures"] = serde_json::json!({
+            "xanes": {"normalized": true, "legend": false, "xmin": 7100.0, "xmax": 7102.0}
+        });
+        std::fs::write(&path, serde_json::to_vec(&historical).unwrap()).unwrap();
+
+        let reopened = load_with_cache_root(&path, || Ok(temp.path().join("cache"))).unwrap();
+        let named = reopened.publication.active_recipe();
+        assert_eq!(named.name, "Figure 1");
+        assert_eq!(
+            named.recipe,
+            CompositeRecipe {
+                panels: vec!["xanes".into()],
+                ..Default::default()
+            }
+        );
+        let before_export = serde_json::to_value(&reopened.publication).unwrap();
+        let baseline = temp.path().join(format!("before-export-{format}.rxs"));
+        save_with_storage(&baseline, &reopened, DataStorage::Paths).unwrap();
+        let before_export_saved = json_file(&baseline)["publication"].clone();
+
+        // These small arrays are synthetic display data, not a scientific
+        // processing fixture. Their distinct values expose the saved choice
+        // of normalized rather than flattened absorption in the exported CSV.
+        let curve = |y| FigureSeries {
+            key: "mu".into(),
+            label: "Synthetic sample".into(),
+            x: vec![7100., 7101., 7102.],
+            y,
+            dashed: false,
+            optional: false,
+        };
+        let available = vec![FigureData {
+            key: "xanes",
+            label: "XANES".into(),
+            xlabel: "Energy (eV)".into(),
+            ylabel: "Flattened μ(E) (dimensionless)".into(),
+            math_ylabel: "Flattened μ(E) (dimensionless)".into(),
+            series: vec![curve(vec![10., 20., 30.])],
+            normalized_series: Some(vec![curve(vec![0.1, 0.2, 0.3])]),
+            e0: None,
+            guides: Vec::new(),
+            default_xlim: None,
+            residual: None,
+        }];
+        let prepared =
+            prepare_panels(&named.recipe, &available, &[], &reopened.publication).unwrap();
+        assert!(prepared.missing.is_empty());
+        assert_eq!(prepared.panels.len(), 1);
+        assert!(prepared.panels[0].options.normalized);
+        assert!(!prepared.panels[0].options.legend);
+        assert_eq!(prepared.panels[0].options.xmin, Some(7100.));
+        assert_eq!(prepared.panels[0].options.xmax, Some(7102.));
+
+        let folder = temp.path().join(format!("python-{format}"));
+        let script =
+            write_composite_python_export(&named.name, &named.recipe, &prepared, &folder).unwrap();
+        assert_eq!(script, folder.join(SCRIPT_NAME));
+        assert!(
+            std::fs::read_to_string(&script)
+                .unwrap()
+                .contains("matplotlib")
+        );
+        let csv_files: Vec<_> = std::fs::read_dir(&folder)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.extension().is_some_and(|extension| extension == "csv"))
+            .collect();
+        assert_eq!(csv_files.len(), 1);
+        let mut reader = csv::Reader::from_path(&csv_files[0]).unwrap();
+        let values: Vec<(f64, f64)> = reader.deserialize().map(Result::unwrap).collect();
+        assert_eq!(values, vec![(7100., 0.1), (7101., 0.2), (7102., 0.3)]);
+
+        save_with_storage(&path, &reopened, DataStorage::Paths).unwrap();
+        let saved = json_file(&path);
+        assert_eq!(
+            serde_json::to_value(&reopened.publication).unwrap(),
+            before_export
+        );
+        assert_eq!(saved["publication"], before_export_saved);
+        assert!(saved["publication"].get("composite").is_none());
+        assert_eq!(
+            saved["publication"]["recipes"][0]["recipe"],
+            serde_json::json!({
+                "panels": [{"key": "xanes", "samples": null, "offset_step": 0.0,
+                    "reverse": false, "label_mode": "legend"}],
+                "samples": [], "sample_colours": "ordered", "grid": false,
+                "legend_every_panel": false, "columns": 2, "width_mm": 177.8,
+                "panel_height_mm": null, "font_size": 8.0, "line_width": null, "dpi": 600.0
+            })
+        );
+        let again = load_with_cache_root(&path, || Ok(temp.path().join("cache"))).unwrap();
+        assert_eq!(again.publication, reopened.publication);
+    }
+}
+
+#[test]
 fn publication_panel_objects_without_insets_load_from_rxs() {
     use crate::group_identity::GroupId;
     use crate::publication::figures::composer::CurveLabelMode;

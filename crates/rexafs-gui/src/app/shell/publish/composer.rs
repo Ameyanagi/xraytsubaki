@@ -1407,6 +1407,61 @@ impl StudioApp {
         .detach();
     }
 
+    /// Save the current recipe's prepared curves and an editable matplotlib
+    /// script into a new folder without preparing or copying the arrays again.
+    fn export_composite_python(&mut self, cx: &mut Context<Self>) {
+        // A queued edit may have changed the recipe since the button rendered.
+        // Refresh first so the export never combines an old preview with it.
+        self.refresh_composer_preview(cx);
+        let state = &self.publish.composer;
+        if state.running || state.image.is_none() {
+            return;
+        }
+        let Some(prepared) = state
+            .prepared
+            .as_ref()
+            .filter(|prepared| !prepared.panels.is_empty())
+            .cloned()
+        else {
+            return;
+        };
+        let named = self.publish.settings.active_recipe().clone();
+        let name = format!("{}-matplotlib", named.file_stem());
+        let home = crate::settings::home_dir().unwrap_or_else(std::env::temp_dir);
+        let rx = cx.prompt_for_new_path(&home, Some(&name));
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(path))) = rx.await else {
+                return;
+            };
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    crate::publication::python_export::write_composite_python_export(
+                        &named.name,
+                        &named.recipe,
+                        &prepared,
+                        &path,
+                    )
+                })
+                .await;
+            this.update(cx, |app, cx| {
+                match result {
+                    Ok(script) => {
+                        app.set_status(
+                            crate::app::StatusKind::Success,
+                            format!("Saved {}", script.display()),
+                        );
+                        app.publish.saved_figure = Some(script);
+                    }
+                    Err(error) => app.publish.composer.error = Some(error),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// Save the current combined caption as UTF-8 text using the recipe's name.
     fn save_composite_caption(&mut self, cx: &mut Context<Self>) {
         let state = &self.publish.composer;
@@ -1817,7 +1872,7 @@ impl StudioApp {
         let state = &self.publish.composer;
         let (width_mm, height_mm) = state.size_mm;
         let can_save = ready && state.image.is_some() && !state.running;
-        let mut save = div().flex().items_center().gap_1().child(
+        let mut save = div().flex().flex_wrap().items_center().gap_1().child(
             div()
                 .text_size(px(11.5))
                 .text_color(t.text_muted)
@@ -1844,6 +1899,21 @@ impl StudioApp {
                 })),
             );
         }
+        save = save.child(
+            enabled_when(
+                with_tip(
+                    button(&t, "export-composite-python", "Data + Python script…", false),
+                    &t,
+                    "Export this recipe to a new folder with unshifted curve CSVs and make_figure.py, which redraws the panels and insets with editable display offsets in matplotlib.",
+                ),
+                can_save,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if can_save {
+                    this.export_composite_python(cx);
+                }
+            })),
+        );
         let mut zoom = segmented(&t);
         for (i, (true_size, label, tip)) in [
             (false, "Fit", "Fit the preview to the pane."),

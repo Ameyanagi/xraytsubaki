@@ -93,9 +93,9 @@ its colour name and sRGB hexadecimal value.
 
 Colours are saved per figure type in the `.rxs` project and used by previews,
 image exports, report and supporting-information figures, and the editable
-matplotlib export. The matplotlib script currently includes only the upper
-panel of a fit + residual figure; standalone residual figures export their
-curve. **Apply style to all figures** preserves each figure's curve colours. Figures without overrides retain their existing automatic colours.
+matplotlib export. A **Single figure** matplotlib export currently includes only
+the upper panel of a fit + residual figure; standalone residual figures export
+their curve. **Apply style to all figures** preserves each figure's curve colours. Figures without overrides retain their existing automatic colours.
 The saved `series_colors` map uses curve keys as plain strings and lowercase
 `#rrggbb` sRGB values; malformed values stop rendering/export with an error,
 and entries for curves that are no longer available have no visual effect.
@@ -415,14 +415,66 @@ digits, and replaces runs of punctuation or whitespace with a single hyphen,
 without leading or trailing hyphens. An empty result uses `figure`; reserved
 Windows device names gain a `figure-` prefix.
 
+**Data + Python script… (unreleased).** Beside the image saves, this action
+exports the active named recipe to a new folder, suggested as
+`figure-2-matplotlib` for **Figure 2**. An existing folder is rejected. The
+export uses the same prepared curves as the current preview and is available
+when that preview is ready. It writes `make_figure.py` and one CSV with two
+columns, x and y, for each exported curve in a main panel, residual strip or
+inset (`a-series-01.csv`, `a-residual-series-01.csv`,
+`a-inset-series-01.csv`, and so on). CSV values are unshifted: they contain the plotted scientific quantity,
+including any normalization, k weighting or normalized difference, without the
+vertical display offsets. The export does not modify the project's processed
+spectra or fit results.
+
+All presentation settings are editable at the top of the script: the recipe's
+printed size, panel arrangement, DPI, font and line widths, grid, labels, resolved
+colours, line styles, limits, legend style, inset placement and separate offsets
+for main and inset curves. Change an offset there to restack curves without
+changing the CSV data. Fit + residual panels retain both axes. Available panels
+fill the grid in recipe order; unavailable panels are omitted without empty
+slots, and the script notes skipped panels and samples. Check these notices
+before using the figure.
+
+The exported colours are the resolved recipe, sample and figure colours used by
+the preview, including residual strips and insets. The recipe's grid setting is
+off by default. Major and minor ticks point inward on all four sides; the script
+uses Matplotlib's
+[`AutoMinorLocator`](https://matplotlib.org/stable/api/ticker_api.html#matplotlib.ticker.AutoMinorLocator)
+for minor ticks. Insets retain their resolved colours and line styles, inward
+ticks, and no grid or legend. Their quantity tag keeps its opaque white box and
+automatic vertical headroom above the curves.
+
+Legend visibility follows the native preparation's per-panel choices, including
+**Legend in every panel** and **Curve labels**; insets never show a legend. The
+Python script uses frameless legends with text at `FONT_SIZE - 1` points,
+`loc="best"`, `handlelength=1.4`, `labelspacing=0.3` and `handletextpad=0.5`.
+These are the Python legend settings; the native renderer currently draws the
+boxed legends described above.
+
+Curve-end labels use complete figure labels, and CSV headers retain those same
+complete names. Export applies the native curve-end width and vertical-fit
+validation before writing files: labels and padding must fit within 35% of the
+panel width and leave at least 0.5 in for the plot. Labels are never shortened or
+truncated. If validation fails, shorten the recipe's figure labels, adjust the
+figure dimensions or font size, reduce the sample count, or choose a legend,
+then export again. Each curve's complete `label` remains editable in the script.
+
+Run the script with Python 3, numpy and matplotlib; rexafs is not required. For
+example, run `uv run --with numpy --with matplotlib python make_figure.py`.
+It reads the CSV files beside itself and saves `figure.pdf`, `figure.svg` and
+`figure.png` there at the recipe's printed size and DPI. Matplotlib lays out
+ticks and margins using its own font metrics, so the result is an editable
+reproduction whose layout can differ from the rexafs preview. Implemented in
+[`write_composite_python_export`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/python_export/composite.rs).
+
 The caption below the preview joins each panel's caption after its label, for
 example "(a) Flattened, edge-step-normalized X-ray absorption spectrum… (b) …";
 **Copy caption** copies it. **Save caption…** saves it as plain text,
 with a suggested filename such as `figure-2-caption.txt`. Panels whose figure
 is unavailable, such as a fit panel before any fit has run, are skipped, listed
 under the preview and kept in the recipe. Missing samples are also listed and
-retained in the recipe. A matplotlib script for the whole grid is not available
-yet. The composer is implemented in
+retained in the recipe. The composer is implemented in
 [`composer.rs`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/figures/composer.rs).
 
 ## Captions

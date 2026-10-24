@@ -89,8 +89,17 @@ pub(super) fn prepare(
                     sample.id.as_str(),
                     source.series(&prepared.options)[0].key
                 );
-                curve.label = sample.label.clone();
                 curve.optional = false;
+            }
+            // Reuse the panel's resolved labels for main and helper curves,
+            // including an aliased current sample with no explicit sample IDs.
+            if let Some(display) = prepared
+                .data
+                .series(&prepared.options)
+                .iter()
+                .find(|display| display.key == curve.key)
+            {
+                curve.label.clone_from(&display.label);
             }
             curve
         };
@@ -170,6 +179,7 @@ pub(super) fn prepare(
         ymax: None,
         normalized: false,
         legend: false,
+        grid: Some(false),
         guides: false,
         title: None,
         xlabel: Some(String::new()),
@@ -350,6 +360,7 @@ mod tests {
         );
         let sample = CompositeSample {
             id: GroupId::legacy_result(id),
+            is_current: false,
             label,
             color: "#0072b2".into(),
             figures: figures.into_iter().map(Arc::new).collect(),

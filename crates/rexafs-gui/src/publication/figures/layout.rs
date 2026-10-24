@@ -370,8 +370,8 @@ pub(crate) const RESIDUAL_FRACTION: f64 = 0.28;
 /// fixed. `frame` holds the margins this figure needs on its own; a composed
 /// multi-panel figure can widen them so that neighbouring panels line up.
 pub(super) struct FitResidual {
-    top: Plot,
-    strip: Plot,
+    pub(super) top: Plot,
+    pub(super) strip: Plot,
     top_px: f64,
     total_px: f64,
     dpi: f64,

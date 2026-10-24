@@ -4213,6 +4213,7 @@ impl StudioApp {
         if change == IndexChange::Catalog {
             self.cache.clear();
             self.raw_cache.clear();
+            self.publish.invalidate_composer_samples();
             self.thumbs = None;
         } else {
             // Only shifted derived slots can now refer to another group.
@@ -6172,6 +6173,12 @@ impl StudioApp {
     /// its own effective params.
     fn ensure_compare_loaded(&mut self, cx: &mut Context<Self>) {
         let (indices, _) = self.compare_indices();
+        self.ensure_groups_loaded(indices, cx);
+    }
+
+    /// Process explicit workspace indices through the same cache and diagnostic
+    /// path as overlays. Publication recipes can reference groups after unmarking.
+    fn ensure_groups_loaded(&mut self, indices: Vec<usize>, cx: &mut Context<Self>) {
         let mut missing = missing_compare_loads(
             &self.catalog,
             &self.derived,
@@ -6207,7 +6214,7 @@ impl StudioApp {
         self.compare_gen += 1;
         let generation = self.compare_gen;
         self.compare_running = true;
-        self.status = format!("processing {} spectra for overlay ...", missing.len()).into();
+        self.status = format!("processing {} spectra ...", missing.len()).into();
         cx.notify();
         let mut diagnostics: BTreeMap<_, _> = missing
             .iter()
@@ -6277,7 +6284,9 @@ impl StudioApp {
                                 app.raw_cache
                                     .put((ix, app.effective_params(ix).raw_fingerprint()), raw);
                             }
-                            app.cache.put((ix, fingerprint), Arc::new(sp));
+                            let sp = Arc::new(sp);
+                            app.retain_composer_sample(ix, fingerprint, sp.clone());
+                            app.cache.put((ix, fingerprint), sp);
                         }
                         Err(error) => {
                             failed += 1;
@@ -6289,11 +6298,11 @@ impl StudioApp {
                         }
                     }
                 }
-                let (_, total) = app.compare_indices();
+                let total = indices.len();
                 app.status = if failed > 0 {
-                    format!("overlay ready · {failed} failed").into()
+                    format!("spectra ready · {failed} failed").into()
                 } else {
-                    format!("overlay of {total} spectra ready").into()
+                    format!("{total} spectra ready").into()
                 };
                 app.invalidate_explore_plots(cx);
                 cx.notify();

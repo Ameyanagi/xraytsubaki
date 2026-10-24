@@ -71,9 +71,12 @@ impl PublishState {
 
     pub(crate) fn load_settings(&mut self, settings: FigureSettings) {
         let preview_generation = self.preview_generation + 1;
+        let mut composer = std::mem::take(&mut self.composer);
+        composer.reset();
         *self = Self {
             settings,
             preview_generation,
+            composer,
             ..Default::default()
         };
     }

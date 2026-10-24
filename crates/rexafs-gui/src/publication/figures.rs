@@ -7,6 +7,7 @@ use std::collections::BTreeSet;
 pub(crate) mod composer;
 mod labels;
 mod layout;
+mod recipes;
 pub(crate) use layout::{LegendPlacement, typst_label};
 
 fn weighted_unit(weight: f64) -> String {
@@ -97,14 +98,21 @@ impl Default for FigureOptions {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+/// Publication appearance and named multi-panel recipes saved with a project.
+/// Recipes keep insertion order and the active recipe is stored by index, so
+/// renaming never changes the selection.
+/// New projects start with Figure 1. Loading also accepts the old single
+/// `publication.composite` as Figure 1; saving writes only the new format.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(from = "recipes::SavedFigureSettings")]
 pub(crate) struct FigureSettings {
     /// Settings are shared by figure type across a multi-spectrum export.
     pub figures: BTreeMap<String, FigureOptions>,
     pub table_captions: BTreeMap<String, String>,
-    /// The multi-panel figure recipe (see [`composer::CompositeRecipe`]).
-    pub composite: composer::CompositeRecipe,
+    /// Ordered, non-empty recipes; changed through the recipe methods below.
+    recipes: Vec<recipes::NamedRecipe>,
+    /// Zero-based selection, adjusted on deletion and clamped when loading.
+    active_recipe: usize,
 }
 impl FigureSettings {
     /// Return an owned copy of settings for a figure type, or its defaults.

@@ -93,7 +93,9 @@ fn composite_python_export(
                 &mut files,
             )?;
             let bounds = match inset.placement {
-                InsetPlacement::LowerRight => "(0.54, 0.08, 0.43, 0.36)",
+                // Leave room below the inset frame for its tick labels and
+                // their white backgrounds inside the main plotting area.
+                InsetPlacement::LowerRight => "(0.54, 0.14, 0.43, 0.36)",
                 InsetPlacement::UpperLeft => "(0.03, 0.60, 0.43, 0.36)",
                 InsetPlacement::CenterRight => "(0.54, 0.32, 0.43, 0.36)",
             };
@@ -184,7 +186,6 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.ticker import MaxNLocator
 import numpy as np
 
 HERE = Path(__file__).resolve().parent
@@ -276,7 +277,7 @@ fn axes_settings(data: &FigureData, options: &FigureOptions) -> String {
         String::new()
     };
     format!(
-        "\"xlabel\": {},\n        \"ylabel\": {},\n        \"xlim\": {},\n        \"ylim\": {},\n        \"grid\": {},\n        \"legend\": {},\n        \"legend_location\": {},\n        \"guides\": [{guides}]",
+        "\"xlabel\": {},\n        \"ylabel\": {},\n        \"xlim\": {},\n        \"ylim\": {},\n        \"ylim_fixed\": {},\n        \"grid\": {},\n        \"legend\": {},\n        \"legend_location\": {},\n        \"guides\": [{guides}]",
         py_str(&xlabel),
         py_str(&ylabel),
         py_limit(data.xlim(options)),
@@ -286,6 +287,7 @@ fn axes_settings(data: &FigureData, options: &FigureOptions) -> String {
                 .zip(options.ymax)
                 .or_else(|| data.visible_ylim(options))
         ),
+        py_bool(options.ymin.zip(options.ymax).is_some()),
         py_bool(options.grid.unwrap_or(true)),
         py_bool(options.legend),
         py_str(legend),
@@ -309,7 +311,18 @@ def draw_curves(ax, settings, width):
     if settings["xlim"] is not None:
         ax.set_xlim(*settings["xlim"])
     if settings["ylim"] is not None:
-        ax.set_ylim(*settings["ylim"])
+        low, high = settings["ylim"]
+        if not settings["ylim_fixed"] and curves:
+            # Automatic limits describe unshifted data; widen them to the
+            # curves as drawn, after the offsets above.
+            xlow, xhigh = ax.get_xlim()
+            drawn = np.concatenate([y[(x >= xlow) & (x <= xhigh)] for x, y, _ in curves])
+            drawn = drawn[np.isfinite(drawn)]
+            if drawn.size and (drawn.min() < low or drawn.max() > high):
+                low, high = min(low, drawn.min()), max(high, drawn.max())
+                pad = 0.05 * (high - low)
+                low, high = low - pad, high + pad
+        ax.set_ylim(low, high)
     ax.grid(settings["grid"])
     if settings["legend"]:
         ax.legend(loc=settings["legend_location"])
@@ -368,8 +381,6 @@ for ax, panel in zip(axes.flat, PANELS):
         draw_curves(strip, residual, LINE_WIDTH)
         strip.axhline(0, color="#8c8c8c", linewidth=0.8)
     curves = draw_curves(ax, panel, LINE_WIDTH)
-    # At most about six energy or k ticks, so narrow panels stay readable.
-    ax.xaxis.set_major_locator(MaxNLocator(nbins=5, steps=[1, 2, 5, 10]))
     if residual is not None:
         ax.set_xlabel("")
         ax.tick_params(labelbottom=False)
@@ -384,7 +395,8 @@ for ax, panel in zip(axes.flat, PANELS):
         inset_ax.tick_params(labelsize=max(4, 0.8 * FONT_SIZE))
         inset_ax.set_yticks([])
         inset_ax.text(0.04, 0.96, inset["quantity"], transform=inset_ax.transAxes,
-                      va="top", fontsize=max(4, 0.8 * FONT_SIZE))
+                      va="top", fontsize=max(4, 0.8 * FONT_SIZE),
+                      bbox=dict(facecolor="white", edgecolor="none", pad=1))
         inset_axes.append(inset_ax)
 for ax in list(axes.flat)[len(PANELS):]:
     ax.set_visible(False)

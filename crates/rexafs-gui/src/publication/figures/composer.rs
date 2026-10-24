@@ -18,6 +18,9 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Borrow;
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use unicode_segmentation::UnicodeSegmentation;
+
+mod offsets;
 
 mod inset;
 mod inset_data;
@@ -198,7 +201,8 @@ pub(crate) const JOURNAL_WIDTHS: [JournalWidth; 6] = [
 pub(crate) enum CurveLabelMode {
     #[default]
     Legend,
-    /// Literal sample names beside the last visible point, in a reserved margin.
+    /// Sample names beside the last visible point, shortened with an ellipsis
+    /// to reserve at most 35% of the panel width. Captions retain full names.
     CurveEnd,
 }
 
@@ -737,7 +741,13 @@ pub(crate) fn prepare_panels(
                 }
                 applied_offset = true;
             }
-            offsets.push(format!("{}: {offset:+}", sample.label));
+            let formatted = offsets::format_offset(offset, panel.offset_step);
+            offsets.push(format!(
+                "{}: {}{}",
+                sample.label,
+                if formatted.starts_with('-') { "" } else { "+" },
+                formatted
+            ));
             // Multi-sample keys intentionally do not inherit a short main-curve
             // override: that would silently give every sample the same colour.
             options
@@ -770,7 +780,7 @@ pub(crate) fn prepare_panels(
             index, data, options,
             inset: None,
             offset_caption: applied_offset.then(|| format!(
-                "Spectra offset vertically by {} in vertical-axis units for clarity. Display offsets in sample order: {}.", panel.offset_step, offsets.join(", ")
+                "Spectra offset vertically by {} in vertical-axis units for clarity. Display offsets in sample order: {}.", offsets::format_offset(panel.offset_step, panel.offset_step), offsets.join(", ")
             )),
         });
     }
@@ -905,19 +915,12 @@ pub(crate) fn compose_prepared(
                     .ymin
                     .zip(options.ymax)
                     .or_else(|| data.visible_ylim(&options));
-                let mut needs = [
+                let needs = [
                     metrics.left(layout::tick_chars(ylim, 10).unwrap_or(5)),
                     metrics.right(layout::tick_chars(data.xlim(&options), 10).unwrap_or(4)),
                     0.,
                     metrics.bottom(),
                 ];
-                if let Some(width) = end_labels
-                    .iter()
-                    .map(|label| label.width_in)
-                    .reduce(f64::max)
-                {
-                    needs[1] = needs[1].max(width + 8. / 72.);
-                }
                 (Built::Single(Box::new(plot), end_labels), needs)
             }
         };
@@ -930,9 +933,23 @@ pub(crate) fn compose_prepared(
     if built
         .iter()
         .any(|panel| matches!(panel, Built::Single(_, labels) if !labels.is_empty()))
-        && (grid.cell_px.0 as f64 / grid.dpi - frame[0] - frame[1] < 0.5)
     {
-        return Err("Curve-end labels leave less than 0.5 in of plot width. Shorten sample labels, widen the figure, use fewer columns or choose a legend.".into());
+        let panel_width = grid.cell_px.0 as f64 / grid.dpi;
+        let available_margin = panel_width - frame[0] - 0.5;
+        if frame[1] > available_margin {
+            return Err(CURVE_END_WIDTH_ERROR.into());
+        }
+        // rexafs reserves at most 35% of a panel for names, including padding.
+        // Narrow panels use less so at least half an inch remains for data.
+        let label_width = (panel_width * 0.35).min(available_margin) - END_LABEL_PADDING_IN;
+        for panel in &mut built {
+            if let Built::Single(_, labels) = panel {
+                for label in labels {
+                    fit_end_label(label, label_width, grid.dpi, recipe.font_size)?;
+                    frame[1] = frame[1].max(label.width_in + END_LABEL_PADDING_IN);
+                }
+            }
+        }
     }
 
     let (width, height) = grid.size_px();
@@ -1035,6 +1052,9 @@ pub(crate) fn compose_prepared(
 
 /// Gap between a panel's top-left corner and its label, in points.
 const LABEL_INSET_PT: f64 = 2.;
+/// Four points between the axes and names, and four points at the panel edge.
+const END_LABEL_PADDING_IN: f64 = 8. / 72.;
+const CURVE_END_WIDTH_ERROR: &str = "Curve-end labels leave less than 0.5 in of plot width. Widen the figure, use fewer columns, reduce the font size or choose a legend.";
 
 /// One literal label, measured at the output DPI before margins are fixed.
 struct EndLabel {
@@ -1044,6 +1064,54 @@ struct EndLabel {
     width_in: f64,
     /// Position of the last visible point from the top of the visible y range.
     y_fraction: f64,
+}
+
+/// Keep the longest fitting name prefix, measured with the same raster used in
+/// the figure. Both raster and SVG use this text; captions retain full names.
+fn fit_end_label(
+    label: &mut EndLabel,
+    max_width_in: f64,
+    dpi: f64,
+    font_pt: f64,
+) -> Result<(), String> {
+    if label.width_in <= max_width_in {
+        return Ok(());
+    }
+    let render = |text: &str| {
+        ruviz::render::typst_text::render_raster(
+            &ruviz::render::typst_text::literal_text_snippet(text),
+            (font_pt * dpi / 72.) as f32,
+            label.color,
+            0.,
+            "curve-end label",
+        )
+        .map_err(|error| error.to_string())
+    };
+    let mut text = String::from("…");
+    let mut raster = render(&text)?;
+    if raster.pixmap.width() as f64 / dpi > max_width_in {
+        return Err(CURVE_END_WIDTH_ERROR.into());
+    }
+    // Search at grapheme boundaries so combining marks and other multi-codepoint
+    // characters stay intact when a name is shortened.
+    let boundaries: Vec<_> = label.text.grapheme_indices(true).map(|(i, _)| i).collect();
+    let (mut low, mut high) = (0, boundaries.len());
+    while low + 1 < high {
+        let middle = low + (high - low) / 2;
+        let candidate = format!("{}…", label.text[..boundaries[middle]].trim_end());
+        let measured = render(&candidate)?;
+        if measured.pixmap.width() as f64 / dpi <= max_width_in {
+            low = middle;
+            text = candidate;
+            raster = measured;
+        } else {
+            high = middle;
+        }
+    }
+    label.text = text;
+    label.width_in = raster.pixmap.width() as f64 / dpi;
+    label.raster = raster;
+    Ok(())
 }
 
 fn curve_end_labels(
@@ -2041,14 +2109,87 @@ mod tests {
                 .unwrap();
             }
         }
-        let too_long = CompositeSample {
-            label: "A very long sample label ".repeat(30),
-            ..a
+    }
+
+    #[test]
+    fn long_curve_end_names_fit_in_both_outputs_and_remain_complete_in_captions() {
+        let samples: Vec<_> = (1..=6)
+            .map(|id| {
+                sample(
+                    id,
+                    &format!("Synthetic {id:02} · CuO 100.0% · Cu₂O 0.0% · Cu 0.0%"),
+                    "#0072b2",
+                )
+            })
+            .collect();
+        let recipe = CompositeRecipe {
+            samples: samples.iter().map(|sample| sample.id.clone()).collect(),
+            panels: vec![
+                CompositePanel {
+                    label_mode: CurveLabelMode::CurveEnd,
+                    offset_step: 1.5,
+                    .."xanes".into()
+                };
+                2
+            ],
+            dpi: 200.,
+            ..Default::default()
         };
-        let error = compose_samples(&recipe, &empty, &[too_long], &settings, None)
-            .err()
-            .unwrap();
-        assert!(error.contains("Shorten sample labels"), "{error}");
+        let settings = FigureSettings::default();
+        let empty: Vec<FigureData> = vec![];
+        let prepared = prepare_panels(&recipe, &empty, &samples, &settings).unwrap();
+        for dpi in [100., recipe.dpi] {
+            let grid = recipe.grid(2, dpi);
+            let mut options = recipe.panel_options(prepared.panels[0].options.clone(), &grid);
+            let mut labels =
+                curve_end_labels(&prepared.panels[0].data, &mut options, recipe.font_size).unwrap();
+            let max_width = grid.cell_px.0 as f64 / dpi * 0.35 - END_LABEL_PADDING_IN;
+            let mut shortened = samples.clone();
+            for (label, sample) in labels.iter_mut().zip(&mut shortened) {
+                fit_end_label(label, max_width, dpi, recipe.font_size).unwrap();
+                assert!(
+                    label.text.starts_with(&sample.label[..12]),
+                    "{}",
+                    label.text
+                );
+                assert!(label.text.ends_with('…'));
+                assert!(sample.label.starts_with(label.text.trim_end_matches('…')));
+                assert!(label.width_in <= max_width);
+                sample.label.clone_from(&label.text);
+            }
+            let rendered = compose_prepared(&recipe, &prepared, Some(dpi)).unwrap();
+            let expected =
+                compose_samples(&recipe, &empty, &shortened, &settings, Some(dpi)).unwrap();
+            // Shortening the source names identically must produce the same
+            // raster, as well as the same visible SVG label strings.
+            assert_eq!(rendered.image.pixels, expected.image.pixels);
+            assert_eq!(
+                rendered.svg.matches("class=\"curve-end-label\"").count(),
+                12
+            );
+            for (original, label) in samples.iter().zip(&labels) {
+                assert!(rendered.caption.contains(&original.label));
+                assert!(rendered.svg.contains(&format!(
+                    "<desc>{}",
+                    super::super::super::report::html(&rendered.caption)
+                )));
+                assert!(rendered.svg.contains(&format!(">{}</tspan>", label.text)));
+                assert!(
+                    !rendered
+                        .svg
+                        .contains(&format!(">{}</tspan>", original.label))
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn curve_end_width_error_requires_insufficient_room_for_even_an_ellipsis() {
+        let data = sample(1, "A long sample name", "#0072b2");
+        let mut options = FigureOptions::default();
+        let mut labels = curve_end_labels(&data.figures[0], &mut options, 8.).unwrap();
+        let error = fit_end_label(&mut labels[0], 0., options.dimensions().2, 8.).unwrap_err();
+        assert_eq!(error, CURVE_END_WIDTH_ERROR);
     }
 
     #[test]

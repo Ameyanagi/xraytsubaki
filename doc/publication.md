@@ -240,7 +240,7 @@ first available sample's axis labels and does not convert other samples' units.
 Fit, residual and fit + residual panels always show one fitted dataset and ignore
 the sample selection and stacking settings. **Single figure** stays single-sample.
 
-**Offset step (y units)** is a display displacement between successive samples:
+**Offset step** is a display displacement between successive samples:
 zero overlays the original curves. A step of 0.3 adds 0, 0.3, 0.6, and so on to
 the samples' vertical values in saved order. **Reverse order** assigns these
 offsets in reverse, putting the first sample highest for a positive step.
@@ -249,8 +249,12 @@ positions in the saved order. Offsets use the panel's displayed vertical-axis
 units, including any k weighting; they modify copied display arrays only, leaving
 processed spectra and fit results unchanged. The combined caption records a
 non-zero applied offset. **Curve labels** defaults to **Legend**; **Curve ends** places
-literal curve names at the right side of the plot with space reserved across the
-grid. If names cannot fit at the chosen width, use a wider figure or the legend.
+curve names at the right side of the plot with space reserved across the grid.
+Names use at most 35% of the panel width, including padding. Longer names keep
+their beginning and end with an ellipsis (…). The raster and SVG use the same
+shortened labels; the caption keeps the full names. If even an ellipsis cannot
+fit while leaving 0.5 in of plot width, use a wider figure, fewer columns, a
+smaller font or the legend.
 These display choices are implemented in
 [`prepare_panels` and `compose_samples`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/figures/composer.rs).
 

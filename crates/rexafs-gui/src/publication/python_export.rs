@@ -482,6 +482,7 @@ mod tests {
     fn figure(label: &str) -> FigureData {
         FigureData {
             key: "chi-k",
+            e0: None,
             label: "EXAFS · χ(k)".into(),
             xlabel: "k (Å⁻¹)".into(),
             ylabel: "k²χ(k) (Å⁻²)".into(),

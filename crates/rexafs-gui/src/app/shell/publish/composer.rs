@@ -9,8 +9,9 @@ use crate::app::shell::{button, chip, controls::icon_button, segment, segmented}
 use crate::group_identity::GroupId;
 use crate::icons::Icon;
 use crate::publication::figures::composer::{
-    CompositeRecipe, CurveLabelMode, JOURNAL_WIDTHS, MAX_PANELS, MM_PER_INCH, PreparedComposition,
-    compose_prepared, compose_samples, panel_label, prepare_panels,
+    CompositePanel, CompositeRecipe, CurveLabelMode, InsetKind, InsetPlacement, JOURNAL_WIDTHS,
+    MAX_PANELS, MM_PER_INCH, PanelInset, PreparedComposition, compose_prepared, compose_samples,
+    panel_label, prepare_panels,
 };
 use crate::theme::Theme;
 use crate::widgets::numeric_field::{FieldEvent, FieldKind};
@@ -47,7 +48,9 @@ pub(crate) struct ComposerState {
     selected_panel: usize,
     /// Offset editor for the selected panel, separate from the shared style.
     panel_offset: Option<Entity<NumericField>>,
-    /// Reject offset edits queued before changing the selected panel.
+    /// Energy bounds for the selected panel's optional inset, in eV relative to E₀.
+    panel_inset_range: Vec<Entity<NumericField>>,
+    /// Reject panel edits queued before changing the selection or inset kind.
     panel_fields_generation: u64,
     /// Figures and settings that produced the current preview.
     source: Option<(Vec<usize>, Vec<u8>)>,
@@ -114,6 +117,23 @@ fn heading(t: &Theme, text: &'static str) -> gpui::Div {
         .text_size(px(12.))
         .text_color(t.text_muted)
         .child(text)
+}
+
+/// Selecting another inset kind restores its range while retaining display choices.
+fn set_panel_inset_kind(panel: &mut CompositePanel, kind: Option<InsetKind>) -> bool {
+    if !panel.supports_inset() || panel.inset.as_ref().map(|inset| inset.kind) == kind {
+        return false;
+    }
+    let previous = panel.inset.take();
+    panel.inset = kind.map(|kind| {
+        let mut inset = PanelInset::new(kind);
+        if let Some(previous) = previous {
+            inset.placement = previous.placement;
+            inset.follow_offset = previous.follow_offset;
+        }
+        inset
+    });
+    true
 }
 
 /// A keyboard-accessible checkbox with the same compact style as the shell.
@@ -600,10 +620,11 @@ impl StudioApp {
         self.composer_panel_fields(cx);
     }
 
-    /// Bind the offset editor to the selected panel and reject older events.
+    /// Bind offset and inset editors to the selected panel and reject older events.
     fn composer_panel_fields(&mut self, cx: &mut Context<Self>) {
         self.publish.composer.panel_fields_generation += 1;
         self.publish.composer.panel_offset = None;
+        self.publish.composer.panel_inset_range.clear();
         let generation = self.publish.composer.panel_fields_generation;
         let count = self.publish.settings.active_recipe().recipe.panels.len();
         self.publish.composer.selected_panel = self
@@ -627,6 +648,7 @@ impl StudioApp {
         }
         let theme = self.theme;
         let offset = panel.offset_step;
+        let inset = panel.inset.clone().filter(|_| panel.supports_inset());
         let field = cx.new(|cx| {
             NumericField::new(
                 "Offset step (y units)",
@@ -659,6 +681,62 @@ impl StudioApp {
         })
         .detach();
         self.publish.composer.panel_offset = Some(field);
+        let Some(inset) = inset else {
+            return;
+        };
+        let kind = inset.kind;
+        let defaults = kind.default_range();
+        for (bound, (label, value, default)) in [
+            ("Start, E − E₀ (eV)", inset.energy_range.0, defaults.0),
+            ("End, E − E₀ (eV)", inset.energy_range.1, defaults.1),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let field = cx.new(|cx| {
+                NumericField::new(
+                    label,
+                    format!("Auto ({default})"),
+                    Some(value),
+                    FieldKind::Float,
+                    theme,
+                    cx,
+                )
+                .with_description("Inset energy relative to the first selected sample's edge energy E₀, in electronvolts. The start must be less than the end. Auto uses this inset kind's default bound.")
+            });
+            cx.subscribe(&field, move |this, _, event, cx| {
+                if this.publish.composer.panel_fields_generation != generation
+                    || this.publish.composer.selected_panel != index
+                {
+                    return;
+                }
+                match event {
+                    FieldEvent::Changed(value) => {
+                        if let Some(inset) = this
+                            .composite()
+                            .panels
+                            .get_mut(index)
+                            .and_then(|panel| panel.inset.as_mut())
+                            .filter(|inset| inset.kind == kind)
+                        {
+                            if bound == 0 {
+                                inset.energy_range.0 = value.unwrap_or(default);
+                            } else {
+                                inset.energy_range.1 = value.unwrap_or(default);
+                            }
+                        }
+                        cx.notify();
+                    }
+                    FieldEvent::Invalid(message) => {
+                        this.publish.composer.error = Some(message.to_string());
+                        cx.notify();
+                    }
+                    _ => (),
+                }
+            })
+            .detach();
+            self.publish.composer.panel_inset_range.push(field);
+        }
     }
 
     /// Choose shared samples, or a panel's independent ordered sample list.
@@ -876,11 +954,132 @@ impl StudioApp {
                 })),
             );
         }
-        controls
+        controls = controls
             .child(div().flex().child(labels))
             .child(div().text_size(px(11.)).text_color(t.text_muted).child(
             "Legend uses the figure's legend setting. Curve ends label samples beside the curves.",
-        ))
+        ));
+        if panel.supports_inset() {
+            controls = controls.child(self.composer_panel_inset_controls(index, panel, cx));
+        }
+        controls
+    }
+
+    /// Inset controls edit only the selected panel; arrays are prepared in the background.
+    fn composer_panel_inset_controls(
+        &self,
+        index: usize,
+        panel: &CompositePanel,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
+        let t = self.theme;
+        let generation = self.publish.composer.panel_fields_generation;
+        let selected = panel.inset.as_ref().map(|inset| inset.kind);
+        let mut kinds = div().flex().flex_wrap().gap_1();
+        for (kind_index, kind) in std::iter::once(None)
+            .chain(InsetKind::ALL.into_iter().map(Some))
+            .enumerate()
+        {
+            kinds = kinds.child(
+                chip(
+                    &t,
+                    ("composer-inset-kind", kind_index),
+                    kind.map(|kind| kind.label()).unwrap_or("None"),
+                    selected == kind,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if this.publish.composer.panel_fields_generation != generation
+                        || this.publish.composer.selected_panel != index
+                    {
+                        return;
+                    }
+                    let changed = this
+                        .composite()
+                        .panels
+                        .get_mut(index)
+                        .is_some_and(|panel| set_panel_inset_kind(panel, kind));
+                    if changed {
+                        this.composer_panel_fields(cx);
+                        cx.notify();
+                    }
+                })),
+            );
+        }
+        let mut controls = div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(heading(&t, "Inset"))
+            .child(kinds);
+        let Some(inset) = &panel.inset else {
+            return controls;
+        };
+        controls = controls.child(div().text_size(px(11.)).text_color(t.text_muted).child(
+            "Energy bounds are E − E₀ (eV), using the first selected sample's E₀ for every curve.",
+        ));
+        if inset.kind == InsetKind::Difference {
+            controls = controls.child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(t.text_muted)
+                    .child("Normalized μ minus the first selected sample. At least two samples are required. Reversing the offset order keeps the same reference."),
+            );
+        }
+        controls = controls
+            .children(self.publish.composer.panel_inset_range.iter().cloned())
+            .child(heading(&t, "Inset placement"));
+        let mut placements = div().flex().flex_wrap().gap_1();
+        for (placement_index, placement) in InsetPlacement::ALL.into_iter().enumerate() {
+            placements = placements.child(
+                chip(
+                    &t,
+                    ("composer-inset-placement", placement_index),
+                    placement.label(),
+                    inset.placement == placement,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if this.publish.composer.panel_fields_generation != generation
+                        || this.publish.composer.selected_panel != index
+                    {
+                        return;
+                    }
+                    if let Some(inset) = this
+                        .composite()
+                        .panels
+                        .get_mut(index)
+                        .and_then(|panel| panel.inset.as_mut())
+                    {
+                        inset.placement = placement;
+                    }
+                    cx.notify();
+                })),
+            );
+        }
+        controls.child(placements).child(
+            sample_check(
+                &t,
+                "composer-inset-follow-offset",
+                "Follow panel offsets",
+                inset.follow_offset,
+            )
+            .description("Scale the panel's sample offsets to the inset curves' vertical span. Turn off to overlay the inset curves.")
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if this.publish.composer.panel_fields_generation != generation
+                    || this.publish.composer.selected_panel != index
+                {
+                    return;
+                }
+                if let Some(inset) = this
+                    .composite()
+                    .panels
+                    .get_mut(index)
+                    .and_then(|panel| panel.inset.as_mut())
+                {
+                    inset.follow_offset = !inset.follow_offset;
+                }
+                cx.notify();
+            })),
+        )
     }
 
     /// Re-render the preview when the recipe, any figure setting or the
@@ -1582,6 +1781,44 @@ mod tests {
     use super::*;
 
     #[test]
+    fn inset_kind_selection_resets_bounds_and_preserves_display_choices() {
+        let mut panel: CompositePanel = "xanes".into();
+        assert!(panel.inset.is_none());
+        assert!(set_panel_inset_kind(&mut panel, Some(InsetKind::PreEdge)));
+        let inset = panel.inset.as_mut().unwrap();
+        assert_eq!(inset.energy_range, InsetKind::PreEdge.default_range());
+        assert_eq!(inset.placement, InsetPlacement::LowerRight);
+        assert!(inset.follow_offset);
+        inset.energy_range = (-4., 10.);
+        inset.placement = InsetPlacement::UpperLeft;
+        inset.follow_offset = false;
+
+        // Clicking the selected kind must preserve a customized energy window.
+        assert!(!set_panel_inset_kind(&mut panel, Some(InsetKind::PreEdge)));
+        assert_eq!(panel.inset.as_ref().unwrap().energy_range, (-4., 10.));
+
+        assert!(set_panel_inset_kind(&mut panel, Some(InsetKind::Edge)));
+        let inset = panel.inset.as_ref().unwrap();
+        assert_eq!(inset.kind, InsetKind::Edge);
+        assert_eq!(inset.energy_range, InsetKind::Edge.default_range());
+        assert_eq!(inset.placement, InsetPlacement::UpperLeft);
+        assert!(!inset.follow_offset);
+
+        assert!(set_panel_inset_kind(&mut panel, None));
+        assert!(panel.inset.is_none());
+        assert!(!set_panel_inset_kind(&mut panel, None));
+    }
+
+    #[test]
+    fn inset_selection_ignores_unsupported_panels() {
+        for key in ["chi-k", "chi-r", "fit-k", "residual-k"] {
+            let mut panel: CompositePanel = key.into();
+            assert!(!set_panel_inset_kind(&mut panel, Some(InsetKind::Edge)));
+            assert!(panel.inset.is_none());
+        }
+    }
+
+    #[test]
     fn unchanged_preview_revision_reuses_prepared_panels() {
         let mut state = ComposerState::default();
         let source = (vec![10, 20], vec![1]);
@@ -1667,6 +1904,7 @@ mod tests {
         assert_eq!(state.generation, 8);
         assert_eq!(state.fields_generation, 4);
         assert_eq!(state.panel_fields_generation, 6);
+        assert!(state.panel_inset_range.is_empty());
         assert_eq!(state.selected_panel, 0);
         assert!(!state.open);
         assert!(!state.recipe_menu);

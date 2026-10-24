@@ -223,6 +223,54 @@ grid. If names cannot fit at the chosen width, use a wider figure or the legend.
 These display choices are implemented in
 [`prepare_panels` and `compose_samples`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/figures/composer.rs).
 
+**Panel insets (unreleased).** Select an energy-domain panel to add one inset.
+**Inset** defaults to **None** and is available only for XANES, flattened μ(E)
+and raw μ(E) panels (saved keys `xanes`, `flattened-mu` and `mu-energy`).
+Choose a rexafs preset, then edit its energy limits relative to E₀, the
+absorption-edge energy of the panel's first selected sample:
+
+| Inset | Default energy window |
+| --- | --- |
+| **Pre-edge** | E₀ − 6 to E₀ + 11 eV |
+| **Edge** (edge and white line) | E₀ − 2 to E₀ + 23 eV |
+| **Difference** (difference from first sample) | E₀ − 6 to E₀ + 31 eV |
+
+These windows are display defaults chosen by rexafs, rather than scientific
+analysis ranges. Every sample uses the same absolute energy window. **Reverse
+order** changes only the offsets; it does not change the first sample, E₀ or
+the difference reference. The first selected sample must be available.
+
+**Pre-edge** and **Edge** magnify the panel's displayed quantity.
+**Difference** requires at least two selected samples and
+plots each sample's normalized μ(E) minus the first sample's normalized μ(E),
+including when the main panel shows raw or flattened absorption. It evaluates
+the first sample on each other sample's measured energy grid by linear
+interpolation, keeps only their overlapping measured energy interval and never
+extrapolates. The inset label **Δμ** denotes this dimensionless difference in
+normalized absorption. This display calculation changes neither processed
+spectra nor the source arrays.
+
+**Follow panel offsets** is on by default. It applies the panel's saved sample
+order, reverse setting and offset step, scaling that step by the inset's largest
+individual unshifted visible-curve y span divided by the main panel's largest
+individual unshifted visible-curve y span. Each span is the curve's maximum minus
+minimum within that view's energy limits; curves are measured separately before
+choosing the largest span, excluding display offsets and axis padding. If either
+span is zero, the inset offset is zero. Turn this option off to overlay the
+inset curves without offsets.
+
+**Placement** defaults to **Lower right**; **Upper left** and **Center right**
+are also available. The inset has a white background, its own energy tick
+labels and a small in-plot quantity tag, **μ(E)** or **Δμ**, with no y tick
+labels or legend. An automatically placed main-panel legend
+moves to another corner when its corner is occupied by the inset; explicit
+legend placements remain as selected. Curves retain the main panel's colours
+and line styles at a thinner width. Insets appear in the preview and the normal
+PNG, TIFF, SVG and PDF exports; plain SVG labels remain editable text. The combined
+caption describes the inset, and its settings are saved with that panel in the
+`.rxs` project. Implemented in
+[`composer.rs`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/figures/composer.rs).
+
 **Journal width** sets the total figure width to a publisher's column width.
 The values are maximum widths from the publishers' author guides, checked in
 October 2026; individual journals can differ, so check the target journal:
@@ -266,8 +314,8 @@ and nested into one SVG, the same technique as the fit + residual figure. The
 bold panel labels sit at the top-left corner of each panel, at the axis-title
 font size. Each recipe stores panels, width, columns, height, font, line width,
 DPI, shared colours and ordered sample IDs. Each panel stores its figure key,
-optional own sample IDs, offset step, reverse flag and label mode; naming a recipe
-does not change how its panels render. **Single figure**
+optional own sample IDs, offset step, reverse flag, label mode and inset; naming
+a recipe does not change how its panels render. **Single figure**
 settings, including captions and visible curves, remain shared across recipes,
 so changing them affects every recipe using that figure type.
 
@@ -278,8 +326,9 @@ final recipe. An older `publication.composite` loads unchanged as **Figure 1**;
 projects without recipe data start with a default **Figure 1**. Saving writes
 only the new recipe format; the compact project encoder may omit default
 fields. Legacy panels saved as plain figure-key strings still load with shared
-samples, zero offset, forward order and legend labels. New saves write panel
-objects, with sample IDs as ordered arrays rather than labels or workspace row
+samples, zero offset, forward order, legend labels and no inset. Older panel
+objects without an inset also load with no inset. New saves write panel objects,
+with sample IDs as ordered arrays rather than labels or workspace row
 numbers. Storage and migration are implemented in
 [`recipes.rs`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/figures/recipes.rs).
 
@@ -306,8 +355,8 @@ example "(a) Flattened, edge-step-normalized X-ray absorption spectrum… (b) �
 with a suggested filename such as `figure-2-caption.txt`. Panels whose figure
 is unavailable, such as a fit panel before any fit has run, are skipped, listed
 under the preview and kept in the recipe. Missing samples are also listed and
-retained in the recipe. An inset and a matplotlib script for the whole grid are
-not available yet. The composer is implemented in
+retained in the recipe. A matplotlib script for the whole grid is not available
+yet. The composer is implemented in
 [`composer.rs`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/figures/composer.rs).
 
 ## Captions

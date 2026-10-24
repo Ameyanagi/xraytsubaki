@@ -19,6 +19,104 @@ use std::borrow::Borrow;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+mod inset;
+mod inset_data;
+
+/// Region or comparison displayed on a panel's independent inset axes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum InsetKind {
+    /// The panel's own curves near the pre-edge region.
+    PreEdge,
+    /// The panel's own curves across the edge and white line.
+    Edge,
+    /// Normalized μ(E) minus the first selected sample's normalized μ(E).
+    Difference,
+}
+
+impl InsetKind {
+    /// Available insets, in control order; None is represented by no inset.
+    pub const ALL: [Self; 3] = [Self::PreEdge, Self::Edge, Self::Difference];
+
+    /// Short control label.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::PreEdge => "Pre-edge",
+            Self::Edge => "Edge",
+            Self::Difference => "Difference",
+        }
+    }
+
+    /// Recommended energy limits relative to the first sample's E₀, in eV.
+    /// These display windows are rexafs choices, not processing parameters.
+    pub fn default_range(self) -> (f64, f64) {
+        match self {
+            Self::PreEdge => (-6., 11.),
+            Self::Edge => (-2., 23.),
+            Self::Difference => (-6., 31.),
+        }
+    }
+}
+
+/// Inset position inside the main plot frame, clear of its axis labels.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum InsetPlacement {
+    #[default]
+    LowerRight,
+    UpperLeft,
+    CenterRight,
+}
+
+impl InsetPlacement {
+    /// Available placements, starting with the default.
+    pub const ALL: [Self; 3] = [Self::LowerRight, Self::UpperLeft, Self::CenterRight];
+
+    /// Short control label.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::LowerRight => "Lower right",
+            Self::UpperLeft => "Upper left",
+            Self::CenterRight => "Center right",
+        }
+    }
+}
+
+/// An optional XANES inset. Limits are E − E₀ in eV, with E₀ taken from the
+/// first selected sample before reversing stacking positions. Defaults place
+/// the inset at the lower right and scale the panel's display offsets to its
+/// own single-spectrum y span. Source arrays and processing never change.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct PanelInset {
+    /// Zoomed region or normalized difference comparison.
+    pub kind: InsetKind,
+    /// Increasing (start, end) values of E − E₀, in eV.
+    pub energy_range: (f64, f64),
+    /// Lower right by default, wholly inside the main plot frame.
+    #[serde(default)]
+    pub placement: InsetPlacement,
+    /// Scale and apply the panel's display offsets; true by default. False
+    /// overlays inset curves, leaving the main panel's offsets unchanged.
+    #[serde(default = "follow_inset_offset")]
+    pub follow_offset: bool,
+}
+
+fn follow_inset_offset() -> bool {
+    true
+}
+
+impl PanelInset {
+    /// Construct the recommended range and appearance for this inset kind.
+    pub fn new(kind: InsetKind) -> Self {
+        Self {
+            kind,
+            energy_range: kind.default_range(),
+            placement: InsetPlacement::default(),
+            follow_offset: true,
+        }
+    }
+}
+
 /// Millimetres per inch (exact, by definition of the inch).
 pub(crate) const MM_PER_INCH: f64 = 25.4;
 /// Most panels one figure can hold, so labels stay single letters (a)–(l).
@@ -121,6 +219,10 @@ pub(crate) struct CompositePanel {
     pub reverse: bool,
     /// Legend by default; curve-end labels reserve space on the panel's right.
     pub label_mode: CurveLabelMode,
+    /// Independent zoom or difference axes; absent in older projects and off
+    /// by default. Only energy-domain μ(E) panels support insets.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inset: Option<PanelInset>,
 }
 
 #[derive(Deserialize)]
@@ -137,6 +239,8 @@ enum SavedPanel {
         reverse: bool,
         #[serde(default)]
         label_mode: CurveLabelMode,
+        #[serde(default)]
+        inset: Option<PanelInset>,
     },
 }
 
@@ -150,12 +254,14 @@ impl From<SavedPanel> for CompositePanel {
                 offset_step,
                 reverse,
                 label_mode,
+                inset,
             } => Self {
                 key,
                 samples,
                 offset_step,
                 reverse,
                 label_mode,
+                inset,
             },
         }
     }
@@ -177,6 +283,12 @@ impl From<&str> for CompositePanel {
 }
 
 impl CompositePanel {
+    /// Only raw, flattened and normalized energy-domain μ(E) panels can show
+    /// an inset; EXAFS and fit panels hide the control.
+    pub fn supports_inset(&self) -> bool {
+        matches!(self.key.as_str(), "xanes" | "flattened-mu" | "mu-energy")
+    }
+
     /// Fits and residuals describe one fitted dataset and cannot be overlaid
     /// across samples by the composer.
     pub fn uses_current_fit(&self) -> bool {
@@ -479,6 +591,8 @@ pub(crate) struct PreparedPanel {
     pub data: FigureData,
     pub options: FigureOptions,
     pub offset_caption: Option<String>,
+    /// Curves and independent limits resolved once by the preview worker.
+    inset: Option<inset::PreparedInset>,
 }
 
 /// Available panels and reasons for omitted samples or panels. The editor reuses
@@ -524,6 +638,7 @@ pub(crate) fn prepare_panels(
                     data: data.clone(),
                     options,
                     offset_caption: None,
+                    inset: None,
                 }),
                 None => prepared.missing.push(panel.key.clone()),
             }
@@ -561,6 +676,7 @@ pub(crate) fn prepare_panels(
                     data: data.as_ref().clone(),
                     options,
                     offset_caption: None,
+                    inset: None,
                 });
             }
             continue;
@@ -652,6 +768,7 @@ pub(crate) fn prepare_panels(
         }
         prepared.panels.push(PreparedPanel {
             index, data, options,
+            inset: None,
             offset_caption: applied_offset.then(|| format!(
                 "Spectra offset vertically by {} in vertical-axis units for clarity. Display offsets in sample order: {}.", panel.offset_step, offsets.join(", ")
             )),
@@ -662,6 +779,13 @@ pub(crate) fn prepare_panels(
             .options
             .series_colors
             .extend(recipe.series_colors.clone());
+        panel.inset = inset_data::prepare(
+            &recipe.panels[panel.index],
+            recipe,
+            panel,
+            current_figures,
+            samples,
+        )?;
     }
     Ok(prepared)
 }
@@ -750,6 +874,10 @@ pub(crate) fn compose_prepared(
             caption.push(' ');
             caption.push_str(offsets);
         }
+        if let Some(inset) = &prepared.inset {
+            caption.push(' ');
+            caption.push_str(&inset.caption);
+        }
         captions.push(caption);
         let (panel, needs) = match &data.residual {
             Some(residual) => {
@@ -766,7 +894,11 @@ pub(crate) fn compose_prepared(
                 } else {
                     Vec::new()
                 };
-                resolve_inside_legend(data, &mut options);
+                resolve_inside_legend(
+                    data,
+                    &mut options,
+                    prepared.inset.as_ref().map(|inset| inset.placement),
+                );
                 let plot = data.panel(&options, false)?;
                 let metrics = Metrics::of(&plot);
                 let ylim = options
@@ -809,7 +941,7 @@ pub(crate) fn compose_prepared(
     let mut svgs = Vec::new();
     let cell_height_in = cell_h as f64 / grid.dpi;
     for (index, panel) in built.into_iter().enumerate() {
-        let (image, svg) = match panel {
+        let (mut image, mut svg) = match panel {
             Built::Single(plot, labels) => {
                 let plot = layout::panel_frame(*plot, cell_height_in, frame);
                 let mut image = plot.render().map_err(|e| e.to_string())?;
@@ -826,6 +958,17 @@ pub(crate) fn compose_prepared(
             }
             Built::FitResidual(panels) => panels.render(frame)?,
         };
+        if let Some(inset) = &chosen[index].inset {
+            inset::render(
+                &mut image,
+                &mut svg,
+                inset,
+                frame,
+                &grid,
+                recipe.font_size,
+                recipe.line_width,
+            )?;
+        }
         let x = (index % grid.columns) as u32 * cell_w;
         let y = (index / grid.columns) as u32 * cell_h;
         blit(&mut pixels, width, &image, (x, y), (cell_w, cell_h));
@@ -1098,7 +1241,11 @@ fn render_end_labels(
 /// would shrink one panel's plot area and break the alignment with its
 /// neighbours, so the composer keeps legends inside (as the fit + residual
 /// figure does).
-fn resolve_inside_legend(data: &FigureData, options: &mut FigureOptions) {
+fn resolve_inside_legend(
+    data: &FigureData,
+    options: &mut FigureOptions,
+    inset: Option<InsetPlacement>,
+) {
     if !options.legend
         || !matches!(
             options.legend_position,
@@ -1131,6 +1278,22 @@ fn resolve_inside_legend(data: &FigureData, options: &mut FigureOptions) {
             outside_ok: false,
         },
     );
+    // An automatic legend must not disappear beneath the inset's opaque
+    // canvas. Move a conflicting corner across the plot; explicit user
+    // placements remain under the single-figure editor's control.
+    options.legend_position = match (inset, options.legend_position) {
+        (Some(InsetPlacement::LowerRight), LegendPlacement::LowerRight) => {
+            LegendPlacement::UpperLeft
+        }
+        (Some(InsetPlacement::UpperLeft), LegendPlacement::UpperLeft) => {
+            LegendPlacement::LowerRight
+        }
+        (
+            Some(InsetPlacement::CenterRight),
+            LegendPlacement::UpperRight | LegendPlacement::LowerRight,
+        ) => LegendPlacement::UpperLeft,
+        (_, position) => position,
+    };
 }
 
 /// Copy `image` into the RGBA canvas at `origin`, cropped to one cell.
@@ -1227,6 +1390,7 @@ mod tests {
             color: color.into(),
             figures: vec![Arc::new(FigureData {
                 key: "xanes",
+                e0: Some(1.),
                 label: "Energy".into(),
                 xlabel: "Energy (eV)".into(),
                 ylabel: "Flattened μ(E) (dimensionless)".into(),
@@ -1249,6 +1413,250 @@ mod tests {
                 residual: None,
             })],
         }
+    }
+
+    #[test]
+    fn inset_defaults_resolve_from_first_sample_e0_and_preserve_old_recipes() {
+        let samples = [sample(1, "A", "#0072b2"), sample(2, "B", "#e69f00")];
+        let current: Vec<FigureData> = vec![];
+        for (kind, expected) in [
+            (InsetKind::PreEdge, (-5., 12.)),
+            (InsetKind::Edge, (-1., 24.)),
+            (InsetKind::Difference, (-5., 32.)),
+        ] {
+            let recipe = CompositeRecipe {
+                samples: samples.iter().map(|sample| sample.id.clone()).collect(),
+                panels: vec![CompositePanel {
+                    inset: Some(PanelInset::new(kind)),
+                    reverse: true,
+                    .."xanes".into()
+                }],
+                ..Default::default()
+            };
+            let prepared =
+                prepare_panels(&recipe, &current, &samples, &FigureSettings::default()).unwrap();
+            let inset = prepared.panels[0].inset.as_ref().unwrap();
+            assert_eq!(inset.data.xlim(&inset.options), Some(expected));
+            assert_eq!(inset.placement, InsetPlacement::LowerRight);
+            assert!(recipe.panels[0].inset.as_ref().unwrap().follow_offset);
+        }
+        let old: CompositeRecipe =
+            serde_json::from_str(r#"{"panels":["xanes",{"key":"mu-energy","offset_step":0.3}]}"#)
+                .unwrap();
+        assert!(old.panels.iter().all(|panel| panel.inset.is_none()));
+        assert!(!serde_json::to_string(&old).unwrap().contains("inset"));
+    }
+
+    #[test]
+    fn inset_offsets_scale_unshifted_spans_and_follow_reverse_and_toggle() {
+        let samples = [sample(1, "A", "#0072b2"), sample(2, "B", "#e69f00")];
+        let original = samples[0].figures[0]
+            .csv(&FigureOptions::default())
+            .unwrap();
+        let current: Vec<FigureData> = vec![];
+        let mut recipe = CompositeRecipe {
+            samples: samples.iter().map(|sample| sample.id.clone()).collect(),
+            panels: vec![CompositePanel {
+                offset_step: 0.4,
+                inset: Some(PanelInset {
+                    energy_range: (-1., 0.),
+                    ..PanelInset::new(InsetKind::PreEdge)
+                }),
+                .."xanes".into()
+            }],
+            ..Default::default()
+        };
+        for (reverse, follow, expected) in [
+            (false, true, [0., 0.2]),
+            (true, true, [0.2, 0.]),
+            (true, false, [0., 0.]),
+        ] {
+            recipe.panels[0].reverse = reverse;
+            recipe.panels[0].inset.as_mut().unwrap().follow_offset = follow;
+            let prepared =
+                prepare_panels(&recipe, &current, &samples, &FigureSettings::default()).unwrap();
+            let inset = prepared.panels[0].inset.as_ref().unwrap();
+            for (curve, offset) in inset.data.series.iter().zip(expected) {
+                assert_eq!(curve.y, [offset, 1. + offset, 2. + offset]);
+            }
+            assert_eq!(
+                inset.options.series_colors,
+                prepared.panels[0].options.series_colors
+            );
+        }
+        assert_eq!(
+            samples[0].figures[0]
+                .csv(&FigureOptions::default())
+                .unwrap(),
+            original
+        );
+        recipe.panels[0].inset.as_mut().unwrap().follow_offset = true;
+        recipe.panels[0].inset.as_mut().unwrap().kind = InsetKind::Difference;
+        let prepared =
+            prepare_panels(&recipe, &current, &samples, &FigureSettings::default()).unwrap();
+        // Identical normalized spectra have zero difference span and no shift.
+        assert!(
+            prepared.panels[0]
+                .inset
+                .as_ref()
+                .unwrap()
+                .data
+                .series
+                .iter()
+                .all(|curve| curve.y == [0., 0., 0.])
+        );
+    }
+
+    #[test]
+    fn difference_uses_normalized_first_sample_on_overlapping_grids_even_for_raw_panels() {
+        let mut reference = sample(1, "Reference", "#0072b2");
+        let mut other = sample(2, "Other", "#e69f00");
+        Arc::make_mut(&mut reference.figures[0])
+            .normalized_series
+            .as_mut()
+            .unwrap()[0]
+            .y = vec![0., 2., 4.];
+        let data = Arc::make_mut(&mut other.figures[0]);
+        data.e0 = Some(100.);
+        data.normalized_series.as_mut().unwrap()[0].x = vec![0.5, 1.5, 2.5];
+        data.normalized_series.as_mut().unwrap()[0].y = vec![2., 6., 9.];
+        for sample in [&mut reference, &mut other] {
+            let mut raw = sample.figures[0].as_ref().clone();
+            raw.key = "mu-energy";
+            raw.series[0].y = vec![100., 200., 300.];
+            raw.series[0].dashed = true;
+            raw.normalized_series = None;
+            sample.figures.push(Arc::new(raw));
+        }
+        let samples = [reference, other];
+        let current: Vec<FigureData> = vec![];
+        for key in ["xanes", "mu-energy"] {
+            let recipe = CompositeRecipe {
+                samples: samples.iter().map(|sample| sample.id.clone()).collect(),
+                panels: vec![CompositePanel {
+                    reverse: true,
+                    offset_step: 10.,
+                    inset: Some(PanelInset {
+                        follow_offset: false,
+                        ..PanelInset::new(InsetKind::Difference)
+                    }),
+                    ..key.into()
+                }],
+                ..Default::default()
+            };
+            let prepared =
+                prepare_panels(&recipe, &current, &samples, &FigureSettings::default()).unwrap();
+            let inset = prepared.panels[0].inset.as_ref().unwrap();
+            assert_eq!(inset.data.xlim(&inset.options), Some((-5., 32.)));
+            assert_eq!(inset.quantity, "Δμ");
+            assert_eq!(inset.data.series[0].y, [0., 0., 0.]);
+            assert_eq!(inset.data.series[1].x, [0.5, 1.5]);
+            assert_eq!(inset.data.series[1].y, [1., 3.]);
+            assert_eq!(inset.data.series[0].dashed, key == "mu-energy");
+        }
+    }
+
+    #[test]
+    fn inset_validation_requires_two_difference_samples_valid_limits_and_original_reference() {
+        let samples = [sample(1, "A", "#0072b2"), sample(2, "B", "#e69f00")];
+        let current: Vec<FigureData> = vec![];
+        let mut recipe = CompositeRecipe {
+            samples: vec![samples[0].id.clone()],
+            panels: vec![CompositePanel {
+                inset: Some(PanelInset::new(InsetKind::Difference)),
+                .."xanes".into()
+            }],
+            ..Default::default()
+        };
+        let failure = |recipe: &CompositeRecipe| {
+            prepare_panels(recipe, &current, &samples, &FigureSettings::default())
+                .err()
+                .unwrap()
+        };
+        assert!(failure(&recipe).contains("at least two samples"));
+        recipe.samples.insert(0, GroupId::legacy_result(99));
+        assert!(failure(&recipe).contains("first selected sample"));
+        recipe.samples = samples.iter().map(|sample| sample.id.clone()).collect();
+        recipe.panels[0].inset.as_mut().unwrap().energy_range = (2., 1.);
+        assert!(failure(&recipe).contains("minimum < maximum"));
+        recipe.panels[0].inset.as_mut().unwrap().energy_range = (100., 110.);
+        assert!(failure(&recipe).contains("overlapping energy data"));
+    }
+
+    #[test]
+    fn inset_exports_keep_canvas_size_and_nested_live_svg_text() {
+        let figures = copper_figures();
+        let samples: Vec<_> = [1, 2]
+            .into_iter()
+            .map(|id| CompositeSample {
+                id: GroupId::legacy_result(id),
+                label: format!("Sample {id}"),
+                color: if id == 1 { "#0072b2" } else { "#e69f00" }.into(),
+                figures: figures.iter().cloned().map(Arc::new).collect(),
+            })
+            .collect();
+        let mut recipe = CompositeRecipe {
+            samples: samples.iter().map(|sample| sample.id.clone()).collect(),
+            panels: vec!["xanes".into(), "chi-k".into()],
+            dpi: 100.,
+            ..Default::default()
+        };
+        let settings = FigureSettings::default();
+        let plain = compose_samples(&recipe, &figures, &samples, &settings, None).unwrap();
+        for (kind, placement) in InsetKind::ALL.into_iter().zip(InsetPlacement::ALL) {
+            recipe.panels[0].inset = Some(PanelInset::new(kind));
+            recipe.panels[0].inset.as_mut().unwrap().placement = placement;
+            let prepared = prepare_panels(&recipe, &figures, &samples, &settings).unwrap();
+            let mut options = recipe.panel_options(prepared.panels[0].options.clone(), &plain.grid);
+            resolve_inside_legend(&prepared.panels[0].data, &mut options, Some(placement));
+            assert!(!matches!(
+                (placement, options.legend_position),
+                (InsetPlacement::LowerRight, LegendPlacement::LowerRight)
+                    | (InsetPlacement::UpperLeft, LegendPlacement::UpperLeft)
+                    | (
+                        InsetPlacement::CenterRight,
+                        LegendPlacement::UpperRight | LegendPlacement::LowerRight
+                    )
+            ));
+            let rendered = compose_samples(&recipe, &figures, &samples, &settings, None).unwrap();
+            assert_eq!(
+                (rendered.image.width, rendered.image.height),
+                (plain.image.width, plain.image.height)
+            );
+            assert_ne!(rendered.image.pixels, plain.image.pixels);
+            assert!(rendered.svg.contains("class=\"composer-inset\""));
+            assert!(rendered.svg.contains("class=\"inset-x-tick-label\""));
+            assert!(rendered.svg.contains("class=\"inset-quantity-label\""));
+            assert!(!rendered.svg.contains("<image"));
+            assert!(rendered.caption.contains("Inset: "));
+            assert!(rendered.png().unwrap().starts_with(b"\x89PNG"));
+            assert!(!rendered.tiff().unwrap().is_empty());
+            assert!(rendered.pdf().unwrap().starts_with(b"%PDF-"));
+            let preview =
+                compose_samples(&recipe, &figures, &samples, &settings, Some(72.)).unwrap();
+            assert_eq!(preview.grid.size_px(), recipe.grid(2, 72.).size_px());
+            if let Some(dir) = std::env::var_os("REXAFS_COMPOSER_SHOTS") {
+                let dir = Path::new(&dir);
+                std::fs::create_dir_all(dir).unwrap();
+                for extension in ["png", "svg", "pdf", "tiff"] {
+                    std::fs::write(
+                        dir.join(format!("inset-{}.{extension}", kind.label().to_lowercase())),
+                        rendered.bytes(extension).unwrap(),
+                    )
+                    .unwrap();
+                }
+            }
+        }
+        // The low-DPI cases above exercise the supersampled inset path; the
+        // largest supported DPI renders it directly at the requested size.
+        let high = compose_samples(&recipe, &figures, &samples, &settings, Some(1200.)).unwrap();
+        assert_eq!(high.grid.size_px(), recipe.grid(2, 1200.).size_px());
+        assert!(
+            high.image
+                .pixels
+                .chunks_exact(4)
+                .all(|pixel| pixel[3] == 255)
+        );
     }
 
     #[test]

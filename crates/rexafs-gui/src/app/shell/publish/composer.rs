@@ -1064,7 +1064,7 @@ impl StudioApp {
             sample_check(
                 &t,
                 "composer-inset-follow-offset",
-                "Follow panel offsets",
+                "Inset curves follow the stacking offset",
                 inset.follow_offset,
             )
             .description("Scale the panel's sample offsets to the inset curves' vertical span. Turn off to overlay the inset curves.")

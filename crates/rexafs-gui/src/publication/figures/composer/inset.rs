@@ -152,10 +152,11 @@ pub(super) fn render(
         let x = margins[0] + tick.fraction * plot_width;
         let tick_length = 2.5 * scale;
         let tick_width = 0.5 * scale;
-        black_rect(
+        solid_rect(
             &mut rendered,
             (x - tick_width / 2., bottom - tick_length),
             (tick_width, tick_length),
+            0,
         );
         markup.push_str(&format!(
             r##"<line class="inset-x-tick" x1="{x:.3}" x2="{x:.3}" y1="{:.3}" y2="{bottom:.3}" stroke="#000000" stroke-width="{tick_width:.3}"/>"##,
@@ -169,13 +170,8 @@ pub(super) fn render(
             "inset-x-tick-label",
         );
     }
-    quantity.draw(
-        &mut rendered,
-        &mut markup,
-        (margins[0] + padding, margins[2] + padding),
-        font_px,
-        "inset-quantity-label",
-    );
+    let quantity_origin = (margins[0] + padding, margins[2] + padding);
+    quantity.draw_boxed(&mut rendered, &mut markup, quantity_origin, font_px, scale);
     markup.push_str("</g>");
     let start = native_svg
         .find("<svg")
@@ -317,6 +313,29 @@ impl Text {
         self.raster.pixmap.height() as f64
     }
 
+    /// Keep the quantity readable above curves, with one point of white
+    /// padding and the same measured box in raster and vector output.
+    fn draw_boxed(
+        &self,
+        image: &mut Image,
+        markup: &mut String,
+        (x, y): (f64, f64),
+        font_px: f64,
+        padding: f64,
+    ) {
+        let origin = (x - padding, y - padding);
+        let size = (
+            self.width() + 2. * padding,
+            self.height().max(font_px) + 2. * padding,
+        );
+        solid_rect(image, origin, size, 255);
+        markup.push_str(&format!(
+            r##"<rect class="inset-quantity-background" x="{:.3}" y="{:.3}" width="{:.3}" height="{:.3}" fill="#ffffff"/>"##,
+            origin.0, origin.1, size.0, size.1
+        ));
+        self.draw(image, markup, (x, y), font_px, "inset-quantity-label");
+    }
+
     fn draw(
         &self,
         image: &mut Image,
@@ -340,16 +359,17 @@ impl Text {
     }
 }
 
-/// Draw an antialiased black rectangle for a vertical tick on opaque RGBA.
-fn black_rect(image: &mut Image, (x, y): (f64, f64), (width, height): (f64, f64)) {
+/// Draw an antialiased grayscale rectangle on opaque RGBA.
+fn solid_rect(image: &mut Image, (x, y): (f64, f64), (width, height): (f64, f64), gray: u8) {
     for py in y.floor().max(0.) as u32..((y + height).ceil() as u32).min(image.height) {
         for px in x.floor().max(0.) as u32..((x + width).ceil() as u32).min(image.width) {
             let coverage_x = (x + width).min(px as f64 + 1.) - x.max(px as f64);
             let coverage_y = (y + height).min(py as f64 + 1.) - y.max(py as f64);
-            let retained = 1. - (coverage_x * coverage_y).clamp(0., 1.);
+            let coverage = (coverage_x * coverage_y).clamp(0., 1.);
             let start = ((py * image.width + px) * 4) as usize;
             for channel in &mut image.pixels[start..start + 3] {
-                *channel = (*channel as f64 * retained).round() as u8;
+                *channel =
+                    (*channel as f64 * (1. - coverage) + gray as f64 * coverage).round() as u8;
             }
         }
     }
@@ -358,6 +378,45 @@ fn black_rect(image: &mut Image, (x, y): (f64, f64), (width, height): (f64, f64)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quantity_tags_cover_curves_with_padded_white_boxes_and_live_svg_text() {
+        for value in ["μ(E)", "Δμ"] {
+            let quantity = Text::new(value.into(), 16.).unwrap();
+            let size = (
+                quantity.width() as u32 + 12,
+                quantity.height().max(16.) as u32 + 12,
+            );
+            let mut image = Image::new(
+                size.0,
+                size.1,
+                [200, 0, 0, 255].repeat((size.0 * size.1) as usize),
+            );
+            let mut markup = String::new();
+            quantity.draw_boxed(&mut image, &mut markup, (4., 4.), 16., 2.);
+            let pixel = |x, y| {
+                let index = ((y * size.0 + x) * 4) as usize;
+                &image.pixels[index..index + 4]
+            };
+            assert_eq!(pixel(1, 1), [200, 0, 0, 255]);
+            assert_eq!(pixel(2, 2), [255, 255, 255, 255]);
+            assert_eq!(pixel(3, 3), [255, 255, 255, 255]);
+            for y in 4..(4. + quantity.height().max(16.)) as u32 {
+                for x in 4..(4. + quantity.width()) as u32 {
+                    let pixel = pixel(x, y);
+                    // Antialiased black text stays grayscale: none of the
+                    // coloured curve underneath can bleed through the tag.
+                    assert_eq!(pixel[0], pixel[1]);
+                    assert_eq!(pixel[1], pixel[2]);
+                    assert_eq!(pixel[3], 255);
+                }
+            }
+            assert!(markup.starts_with("<rect class=\"inset-quantity-background\""));
+            assert!(markup.contains("fill=\"#ffffff\"/><text class=\"inset-quantity-label\""));
+            assert!(markup.ends_with(&format!(">{value}</text>")));
+            assert!(!markup.contains("<image"));
+        }
+    }
 
     #[test]
     fn every_placement_keeps_the_whole_canvas_inside_the_main_axes() {

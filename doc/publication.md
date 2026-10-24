@@ -285,24 +285,27 @@ extrapolates. The inset label **Δμ** denotes this dimensionless difference in
 normalized absorption. This display calculation changes neither processed
 spectra nor the source arrays.
 
-**Follow panel offsets** is on by default. It applies the panel's saved sample
-order, reverse setting and offset step, scaling that step by the inset's largest
-individual unshifted visible-curve y span divided by the main panel's largest
-individual unshifted visible-curve y span. Each span is the curve's maximum minus
-minimum within that view's energy limits; curves are measured separately before
-choosing the largest span, excluding display offsets and axis padding. If either
-span is zero, the inset offset is zero. Turn this option off to overlay the
-inset curves without offsets.
+**Inset curves follow the stacking offset** is on by default. It applies the
+panel's saved sample order, reverse setting and offset step, scaling that step by
+the inset's largest individual unshifted visible-curve y span divided by the main
+panel's largest individual unshifted visible-curve y span. Each span is the
+curve's maximum minus minimum within that view's energy limits; curves are
+measured separately before choosing the largest span, excluding display offsets
+and axis padding. If either span is zero, the inset offset is zero. Turn this
+option off to overlay the inset curves without offsets.
 
 **Placement** defaults to **Lower right**; **Upper left** and **Center right**
 are also available. The inset has a white background, its own energy tick
 labels and a small in-plot quantity tag, **μ(E)** or **Δμ**, with no y tick
-labels or legend. An automatically placed main-panel legend
+labels or legend. The tag has a padded, opaque white box to keep curves from
+obscuring the text. An automatically placed main-panel legend
 moves to another corner when its corner is occupied by the inset; explicit
 legend placements remain as selected. Curves retain the main panel's colours
 and line styles at a thinner width. Insets appear in the preview and the normal
 PNG, TIFF, SVG and PDF exports; plain SVG labels remain editable text. The combined
-caption describes the inset, and its settings are saved with that panel in the
+caption describes the inset and rounds its energy limits to 0.1 eV, omitting
+trailing fractional zeros. The plotted limits retain their full precision.
+The inset's settings are saved with that panel in the
 `.rxs` project. Implemented in
 [`composer.rs`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/figures/composer.rs).
 

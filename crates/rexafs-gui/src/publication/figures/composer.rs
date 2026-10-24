@@ -1694,6 +1694,16 @@ mod tests {
             assert_ne!(rendered.image.pixels, plain.image.pixels);
             assert!(rendered.svg.contains("class=\"composer-inset\""));
             assert!(rendered.svg.contains("class=\"inset-x-tick-label\""));
+            let background = rendered
+                .svg
+                .find("<rect class=\"inset-quantity-background\"")
+                .unwrap();
+            let label = rendered
+                .svg
+                .find("<text class=\"inset-quantity-label\"")
+                .unwrap();
+            assert!(background < label);
+            assert!(rendered.svg[background..label].contains("fill=\"#ffffff\""));
             assert!(rendered.svg.contains("class=\"inset-quantity-label\""));
             assert!(!rendered.svg.contains("<image"));
             assert!(rendered.caption.contains("Inset: "));

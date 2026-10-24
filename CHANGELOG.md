@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Choose per-curve colours in Publish from the eight-colour Okabe–Ito palette
+  or Auto, and share colours across composer panels. Save choices in `.rxs`
+  projects and apply them to previews, image exports and matplotlib scripts.
 - Ask to save, discard or cancel before closing the window or quitting with
   unsaved project changes; empty or unmodified sessions close without asking.
 - Use sentence-case scientific labels with units for Normalize, Background and

@@ -2,7 +2,7 @@
 //! labelled grid at a journal column width (see
 //! `publication::figures::composer`). The recipe is saved with the figure
 //! settings in the project.
-use super::editor::{enabled_when, with_tip};
+use super::editor::{ColourTarget, colour_swatch, enabled_when, with_tip};
 use super::*;
 use crate::app::shell::{button, chip, controls::icon_button, segment, segmented};
 use crate::icons::Icon;
@@ -39,6 +39,8 @@ pub(crate) struct ComposerState {
     missing: Vec<String>,
     caption: String,
     error: Option<String>,
+    /// Series whose shared colour palette is expanded in the controls.
+    colour_series: Option<String>,
 }
 
 /// Small muted heading above a group of controls.
@@ -399,6 +401,71 @@ impl StudioApp {
             );
         }
         controls = controls.child(add);
+
+        controls = controls.child(heading(&t, "Colours"));
+        controls = controls.child(
+            div()
+                .text_size(px(11.))
+                .text_color(t.text_muted)
+                .child("Shared across panels. Auto uses each figure's colour setting."),
+        );
+        let mut seen = std::collections::BTreeSet::new();
+        for panel in &recipe.panels {
+            let Some(figure) = available(panel) else {
+                continue;
+            };
+            let options = self.publish.settings.options(figure.key);
+            for series in figure
+                .series(&options)
+                .iter()
+                .chain(figure.residual.iter().flatten())
+            {
+                if !seen.insert(series.key.clone()) {
+                    continue;
+                }
+                let key = series.key.clone();
+                let colour = recipe.series_colors.get(&key).map(String::as_str);
+                let open = self.publish.composer.colour_series.as_ref() == Some(&key);
+                controls = controls.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .text_size(px(12.))
+                                .child(series.label.clone()),
+                        )
+                        .child(
+                            colour_swatch(
+                                &t,
+                                SharedString::from(format!("composer-colour-{key}")),
+                                &series.label,
+                                colour,
+                                open,
+                            )
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    this.publish.composer.colour_series =
+                                        if open { None } else { Some(key.clone()) };
+                                    cx.notify();
+                                },
+                            )),
+                        ),
+                );
+                if open {
+                    controls = controls.child(self.publication_colour_choices(
+                        ColourTarget::Composite,
+                        &series.key,
+                        &series.label,
+                        colour,
+                        cx,
+                    ));
+                }
+            }
+        }
 
         controls = controls.child(heading(&t, "Journal width"));
         let mut widths = div().flex().flex_wrap().gap_1();

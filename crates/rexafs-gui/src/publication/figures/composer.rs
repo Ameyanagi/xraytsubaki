@@ -15,6 +15,7 @@ use ruviz::core::Image;
 use ruviz::prelude::Plot;
 use serde::{Deserialize, Serialize};
 use std::borrow::Borrow;
+use std::collections::BTreeMap;
 
 /// Millimetres per inch (exact, by definition of the inch).
 pub(crate) const MM_PER_INCH: f64 = 25.4;
@@ -99,7 +100,8 @@ pub(crate) const JOURNAL_WIDTHS: [JournalWidth; 6] = [
 /// panel: axis labels, axis limits, visible curves, legend placement, grid,
 /// guides and the flattened/normalized choice. The recipe replaces the size,
 /// resolution, font size and line width, and drops titles, because panel
-/// labels identify the panels.
+/// labels identify the panels. Explicit recipe series colours override the
+/// corresponding per-figure colours; other series keep their figure settings.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct CompositeRecipe {
@@ -117,6 +119,12 @@ pub(crate) struct CompositeRecipe {
     pub font_size: f64,
     /// Curve width in points, 0.1–12; None keeps the renderer default.
     pub line_width: Option<f64>,
+    /// Opaque RGB colours by series key, in lowercase `#rrggbb`
+    /// format, overriding matching per-figure colours in every panel. Missing
+    /// keys inherit figure colours, then the renderer's automatic palette;
+    /// unknown keys are retained and ignored when drawing.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub series_colors: BTreeMap<String, String>,
     /// Raster resolution of PNG and TIFF output, an integer 72–1200 DPI;
     /// 600 by default. SVG and PDF are vector and print at the same size.
     pub dpi: f64,
@@ -131,6 +139,7 @@ impl Default for CompositeRecipe {
             panel_height_mm: None,
             font_size: 8.,
             line_width: None,
+            series_colors: BTreeMap::new(),
             dpi: 600.,
         }
     }
@@ -203,6 +212,7 @@ impl CompositeRecipe {
     /// Check the recipe before rendering `panels` panels. Each panel must be
     /// at least 1 inch (25.4 mm) on each side, the limit of a single
     /// publication figure, and the composed raster at most 40 million pixels.
+    /// Explicit series colours must use lowercase `#rrggbb` RGB notation.
     pub fn validate(&self, panels: usize) -> Result<(), String> {
         if panels == 0 {
             return Err("Add at least one panel with available data.".into());
@@ -246,12 +256,14 @@ impl CompositeRecipe {
                     .into(),
             );
         }
-        Ok(())
+        super::validate_series_colors(&self.series_colors)
     }
 
     /// Settings for one panel: the figure type's own options with this
-    /// recipe's size, resolution, font size and line width, and no title.
-    fn panel_options(&self, base: FigureOptions, grid: &Grid) -> FigureOptions {
+    /// recipe's size, resolution, font size, line width and series colours,
+    /// and no title. Recipe colours replace matching figure keys only.
+    fn panel_options(&self, mut base: FigureOptions, grid: &Grid) -> FigureOptions {
+        base.series_colors.extend(self.series_colors.clone());
         FigureOptions {
             width: Some(grid.cell_px.0 as f64 / grid.dpi),
             height: Some(grid.cell_px.1 as f64 / grid.dpi),
@@ -694,6 +706,10 @@ mod tests {
             panel_height_mm: Some(60.),
             font_size: 7.,
             line_width: Some(1.2),
+            series_colors: BTreeMap::from([
+                ("data".into(), "#0072b2".into()),
+                ("future/key: [opaque]".into(), "#cc79a7".into()),
+            ]),
             dpi: 300.,
         };
         let json = serde_json::to_string(&recipe).unwrap();
@@ -703,12 +719,117 @@ mod tests {
         );
         let settings: FigureSettings = serde_json::from_str(r#"{"figures":{}}"#).unwrap();
         assert_eq!(settings.composite, CompositeRecipe::default());
+        let old: CompositeRecipe = serde_json::from_str(r#"{"panels":["chi-k"]}"#).unwrap();
+        assert!(old.series_colors.is_empty());
+        assert!(
+            !serde_json::to_string(&old)
+                .unwrap()
+                .contains("series_colors")
+        );
         assert_eq!(
             CompositeRecipe::suggested_panels(["chi-r", "xanes", "fit-k", "fit-residual-k"]),
             ["xanes", "chi-r", "fit-residual-k"]
         );
         assert_eq!(panel_label(0), "(a)");
         assert_eq!(panel_label(3), "(d)");
+    }
+
+    #[test]
+    fn recipe_series_colors_override_matching_figure_keys_only() {
+        let recipe = CompositeRecipe {
+            series_colors: BTreeMap::from([
+                ("data".into(), "#0072b2".into()),
+                ("residual".into(), "#009e73".into()),
+                ("unknown/key".into(), "#cc79a7".into()),
+            ]),
+            ..Default::default()
+        };
+        let base = FigureOptions {
+            series_colors: BTreeMap::from([
+                ("data".into(), "#000000".into()),
+                ("fit".into(), "#e69f00".into()),
+            ]),
+            ..Default::default()
+        };
+        let merged = recipe.panel_options(base.clone(), &recipe.grid(1, 72.));
+        assert_eq!(merged.series_colors["data"], "#0072b2");
+        assert_eq!(merged.series_colors["fit"], "#e69f00");
+        assert_eq!(merged.series_colors["residual"], "#009e73");
+        assert_eq!(merged.series_colors["unknown/key"], "#cc79a7");
+        assert_eq!(base.series_colors["data"], "#000000");
+        assert_eq!(
+            CompositeRecipe::default()
+                .panel_options(base.clone(), &recipe.grid(1, 72.))
+                .series_colors,
+            base.series_colors
+        );
+        let invalid = CompositeRecipe {
+            series_colors: BTreeMap::from([("data".into(), "#0072B2".into())]),
+            ..Default::default()
+        };
+        let error = invalid.validate(1).unwrap_err();
+        assert!(error.contains("data") && error.contains("#rrggbb"));
+    }
+
+    #[test]
+    fn composed_fit_and_residual_use_recipe_colors_and_figure_fallbacks() {
+        let recipe = CompositeRecipe {
+            panels: vec!["fit-residual-k".into()],
+            dpi: 72.,
+            line_width: Some(2.),
+            series_colors: BTreeMap::from([
+                ("data".into(), "#0072b2".into()),
+                ("residual".into(), "#009e73".into()),
+            ]),
+            ..Default::default()
+        };
+        let mut settings = FigureSettings::default();
+        settings.figures.insert(
+            "fit-residual-k".into(),
+            FigureOptions {
+                series_colors: BTreeMap::from([
+                    ("data".into(), "#cc79a7".into()),
+                    ("fit".into(), "#e69f00".into()),
+                    ("residual".into(), "#d55e00".into()),
+                ]),
+                ..Default::default()
+            },
+        );
+        let composed = compose(&recipe, &synthetic_fit(), &settings, None).unwrap();
+        for stroke in ["rgb(0,114,178)", "rgb(230,159,0)", "rgb(0,158,115)"] {
+            assert!(composed.svg.contains(&format!(r#"stroke="{stroke}""#)));
+        }
+        for replaced in ["rgb(204,121,167)", "rgb(213,94,0)"] {
+            assert!(!composed.svg.contains(&format!(r#"stroke="{replaced}""#)));
+        }
+        let strip = composed
+            .svg
+            .split(r#"id="panel-1-residual-"#)
+            .nth(1)
+            .unwrap();
+        assert!(strip.contains(r#"stroke="rgb(0,158,115)""#));
+        for rgb in [[0, 114, 178], [230, 159, 0], [0, 158, 115]] {
+            assert!(
+                composed
+                    .image
+                    .pixels
+                    .chunks_exact(4)
+                    .any(|pixel| pixel[..3] == rgb && pixel[3] == 255),
+                "chosen curve colour {rgb:?} reaches the PNG's raster source"
+            );
+        }
+        let mut decoder =
+            tiff::decoder::Decoder::new(std::io::Cursor::new(composed.tiff().unwrap())).unwrap();
+        let tiff::decoder::DecodingResult::U8(rgb) = decoder.read_image().unwrap() else {
+            panic!("publication TIFF must contain 8-bit RGB pixels");
+        };
+        let expected: Vec<u8> = composed
+            .image
+            .pixels
+            .chunks_exact(4)
+            .flat_map(|pixel| pixel[..3].iter().copied())
+            .collect();
+        assert_eq!(rgb, expected, "TIFF preserves the chosen raster colours");
     }
 
     #[test]

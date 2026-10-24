@@ -80,6 +80,28 @@ and visible curves. Fit figures show model/data components and path contribution
 without vertical offsets. R-space residuals show the difference of magnitudes,
 not a complex residual. Scientific curves come from processing/fit results.
 
+### Curve colours (unreleased)
+
+In **Single figure**, click the small swatch beside a curve's visibility control
+under **Curves**, then choose one of eight colours or **Auto**. The A swatch
+means Auto; it clears that curve's override and restores its automatic colour.
+Fit + residual figures also expose a swatch for the residual strip. The fixed
+palette is black, orange, sky blue, bluish green, yellow, blue, vermillion and
+reddish purple, from Okabe and Ito (2008),
+["Color Universal Design"](https://jfly.uni-koeln.de/color/). Hover a swatch for
+its colour name and sRGB hexadecimal value.
+
+Colours are saved per figure type in the `.rxs` project and used by previews,
+image exports, report and supporting-information figures, and the editable
+matplotlib export. The matplotlib script currently includes only the upper
+panel of a fit + residual figure; standalone residual figures export their
+curve. **Apply style to all figures** preserves each figure's curve colours. Figures without overrides retain their existing automatic colours.
+The saved `series_colors` map uses curve keys as plain strings and lowercase
+`#rrggbb` sRGB values; malformed values stop rendering/export with an error,
+and entries for curves that are no longer available have no visual effect.
+Implemented in
+[`FigureOptions` and `FigureData::plot`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/figures.rs).
+
 ### Legend, ticks, R range and labels (since 0.2.15)
 
 **Legend** places the legend: **Auto** (the default), **Upper left**, **Upper
@@ -165,10 +187,17 @@ width. Each panel must be at least 25.4 mm (1 in) on each side.
 default) and **DPI** (600 by default) apply to every panel, so all panels share
 the same text and curve weights. Everything else inside a panel comes from that
 figure's **Single figure** settings: axis labels, axis limits, visible curves,
-flattened or normalized μ(E), legend, grid and guides. Titles are left out
+curve colours, flattened or normalized μ(E), legend, grid and guides. Titles are left out
 because the panel labels identify the panels. Legends stay inside the plot (an
 **Outside** or crowded **Auto** legend takes the least-covered inside corner),
 because a legend outside one panel would shrink its plot area.
+
+**Colours** lists the series in the chosen panels, including residual strips.
+Choose a swatch to set a shared colour for that series key in every panel. This
+recipe setting overrides the figure's own colour; **Auto** removes only the
+shared override, so each panel uses its **Single figure** colour or its automatic
+colour. Shared colours are saved with the recipe and used in PNG, TIFF, SVG and
+PDF exports. Removing a panel keeps its saved colours for later reuse.
 
 rexafs aligns the panels by giving every panel the same fixed margins: the
 widest left margin any panel needs for its y tick labels and axis title, and
@@ -177,8 +206,8 @@ and bottom edges, and those of a column share their left and right edges. Each
 panel is rendered separately by ruviz and the panels are tiled into one image
 and nested into one SVG, the same technique as the fit + residual figure. The
 bold panel labels sit at the top-left corner of each panel, at the axis-title
-font size. The recipe (panels, width, columns, height, font, line width, DPI)
-is saved in the `.rxs` project with the other figure settings.
+font size. The recipe (panels, width, columns, height, font, line width, DPI
+and shared colours) is saved in the `.rxs` project with the other figure settings.
 
 The preview is rendered at up to 200 DPI; **Fit** fits it to the pane and
 **True size** shows it at 96 pixels per inch, close to its printed size (the
@@ -196,8 +225,8 @@ example "(a) Flattened, edge-step-normalized X-ray absorption spectrum… (b) �
 **Copy caption** copies it. Panels whose figure is unavailable, such as a fit
 panel before any fit has run, are skipped, listed under the preview and kept in
 the recipe. Each panel shows one spectrum: overlays of several samples with
-vertical offsets, an inset, per-curve colours and a matplotlib script for the
-whole grid are not available yet. The composer is implemented in
+vertical offsets, an inset and a matplotlib script for the whole grid are not
+available yet. The composer is implemented in
 [`composer.rs`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/figures/composer.rs).
 
 ## Captions

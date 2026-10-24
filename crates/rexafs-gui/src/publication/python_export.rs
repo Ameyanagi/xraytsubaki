@@ -101,14 +101,19 @@ pub(crate) fn python_export(
         for (x, y) in s.x.iter().zip(&s.y) {
             csv.push_str(&format!("{x:.16e},{y:.16e}\n"));
         }
-        let color = theme.get_color(i);
+        let color = options
+            .series_colors
+            .get(&s.key)
+            .cloned()
+            .unwrap_or_else(|| {
+                let color = theme.get_color(i);
+                format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
+            });
         entries.push_str(&format!(
-            "    {{\"file\": {}, \"label\": {}, \"color\": \"#{:02x}{:02x}{:02x}\", \"linestyle\": \"{}\"}},\n",
+            "    {{\"file\": {}, \"label\": {}, \"color\": {}, \"linestyle\": \"{}\"}},\n",
             py_str(&file),
             py_str(&plain_text(&s.label)),
-            color.r,
-            color.g,
-            color.b,
+            py_str(&color),
             if s.dashed { "--" } else { "-" },
         ));
         files.push((file, csv));
@@ -649,5 +654,58 @@ mod tests {
         assert!(files[0].1.contains("GUIDES = []"));
         options.hidden.insert("series-0".into());
         assert!(python_export(&figure("Cu"), &options).is_err());
+    }
+
+    #[test]
+    fn chosen_colors_preserve_automatic_slots_and_use_series_keys() {
+        let mut options = FigureOptions::default();
+        options
+            .series_colors
+            .insert("series-0".into(), "#4f2b7c".into());
+        // The curves deliberately share a label: their keys identify them.
+        let data = figure("Fit");
+        let files = python_export(&data, &options).unwrap();
+        let script = &files[0].1;
+        assert!(script.contains(
+            r##"{"file": "series-01.csv", "label": "Fit", "color": "#4f2b7c", "linestyle": "-"},"##
+        ));
+        assert!(script.contains(
+            r##"{"file": "series-02.csv", "label": "Fit", "color": "#ff7f0e", "linestyle": "--"},"##
+        ));
+
+        // As before, hiding a curve gives the next visible curve the first
+        // automatic colour. A hidden curve's override does not affect it.
+        options.hidden.insert("series-0".into());
+        let files = python_export(&data, &options).unwrap();
+        assert_eq!(files.len(), 2);
+        assert!(files[0].1.contains(
+            r##"{"file": "series-01.csv", "label": "Fit", "color": "#1f77b4", "linestyle": "--"},"##
+        ));
+        assert!(!files[0].1.contains("#4f2b7c"));
+    }
+
+    #[test]
+    fn unknown_color_keys_leave_exports_unchanged() {
+        let data = figure("Cu");
+        let mut options = FigureOptions::default();
+        let automatic = python_export(&data, &options).unwrap();
+        options
+            .series_colors
+            .insert("unknown-series".into(), "#abcdef".into());
+        assert_eq!(python_export(&data, &options).unwrap(), automatic);
+    }
+
+    #[test]
+    fn invalid_colors_are_rejected_before_export() {
+        for color in ["#ABCDEF", "#abc", "#12345678", "123456", "#12xx56"] {
+            let mut options = FigureOptions::default();
+            options
+                .series_colors
+                .insert("series-0".into(), color.into());
+            assert!(
+                python_export(&figure("Cu"), &options).is_err(),
+                "accepted {color:?}"
+            );
+        }
     }
 }

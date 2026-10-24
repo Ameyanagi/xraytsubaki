@@ -6,7 +6,9 @@ use crate::app::shell::{
     segment, segmented,
 };
 use crate::icons::Icon;
-use crate::publication::figures::{LegendPlacement, StylePreset, fit_figures, render_figure};
+use crate::publication::figures::{
+    LegendPlacement, SERIES_PALETTE, StylePreset, fit_figures, render_figure,
+};
 use crate::theme::Theme;
 use crate::widgets::numeric_field::{FieldEvent, FieldKind};
 use crate::widgets::text_input::InputEvent;
@@ -94,7 +96,127 @@ fn heading(t: &Theme, text: &'static str) -> gpui::Div {
         .child(text)
 }
 
+/// Settings edited by a curve's palette; series keys remain opaque strings.
+#[derive(Clone, Copy)]
+pub(super) enum ColourTarget {
+    /// Per-figure choices used by previews and individual/report exports.
+    Figure(&'static str),
+    /// Shared choices that override matching keys in every composer panel.
+    Composite,
+}
+
+/// A compact palette disclosure beside a curve, using the shared chip style.
+/// An A marks Auto, which leaves the renderer's colour assignment in control.
+pub(super) fn colour_swatch(
+    t: &Theme,
+    id: impl Into<gpui::ElementId>,
+    label: &str,
+    colour: Option<&str>,
+    open: bool,
+) -> Control {
+    let mut swatch = div()
+        .size(px(14.))
+        .rounded_sm()
+        .border_1()
+        .border_color(t.border);
+    if let Some(rgb) = colour
+        .and_then(|c| c.strip_prefix('#'))
+        .and_then(|c| u32::from_str_radix(c, 16).ok())
+    {
+        swatch = swatch.bg(gpui::rgb(rgb));
+    } else {
+        swatch = swatch.flex().items_center().justify_center().child("A");
+    }
+    let name = format!("Colour for {label}: {}", colour.unwrap_or("Auto"));
+    with_tip(chip(t, id, "", open), t, name.clone())
+        .name_if_empty(name)
+        .expanded(open)
+        .w(px(28.))
+        .px_1()
+        .flex_none()
+        .justify_center()
+        .child(swatch)
+}
+
 impl StudioApp {
+    /// Auto removes the override; palette choices store lowercase sRGB hex.
+    pub(super) fn publication_colour_choices(
+        &self,
+        target: ColourTarget,
+        key: &str,
+        label: &str,
+        current: Option<&str>,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
+        let t = self.theme;
+        let mut choices = div().flex().flex_wrap().items_center().gap_1();
+        for (index, (name, colour)) in std::iter::once(("Auto", None))
+            .chain(
+                SERIES_PALETTE
+                    .into_iter()
+                    .map(|(name, colour)| (name, Some(colour))),
+            )
+            .enumerate()
+        {
+            let key = key.to_string();
+            let selected = current == colour;
+            let mut choice = with_tip(
+                chip(
+                    &t,
+                    ("publication-colour-choice", index),
+                    if colour.is_none() { "Auto" } else { "" },
+                    selected,
+                ),
+                &t,
+                format!(
+                    "{label}: {name}{}",
+                    colour.map_or(String::new(), |c| format!(" ({c})"))
+                ),
+            )
+            .name_if_empty(format!("{label}: {name}"));
+            if let Some(colour) = colour {
+                let rgb = u32::from_str_radix(&colour[1..], 16).expect("fixed palette hex");
+                choice = choice.w(px(25.)).px_1().justify_center().child(
+                    div()
+                        .size(px(13.))
+                        .rounded_sm()
+                        .border_1()
+                        .border_color(t.border)
+                        .bg(gpui::rgb(rgb)),
+                );
+            }
+            choices = choices.child(choice.on_click(cx.listener(move |this, _, _, cx| {
+                let colours = match target {
+                    ColourTarget::Figure(figure) => {
+                        &mut this
+                            .publish
+                            .settings
+                            .figures
+                            .entry(figure.into())
+                            .or_default()
+                            .series_colors
+                    }
+                    ColourTarget::Composite => &mut this.publish.settings.composite.series_colors,
+                };
+                if let Some(colour) = colour {
+                    colours.insert(key.clone(), colour.into());
+                } else {
+                    colours.remove(&key);
+                }
+                match target {
+                    ColourTarget::Figure(_) => this.refresh_publication_preview(cx),
+                    ColourTarget::Composite => cx.notify(),
+                }
+            })));
+        }
+        div().flex().flex_col().gap_1().child(choices).child(
+            div()
+                .text_size(px(11.))
+                .text_color(t.text_muted)
+                .child("Okabe–Ito · Color Universal Design (2008)"),
+        )
+    }
+
     fn refresh_publication_source(&mut self, cx: &mut Context<Self>) {
         let ready = self.publication_ready();
         let source = (
@@ -626,6 +748,7 @@ impl StudioApp {
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.publish.selected = index;
+                        this.publish.colour_series = None;
                         this.publication_fields(cx);
                         this.refresh_publication_preview(cx);
                     })),
@@ -879,36 +1002,79 @@ impl StudioApp {
             }
             controls = controls.child(heading(&t, "Curves"));
             if let Some(figure) = &figure {
-                let mut curves = div().flex().flex_wrap().gap_1();
-                for series in figure.series(&options) {
+                let mut curves = div().flex().flex_col().gap_1();
+                for (series, can_hide) in figure
+                    .series(&options)
+                    .iter()
+                    .map(|s| (s, true))
+                    .chain(figure.residual.iter().flatten().map(|s| (s, false)))
+                {
                     let key = series.key.clone();
                     let visible = series.visible(&options);
-                    curves = curves.child(
-                        chip(
+                    let colour = options.series_colors.get(&key).map(String::as_str);
+                    let open = self.publish.colour_series.as_ref() == Some(&key);
+                    let mut row = div().flex().items_center().gap_1();
+                    if can_hide {
+                        let key = key.clone();
+                        row = row.child(
+                            chip(
+                                &t,
+                                SharedString::from(format!("publication-series-{key}")),
+                                series.label.clone(),
+                                visible,
+                            )
+                            .min_w_0()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    if let Some(f) = this.publish.figures.get(this.publish.selected)
+                                    {
+                                        let o = this
+                                            .publish
+                                            .settings
+                                            .figures
+                                            .entry(f.key.into())
+                                            .or_default();
+                                        if visible {
+                                            o.shown.remove(&key);
+                                            o.hidden.insert(key.clone());
+                                        } else {
+                                            o.hidden.remove(&key);
+                                            o.shown.insert(key.clone());
+                                        }
+                                        this.refresh_publication_preview(cx);
+                                    }
+                                },
+                            )),
+                        );
+                    } else {
+                        row = row.child(div().text_size(px(11.5)).child(series.label.clone()));
+                    }
+                    row = row.child(
+                        colour_swatch(
                             &t,
-                            SharedString::from(format!("publication-series-{key}")),
-                            series.label.clone(),
-                            visible,
+                            SharedString::from(format!("publication-colour-{key}")),
+                            &series.label,
+                            colour,
+                            open,
                         )
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            if let Some(f) = this.publish.figures.get(this.publish.selected) {
-                                let o = this
-                                    .publish
-                                    .settings
-                                    .figures
-                                    .entry(f.key.into())
-                                    .or_default();
-                                if visible {
-                                    o.shown.remove(&key);
-                                    o.hidden.insert(key.clone());
-                                } else {
-                                    o.hidden.remove(&key);
-                                    o.shown.insert(key.clone());
-                                }
-                                this.refresh_publication_preview(cx);
-                            }
+                            this.publish.colour_series =
+                                if open { None } else { Some(key.clone()) };
+                            cx.notify();
                         })),
                     );
+                    curves = curves.child(row);
+                    if open {
+                        curves = curves.child(self.publication_colour_choices(
+                            ColourTarget::Figure(figure.key),
+                            &series.key,
+                            &series.label,
+                            colour,
+                            cx,
+                        ));
+                    }
                 }
                 controls = controls.child(curves);
             }

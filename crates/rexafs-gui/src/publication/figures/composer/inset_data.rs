@@ -1,5 +1,6 @@
 //! Resolve inset display arrays before rendering, without changing spectra.
 use super::inset::PreparedInset;
+use super::offsets::format_offset;
 use super::{
     CompositePanel, CompositeRecipe, CompositeSample, DisplayOffset, InsetKind, PreparedPanel,
 };
@@ -228,13 +229,11 @@ pub(super) fn prepare(
     };
     let mut caption = format!(
         "Inset: {description}, {}–{} eV.",
-        energy_label(range.0),
-        energy_label(range.1)
+        format_offset(range.0, 0.1),
+        format_offset(range.1, 0.1)
     );
     if ids.len() > 1 && panel.offset_step != 0. && scale > 0. {
-        caption.push_str(&format!(
-            " Inset display offsets follow the panel offsets, scaled by {scale:.4} to the inset's single-spectrum y span."
-        ));
+        caption.push_str(" Inset curves are offset proportionally to the main panel.");
     }
     Ok(Some(PreparedInset {
         data,
@@ -319,13 +318,6 @@ fn interpolate(curve: &FigureSeries, x: f64) -> Option<f64> {
     y.is_finite().then_some(y)
 }
 
-fn energy_label(value: f64) -> String {
-    format!("{value:.3}")
-        .trim_end_matches('0')
-        .trim_end_matches('.')
-        .to_owned()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -383,6 +375,65 @@ mod tests {
                 .find(|data| data.key == "mu-energy")
                 .unwrap(),
         )
+    }
+
+    #[test]
+    fn inset_captions_round_energy_to_tenths_and_describe_only_active_offsets() {
+        let current: Vec<FigureData> = Vec::new();
+        for (e0, kind, description, energy_range) in [
+            (
+                8981.214,
+                InsetKind::PreEdge,
+                "pre-edge region",
+                "8975.2–8992.2",
+            ),
+            (
+                8981.214,
+                InsetKind::Edge,
+                "edge and white line",
+                "8979.2–9004.2",
+            ),
+            (
+                8981.214,
+                InsetKind::Difference,
+                "normalized μ(E) difference from the first sample (Δμ)",
+                "8975.2–9012.2",
+            ),
+            (8981., InsetKind::PreEdge, "pre-edge region", "8975–8992"),
+            (8981.96, InsetKind::PreEdge, "pre-edge region", "8976–8993"),
+        ] {
+            let energy = [8970., 8980., 8990., 9000., 9020.];
+            let (_, a) = prepared_norm_sample(1, &energy, &[0., 0.2, 0.5, 1., 1.2], e0);
+            let (_, b) = prepared_norm_sample(2, &energy, &[0., 0.4, 1., 2., 2.4], e0);
+            let samples = [a, b];
+            let mut recipe = difference_recipe(&samples);
+            for (follow_offset, offset_step, suffix) in [
+                (
+                    true,
+                    0.3,
+                    " Inset curves are offset proportionally to the main panel.",
+                ),
+                (false, 0.3, ""),
+                (true, 0., ""),
+            ] {
+                recipe.panels[0].offset_step = offset_step;
+                recipe.panels[0].inset = Some(PanelInset {
+                    follow_offset,
+                    ..PanelInset::new(kind)
+                });
+                let prepared =
+                    prepare_panels(&recipe, &current, &samples, &FigureSettings::default())
+                        .unwrap();
+                let inset = prepared.panels[0].inset.as_ref().unwrap();
+                assert_eq!(
+                    inset.caption,
+                    format!("Inset: {description}, {energy_range} eV.{suffix}")
+                );
+                // Caption rounding leaves the actual energy limits intact.
+                let (low, high) = kind.default_range();
+                assert_eq!(inset.data.xlim(&inset.options), Some((e0 + low, e0 + high)));
+            }
+        }
     }
 
     #[test]

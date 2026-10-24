@@ -424,6 +424,20 @@ impl FigureData {
     /// flatten the useful signal. The series and exported CSV keep every point.
     /// k-space figures use a symmetric range (see [`Self::symmetric_y`]).
     pub(crate) fn visible_ylim(&self, options: &FigureOptions) -> Option<(f64, f64)> {
+        self.visible_ylim_with_symmetry(options, self.symmetric_y())
+    }
+
+    /// Display offsets need the occupied range rather than an artificial
+    /// symmetry about zero; ordinary EXAFS panels retain their symmetric range.
+    fn visible_ylim_asymmetric(&self, options: &FigureOptions) -> Option<(f64, f64)> {
+        self.visible_ylim_with_symmetry(options, false)
+    }
+
+    fn visible_ylim_with_symmetry(
+        &self,
+        options: &FigureOptions,
+        symmetric: bool,
+    ) -> Option<(f64, f64)> {
         let (xmin, xmax) = self.xlim(options)?;
         let mut ymin = f64::INFINITY;
         let mut ymax = f64::NEG_INFINITY;
@@ -450,7 +464,7 @@ impl FigureData {
         if !ymin.is_finite() || !ymax.is_finite() {
             return None;
         }
-        if self.symmetric_y() {
+        if symmetric {
             ymax = ymin.abs().max(ymax.abs());
             ymin = -ymax;
         }

@@ -251,12 +251,14 @@ impl FigureSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::publication::figures::composer::CompositePanel;
     use serde_json::json;
 
     #[test]
     fn legacy_composite_migrates_without_changing_contents_or_figure_settings() {
         let recipe = CompositeRecipe {
             panels: vec!["chi-k".into(), "xanes".into()],
+            samples: Vec::new(),
             columns: 1,
             width_mm: 83.,
             panel_height_mm: Some(60.),
@@ -318,7 +320,10 @@ mod tests {
             serde_json::from_value::<FigureSettings>(saved).unwrap(),
             settings
         );
-        assert_eq!(settings.recipes()[0].recipe.panels, ["xanes"]);
+        assert_eq!(
+            settings.recipes()[0].recipe.panels,
+            [CompositePanel::from("xanes")]
+        );
     }
 
     #[test]
@@ -331,7 +336,10 @@ mod tests {
         .unwrap();
         assert_eq!(settings.active_recipe_index(), 0);
         assert_eq!(settings.active_recipe().name, "New name");
-        assert_eq!(settings.active_recipe().recipe.panels, ["xanes"]);
+        assert_eq!(
+            settings.active_recipe().recipe.panels,
+            [CompositePanel::from("xanes")]
+        );
     }
 
     #[test]
@@ -410,7 +418,10 @@ mod tests {
         settings.duplicate_recipe();
         assert_eq!(settings.active_recipe().name, "Figure 1 copy 2");
         settings.active_composite_mut().panels.push("chi-r".into());
-        assert_eq!(settings.recipes()[0].recipe.panels, ["chi-k"]);
+        assert_eq!(
+            settings.recipes()[0].recipe.panels,
+            [CompositePanel::from("chi-k")]
+        );
         settings.select_recipe(0);
         settings.duplicate_recipe();
         assert_eq!(settings.active_recipe().name, "Figure 1 copy 3");

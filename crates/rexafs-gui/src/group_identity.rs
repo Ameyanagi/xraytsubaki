@@ -14,6 +14,11 @@ use crate::params::{DerivedSpectrum, DetectionMode, PipelineParams};
 pub struct GroupId(String);
 
 impl GroupId {
+    /// Return the stable identifier used in saved references and curve keys.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
     /// `path` is a canonical source location (or its saved original location).
     /// Auto denotes the primary, lazily detected interpretation of a file.
     pub fn source(path: &Path, channel: DetectionMode) -> Self {

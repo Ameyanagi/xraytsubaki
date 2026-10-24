@@ -8,14 +8,16 @@
 //! and bottom edges and the plot areas of a column share their left and right
 //! edges. The panels are then tiled into one raster image and nested into one
 //! SVG, the same technique as the fit + residual figure in [`super::layout`].
-//! Layout and appearance change; the plotted arrays never do.
+//! Offsets apply to copied display arrays; the source spectra never change.
 use super::layout::{self, Frame, LegendFrame, Metrics};
 use super::{FigureData, FigureOptions, FigureSettings, LegendPlacement};
+use crate::group_identity::GroupId;
 use ruviz::core::Image;
 use ruviz::prelude::Plot;
 use serde::{Deserialize, Serialize};
 use std::borrow::Borrow;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 /// Millimetres per inch (exact, by definition of the inch).
 pub(crate) const MM_PER_INCH: f64 = 25.4;
@@ -92,6 +94,107 @@ pub(crate) const JOURNAL_WIDTHS: [JournalWidth; 6] = [
     },
 ];
 
+/// How a panel identifies its curves. The default retains its figure legend.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum CurveLabelMode {
+    #[default]
+    Legend,
+    /// Literal sample names beside the last visible point, in a reserved margin.
+    CurveEnd,
+}
+
+/// One panel in reading order. Old projects may store only the figure key;
+/// missing object fields use the same current-sample, unshifted defaults.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(from = "SavedPanel")]
+pub(crate) struct CompositePanel {
+    /// Publication figure type, such as `xanes`, `chi-k` or `fit-residual-k`.
+    pub key: String,
+    /// None inherits recipe samples; an explicitly empty list uses the current
+    /// sample. Fit and residual panels always use the current fit instead.
+    pub samples: Option<Vec<GroupId>>,
+    /// Display displacement between samples, in vertical-axis units; zero
+    /// overlays their unshifted curves. Source arrays are never modified.
+    pub offset_step: f64,
+    /// Put the first sample highest for a positive step, without reordering it.
+    pub reverse: bool,
+    /// Legend by default; curve-end labels reserve space on the panel's right.
+    pub label_mode: CurveLabelMode,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum SavedPanel {
+    Key(String),
+    Options {
+        key: String,
+        #[serde(default)]
+        samples: Option<Vec<GroupId>>,
+        #[serde(default)]
+        offset_step: f64,
+        #[serde(default)]
+        reverse: bool,
+        #[serde(default)]
+        label_mode: CurveLabelMode,
+    },
+}
+
+impl From<SavedPanel> for CompositePanel {
+    fn from(saved: SavedPanel) -> Self {
+        match saved {
+            SavedPanel::Key(key) => key.into(),
+            SavedPanel::Options {
+                key,
+                samples,
+                offset_step,
+                reverse,
+                label_mode,
+            } => Self {
+                key,
+                samples,
+                offset_step,
+                reverse,
+                label_mode,
+            },
+        }
+    }
+}
+
+impl From<String> for CompositePanel {
+    fn from(key: String) -> Self {
+        Self {
+            key,
+            ..Self::default()
+        }
+    }
+}
+
+impl From<&str> for CompositePanel {
+    fn from(key: &str) -> Self {
+        key.to_owned().into()
+    }
+}
+
+impl CompositePanel {
+    /// Fits and residuals describe one fitted dataset and cannot be overlaid
+    /// across samples by the composer.
+    pub fn uses_current_fit(&self) -> bool {
+        self.key.starts_with("fit-") || self.key.starts_with("residual-")
+    }
+}
+
+/// Resolved workspace identity and appearance, with that sample's processed
+/// publication data. The caller supplies stable IDs, current labels and colours.
+#[derive(Clone)]
+pub(crate) struct CompositeSample {
+    pub id: GroupId,
+    pub label: String,
+    /// Workspace plot colour as an opaque lowercase `#rrggbb` value.
+    pub color: String,
+    pub figures: Vec<Arc<FigureData>>,
+}
+
 /// A saved multi-panel figure: which figures form the panels and the
 /// appearance they share. Stored with the figure settings in the `.rxs`
 /// project as the contents of a named entry in `publication.recipes`.
@@ -105,9 +208,11 @@ pub(crate) const JOURNAL_WIDTHS: [JournalWidth; 6] = [
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct CompositeRecipe {
-    /// Figure keys (such as `xanes`, `chi-k`, `fit-residual-k`), one panel
-    /// each, in reading order: left to right, then top to bottom.
-    pub panels: Vec<String>,
+    /// Panel specifications in reading order: left to right, then top to bottom.
+    pub panels: Vec<CompositePanel>,
+    /// Ordered sample IDs shared by panels without their own selection. Empty
+    /// uses the current sample. Missing IDs are retained and reported on render.
+    pub samples: Vec<GroupId>,
     /// Panels per row, 1–4; 2 by default. A figure with fewer panels uses
     /// one column per panel.
     pub columns: usize,
@@ -134,6 +239,7 @@ impl Default for CompositeRecipe {
     fn default() -> Self {
         Self {
             panels: Vec::new(),
+            samples: Vec::new(),
             columns: 2,
             width_mm: 177.8,
             panel_height_mm: None,
@@ -177,12 +283,14 @@ impl Grid {
 impl CompositeRecipe {
     /// Starting panels for a new recipe: XANES, χ(k) and |χ(R)| of the current
     /// spectrum, plus the k-space fit + residual when a fit is available.
-    pub fn suggested_panels<'a>(available: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+    pub fn suggested_panels<'a>(
+        available: impl IntoIterator<Item = &'a str>,
+    ) -> Vec<CompositePanel> {
         let available: Vec<&str> = available.into_iter().collect();
         ["xanes", "chi-k", "chi-r", "fit-residual-k"]
             .into_iter()
             .filter(|key| available.contains(key))
-            .map(str::to_string)
+            .map(CompositePanel::from)
             .collect()
     }
 
@@ -214,6 +322,13 @@ impl CompositeRecipe {
     /// publication figure, and the composed raster at most 40 million pixels.
     /// Explicit series colours must use lowercase `#rrggbb` RGB notation.
     pub fn validate(&self, panels: usize) -> Result<(), String> {
+        if self
+            .panels
+            .iter()
+            .any(|panel| !panel.uses_current_fit() && !panel.offset_step.is_finite())
+        {
+            return Err("Use a finite display offset in vertical-axis units.".into());
+        }
         if panels == 0 {
             return Err("Add at least one panel with available data.".into());
         }
@@ -352,8 +467,203 @@ impl ComposedFigure {
 
 /// One panel, built but not yet framed.
 enum Built {
-    Single(Box<Plot>),
+    Single(Box<Plot>, Vec<EndLabel>),
     FitResidual(Box<layout::FitResidual>),
+}
+
+/// Display arrays and merged options for one available recipe panel. Preparation
+/// copies figure data so offsets cannot change a cached processed spectrum.
+pub(crate) struct PreparedPanel {
+    /// Original recipe index; available panels may have skipped missing entries.
+    pub index: usize,
+    pub data: FigureData,
+    pub options: FigureOptions,
+    pub offset_caption: Option<String>,
+}
+
+/// Available panels and reasons for omitted samples or panels. The editor reuses
+/// the background preview's preparation, including full sample/series colour keys.
+pub(crate) struct PreparedComposition {
+    pub panels: Vec<PreparedPanel>,
+    pub missing: Vec<String>,
+}
+
+/// Resolve panel sources without rendering. One selected sample retains all its
+/// original curves and keys. Multiple selected samples contribute only their
+/// first (main) curve, keyed as `group-id/series-key`, in saved sample order.
+/// Their labels and default colours come from the workspace, with full-key
+/// figure overrides followed by recipe overrides. Selected samples without
+/// main-curve data are skipped and reported. Fits retain current data.
+pub(crate) fn prepare_panels(
+    recipe: &CompositeRecipe,
+    current_figures: &[impl Borrow<FigureData>],
+    samples: &[CompositeSample],
+    settings: &FigureSettings,
+) -> Result<PreparedComposition, String> {
+    let mut prepared = PreparedComposition {
+        panels: Vec::new(),
+        missing: Vec::new(),
+    };
+    for (index, panel) in recipe.panels.iter().enumerate() {
+        if !panel.uses_current_fit() && !panel.offset_step.is_finite() {
+            return Err(format!(
+                "Panel {}: use a finite display offset in vertical-axis units.",
+                panel.key
+            ));
+        }
+        let mut options = settings.options(&panel.key);
+        let ids = panel.samples.as_deref().unwrap_or(&recipe.samples);
+        if panel.uses_current_fit() || ids.is_empty() {
+            match current_figures
+                .iter()
+                .map(Borrow::borrow)
+                .find(|data| data.key == panel.key)
+            {
+                Some(data) => prepared.panels.push(PreparedPanel {
+                    index,
+                    data: data.clone(),
+                    options,
+                    offset_caption: None,
+                }),
+                None => prepared.missing.push(panel.key.clone()),
+            }
+            continue;
+        }
+        let mut found = Vec::new();
+        for (position, id) in ids.iter().enumerate() {
+            let Some(sample) = samples.iter().find(|sample| sample.id == *id) else {
+                prepared
+                    .missing
+                    .push(format!("{}: sample {} is missing", panel.key, id.as_str()));
+                continue;
+            };
+            let Some(data) = sample
+                .figures
+                .iter()
+                .find(|data| data.key == panel.key)
+                .filter(|data| {
+                    data.series(&options)
+                        .first()
+                        .is_some_and(|curve| !curve.x.is_empty())
+                })
+            else {
+                prepared.missing.push(format!("{}: no processed data for {} ({}); select and process this sample if automatic processing could not prepare it", panel.key, sample.label, id.as_str()));
+                continue;
+            };
+            found.push((position, sample, data));
+        }
+        // A single explicitly requested sample has exactly the ordinary figure
+        // behaviour, including helpers, labels, colours and optional curves.
+        if ids.len() == 1 {
+            if let Some((_, _, data)) = found.first() {
+                prepared.panels.push(PreparedPanel {
+                    index,
+                    data: data.as_ref().clone(),
+                    options,
+                    offset_caption: None,
+                });
+            }
+            continue;
+        }
+        let Some((_, _, first)) = found.first() else {
+            continue;
+        };
+        let mut data = first.as_ref().clone();
+        data.ylabel = first.ylabel(&options).to_owned();
+        data.math_ylabel = first.math_ylabel(&options).to_owned();
+        data.series.clear();
+        data.normalized_series = None;
+        data.residual = None;
+        data.guides.clear();
+        data.default_xlim = None;
+        let mut offsets = Vec::new();
+        let mut applied_offset = false;
+        for (position, sample, source) in found {
+            let Some(main) = source
+                .series(&options)
+                .first()
+                .filter(|curve| !curve.x.is_empty())
+            else {
+                prepared.missing.push(format!(
+                    "{}: no main curve for {} ({})",
+                    panel.key,
+                    sample.label,
+                    sample.id.as_str()
+                ));
+                continue;
+            };
+            let mut curve = main.clone();
+            curve.key = format!("{}/{}", sample.id.as_str(), main.key);
+            curve.label = sample.label.clone();
+            curve.optional = false;
+            let offset_index = if panel.reverse {
+                ids.len() - 1 - position
+            } else {
+                position
+            };
+            let offset = panel.offset_step * offset_index as f64;
+            if !offset.is_finite() {
+                return Err(format!(
+                    "Panel {}: the display offset is too large.",
+                    panel.key
+                ));
+            }
+            if offset != 0. {
+                for value in &mut curve.y {
+                    let shifted = *value + offset;
+                    if value.is_finite() && !shifted.is_finite() {
+                        return Err(format!(
+                            "Panel {}: the display offset is too large.",
+                            panel.key
+                        ));
+                    }
+                    *value = shifted;
+                }
+                applied_offset = true;
+            }
+            offsets.push(format!("{}: {offset:+}", sample.label));
+            // Multi-sample keys intentionally do not inherit a short main-curve
+            // override: that would silently give every sample the same colour.
+            options
+                .series_colors
+                .entry(curve.key.clone())
+                .or_insert_with(|| sample.color.clone());
+            data.series.push(curve);
+            if let Some((min, max)) = source.default_xlim {
+                data.default_xlim = Some(match data.default_xlim {
+                    Some((low, high)) => (low.min(min), high.max(max)),
+                    None => (min, max),
+                });
+            }
+            data.guides.extend(source.guides.iter().copied());
+        }
+        if data.series.is_empty() {
+            continue;
+        }
+        data.guides.sort_by(f64::total_cmp);
+        data.guides.dedup();
+        if applied_offset
+            && options.ymin.is_none()
+            && options.ymax.is_none()
+            && let Some((min, max)) = data.visible_ylim_asymmetric(&options)
+        {
+            options.ymin = Some(min);
+            options.ymax = Some(max);
+        }
+        prepared.panels.push(PreparedPanel {
+            index, data, options,
+            offset_caption: applied_offset.then(|| format!(
+                "Spectra offset vertically by {} in vertical-axis units for clarity. Display offsets in sample order: {}.", panel.offset_step, offsets.join(", ")
+            )),
+        });
+    }
+    for panel in &mut prepared.panels {
+        panel
+            .options
+            .series_colors
+            .extend(recipe.series_colors.clone());
+    }
+    Ok(prepared)
 }
 
 /// Compose the recipe's panels from `figures` (the figures available for the
@@ -363,21 +673,61 @@ enum Built {
 /// sizes and the layout are unchanged. Panels missing from `figures` are
 /// skipped and listed in [`ComposedFigure::missing`]; the remaining panels are
 /// labelled consecutively. Errors leave the recipe and data unchanged.
+#[cfg(test)]
 pub(crate) fn compose(
     recipe: &CompositeRecipe,
     figures: &[impl Borrow<FigureData>],
     settings: &FigureSettings,
     dpi: Option<f64>,
 ) -> Result<ComposedFigure, String> {
-    let mut missing = Vec::new();
-    let mut chosen = Vec::new();
-    for key in &recipe.panels {
-        match figures.iter().map(Borrow::borrow).find(|f| f.key == key) {
-            Some(figure) => chosen.push(figure),
-            None => missing.push(key.clone()),
+    compose_samples(recipe, figures, &[], settings, dpi)
+}
+
+/// Compose current figures and resolved samples. `dpi` can lower preview
+/// resolution while preserving physical dimensions. Missing inputs are skipped
+/// and reported; an entirely missing composition returns a useful error.
+pub(crate) fn compose_samples(
+    recipe: &CompositeRecipe,
+    current_figures: &[impl Borrow<FigureData>],
+    samples: &[CompositeSample],
+    settings: &FigureSettings,
+    dpi: Option<f64>,
+) -> Result<ComposedFigure, String> {
+    let prepared = prepare_panels(recipe, current_figures, samples, settings)?;
+    compose_prepared(recipe, &prepared, dpi)
+}
+
+/// Render previously resolved panels without repeating sample preparation.
+/// The editor can retain this preparation for readiness and colour controls
+/// even when rendering fails. `dpi` overrides the recipe's output resolution.
+pub(crate) fn compose_prepared(
+    recipe: &CompositeRecipe,
+    prepared: &PreparedComposition,
+    dpi: Option<f64>,
+) -> Result<ComposedFigure, String> {
+    let PreparedComposition {
+        panels: chosen,
+        missing,
+    } = prepared;
+    recipe.validate(chosen.len()).map_err(|error| {
+        if chosen.is_empty() && !missing.is_empty() {
+            format!("{error} Missing: {}.", missing.join("; "))
+        } else {
+            error
         }
+    })?;
+    if dpi.is_some_and(|value| {
+        !value.is_finite() || !(72.0..=1200.0).contains(&value) || value.fract() != 0.
+    }) {
+        return Err("Use an integer preview DPI of 72–1200.".into());
     }
-    recipe.validate(chosen.len())?;
+    if let Some(dpi) = dpi {
+        let preview = CompositeRecipe {
+            dpi,
+            ..recipe.clone()
+        };
+        preview.validate(chosen.len())?;
+    }
     let grid = recipe.grid(chosen.len(), dpi.unwrap_or(recipe.dpi));
 
     // Panel labels use the axis-title size and need room above every panel.
@@ -391,9 +741,16 @@ pub(crate) fn compose(
     ];
     let mut built = Vec::new();
     let mut captions = Vec::new();
-    for (index, data) in chosen.iter().enumerate() {
-        let mut options = recipe.panel_options(settings.options(data.key), &grid);
-        captions.push(format!("{} {}", panel_label(index), data.caption(&options)));
+    for (index, prepared) in chosen.iter().enumerate() {
+        let data = &prepared.data;
+        let mut options = recipe.panel_options(prepared.options.clone(), &grid);
+        options.validate()?;
+        let mut caption = format!("{} {}", panel_label(index), data.caption(&options));
+        if let Some(offsets) = &prepared.offset_caption {
+            caption.push(' ');
+            caption.push_str(offsets);
+        }
+        captions.push(caption);
         let (panel, needs) = match &data.residual {
             Some(residual) => {
                 let panels = layout::fit_residual_panels(data, residual, &options)?;
@@ -401,6 +758,14 @@ pub(crate) fn compose(
                 (Built::FitResidual(Box::new(panels)), needs)
             }
             None => {
+                let end_labels = if !recipe.panels[prepared.index].uses_current_fit()
+                    && recipe.panels[prepared.index].label_mode == CurveLabelMode::CurveEnd
+                {
+                    options.legend = false;
+                    curve_end_labels(data, &mut options, recipe.font_size)?
+                } else {
+                    Vec::new()
+                };
                 resolve_inside_legend(data, &mut options);
                 let plot = data.panel(&options, false)?;
                 let metrics = Metrics::of(&plot);
@@ -408,19 +773,34 @@ pub(crate) fn compose(
                     .ymin
                     .zip(options.ymax)
                     .or_else(|| data.visible_ylim(&options));
-                let needs = [
+                let mut needs = [
                     metrics.left(layout::tick_chars(ylim, 10).unwrap_or(5)),
                     metrics.right(layout::tick_chars(data.xlim(&options), 10).unwrap_or(4)),
                     0.,
                     metrics.bottom(),
                 ];
-                (Built::Single(Box::new(plot)), needs)
+                if let Some(width) = end_labels
+                    .iter()
+                    .map(|label| label.width_in)
+                    .reduce(f64::max)
+                {
+                    needs[1] = needs[1].max(width + 8. / 72.);
+                }
+                (Built::Single(Box::new(plot), end_labels), needs)
             }
         };
         for (shared, need) in frame.iter_mut().zip(needs) {
             *shared = shared.max(need);
         }
         built.push(panel);
+    }
+
+    if built
+        .iter()
+        .any(|panel| matches!(panel, Built::Single(_, labels) if !labels.is_empty()))
+        && (grid.cell_px.0 as f64 / grid.dpi - frame[0] - frame[1] < 0.5)
+    {
+        return Err("Curve-end labels leave less than 0.5 in of plot width. Shorten sample labels, widen the figure, use fewer columns or choose a legend.".into());
     }
 
     let (width, height) = grid.size_px();
@@ -430,10 +810,19 @@ pub(crate) fn compose(
     let cell_height_in = cell_h as f64 / grid.dpi;
     for (index, panel) in built.into_iter().enumerate() {
         let (image, svg) = match panel {
-            Built::Single(plot) => {
+            Built::Single(plot, labels) => {
                 let plot = layout::panel_frame(*plot, cell_height_in, frame);
-                let image = plot.render().map_err(|e| e.to_string())?;
-                (image, plot.render_to_svg().map_err(|e| e.to_string())?)
+                let mut image = plot.render().map_err(|e| e.to_string())?;
+                let mut svg = plot.render_to_svg().map_err(|e| e.to_string())?;
+                render_end_labels(
+                    &mut image,
+                    &mut svg,
+                    &labels,
+                    frame,
+                    &grid,
+                    recipe.font_size,
+                )?;
+                (image, svg)
             }
             Built::FitResidual(panels) => panels.render(frame)?,
         };
@@ -496,13 +885,214 @@ pub(crate) fn compose(
         image: Image::new(width, height, pixels),
         svg,
         grid,
-        missing,
+        missing: missing.clone(),
         caption,
     })
 }
 
 /// Gap between a panel's top-left corner and its label, in points.
 const LABEL_INSET_PT: f64 = 2.;
+
+/// One literal label, measured at the output DPI before margins are fixed.
+struct EndLabel {
+    text: String,
+    color: ruviz::prelude::Color,
+    raster: ruviz::render::typst_text::TypstRasterOutput,
+    width_in: f64,
+    /// Position of the last visible point from the top of the visible y range.
+    y_fraction: f64,
+}
+
+fn curve_end_labels(
+    data: &FigureData,
+    options: &mut FigureOptions,
+    font_pt: f64,
+) -> Result<Vec<EndLabel>, String> {
+    let visible: Vec<_> = data
+        .series(options)
+        .iter()
+        .filter(|curve| curve.visible(options) && !curve.x.is_empty())
+        .collect();
+    let xlim = data.xlim(options).or_else(|| {
+        let mut bounds: Option<(f64, f64)> = None;
+        for value in visible
+            .iter()
+            .flat_map(|curve| curve.x.iter().copied())
+            .filter(|value| value.is_finite())
+        {
+            bounds = Some(bounds.map_or((value, value), |(min, max)| {
+                (min.min(value), max.max(value))
+            }));
+        }
+        bounds.map(|(min, max)| {
+            let pad = if min < max {
+                (max - min) * 0.05
+            } else {
+                min.abs().max(1.) * 0.05
+            };
+            (min - pad, max + pad)
+        })
+    });
+    let Some((xmin, xmax)) = xlim else {
+        return Ok(Vec::new());
+    };
+    // Fix automatically inferred limits before adding labels. Their physical
+    // placement must use the same bounds as the plot, including explicit cuts.
+    options.xmin = Some(xmin);
+    options.xmax = Some(xmax);
+    let Some((ymin, ymax)) = options
+        .ymin
+        .zip(options.ymax)
+        .or_else(|| data.visible_ylim(options))
+    else {
+        return Ok(Vec::new());
+    };
+    options.ymin = Some(ymin);
+    options.ymax = Some(ymax);
+    let dpi = options.dimensions().2;
+    let palette = Plot::new().get_theme();
+    let mut labels = Vec::new();
+    for (index, curve) in visible.iter().enumerate() {
+        let mut endpoint: Option<(f64, f64)> = None;
+        let mut include = |x: f64, y: f64| {
+            if x.is_finite()
+                && y.is_finite()
+                && x >= xmin
+                && x <= xmax
+                && y >= ymin
+                && y <= ymax
+                && endpoint.is_none_or(|(previous, _)| x >= previous)
+            {
+                endpoint = Some((x, y));
+            }
+        };
+        for (&x, &y) in curve.x.iter().zip(&curve.y) {
+            include(x, y);
+        }
+        // Interpolate at visible boundaries; the final stored point may be far
+        // outside a user's chosen horizontal or vertical limits.
+        for (xs, ys) in curve.x.windows(2).zip(curve.y.windows(2)) {
+            for x in [xmin, xmax] {
+                if (xs[0] < x && x < xs[1]) || (xs[1] < x && x < xs[0]) {
+                    include(x, ys[0] + (ys[1] - ys[0]) * (x - xs[0]) / (xs[1] - xs[0]));
+                }
+            }
+            for y in [ymin, ymax] {
+                if (ys[0] < y && y < ys[1]) || (ys[1] < y && y < ys[0]) {
+                    include(xs[0] + (xs[1] - xs[0]) * (y - ys[0]) / (ys[1] - ys[0]), y);
+                }
+            }
+        }
+        let Some((_, y)) = endpoint else {
+            continue;
+        };
+        let color = match options.series_colors.get(&curve.key) {
+            Some(color) => super::series_color(color)?,
+            None => palette.get_color(index),
+        };
+        let raster = ruviz::render::typst_text::render_raster(
+            &ruviz::render::typst_text::literal_text_snippet(&curve.label),
+            (font_pt * dpi / 72.) as f32,
+            color,
+            0.,
+            "curve-end label",
+        )
+        .map_err(|error| error.to_string())?;
+        labels.push(EndLabel {
+            text: curve.label.clone(),
+            color,
+            width_in: raster.pixmap.width() as f64 / dpi,
+            raster,
+            y_fraction: (ymax - y) / (ymax - ymin),
+        });
+    }
+    Ok(labels)
+}
+
+/// Keep direct labels within the reserved margin, separating vertically
+/// adjacent names by two points without changing curve or axis coordinates.
+fn render_end_labels(
+    image: &mut Image,
+    svg: &mut String,
+    labels: &[EndLabel],
+    frame: Frame,
+    grid: &Grid,
+    font_pt: f64,
+) -> Result<(), String> {
+    if labels.is_empty() {
+        return Ok(());
+    }
+    let scale = grid.dpi / 72.;
+    let top = frame[2] * grid.dpi;
+    let bottom = image.height as f64 - frame[3] * grid.dpi;
+    let available = bottom - top;
+    let gap = 2. * scale;
+    let required = labels
+        .iter()
+        .map(|label| label.raster.pixmap.height() as f64)
+        .sum::<f64>()
+        + gap * labels.len().saturating_sub(1) as f64;
+    if required > available {
+        return Err("Curve-end labels do not fit vertically. Use taller panels, fewer samples, a smaller font or a legend.".into());
+    }
+    let mut order: Vec<_> = (0..labels.len()).collect();
+    order.sort_by(|&a, &b| labels[a].y_fraction.total_cmp(&labels[b].y_fraction));
+    let mut positions = Vec::new();
+    for (position, &index) in order.iter().enumerate() {
+        let height = labels[index].raster.pixmap.height() as f64;
+        let desired =
+            (top + available * labels[index].y_fraction - height / 2.).clamp(top, bottom - height);
+        let previous = if position == 0 {
+            top
+        } else {
+            positions[position - 1]
+                + labels[order[position - 1]].raster.pixmap.height() as f64
+                + gap
+        };
+        positions.push(desired.max(previous));
+    }
+    for position in (0..positions.len()).rev() {
+        let height = labels[order[position]].raster.pixmap.height() as f64;
+        let limit = if position + 1 == positions.len() {
+            bottom - height
+        } else {
+            positions[position + 1] - gap - height
+        };
+        positions[position] = positions[position].min(limit);
+    }
+    let x = image.width as f64 - frame[1] * grid.dpi + 4. * scale;
+    let mut markup = String::new();
+    for (&index, &y) in order.iter().zip(&positions) {
+        let label = &labels[index];
+        let pixmap = &label.raster.pixmap;
+        blend(
+            &mut image.pixels,
+            (image.width, image.height),
+            (pixmap.data(), pixmap.width(), pixmap.height()),
+            (x, y),
+        );
+        let color = format!(
+            "#{:02x}{:02x}{:02x}",
+            label.color.r, label.color.g, label.color.b
+        );
+        let font_px = font_pt * scale;
+        let line_height = pixmap.height() as f64 / label.text.split('\n').count() as f64;
+        markup.push_str(&format!(r#"<text class="curve-end-label" x="{x:.3}" y="{:.3}" xml:space="preserve" font-family="Arial, Helvetica, sans-serif" font-size="{font_px:.3}" fill="{color}">"#, y + 0.8 * line_height));
+        for (line, text) in label.text.split('\n').enumerate() {
+            markup.push_str(&format!(
+                r#"<tspan x="{x:.3}" dy="{}">{}</tspan>"#,
+                if line == 0 { 0. } else { line_height },
+                super::super::report::html(text)
+            ));
+        }
+        markup.push_str("</text>");
+    }
+    let end = svg
+        .rfind("</svg>")
+        .ok_or("The panel SVG has no closing element.")?;
+    svg.insert_str(end, &markup);
+    Ok(())
+}
 
 /// Resolve an Auto or Outside legend to an inside corner. An outside legend
 /// would shrink one panel's plot area and break the alignment with its
@@ -584,7 +1174,7 @@ fn blend(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::publication::figures::{fit_figures, spectrum_figures};
+    use crate::publication::figures::{FigureSeries, fit_figures, spectrum_figures};
     use std::{path::Path, sync::Arc};
 
     fn copper_figures() -> Vec<FigureData> {
@@ -620,6 +1210,437 @@ mod tests {
             model_chir_mag: nalgebra::DVector::from_vec(peak.iter().map(|y| 0.85 * y).collect()),
             ..Default::default()
         })
+    }
+
+    fn sample(id: u64, label: &str, color: &str) -> CompositeSample {
+        let main = FigureSeries {
+            key: "series-0".into(),
+            label: "Original label".into(),
+            x: vec![0., 1., 2.],
+            y: vec![0., 1., 2.],
+            dashed: false,
+            optional: false,
+        };
+        CompositeSample {
+            id: GroupId::legacy_result(id),
+            label: label.into(),
+            color: color.into(),
+            figures: vec![Arc::new(FigureData {
+                key: "xanes",
+                label: "Energy".into(),
+                xlabel: "Energy (eV)".into(),
+                ylabel: "Flattened μ(E) (dimensionless)".into(),
+                math_ylabel: "Flattened μ(E)".into(),
+                series: vec![
+                    main.clone(),
+                    FigureSeries {
+                        key: "helper".into(),
+                        label: "Helper".into(),
+                        y: vec![2., 2., 2.],
+                        ..main.clone()
+                    },
+                ],
+                normalized_series: Some(vec![FigureSeries {
+                    y: vec![1., 2., 3.],
+                    ..main
+                }]),
+                guides: vec![],
+                default_xlim: Some((0., 2.)),
+                residual: None,
+            })],
+        }
+    }
+
+    #[test]
+    fn panel_objects_migrate_strings_and_preserve_ordered_sample_ids() {
+        let old: CompositeRecipe =
+            serde_json::from_str(r#"{"panels":["xanes",{"key":"chi-k"}]}"#).unwrap();
+        assert_eq!(
+            old.panels,
+            [CompositePanel::from("xanes"), CompositePanel::from("chi-k")]
+        );
+        assert!(old.samples.is_empty());
+        let recipe: CompositeRecipe = serde_json::from_str(r#"{
+            "samples":["result:3","result:1"],
+            "panels":[{"key":"xanes","samples":["result:2","result:3"],"offset_step":0.3,"reverse":true,"label_mode":"curve_end"},{"key":"chi-r","samples":[]}]
+        }"#).unwrap();
+        assert_eq!(
+            recipe.samples,
+            [GroupId::legacy_result(3), GroupId::legacy_result(1)]
+        );
+        assert_eq!(
+            recipe.panels[0].samples.as_ref().unwrap(),
+            &[GroupId::legacy_result(2), GroupId::legacy_result(3)]
+        );
+        assert_eq!(recipe.panels[1].samples, Some(Vec::new()));
+        assert_eq!(recipe.panels[0].label_mode, CurveLabelMode::CurveEnd);
+        let saved = serde_json::to_value(&recipe).unwrap();
+        assert!(saved["panels"][0].is_object());
+        assert_eq!(
+            serde_json::from_value::<CompositeRecipe>(saved).unwrap(),
+            recipe
+        );
+    }
+
+    #[test]
+    fn preparation_uses_saved_order_offsets_and_full_color_keys_without_mutating_sources() {
+        let a = sample(1, "A", "#0072b2");
+        let b = sample(2, "B", "#e69f00");
+        let a_before = a.figures[0].csv(&FigureOptions::default()).unwrap();
+        let samples = [a.clone(), b.clone()];
+        let mut recipe = CompositeRecipe {
+            samples: vec![b.id.clone(), a.id.clone()],
+            panels: vec![CompositePanel {
+                offset_step: 0.3,
+                .."xanes".into()
+            }],
+            series_colors: BTreeMap::from([("result:2/series-0".into(), "#009e73".into())]),
+            dpi: 72.,
+            ..Default::default()
+        };
+        let mut settings = FigureSettings::default();
+        settings.figures.insert(
+            "xanes".into(),
+            FigureOptions {
+                series_colors: BTreeMap::from([
+                    ("series-0".into(), "#cc79a7".into()),
+                    ("result:1/series-0".into(), "#d55e00".into()),
+                ]),
+                ..Default::default()
+            },
+        );
+        let empty: Vec<FigureData> = vec![];
+        let prepared = prepare_panels(&recipe, &empty, &samples, &settings).unwrap();
+        let panel = &prepared.panels[0];
+        assert_eq!(
+            panel
+                .data
+                .series
+                .iter()
+                .map(|curve| curve.key.as_str())
+                .collect::<Vec<_>>(),
+            ["result:2/series-0", "result:1/series-0"]
+        );
+        assert_eq!(
+            panel
+                .data
+                .series
+                .iter()
+                .map(|curve| curve.label.as_str())
+                .collect::<Vec<_>>(),
+            ["B", "A"]
+        );
+        assert_eq!(panel.data.series[0].y, [0., 1., 2.]);
+        assert_eq!(panel.data.series[1].y, [0.3, 1.3, 2.3]);
+        assert_eq!(panel.options.series_colors["result:2/series-0"], "#009e73");
+        assert_eq!(panel.options.series_colors["result:1/series-0"], "#d55e00");
+        assert!(panel.offset_caption.as_ref().unwrap().contains("by 0.3"));
+        recipe.panels[0].reverse = true;
+        let reversed = prepare_panels(&recipe, &empty, &samples, &settings).unwrap();
+        assert_eq!(reversed.panels[0].data.series[0].y, [0.3, 1.3, 2.3]);
+        assert_eq!(reversed.panels[0].data.series[1].y, [0., 1., 2.]);
+        assert_eq!(
+            a.figures[0].csv(&FigureOptions::default()).unwrap(),
+            a_before
+        );
+        let rendered = compose_samples(&recipe, &empty, &samples, &settings, None).unwrap();
+        assert!(
+            rendered
+                .caption
+                .contains("Spectra offset vertically by 0.3")
+        );
+        assert!(rendered.svg.contains(r#"stroke="rgb(0,158,115)""#));
+        assert!(rendered.svg.contains(r#"stroke="rgb(213,94,0)""#));
+    }
+
+    #[test]
+    fn single_sample_and_explicit_current_panels_keep_original_figure_behavior() {
+        let current = sample(1, "Current", "#0072b2");
+        let chosen = sample(2, "Different workspace label", "#e69f00");
+        let recipe = CompositeRecipe {
+            samples: vec![chosen.id.clone()],
+            panels: vec![
+                "xanes".into(),
+                CompositePanel {
+                    samples: Some(vec![]),
+                    .."xanes".into()
+                },
+            ],
+            dpi: 72.,
+            ..Default::default()
+        };
+        let settings = FigureSettings::default();
+        let prepared = prepare_panels(
+            &recipe,
+            &current.figures,
+            std::slice::from_ref(&chosen),
+            &settings,
+        )
+        .unwrap();
+        assert_eq!(
+            prepared.panels[0]
+                .data
+                .csv(&prepared.panels[0].options)
+                .unwrap(),
+            chosen.figures[0].csv(&FigureOptions::default()).unwrap()
+        );
+        assert_eq!(
+            prepared.panels[1]
+                .data
+                .csv(&prepared.panels[1].options)
+                .unwrap(),
+            current.figures[0].csv(&FigureOptions::default()).unwrap()
+        );
+        assert!(prepared.panels[0].options.series_colors.is_empty());
+        assert!(prepared.panels[0].offset_caption.is_none());
+        let single = CompositeRecipe {
+            panels: vec!["xanes".into()],
+            ..recipe.clone()
+        };
+        let old = compose(
+            &CompositeRecipe {
+                samples: vec![],
+                ..single.clone()
+            },
+            &chosen.figures,
+            &settings,
+            None,
+        )
+        .unwrap();
+        let new = compose_samples(&single, &current.figures, &[chosen], &settings, None).unwrap();
+        assert_eq!(old.svg, new.svg);
+        assert_eq!(old.caption, new.caption);
+        assert_eq!(old.image.pixels, new.image.pixels);
+    }
+
+    #[test]
+    fn single_sample_unavailable_figure_is_skipped_and_reported() {
+        for empty_series in [true, false] {
+            let mut chosen = sample(1, "A", "#0072b2");
+            let mut unavailable = chosen.figures[0].as_ref().clone();
+            unavailable.key = "chi-r";
+            unavailable.normalized_series = None;
+            if empty_series {
+                unavailable.series.clear();
+            } else {
+                for curve in &mut unavailable.series {
+                    curve.x.clear();
+                    curve.y.clear();
+                }
+            }
+            chosen.figures.push(Arc::new(unavailable));
+            let recipe = CompositeRecipe {
+                samples: vec![chosen.id.clone()],
+                panels: vec!["xanes".into(), "chi-r".into()],
+                dpi: 72.,
+                ..Default::default()
+            };
+            let settings = FigureSettings::default();
+            let current: Vec<FigureData> = vec![];
+            let prepared =
+                prepare_panels(&recipe, &current, std::slice::from_ref(&chosen), &settings)
+                    .unwrap();
+            assert_eq!(prepared.panels.len(), 1);
+            assert_eq!(prepared.panels[0].data.key, "xanes");
+            assert_eq!(prepared.missing.len(), 1);
+            assert!(prepared.missing[0].contains("chi-r: no processed data for A (result:1)"));
+            assert!(prepared.missing[0].contains("select and process"));
+            let rendered = compose_samples(&recipe, &current, &[chosen], &settings, None).unwrap();
+            assert_eq!(rendered.missing, prepared.missing);
+            assert_eq!(rendered.grid.columns, 1);
+            assert_eq!(rendered.grid.rows, 1);
+            assert!(rendered.caption.starts_with("(a)"));
+            assert!(!rendered.caption.contains("(b)"));
+        }
+    }
+
+    #[test]
+    fn multisample_main_curves_match_processed_spectrum_data_including_normalization() {
+        let original = copper_figures();
+        let samples: Vec<_> = [1, 2]
+            .into_iter()
+            .map(|id| CompositeSample {
+                id: GroupId::legacy_result(id),
+                label: format!("Sample {id}"),
+                color: "#0072b2".into(),
+                figures: original.iter().cloned().map(Arc::new).collect(),
+            })
+            .collect();
+        let recipe = CompositeRecipe {
+            samples: samples.iter().map(|sample| sample.id.clone()).collect(),
+            panels: ["mu-energy", "chi-r", "xanes"]
+                .map(CompositePanel::from)
+                .into(),
+            ..Default::default()
+        };
+        let mut settings = FigureSettings::default();
+        settings.figures.insert(
+            "xanes".into(),
+            FigureOptions {
+                normalized: true,
+                ..Default::default()
+            },
+        );
+        let prepared = prepare_panels(&recipe, &original, &samples, &settings).unwrap();
+        for panel in &prepared.panels {
+            let source = original
+                .iter()
+                .find(|data| data.key == panel.data.key)
+                .unwrap();
+            let main = &source.series(&settings.options(source.key))[0];
+            assert_eq!(panel.data.series.len(), 2);
+            for curve in &panel.data.series {
+                assert_eq!(curve.x, main.x);
+                assert_eq!(curve.y, main.y);
+            }
+            assert_eq!(
+                panel.data.ylabel(&panel.options),
+                source.ylabel(&settings.options(source.key))
+            );
+        }
+    }
+
+    #[test]
+    fn missing_sources_are_reported_and_fit_panels_ignore_sample_settings() {
+        let a = sample(1, "A", "#0072b2");
+        let missing = GroupId::legacy_result(99);
+        let recipe = CompositeRecipe {
+            samples: vec![missing.clone(), a.id.clone()],
+            panels: vec![
+                "chi-r".into(),
+                CompositePanel {
+                    offset_step: 0.3,
+                    .."xanes".into()
+                },
+                CompositePanel {
+                    offset_step: f64::NAN,
+                    reverse: true,
+                    label_mode: CurveLabelMode::CurveEnd,
+                    .."fit-residual-k".into()
+                },
+            ],
+            // The residual strip must meet ruviz's 100-pixel canvas minimum.
+            dpi: 150.,
+            ..Default::default()
+        };
+        let fits = synthetic_fit();
+        let prepared = prepare_panels(
+            &recipe,
+            &fits,
+            std::slice::from_ref(&a),
+            &FigureSettings::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            prepared
+                .panels
+                .iter()
+                .map(|panel| panel.index)
+                .collect::<Vec<_>>(),
+            [1, 2]
+        );
+        assert!(
+            prepared
+                .missing
+                .iter()
+                .any(|message| message.contains("result:99"))
+        );
+        assert!(
+            prepared
+                .missing
+                .iter()
+                .any(|message| message.contains("no processed data")
+                    && message.contains("select and process"))
+        );
+        assert_eq!(prepared.panels[0].data.series[0].y, [0.3, 1.3, 2.3]);
+        let fit = fits
+            .iter()
+            .find(|data| data.key == "fit-residual-k")
+            .unwrap();
+        assert_eq!(
+            prepared.panels[1]
+                .data
+                .csv(&prepared.panels[1].options)
+                .unwrap(),
+            fit.csv(&FigureOptions::default()).unwrap()
+        );
+        assert!(prepared.panels[1].offset_caption.is_none());
+        compose_samples(&recipe, &fits, &[a], &FigureSettings::default(), None).unwrap();
+        let unavailable = CompositeRecipe {
+            panels: vec!["xanes".into()],
+            samples: vec![missing],
+            ..Default::default()
+        };
+        let error = compose_samples(&unavailable, &fits, &[], &FigureSettings::default(), None)
+            .err()
+            .unwrap();
+        assert!(error.contains("at least one panel") && error.contains("result:99"));
+    }
+
+    #[test]
+    fn curve_end_labels_escape_names_follow_visible_limits_and_reserve_space() {
+        let a = sample(1, "A <foil> & \"edge\" #[$]", "#0072b2");
+        let b = sample(2, "B", "#e69f00");
+        let recipe = CompositeRecipe {
+            samples: vec![a.id.clone(), b.id.clone()],
+            panels: vec![CompositePanel {
+                label_mode: CurveLabelMode::CurveEnd,
+                .."xanes".into()
+            }],
+            dpi: 100.,
+            ..Default::default()
+        };
+        let mut settings = FigureSettings::default();
+        settings.figures.insert(
+            "xanes".into(),
+            FigureOptions {
+                xmin: Some(0.),
+                xmax: Some(1.5),
+                ymin: Some(0.),
+                ymax: Some(3.),
+                ..Default::default()
+            },
+        );
+        let empty: Vec<FigureData> = vec![];
+        let prepared = prepare_panels(&recipe, &empty, &[a.clone(), b.clone()], &settings).unwrap();
+        let mut options =
+            recipe.panel_options(prepared.panels[0].options.clone(), &recipe.grid(1, 100.));
+        let labels =
+            curve_end_labels(&prepared.panels[0].data, &mut options, recipe.font_size).unwrap();
+        assert_eq!(labels.len(), 2);
+        assert!((labels[0].y_fraction - 0.5).abs() < 1e-12);
+        options.ymax = Some(1.);
+        let clipped =
+            curve_end_labels(&prepared.panels[0].data, &mut options, recipe.font_size).unwrap();
+        assert_eq!(clipped.len(), 2);
+        assert_eq!(clipped[0].y_fraction, 0.);
+        let rendered = compose_samples(&recipe, &empty, &[a.clone(), b], &settings, None).unwrap();
+        assert_eq!(rendered.svg.matches("class=\"curve-end-label\"").count(), 2);
+        assert!(
+            rendered
+                .svg
+                .contains("A &lt;foil&gt; &amp; &quot;edge&quot; #[$]")
+        );
+        assert!(rendered.pdf().unwrap().starts_with(b"%PDF"));
+        if let Some(dir) = std::env::var_os("REXAFS_COMPOSER_SHOTS") {
+            let dir = Path::new(&dir);
+            std::fs::create_dir_all(dir).unwrap();
+            for extension in ["png", "svg"] {
+                std::fs::write(
+                    dir.join(format!("composed-samples-curve-end.{extension}")),
+                    rendered.bytes(extension).unwrap(),
+                )
+                .unwrap();
+            }
+        }
+        let too_long = CompositeSample {
+            label: "A very long sample label ".repeat(30),
+            ..a
+        };
+        let error = compose_samples(&recipe, &empty, &[too_long], &settings, None)
+            .err()
+            .unwrap();
+        assert!(error.contains("Shorten sample labels"), "{error}");
     }
 
     #[test]
@@ -701,6 +1722,7 @@ mod tests {
     fn recipes_round_trip_and_old_projects_get_defaults() {
         let recipe = CompositeRecipe {
             panels: vec!["xanes".into(), "chi-r".into()],
+            samples: Vec::new(),
             columns: 1,
             width_mm: 83.,
             panel_height_mm: Some(60.),
@@ -728,7 +1750,7 @@ mod tests {
         );
         assert_eq!(
             CompositeRecipe::suggested_panels(["chi-r", "xanes", "fit-k", "fit-residual-k"]),
-            ["xanes", "chi-r", "fit-residual-k"]
+            ["xanes", "chi-r", "fit-residual-k"].map(CompositePanel::from)
         );
         assert_eq!(panel_label(0), "(a)");
         assert_eq!(panel_label(3), "(d)");
@@ -838,7 +1860,7 @@ mod tests {
         figures.extend(synthetic_fit());
         let recipe = CompositeRecipe {
             panels: ["xanes", "chi-k", "chi-r", "fit-residual-k", "missing-key"]
-                .map(String::from)
+                .map(CompositePanel::from)
                 .into(),
             dpi: 300.,
             ..Default::default()
@@ -942,7 +1964,7 @@ mod tests {
                 .unwrap();
             }
             let single = CompositeRecipe {
-                panels: ["xanes", "chi-k", "chi-r"].map(String::from).into(),
+                panels: ["xanes", "chi-k", "chi-r"].map(CompositePanel::from).into(),
                 columns: 1,
                 width_mm: JOURNAL_WIDTHS[0].mm,
                 panel_height_mm: Some(55.),

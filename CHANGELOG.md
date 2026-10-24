@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Select several workspace samples per publication composer panel, share or
+  override their ordered selection, and stack main curves with vertical offsets.
+  Keep workspace plot colours, choose legends or curve-end labels, process
+  uncached samples automatically, and preserve legacy recipes on project load.
+
 - Choose per-curve colours in Publish from the eight-colour Okabe–Ito palette
   or Auto, and share colours across composer panels. Save choices in `.rxs`
   projects and apply them to previews, image exports and matplotlib scripts.

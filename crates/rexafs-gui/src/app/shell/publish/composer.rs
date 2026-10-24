@@ -6,9 +6,11 @@ use super::editor::{ColourTarget, colour_swatch, enabled_when, with_tip};
 use super::*;
 use crate::accessibility::Control;
 use crate::app::shell::{button, chip, controls::icon_button, segment, segmented};
+use crate::group_identity::GroupId;
 use crate::icons::Icon;
 use crate::publication::figures::composer::{
-    CompositeRecipe, JOURNAL_WIDTHS, MAX_PANELS, MM_PER_INCH, compose, panel_label,
+    CompositeRecipe, CurveLabelMode, JOURNAL_WIDTHS, MAX_PANELS, MM_PER_INCH, PreparedComposition,
+    compose_prepared, compose_samples, panel_label, prepare_panels,
 };
 use crate::theme::Theme;
 use crate::widgets::numeric_field::{FieldEvent, FieldKind};
@@ -41,8 +43,17 @@ pub(crate) struct ComposerState {
     fields: Vec<Entity<NumericField>>,
     /// Reject events from fields replaced after a recipe or layout change.
     fields_generation: u64,
+    /// Panel whose sample and stacking settings are shown in the controls.
+    selected_panel: usize,
+    /// Offset editor for the selected panel, separate from the shared style.
+    panel_offset: Option<Entity<NumericField>>,
+    /// Reject offset edits queued before changing the selected panel.
+    panel_fields_generation: u64,
     /// Figures and settings that produced the current preview.
     source: Option<(Vec<usize>, Vec<u8>)>,
+    /// Background preparation for this source/settings revision, shared by
+    /// rendering and controls without copying or scanning curve arrays on redraw.
+    prepared: Option<Arc<PreparedComposition>>,
     generation: u64,
     running: bool,
     image: Option<Arc<gpui::Image>>,
@@ -59,6 +70,7 @@ impl ComposerState {
     /// Discard all recipe-specific results and reject older background renders.
     fn invalidate_preview(&mut self) {
         self.source = None;
+        self.prepared = None;
         self.generation += 1;
         self.running = false;
         self.image = None;
@@ -68,13 +80,28 @@ impl ComposerState {
         self.error = None;
     }
 
+    /// Reuse prepared arrays and the preview until their source or settings change.
+    fn begin_preview(&mut self, source: (Vec<usize>, Vec<u8>)) -> Option<u64> {
+        if self.source.as_ref() == Some(&source) {
+            return None;
+        }
+        // Never display or copy results produced for another revision while
+        // its replacement is being prepared and rendered in the background.
+        self.invalidate_preview();
+        self.source = Some(source);
+        self.running = true;
+        Some(self.generation)
+    }
+
     /// Reset session controls after a project load while rejecting old renders.
     pub(super) fn reset(&mut self) {
         let generation = self.generation + 1;
         let fields_generation = self.fields_generation + 1;
+        let panel_fields_generation = self.panel_fields_generation + 1;
         *self = Self {
             generation,
             fields_generation,
+            panel_fields_generation,
             ..Default::default()
         };
     }
@@ -87,6 +114,56 @@ fn heading(t: &Theme, text: &'static str) -> gpui::Div {
         .text_size(px(12.))
         .text_color(t.text_muted)
         .child(text)
+}
+
+/// A keyboard-accessible checkbox with the same compact style as the shell.
+fn sample_check(
+    t: &Theme,
+    id: impl Into<gpui::ElementId>,
+    label: impl Into<SharedString>,
+    checked: bool,
+) -> Control {
+    let label = label.into();
+    Control::new(div().id(id), label.clone(), accesskit::Role::CheckBox)
+        .selected(checked)
+        .tab_index(0)
+        .key_context("Control")
+        .min_w_0()
+        .min_h(px(28.))
+        .px_1()
+        .flex()
+        .items_center()
+        .gap_2()
+        .rounded_sm()
+        .border_1()
+        .border_color(gpui::transparent_black())
+        .cursor_pointer()
+        .text_size(px(12.))
+        .hover(|d| d.bg(t.raised))
+        .focus(|d| d.border_color(t.accent))
+        .child(
+            div()
+                .size(px(14.))
+                .flex_none()
+                .rounded_sm()
+                .border_1()
+                .border_color(if checked { t.accent } else { t.border })
+                .when(checked, |d| {
+                    d.bg(t.accent).child(
+                        crate::app::shell::controls::icon(t, Icon::Check)
+                            .size(px(12.))
+                            .text_color(t.bg),
+                    )
+                }),
+        )
+        .child(
+            div()
+                .min_w_0()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .child(label),
+        )
 }
 
 impl StudioApp {
@@ -106,6 +183,8 @@ impl StudioApp {
         self.publish.composer.rename = None;
         self.publish.composer.name_error = None;
         self.publish.composer.delete_recipe = None;
+        self.publish.composer.selected_panel = 0;
+        self.publish.composer.colour_series = None;
         self.invalidate_composer_preview();
         self.composer_fields(cx);
         cx.notify();
@@ -518,27 +597,308 @@ impl StudioApp {
             .detach();
             self.publish.composer.fields.push(field);
         }
+        self.composer_panel_fields(cx);
+    }
+
+    /// Bind the offset editor to the selected panel and reject older events.
+    fn composer_panel_fields(&mut self, cx: &mut Context<Self>) {
+        self.publish.composer.panel_fields_generation += 1;
+        self.publish.composer.panel_offset = None;
+        let generation = self.publish.composer.panel_fields_generation;
+        let count = self.publish.settings.active_recipe().recipe.panels.len();
+        self.publish.composer.selected_panel = self
+            .publish
+            .composer
+            .selected_panel
+            .min(count.saturating_sub(1));
+        let index = self.publish.composer.selected_panel;
+        let Some(panel) = self
+            .publish
+            .settings
+            .active_recipe()
+            .recipe
+            .panels
+            .get(index)
+        else {
+            return;
+        };
+        if panel.uses_current_fit() {
+            return;
+        }
+        let theme = self.theme;
+        let offset = panel.offset_step;
+        let field = cx.new(|cx| {
+            NumericField::new(
+                "Offset step (y units)",
+                "0 = overlay",
+                Some(offset),
+                FieldKind::Float,
+                theme,
+                cx,
+            )
+        });
+        cx.subscribe(&field, move |this, _, event, cx| {
+            if this.publish.composer.panel_fields_generation != generation
+                || this.publish.composer.selected_panel != index
+            {
+                return;
+            }
+            match event {
+                FieldEvent::Changed(value) => {
+                    if let Some(panel) = this.composite().panels.get_mut(index) {
+                        panel.offset_step = value.unwrap_or(0.);
+                    }
+                    cx.notify();
+                }
+                FieldEvent::Invalid(message) => {
+                    this.publish.composer.error = Some(message.to_string());
+                    cx.notify();
+                }
+                _ => (),
+            }
+        })
+        .detach();
+        self.publish.composer.panel_offset = Some(field);
+    }
+
+    /// Choose shared samples, or a panel's independent ordered sample list.
+    fn composer_sample_checklist(
+        &self,
+        choices: &[(GroupId, String)],
+        selected: &[GroupId],
+        panel_index: Option<usize>,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
+        let t = self.theme;
+        let scope = panel_index
+            .map(|index| format!("panel-{index}"))
+            .unwrap_or_else(|| "shared".into());
+        let all_ids: Vec<_> = choices.iter().map(|(id, _)| id.clone()).collect();
+        let mut checklist = div().flex().flex_col().gap_1().child(
+            div()
+                .flex()
+                .gap_1()
+                .child(
+                    button(
+                        &t,
+                        SharedString::from(format!("composer-samples-all-{scope}")),
+                        "All",
+                        false,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        let recipe = this.composite();
+                        if let Some(index) = panel_index {
+                            if let Some(panel) = recipe.panels.get_mut(index) {
+                                panel.samples = Some(all_ids.clone());
+                            }
+                        } else {
+                            recipe.samples.clone_from(&all_ids);
+                        }
+                        cx.notify();
+                    })),
+                )
+                .child(
+                    button(
+                        &t,
+                        SharedString::from(format!("composer-samples-none-{scope}")),
+                        "None",
+                        false,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        let recipe = this.composite();
+                        if let Some(index) = panel_index {
+                            if let Some(panel) = recipe.panels.get_mut(index) {
+                                panel.samples = Some(Vec::new());
+                            }
+                        } else {
+                            recipe.samples.clear();
+                        }
+                        cx.notify();
+                    })),
+                ),
+        );
+        let mut rows = div()
+            .id(SharedString::from(format!("composer-sample-list-{scope}")))
+            .max_h(px(180.))
+            .overflow_y_scroll()
+            .flex()
+            .flex_col();
+        for (index, (id, label)) in choices.iter().enumerate() {
+            let id = id.clone();
+            rows = rows.child(
+                sample_check(
+                    &t,
+                    SharedString::from(format!("composer-sample-{scope}-{index}")),
+                    label.clone(),
+                    selected.contains(&id),
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    let recipe = this.composite();
+                    let samples = if let Some(index) = panel_index {
+                        let Some(panel) = recipe.panels.get_mut(index) else {
+                            return;
+                        };
+                        panel.samples.get_or_insert_with(Vec::new)
+                    } else {
+                        &mut recipe.samples
+                    };
+                    if samples.contains(&id) {
+                        samples.retain(|sample| sample != &id);
+                    } else {
+                        samples.push(id.clone());
+                    }
+                    cx.notify();
+                })),
+            );
+        }
+        checklist = checklist.child(rows);
+        if choices.is_empty() {
+            checklist = checklist.child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(t.text_muted)
+                    .child("Select or mark workspace samples to list them here."),
+            );
+        }
+        if selected.is_empty() {
+            checklist = checklist.child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(t.text_muted)
+                    .child("With no samples checked, the current sample is used."),
+            );
+        }
+        let outside = selected
+            .iter()
+            .filter(|id| !choices.iter().any(|(choice, _)| choice == *id))
+            .count();
+        if outside > 0 {
+            checklist = checklist.child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(t.text_muted)
+                    .child(format!(
+                        "{outside} saved sample selection(s) are outside the current/marked list. All or None replaces them."
+                    )),
+            );
+        }
+        checklist
+    }
+
+    /// Per-panel overrides appear beneath the selectable panel list.
+    fn composer_selected_panel_controls(
+        &self,
+        choices: &[(GroupId, String)],
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
+        let t = self.theme;
+        let recipe = &self.publish.settings.active_recipe().recipe;
+        let index = self.publish.composer.selected_panel;
+        let mut controls = div().flex().flex_col().gap_2();
+        let Some(panel) = recipe.panels.get(index) else {
+            return controls;
+        };
+        controls = controls.child(heading(&t, "Selected panel"));
+        if panel.uses_current_fit() {
+            return controls.child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(t.text_muted)
+                    .child("Fit and residual panels use the current fit dataset. Sample selection, offsets and curve labels do not apply."),
+            );
+        }
+        controls = controls.child(
+            sample_check(
+                &t,
+                "composer-panel-shared-samples",
+                "Use these samples in every panel",
+                panel.samples.is_none(),
+            )
+            .description("Use the shared Samples list in this panel. Turn off to copy that list and choose this panel's samples independently.")
+            .on_click(cx.listener(move |this, _, _, cx| {
+                let recipe = this.composite();
+                let shared = recipe.samples.clone();
+                if let Some(panel) = recipe.panels.get_mut(index) {
+                    panel.samples = if panel.samples.is_none() { Some(shared) } else { None };
+                }
+                cx.notify();
+            })),
+        );
+        if let Some(samples) = &panel.samples {
+            controls =
+                controls.child(self.composer_sample_checklist(choices, samples, Some(index), cx));
+        }
+        if let Some(field) = &self.publish.composer.panel_offset {
+            controls = controls.child(field.clone());
+        }
+        controls = controls.child(
+            div()
+                .text_size(px(11.))
+                .text_color(t.text_muted)
+                .child("0 overlays samples. A positive step separates successive samples in the panel's plotted y units."),
+        );
+        controls = controls.child(
+            sample_check(
+                &t,
+                "composer-panel-reverse",
+                "Reverse order (first on top)",
+                panel.reverse,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if let Some(panel) = this.composite().panels.get_mut(index) {
+                    panel.reverse = !panel.reverse;
+                }
+                cx.notify();
+            })),
+        );
+        controls = controls.child(heading(&t, "Curve labels"));
+        let mut labels = segmented(&t);
+        for (i, (mode, label)) in [
+            (CurveLabelMode::Legend, "Legend"),
+            (CurveLabelMode::CurveEnd, "Curve ends"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            labels = labels.child(
+                segment(
+                    &t,
+                    ("composer-curve-labels", i),
+                    label,
+                    panel.label_mode == mode,
+                    i == 0,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if let Some(panel) = this.composite().panels.get_mut(index) {
+                        panel.label_mode = mode;
+                    }
+                    cx.notify();
+                })),
+            );
+        }
+        controls
+            .child(div().flex().child(labels))
+            .child(div().text_size(px(11.)).text_color(t.text_muted).child(
+            "Legend uses the figure's legend setting. Curve ends label samples beside the curves.",
+        ))
     }
 
     /// Re-render the preview when the recipe, any figure setting or the
     /// available figures changed since the last preview.
     fn refresh_composer_preview(&mut self, cx: &mut Context<Self>) {
+        self.ensure_composer_samples(cx);
         let figures = self.publish.figures.clone();
+        let samples = self.composer_samples();
         let settings = self.publish.settings.clone();
+        let mut sample_source = self.composer_sample_source(&samples);
+        sample_source.extend(figures.iter().map(|figure| Arc::as_ptr(figure) as usize));
         let source = (
-            figures.iter().map(|f| Arc::as_ptr(f) as usize).collect(),
+            sample_source,
             serde_json::to_vec(&settings).unwrap_or_default(),
         );
-        let state = &mut self.publish.composer;
-        if state.source.as_ref() == Some(&source) {
+        let Some(generation) = self.publish.composer.begin_preview(source) else {
             return;
-        }
-        // Never display or copy a caption or raster produced for another
-        // recipe/settings revision while the replacement is rendering.
-        state.invalidate_preview();
-        state.source = Some(source);
-        state.running = true;
-        let generation = state.generation;
+        };
         let timer = cx
             .background_executor()
             .timer(std::time::Duration::from_millis(150));
@@ -550,18 +910,43 @@ impl StudioApp {
             {
                 return;
             }
+            let (prepared, settings) = cx
+                .background_executor()
+                .spawn(async move {
+                    let prepared = prepare_panels(
+                        &settings.active_recipe().recipe,
+                        &figures,
+                        &samples,
+                        &settings,
+                    )
+                    .map(Arc::new);
+                    (prepared, settings)
+                })
+                .await;
+            // Make readiness and colour controls available before rasterisation,
+            // retaining only preparation for the still-current revision.
+            if !this
+                .update(cx, |app, cx| {
+                    if app.publish.composer.generation != generation {
+                        return false;
+                    }
+                    app.publish.composer.prepared = prepared.as_ref().ok().cloned();
+                    cx.notify();
+                    true
+                })
+                .unwrap_or(false)
+            {
+                return;
+            }
             let result = cx
                 .background_executor()
                 .spawn(async move {
+                    let prepared = prepared?;
                     let recipe = &settings.active_recipe().recipe;
-                    let composed = compose(
-                        recipe,
-                        &figures,
-                        &settings,
-                        Some(recipe.dpi.min(PREVIEW_DPI)),
-                    )?;
+                    let composed =
+                        compose_prepared(recipe, &prepared, Some(recipe.dpi.min(PREVIEW_DPI)))?;
                     // Report the exported size; the preview raster uses a lower DPI.
-                    let rendered = recipe.panels.len() - composed.missing.len();
+                    let rendered = composed.grid.rows * composed.grid.columns;
                     let size_mm = recipe.grid(rendered, recipe.dpi).size_mm();
                     Ok::<_, String>((composed.png()?, size_mm, composed))
                 })
@@ -597,10 +982,11 @@ impl StudioApp {
     /// Render the recipe at its full DPI and save it as `extension`
     /// (png, svg, pdf or tiff).
     fn save_composite(&mut self, extension: &'static str, cx: &mut Context<Self>) {
-        if !self.require_publication_source(cx) {
+        if self.publish.composer.running || self.publish.composer.image.is_none() {
             return;
         }
         let figures = self.publish.figures.clone();
+        let samples = self.composer_samples();
         let settings = self.publish.settings.clone();
         let home = crate::settings::home_dir().unwrap_or_else(std::env::temp_dir);
         let name = format!("{}.{extension}", settings.active_recipe().file_stem());
@@ -615,9 +1001,14 @@ impl StudioApp {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    let bytes =
-                        compose(&settings.active_recipe().recipe, &figures, &settings, None)?
-                            .bytes(extension)?;
+                    let bytes = compose_samples(
+                        &settings.active_recipe().recipe,
+                        &figures,
+                        &samples,
+                        &settings,
+                        None,
+                    )?
+                    .bytes(extension)?;
                     std::fs::write(&path, bytes)
                         .map(|()| path)
                         .map_err(|e| e.to_string())
@@ -643,9 +1034,6 @@ impl StudioApp {
 
     /// Save the current combined caption as UTF-8 text using the recipe's name.
     fn save_composite_caption(&mut self, cx: &mut Context<Self>) {
-        if !self.require_publication_source(cx) {
-            return;
-        }
         let state = &self.publish.composer;
         if state.running || state.image.is_none() || state.caption.is_empty() {
             return;
@@ -699,7 +1087,12 @@ impl StudioApp {
         self.refresh_composer_preview(cx);
         let t = self.theme;
         let recipe = self.publish.settings.active_recipe().recipe.clone();
-        let ready = self.publication_ready();
+        let choices = self.composer_sample_choices();
+        let samples = self.composer_samples();
+        let prepared = self.publish.composer.prepared.clone();
+        let ready = prepared
+            .as_ref()
+            .is_some_and(|prepared| !prepared.panels.is_empty());
         let mut controls = div()
             .id("composer-controls")
             .w(px(312.))
@@ -712,18 +1105,40 @@ impl StudioApp {
             .pr_3()
             .child(self.publish_mode_switch(cx))
             .child(self.composer_recipe_controls(cx))
+            .child(heading(&t, "Samples"))
+            .child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(t.text_muted)
+                    .child("Current sample first, followed by marked workspace samples. This list is shared by panels unless overridden below."),
+            )
+            .child(self.composer_sample_checklist(&choices, &recipe.samples, None, cx))
             .child(heading(&t, "Panels"));
 
-        let available = |key: &str| self.publish.figures.iter().find(|f| f.key == key);
-        let mut label_index = 0;
-        for (index, key) in recipe.panels.iter().enumerate() {
-            let figure = available(key);
-            let label = match figure {
-                Some(figure) => {
-                    label_index += 1;
-                    format!("{} {}", panel_label(label_index - 1), figure.label)
+        let available: Vec<_> = self
+            .publish
+            .figures
+            .iter()
+            .chain(samples.iter().flat_map(|sample| sample.figures.iter()))
+            .fold(Vec::<Arc<FigureData>>::new(), |mut figures, figure| {
+                if !figures.iter().any(|known| known.key == figure.key) {
+                    figures.push(figure.clone());
                 }
-                None => format!("{key} · unavailable"),
+                figures
+            });
+        let mut label_index = 0;
+        for (index, panel) in recipe.panels.iter().enumerate() {
+            let key = panel.key.as_str();
+            let figure = available.iter().find(|figure| figure.key == key);
+            let rendered = prepared
+                .as_ref()
+                .and_then(|prepared| prepared.panels.iter().find(|panel| panel.index == index));
+            let name = figure.map(|figure| figure.label.as_str()).unwrap_or(key);
+            let label = if rendered.is_some() {
+                label_index += 1;
+                format!("{} {name}", panel_label(label_index - 1))
+            } else {
+                format!("{name} · unavailable")
             };
             controls = controls.child(
                 div()
@@ -731,15 +1146,25 @@ impl StudioApp {
                     .items_center()
                     .gap_1()
                     .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .text_ellipsis()
-                            .text_size(px(12.))
-                            .when(figure.is_none(), |d| d.text_color(t.text_muted))
-                            .child(label),
+                        button(
+                            &t,
+                            ("composer-panel-select", index),
+                            label,
+                            self.publish.composer.selected_panel == index,
+                        )
+                        .flex_1()
+                        .min_w_0()
+                        .justify_start()
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .text_size(px(12.))
+                        .when(rendered.is_none(), |d| d.text_color(t.text_muted))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.publish.composer.selected_panel = index;
+                            this.composer_panel_fields(cx);
+                            cx.notify();
+                        })),
                     )
                     .child(
                         enabled_when(
@@ -755,6 +1180,13 @@ impl StudioApp {
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if index > 0 {
                                 this.composite().panels.swap(index, index - 1);
+                                let selected = &mut this.publish.composer.selected_panel;
+                                if *selected == index {
+                                    *selected -= 1;
+                                } else if *selected == index - 1 {
+                                    *selected += 1;
+                                }
+                                this.composer_panel_fields(cx);
                                 cx.notify();
                             }
                         })),
@@ -769,11 +1201,16 @@ impl StudioApp {
                         )
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.composite().panels.remove(index);
+                            if this.publish.composer.selected_panel > index {
+                                this.publish.composer.selected_panel -= 1;
+                            }
+                            this.composer_panel_fields(cx);
                             cx.notify();
                         })),
                     ),
             );
         }
+        controls = controls.child(self.composer_selected_panel_controls(&choices, cx));
         if recipe.panels.is_empty() {
             controls = controls.child(
                 div()
@@ -785,7 +1222,7 @@ impl StudioApp {
         controls = controls.child(heading(&t, "Add panel"));
         let can_add = recipe.panels.len() < MAX_PANELS;
         let mut add = div().flex().flex_wrap().gap_1();
-        for figure in self.publish.figures.iter() {
+        for figure in &available {
             let key = figure.key;
             add = add.child(
                 enabled_when(
@@ -793,13 +1230,15 @@ impl StudioApp {
                         &t,
                         SharedString::from(format!("composer-add-{key}")),
                         figure.label.clone(),
-                        recipe.panels.iter().any(|p| p == key),
+                        recipe.panels.iter().any(|panel| panel.key == key),
                     ),
                     can_add,
                 )
                 .on_click(cx.listener(move |this, _, _, cx| {
                     if this.composite().panels.len() < MAX_PANELS {
                         this.composite().panels.push(key.into());
+                        this.publish.composer.selected_panel = this.composite().panels.len() - 1;
+                        this.composer_panel_fields(cx);
                         cx.notify();
                     }
                 })),
@@ -812,16 +1251,14 @@ impl StudioApp {
             div()
                 .text_size(px(11.))
                 .text_color(t.text_muted)
-                .child("Shared across panels. Auto uses each figure's colour setting."),
+                .child("Shared across panels. Auto uses workspace sample colours and each figure's colour settings."),
         );
         let mut seen = std::collections::BTreeSet::new();
-        for panel in &recipe.panels {
-            let Some(figure) = available(panel) else {
-                continue;
-            };
-            let options = self.publish.settings.options(figure.key);
+        for panel in prepared.iter().flat_map(|prepared| &prepared.panels) {
+            let figure = &panel.data;
+            let options = &panel.options;
             for series in figure
-                .series(&options)
+                .series(options)
                 .iter()
                 .chain(figure.residual.iter().flatten())
             {
@@ -1024,10 +1461,12 @@ impl StudioApp {
                         .text_color(gpui::rgb(0x606770))
                         .child(if state.running {
                             "Rendering figure…"
-                        } else if self.publish.figures.is_empty() {
-                            "Open and process a spectrum to prepare a figure."
-                        } else {
+                        } else if recipe.panels.is_empty() {
                             "Add panels to compose a figure."
+                        } else if !ready {
+                            "No selected samples or panels are ready. See the details below."
+                        } else {
+                            "Adjust the figure settings using the details below."
                         }),
                 );
             }
@@ -1061,7 +1500,7 @@ impl StudioApp {
             .child(canvas);
         if !state.missing.is_empty() {
             preview = preview.child(div().text_size(px(12.)).text_color(t.warn).child(format!(
-                "Skipped unavailable panels: {}. Run a fit or process a spectrum to fill them.",
+                "Unavailable samples or panels: {}. Process samples or run a fit to include them.",
                 state.missing.join(", ")
             )));
         }
@@ -1143,11 +1582,45 @@ mod tests {
     use super::*;
 
     #[test]
+    fn unchanged_preview_revision_reuses_prepared_panels() {
+        let mut state = ComposerState::default();
+        let source = (vec![10, 20], vec![1]);
+        let generation = state.begin_preview(source.clone()).unwrap();
+        let prepared = Arc::new(PreparedComposition {
+            panels: Vec::new(),
+            missing: vec!["chi-r".into()],
+        });
+        state.prepared = Some(prepared.clone());
+
+        // These controls trigger redraws without changing source or settings.
+        state.colour_series = Some("sample/main".into());
+        state.selected_panel = 1;
+        assert!(state.begin_preview(source.clone()).is_none());
+        assert_eq!(state.generation, generation);
+        assert!(Arc::ptr_eq(state.prepared.as_ref().unwrap(), &prepared));
+
+        // Settings and processed data revisions each discard the old arrays.
+        let settings_generation = state.begin_preview((source.0, vec![2])).unwrap();
+        assert_ne!(settings_generation, generation);
+        assert!(state.prepared.is_none());
+        state.prepared = Some(prepared);
+        assert_ne!(
+            state.begin_preview((vec![10, 30], vec![2])).unwrap(),
+            settings_generation
+        );
+        assert!(state.prepared.is_none());
+    }
+
+    #[test]
     fn switching_recipe_clears_results_and_rejects_its_in_flight_render() {
         let mut state = ComposerState {
             open: true,
             true_size: true,
             source: Some((vec![10], vec![1])),
+            prepared: Some(Arc::new(PreparedComposition {
+                panels: Vec::new(),
+                missing: Vec::new(),
+            })),
             generation: 7,
             fields_generation: 3,
             running: true,
@@ -1165,6 +1638,7 @@ mod tests {
         state.invalidate_preview();
         assert_ne!(state.generation, old_generation);
         assert!(state.source.is_none());
+        assert!(state.prepared.is_none());
         assert!(!state.running);
         assert!(state.image.is_none());
         assert_eq!(state.size_mm, (0., 0.));
@@ -1184,12 +1658,16 @@ mod tests {
             name_error: Some("Invalid draft".into()),
             generation: 7,
             fields_generation: 3,
+            panel_fields_generation: 5,
+            selected_panel: 2,
             caption: "Caption from the previous project.".into(),
             ..Default::default()
         };
         state.reset();
         assert_eq!(state.generation, 8);
         assert_eq!(state.fields_generation, 4);
+        assert_eq!(state.panel_fields_generation, 6);
+        assert_eq!(state.selected_panel, 0);
         assert!(!state.open);
         assert!(!state.recipe_menu);
         assert!(state.rename.is_none());

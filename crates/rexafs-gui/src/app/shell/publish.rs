@@ -1,4 +1,5 @@
 mod composer;
+mod composer_samples;
 mod editor;
 mod supporting;
 use crate::publication::figures::{FigureData, FigureSettings, RenderedFigure};
@@ -35,6 +36,8 @@ pub(crate) struct PublishState {
     pub(super) colour_series: Option<String>,
     /// Multi-panel composer view and its preview.
     pub(super) composer: composer::ComposerState,
+    /// Cached composer sample figures and background processing requests.
+    samples: composer_samples::ComposerSamplesState,
 }
 /// One-line scope of the report bundle: the current group, the marked groups
 /// added to it and the completed fits that the report will include.
@@ -65,6 +68,12 @@ pub(super) fn file_url(path: &std::path::Path) -> String {
 }
 
 impl PublishState {
+    /// Discard retained composer data and failed requests when source bindings
+    /// are invalidated, including a refresh that preserves group IDs and settings.
+    pub(crate) fn invalidate_composer_samples(&mut self) {
+        self.samples = Default::default();
+    }
+
     fn changed_since_publish(&self, current: &[u8]) -> bool {
         self.published_revision
             .as_deref()

@@ -15,6 +15,7 @@ fn publication_recipes_migrate_old_rxs_and_save_only_the_new_format() {
     save_with_storage(&path, &ProjectFile::default(), DataStorage::Paths).unwrap();
     let mut legacy = json_file(&path);
     legacy["publication"] = serde_json::json!({"composite": recipe});
+    legacy["publication"]["composite"]["panels"] = serde_json::json!(["xanes", "chi-k"]);
     std::fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
     let mut project = load_with_cache_root(&path, || Ok(temp.path().join("cache"))).unwrap();
     assert_eq!(project.publication.recipes().len(), 1);
@@ -31,6 +32,81 @@ fn publication_recipes_migrate_old_rxs_and_save_only_the_new_format() {
     assert_eq!(json["publication"]["active_recipe"], 1);
     let restored = load_with_cache_root(&saved, || Ok(temp.path().join("cache"))).unwrap();
     assert_eq!(restored.publication, project.publication);
+}
+
+#[test]
+fn publication_samples_keep_order_and_panel_options_after_rxs_reopen() {
+    use crate::group_identity::GroupId;
+    use crate::publication::figures::composer::{CompositePanel, CurveLabelMode};
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("samples.rxs");
+    let mut project = ProjectFile::default();
+    let samples = vec![GroupId::legacy_result(9), GroupId::legacy_result(2)];
+    let recipe = project.publication.active_composite_mut();
+    recipe.samples = samples.clone();
+    recipe.panels = vec![
+        CompositePanel::from("xanes"),
+        CompositePanel {
+            key: "chi-k".into(),
+            samples: Some(samples.iter().rev().cloned().collect()),
+            offset_step: 0.3,
+            reverse: true,
+            label_mode: CurveLabelMode::CurveEnd,
+        },
+        CompositePanel {
+            samples: Some(Vec::new()),
+            ..CompositePanel::from("chi-r")
+        },
+    ];
+    for mode in [DataStorage::Paths, DataStorage::Embedded] {
+        save_with_storage(&path, &project, mode).unwrap();
+        let saved = json_file(&path);
+        let recipe = &saved["publication"]["recipes"][0]["recipe"];
+        assert_eq!(
+            recipe["samples"],
+            serde_json::json!(["result:9", "result:2"])
+        );
+        assert_eq!(
+            recipe["panels"][1]["samples"],
+            serde_json::json!(["result:2", "result:9"])
+        );
+        let reopened = load_with_cache_root(&path, || Ok(temp.path().join("cache"))).unwrap();
+        assert_eq!(reopened.publication, project.publication);
+    }
+}
+
+#[test]
+fn publication_named_recipe_panel_strings_load_from_rxs() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("legacy-panels.rxs");
+    save_with_storage(&path, &ProjectFile::default(), DataStorage::Paths).unwrap();
+    let mut saved = json_file(&path);
+    saved["publication"] = serde_json::json!({
+        "recipes": [{"name": "Figure 1", "recipe": {"panels": ["xanes", "chi-k"]}}]
+    });
+    std::fs::write(&path, serde_json::to_vec(&saved).unwrap()).unwrap();
+    let reopened = load_with_cache_root(&path, || Ok(temp.path().join("cache"))).unwrap();
+    let recipe = &reopened.publication.active_recipe().recipe;
+    assert!(recipe.samples.is_empty());
+    assert_eq!(
+        recipe
+            .panels
+            .iter()
+            .map(|panel| panel.key.as_str())
+            .collect::<Vec<_>>(),
+        ["xanes", "chi-k"]
+    );
+    assert!(
+        recipe
+            .panels
+            .iter()
+            .all(|panel| panel.samples.is_none() && panel.offset_step == 0. && !panel.reverse)
+    );
+    save_with_storage(&path, &reopened, DataStorage::Paths).unwrap();
+    let saved = json_file(&path);
+    assert!(saved["publication"]["recipes"][0]["recipe"]["panels"][0].is_object());
+    let again = load_with_cache_root(&path, || Ok(temp.path().join("cache"))).unwrap();
+    assert_eq!(again.publication, reopened.publication);
 }
 
 #[test]

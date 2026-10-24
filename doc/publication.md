@@ -215,6 +215,45 @@ order, dimensions, font, line width and DPI.
   or the previous one when deleting the last entry. The only remaining recipe
   cannot be deleted.
 
+**Samples and stacking (unreleased).** **Samples** offers the current group
+first, then the marked groups in workspace order. Check only the samples to
+include. **All** selects the offered groups in that order; **None** clears the
+list. An empty list means the current group only, preserving older recipes.
+Checking a sample appends its durable group ID to the saved list. The recipe
+keeps that order when marks or the current group change; renaming a group updates
+its label when the figure is rendered.
+
+Select a panel row to edit its sample and stacking settings. **Use these samples
+in every panel** is on by default: the panel inherits the recipe's **Samples**
+list. Turn it off to copy that list into a separate selection for this panel.
+Re-enabling it restores the shared selection. Saved samples remain selected even
+when they are no longer current or marked. Removed samples are skipped and listed
+as missing. rexafs queues processing for available selected groups with no cached
+result. If a group still has no data, select it in the workspace, inspect its
+processing error and process it successfully before exporting.
+
+With one sample, each panel keeps its existing curves, helper lines and curve
+keys. With several selected samples, each contributes only the main curve for
+the figure; background, pre-edge, post-edge and other helper curves are omitted.
+Choose samples with matching plotted quantities and k weights: a panel shares the
+first available sample's axis labels and does not convert other samples' units.
+Fit, residual and fit + residual panels always show one fitted dataset and ignore
+the sample selection and stacking settings. **Single figure** stays single-sample.
+
+**Offset step (y units)** is a display displacement between successive samples:
+zero overlays the original curves. A step of 0.3 adds 0, 0.3, 0.6, and so on to
+the samples' vertical values in saved order. **Reverse order** assigns these
+offsets in reverse, putting the first sample highest for a positive step.
+Negative steps move successive curves downward. Missing samples keep their
+positions in the saved order. Offsets use the panel's displayed vertical-axis
+units, including any k weighting; they modify copied display arrays only, leaving
+processed spectra and fit results unchanged. The combined caption records a
+non-zero applied offset. **Curve labels** defaults to **Legend**; **Curve ends** places
+literal curve names at the right side of the plot with space reserved across the
+grid. If names cannot fit at the chosen width, use a wider figure or the legend.
+These display choices are implemented in
+[`prepare_panels` and `compose_samples`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/figures/composer.rs).
+
 **Journal width** sets the total figure width to a publisher's column width.
 The values are maximum widths from the publishers' author guides, checked in
 October 2026; individual journals can differ, so check the target journal:
@@ -242,9 +281,12 @@ because a legend outside one panel would shrink its plot area.
 **Colours** lists the series in the chosen panels, including residual strips.
 Choose a swatch to set a shared colour for that series key in every panel. This
 recipe setting overrides the figure's own colour; **Auto** removes only the
-shared override, so each panel uses its **Single figure** colour or its automatic
-colour. Shared colours are saved with the recipe and used in PNG, TIFF, SVG and
-PDF exports. Removing a panel keeps its saved colours for later reuse.
+shared override. For several samples, the default is each group's workspace plot
+colour, and the curve key is `<group id>/<series key>`; a full-key figure or recipe
+colour overrides that default. One-sample panels retain their **Single figure**
+colours and automatic palette. Shared colours are saved with the recipe and used
+in PNG, TIFF, SVG and PDF exports. Removing a panel keeps its saved colours for
+later reuse.
 
 rexafs aligns the panels by giving every panel the same fixed margins: the
 widest left margin any panel needs for its y tick labels and axis title, and
@@ -254,7 +296,9 @@ panel is rendered separately by ruviz and the panels are tiled into one image
 and nested into one SVG, the same technique as the fit + residual figure. The
 bold panel labels sit at the top-left corner of each panel, at the axis-title
 font size. Each recipe stores panels, width, columns, height, font, line width,
-DPI and shared colours; naming a recipe does not change how its panels render. **Single figure**
+DPI, shared colours and ordered sample IDs. Each panel stores its figure key,
+optional own sample IDs, offset step, reverse flag and label mode; naming a recipe
+does not change how its panels render. **Single figure**
 settings, including captions and visible curves, remain shared across recipes,
 so changing them affects every recipe using that figure type.
 
@@ -264,7 +308,10 @@ of `{name, recipe}` entries and the selection as the zero-based
 final recipe. An older `publication.composite` loads unchanged as **Figure 1**;
 projects without recipe data start with a default **Figure 1**. Saving writes
 only the new recipe format; the compact project encoder may omit default
-fields. Storage and migration are implemented in
+fields. Legacy panels saved as plain figure-key strings still load with shared
+samples, zero offset, forward order and legend labels. New saves write panel
+objects, with sample IDs as ordered arrays rather than labels or workspace row
+numbers. Storage and migration are implemented in
 [`recipes.rs`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/figures/recipes.rs).
 
 The preview is rendered at up to 200 DPI; **Fit** fits it to the pane and
@@ -289,10 +336,9 @@ example "(a) Flattened, edge-step-normalized X-ray absorption spectrum… (b) �
 **Copy caption** copies it. **Save caption…** saves it as plain text,
 with a suggested filename such as `figure-2-caption.txt`. Panels whose figure
 is unavailable, such as a fit panel before any fit has run, are skipped, listed
-under the preview and kept in the recipe. Each panel shows one spectrum:
-overlays of several samples with vertical offsets, an inset and a
-matplotlib script for the whole grid are not available yet. The composer
-is implemented in
+under the preview and kept in the recipe. Missing samples are also listed and
+retained in the recipe. An inset and a matplotlib script for the whole grid are
+not available yet. The composer is implemented in
 [`composer.rs`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/figures/composer.rs).
 
 ## Captions

@@ -220,8 +220,17 @@ first, then the marked groups in workspace order. Check only the samples to
 include. **All** selects the offered groups in that order; **None** clears the
 list. An empty list means the current group only, preserving older recipes.
 Checking a sample appends its durable group ID to the saved list. The recipe
-keeps that order when marks or the current group change; renaming a group updates
-its label when the figure is rendered.
+keeps that order when marks or the current group change.
+
+Enter an optional short **Figure label** beside each sample, for example `Cu foil`
+instead of a long acquisition filename. Multi-sample legends and curve-end labels
+use it; a blank label uses the full workspace group name and follows later group
+renames. Figure labels belong to this recipe, are saved by group ID in
+`figure_labels`, and do not rename workspace groups. The combined caption
+identifies each short label and its full sample name once per figure when they
+differ; offset lists refer to the short labels. In a one-sample composer panel,
+an explicit figure label replaces the main curve's label; a blank label keeps
+that figure's ordinary curve labels.
 
 Select a panel row to edit its sample and stacking settings. **Use these samples
 in every panel** is on by default: the panel inherits the recipe's **Samples**
@@ -248,13 +257,15 @@ Negative steps move successive curves downward. Missing samples keep their
 positions in the saved order. Offsets use the panel's displayed vertical-axis
 units, including any k weighting; they modify copied display arrays only, leaving
 processed spectra and fit results unchanged. The combined caption records a
-non-zero applied offset. **Curve labels** defaults to **Legend**; **Curve ends** places
-curve names at the right side of the plot with space reserved across the grid.
-Names use at most 35% of the panel width, including padding. Longer names keep
-their beginning and end with an ellipsis (…). The raster and SVG use the same
-shortened labels; the caption keeps the full names. If even an ellipsis cannot
-fit while leaving 0.5 in of plot width, use a wider figure, fewer columns, a
-smaller font or the legend.
+non-zero applied offset. **Curve labels** defaults to **Legend**; **Curve ends**
+places the complete figure labels at the right side of the plot with space
+reserved across the grid. Labels and padding may use at most 35% of a panel's
+width. Labels are never shortened: when they exceed that allowance, rendering
+stops with “Curve-end labels are too long for this panel. Shorten the figure
+labels or use a legend.” The raster and SVG use the same complete labels.
+The plot must also retain at least 0.5 in of width. If it cannot, use a wider
+figure, fewer columns, a smaller font or a legend. Labels that cannot fit
+vertically require taller panels, fewer samples, a smaller font or a legend.
 These display choices are implemented in
 [`prepare_panels` and `compose_samples`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/figures/composer.rs).
 
@@ -275,22 +286,66 @@ width. Each panel must be at least 25.4 mm (1 in) on each side.
 
 **Font size** (8 pt by default), **Line width** (blank keeps the renderer
 default) and **DPI** (600 by default) apply to every panel, so all panels share
-the same text and curve weights. Everything else inside a panel comes from that
-figure's **Single figure** settings: axis labels, axis limits, visible curves,
-curve colours, flattened or normalized μ(E), legend, grid and guides. Titles are left out
-because the panel labels identify the panels. Legends stay inside the plot (an
-**Outside** or crowded **Auto** legend takes the least-covered inside corner),
-because a legend outside one panel would shrink its plot area.
+the same text and curve weights. Panels use the figure's **Single figure**
+settings for axis labels, axis limits, visible curves, curve colours, flattened
+or normalized μ(E), and processing guides. Titles are left out because the panel
+labels identify the panels.
 
-**Colours** lists the series in the chosen panels, including residual strips.
+**Grid, ticks and legends (unreleased).** The recipe's **Grid** is off by default
+and overrides each figure's grid setting within the composition. Major and minor
+ticks point inward on all four sides. rexafs chooses four evenly spaced minor
+ticks between major ticks because ruviz sets a fixed count per plot. This is a
+project choice: Matplotlib's
+[`AutoMinorLocator`](https://matplotlib.org/stable/api/ticker_api.html#matplotlib.ticker.AutoMinorLocator)
+adapts the count, using four minor ticks when the major interval is 1, 2.5, 5
+or 10 times a power of ten, and three otherwise.
+
+For panels selecting several samples, the default shows a legend only in the
+first panel with at least two visible samples whose **Curve labels** mode is
+**Legend** and whose figure legend is enabled. Enable **Legend in every panel**
+to show a legend in every panel that selects several samples and permits a
+legend. Curve-end panels do not show a legend. One-sample and fit panels retain their figure's legend
+visibility. Composer legends use text one point smaller than the figure font,
+with a minimum of 5 pt, and stay inside the plot. Automatic placement chooses the
+inside position that covers the least plotted data. Composer legends use this
+placement for every figure legend setting so that panels remain aligned. The
+renderer currently draws a box around legends. These settings apply to the composition; **Single figure** keeps its
+own grid, ticks and legend behavior. The shared composer legend styling is
+implemented in
+[`composer.rs`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/figures/composer.rs).
+
+**Curve colours** lists the series in the chosen panels, including residual strips.
 Choose a swatch to set a shared colour for that series key in every panel. This
 recipe setting overrides the figure's own colour; **Auto** removes only the
-shared override. For several samples, the default is each group's workspace plot
-colour, and the curve key is `<group id>/<series key>`; a full-key figure or recipe
-colour overrides that default. One-sample panels retain their **Single figure**
-colours and automatic palette. Shared colours are saved with the recipe and used
-in PNG, TIFF, SVG and PDF exports. Removing a panel keeps its saved colours for
-later reuse.
+shared override.
+
+**Sample colours (unreleased)** selects the automatic colours for multi-sample
+panels. rexafs chooses one colour order for the recipe: shared sample IDs selected
+by at least one spectrum panel come first, in the shared list's order, followed
+by panel-only sample IDs in panel reading order and then selection order. Each
+sample appears once; missing samples retain their colour slots. This is a rexafs
+choice that keeps a sample's automatic colour consistent when a panel selects a
+subset or changes its sample order.
+
+- **Ordered** (the default) samples viridis at evenly spaced positions from 0 to
+  0.82 across that recipe-wide order. Viridis is the sequential map designed by
+  Nathaniel Smith and Stéfan van der Walt; see their
+  [colormap design notes](https://bids.github.io/colormap/). Ending at 0.82 is a
+  rexafs choice to avoid the palest yellow at the bright end on white paper.
+- **Okabe–Ito** cycles through the eight-colour categorical palette from Okabe
+  and Ito (2008),
+  [“Color Universal Design”](https://jfly.uni-koeln.de/color/), for samples that
+  represent separate categories.
+- **Workspace** keeps each group's workspace plot colour.
+
+The multi-sample curve key is `<group id>/<series key>`. An explicit colour
+saved under that full key in the figure settings overrides the sample palette;
+a matching recipe colour overrides both. A short key such as `main` does not
+colour every sample alike. One-sample panels retain their **Single figure**
+colours and automatic palette. Sample palettes and shared colours are saved with
+the recipe and used in PNG, TIFF, SVG and PDF exports. Removing a panel keeps its
+saved colours for later reuse. Sample colour resolution is implemented in
+[`prepare_panels`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/figures/composer.rs).
 
 rexafs aligns the panels by giving every panel the same fixed margins: the
 widest left margin any panel needs for its y tick labels and axis title, and
@@ -300,7 +355,8 @@ panel is rendered separately by ruviz and the panels are tiled into one image
 and nested into one SVG, the same technique as the fit + residual figure. The
 bold panel labels sit at the top-left corner of each panel, at the axis-title
 font size. Each recipe stores panels, width, columns, height, font, line width,
-DPI, shared colours and ordered sample IDs. Each panel stores its figure key,
+DPI, grid and legend repetition settings, sample palette, figure labels, shared
+colours and ordered sample IDs. Each panel stores its figure key,
 optional own sample IDs, offset step, reverse flag and label mode; naming a recipe
 does not change how its panels render. **Single figure**
 settings, including captions and visible curves, remain shared across recipes,

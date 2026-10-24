@@ -2,7 +2,10 @@
 use super::*;
 use crate::group_identity::GroupId;
 use crate::params::Quantity;
-use crate::publication::figures::{composer::CompositeSample, quantity_figures};
+use crate::publication::figures::{
+    composer::{CompositeRecipe, CompositeSample},
+    quantity_figures,
+};
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{Hash, Hasher};
 
@@ -62,6 +65,36 @@ fn composer_sample_indices(
         .collect()
 }
 
+/// Include implicit current-sample data only when its figure label needs to be
+/// applied. Without an override, empty selections retain the ordinary path.
+fn recipe_sample_ids(recipe: &CompositeRecipe, current: Option<GroupId>) -> BTreeSet<GroupId> {
+    let mut ids: BTreeSet<_> = recipe
+        .panels
+        .iter()
+        .filter(|panel| !panel.uses_current_fit())
+        .flat_map(|panel| panel.samples.as_ref().unwrap_or(&recipe.samples))
+        .cloned()
+        .collect();
+    if recipe.panels.iter().any(|panel| {
+        !panel.uses_current_fit() && panel.samples.as_ref().unwrap_or(&recipe.samples).is_empty()
+    }) && let Some(current) = current
+        && recipe
+            .figure_labels
+            .get(&current)
+            .is_some_and(|label| !label.trim().is_empty())
+    {
+        ids.insert(current);
+    }
+    ids
+}
+
+/// Identify metadata separately from the stable figure array pointers.
+fn sample_metadata_revision(sample: &CompositeSample) -> usize {
+    let mut metadata = std::collections::hash_map::DefaultHasher::new();
+    (&sample.id, &sample.label, &sample.color, sample.is_current).hash(&mut metadata);
+    metadata.finish() as usize
+}
+
 impl StudioApp {
     /// Offer the current group first, followed by marked groups in workspace order.
     pub(super) fn composer_sample_choices(&self) -> Vec<(GroupId, String)> {
@@ -87,13 +120,8 @@ impl StudioApp {
     /// Gather only the IDs needed by non-fit panels; rendering retains list order.
     fn composer_sample_ids(&self) -> BTreeSet<GroupId> {
         let recipe = &self.publish.settings.active_recipe().recipe;
-        recipe
-            .panels
-            .iter()
-            .filter(|panel| !panel.uses_current_fit())
-            .flat_map(|panel| panel.samples.as_ref().unwrap_or(&recipe.samples))
-            .cloned()
-            .collect()
+        let current = self.current_group_index().and_then(|ix| self.group_id(ix));
+        recipe_sample_ids(recipe, current)
     }
 
     /// The same processed revision used by workspace overlays. A standalone
@@ -202,6 +230,7 @@ impl StudioApp {
                 label,
                 color,
                 figures,
+                is_current: self.current_group_index() == Some(ix),
             });
         }
         samples
@@ -262,13 +291,12 @@ impl StudioApp {
         }
     }
 
-    /// Track data, renames, removals and workspace palette changes in previews.
+    /// Track data, renames, removals, the current sample and workspace palette
+    /// changes in previews.
     pub(super) fn composer_sample_source(&self, samples: &[CompositeSample]) -> Vec<usize> {
         let mut source = Vec::new();
         for sample in samples {
-            let mut metadata = std::collections::hash_map::DefaultHasher::new();
-            (&sample.id, &sample.label, &sample.color).hash(&mut metadata);
-            source.push(metadata.finish() as usize);
+            source.push(sample_metadata_revision(sample));
             source.extend(
                 sample
                     .figures
@@ -302,6 +330,60 @@ mod tests {
                 .collect(),
         );
         catalog
+    }
+
+    #[test]
+    fn implicit_current_sample_is_retained_only_for_a_nonblank_figure_label() {
+        let current = GroupId::legacy_result(1);
+        let selected = GroupId::legacy_result(2);
+        let mut recipe = CompositeRecipe {
+            panels: vec!["xanes".into()],
+            ..Default::default()
+        };
+        assert!(recipe_sample_ids(&recipe, Some(current.clone())).is_empty());
+        recipe.figure_labels.insert(current.clone(), " \t ".into());
+        assert!(recipe_sample_ids(&recipe, Some(current.clone())).is_empty());
+        recipe
+            .figure_labels
+            .insert(current.clone(), "Reference".into());
+        assert_eq!(
+            recipe_sample_ids(&recipe, Some(current.clone())),
+            BTreeSet::from([current.clone()])
+        );
+        assert!(recipe_sample_ids(&recipe, None).is_empty());
+
+        recipe.samples = vec![selected.clone()];
+        assert_eq!(
+            recipe_sample_ids(&recipe, Some(current.clone())),
+            BTreeSet::from([selected.clone()]),
+            "a selected sample does not need the implicit current sample"
+        );
+        recipe.panels.push("chi-k".into());
+        recipe.panels[0].samples = Some(Vec::new());
+        assert_eq!(
+            recipe_sample_ids(&recipe, Some(current.clone())),
+            BTreeSet::from([current.clone(), selected]),
+            "an independently empty panel still needs the current label"
+        );
+        recipe.panels = vec!["fit-k".into()];
+        recipe.samples.clear();
+        assert!(recipe_sample_ids(&recipe, Some(current)).is_empty());
+    }
+
+    #[test]
+    fn composer_preview_revision_tracks_current_sample_without_changing_arrays() {
+        let mut sample = CompositeSample {
+            id: GroupId::legacy_result(1),
+            label: "Original workspace name".into(),
+            color: "#123456".into(),
+            figures: Vec::new(),
+            is_current: false,
+        };
+        let selected_revision = sample_metadata_revision(&sample);
+        sample.is_current = true;
+        assert_ne!(sample_metadata_revision(&sample), selected_revision);
+        sample.is_current = false;
+        assert_eq!(sample_metadata_revision(&sample), selected_revision);
     }
 
     #[test]

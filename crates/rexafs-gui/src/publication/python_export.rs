@@ -274,8 +274,9 @@ fn py_limit(pair: Option<(f64, f64)>) -> String {
 /// Shared sans-serif mathtext and editable vector-output settings.
 const PYTHON_STYLE: &str = r#"plt.rcParams.update(
     {
-        "font.family": "sans-serif",
-        "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans"],
+        # Matplotlib 3.6+ falls back per glyph, including subscripts absent in Arial.
+        "font.family": ["Arial", "DejaVu Sans"],
+        "font.sans-serif": ["Arial", "DejaVu Sans"],
         "font.size": FONT_SIZE,
         "axes.labelsize": FONT_SIZE,
         "axes.titlesize": 1.4 * FONT_SIZE,
@@ -595,6 +596,7 @@ mod tests {
             "LEGEND = True",
             "GRID = True",
             "TITLE = None",
+            r#""font.family": ["Arial", "DejaVu Sans"],"#,
             r#"XLABEL = "$k$ (Å$^{-1}$)""#,
             r#"YLABEL = r"$k^{2}\chi$($k$) (Å$^{-2}$)""#,
             r#""mathtext.fontset": "custom","#,

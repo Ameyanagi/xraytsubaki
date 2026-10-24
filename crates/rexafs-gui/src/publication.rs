@@ -1,5 +1,6 @@
 //! A local, inspectable analysis record. The Assistant uses a separate summary.
 pub(crate) mod assistant_context;
+pub(crate) mod composed;
 pub(crate) mod figures;
 pub(crate) mod fit_table;
 pub(crate) mod methods;
@@ -72,6 +73,8 @@ pub(crate) struct Snapshot {
     pub current: PathBuf,
     pub spectra: Vec<SpectrumInput>,
     pub results: BTreeMap<usize, Arc<FeffFitResult>>,
+    /// Current composer inputs, independent of the bundled project's sources.
+    pub composer: composed::ComposerInput,
     pub analysis: Value,
     pub batch_csv: Option<String>,
     pub batch_stale: bool,
@@ -269,7 +272,8 @@ pub(crate) fn resolved_settings(sp: &XASSpectrum) -> Value {
 /// Export a snapshot into a newly created analysis directory.
 ///
 /// Writes the selected project storage mode, processed spectrum arrays, available
-/// fit arrays, PNG/SVG/CSV figures, captions, methods and reference drafts.
+/// fit arrays, PNG/SVG/CSV figures, named PNG/SVG/PDF compositions with captions
+/// and matplotlib data, methods and reference drafts.
 /// Per-spectrum processing failures, failed figures and unavailable historical
 /// arrays are retained as notices; a successful return can therefore describe an
 /// incomplete analysis. Inspect `manifest.json`, the report and the README.
@@ -398,6 +402,13 @@ pub(crate) fn export(mut snapshot: Snapshot, destination: &Path) -> Result<PathB
             errors.push(format!("Fit {}: archived statistics and inputs exported; curve arrays are unavailable in this session.",fit.id));
         }
     }
+    composed::write(
+        &snapshot.composer,
+        &snapshot.project.publication,
+        destination,
+        &mut assets,
+        &mut errors,
+    )?;
     let tables = snapshot.tables();
     fs::write(destination.join("analysis.md"), snapshot.markdown()).map_err(|e| e.to_string())?;
     fs::write(destination.join("methods.md"), methods::markdown(&snapshot))
@@ -423,12 +434,23 @@ pub(crate) fn export(mut snapshot: Snapshot, destination: &Path) -> Result<PathB
     );
     index.push_str(project_sources);
     index.push_str("\n\n## Figures\n\n");
+    let mut composed_heading = false;
     for asset in &assets {
+        let name = asset["recipe_name"].as_str().unwrap_or("");
+        if !name.is_empty() && !composed_heading {
+            index.push_str("## Composed figures\n\n");
+            composed_heading = true;
+        }
         if let Some(file) = asset["file"].as_str() {
             index.push_str(&format!(
-                "![Figure {}]({file})\n\n**Figure {}.** {}\n\n",
+                "![Figure {}]({file})\n\n**Figure {}.** {}{}\n\n",
                 asset["number"],
                 asset["number"],
+                if name.is_empty() {
+                    String::new()
+                } else {
+                    format!("{}. ", cell(name))
+                },
                 cell(asset["caption"].as_str().unwrap())
             ));
             if let Some(svg) = asset["svg"].as_str() {
@@ -437,6 +459,15 @@ pub(crate) fn export(mut snapshot: Snapshot, destination: &Path) -> Result<PathB
         }
         if let Some(csv) = asset["csv"].as_str() {
             index.push_str(&format!("[Download curve data CSV]({csv})\n\n"));
+        }
+        for (key, label) in [
+            ("pdf", "Download vector PDF"),
+            ("caption_file", "Copy combined caption"),
+            ("python", "Editable matplotlib script and adjacent CSV data"),
+        ] {
+            if let Some(path) = asset[key].as_str() {
+                index.push_str(&format!("[{label}]({path})\n\n"));
+            }
         }
     }
     if !errors.is_empty() {
@@ -514,6 +545,7 @@ mod tests {
                 batch_csv: None,
                 batch_stale: false,
                 journal: vec![],
+                composer: Default::default(),
                 screen: Value::Null,
             },
             &output,
@@ -614,6 +646,7 @@ mod tests {
             batch_csv: None,
             batch_stale: false,
             journal: vec![],
+            composer: Default::default(),
             screen: Value::Null,
         };
         assert!(
@@ -665,9 +698,13 @@ mod tests {
                 .unwrap()
                 .contains("**Table 1.**")
         );
+        let notices = manifest["notices"].as_array().unwrap();
+        assert_eq!(notices.len(), 1, "{manifest}");
         assert!(
-            manifest["notices"].as_array().unwrap().is_empty(),
-            "{manifest}"
+            notices[0]
+                .as_str()
+                .unwrap()
+                .contains("Composed figure Figure 1")
         );
         let resolved = fs::read_to_string(folder.join("resolved.md")).unwrap();
         assert!(resolved.find("## ").unwrap() < resolved.find("```json").unwrap());
@@ -740,6 +777,7 @@ mod tests {
             batch_csv: None,
             batch_stale: false,
             journal: vec![],
+            composer: Default::default(),
             screen: Value::Null,
         };
         let c = s.context();

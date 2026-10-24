@@ -2,6 +2,7 @@
 use super::*;
 use crate::group_identity::GroupId;
 use crate::params::Quantity;
+use crate::publication::composed::{ComposerInput, SampleInput};
 use crate::publication::figures::{
     composer::{CompositeRecipe, CompositeSample},
     quantity_figures,
@@ -65,25 +66,35 @@ fn composer_sample_indices(
         .collect()
 }
 
-/// Include implicit current-sample data only when its figure label needs to be
-/// applied. Without an override, empty selections retain the ordinary path.
-fn recipe_sample_ids(recipe: &CompositeRecipe, current: Option<GroupId>) -> BTreeSet<GroupId> {
-    let mut ids: BTreeSet<_> = recipe
-        .panels
-        .iter()
-        .filter(|panel| !panel.uses_current_fit())
-        .flat_map(|panel| panel.samples.as_ref().unwrap_or(&recipe.samples))
-        .cloned()
-        .collect();
-    if recipe.panels.iter().any(|panel| {
-        !panel.uses_current_fit() && panel.samples.as_ref().unwrap_or(&recipe.samples).is_empty()
-    }) && let Some(current) = current
-        && recipe
-            .figure_labels
-            .get(&current)
-            .is_some_and(|label| !label.trim().is_empty())
-    {
-        ids.insert(current);
+/// Unique sample dependencies of the requested recipes. Panel overrides replace
+/// the shared selection, and fit panels always use the current fitted dataset.
+/// The implicit current sample is included only when a recipe gives it a
+/// figure label; otherwise empty selections keep the ordinary current path.
+fn recipe_sample_ids<'a>(
+    recipes: impl IntoIterator<Item = &'a CompositeRecipe>,
+    current: Option<GroupId>,
+) -> BTreeSet<GroupId> {
+    let mut ids = BTreeSet::new();
+    for recipe in recipes {
+        let selections = recipe
+            .panels
+            .iter()
+            .filter(|panel| !panel.uses_current_fit())
+            .map(|panel| panel.samples.as_ref().unwrap_or(&recipe.samples));
+        let mut uses_current = false;
+        for selection in selections {
+            uses_current |= selection.is_empty();
+            ids.extend(selection.iter().cloned());
+        }
+        if uses_current
+            && let Some(current) = &current
+            && recipe
+                .figure_labels
+                .get(current)
+                .is_some_and(|label| !label.trim().is_empty())
+        {
+            ids.insert(current.clone());
+        }
     }
     ids
 }
@@ -96,6 +107,59 @@ fn sample_metadata_revision(sample: &CompositeSample) -> usize {
 }
 
 impl StudioApp {
+    /// Capture every recipe's workspace sources before export. Resolving IDs here
+    /// preserves unmarked samples and sources outside the saved project's scope;
+    /// processing missing cache entries runs later on the export worker.
+    pub(super) fn composer_export_input(&self) -> ComposerInput {
+        let current = self.current_group_index();
+        let samples = self
+            .composer_export_sample_ids()
+            .into_iter()
+            .filter_map(|id| {
+                let ix = self.menu_index(&id)?;
+                let target = self.tool_target(ix)?;
+                let color = self.group_plot_color(ix).unwrap_or_else(|| {
+                    self.theme
+                        .plot_theme()
+                        .get_color(self.group_color_index(ix))
+                });
+                Some(SampleInput {
+                    id,
+                    is_current: current == Some(ix),
+                    color: format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b),
+                    spectrum: SpectrumInput {
+                        label: target.label,
+                        path: target.path,
+                        params: self.effective_params(ix).clone(),
+                        group: ix
+                            .checked_sub(DERIVED_BASE)
+                            .and_then(|index| self.derived.get(index))
+                            .cloned(),
+                        data: self.composer_sample_spectrum(ix),
+                        source_error: None,
+                    },
+                })
+            })
+            .collect();
+        ComposerInput {
+            current: self.publication_figures(),
+            samples,
+        }
+    }
+
+    /// Dependencies of active and inactive recipes for export and revision checks.
+    pub(super) fn composer_export_sample_ids(&self) -> BTreeSet<GroupId> {
+        let current = self.current_group_index().and_then(|ix| self.group_id(ix));
+        recipe_sample_ids(
+            self.publish
+                .settings
+                .recipes()
+                .iter()
+                .map(|named| &named.recipe),
+            current,
+        )
+    }
+
     /// Offer the current group first, followed by marked groups in workspace order.
     pub(super) fn composer_sample_choices(&self) -> Vec<(GroupId, String)> {
         // Marks remain eligible when their rows are filtered out or folded.
@@ -119,9 +183,8 @@ impl StudioApp {
 
     /// Gather only the IDs needed by non-fit panels; rendering retains list order.
     fn composer_sample_ids(&self) -> BTreeSet<GroupId> {
-        let recipe = &self.publish.settings.active_recipe().recipe;
         let current = self.current_group_index().and_then(|ix| self.group_id(ix));
-        recipe_sample_ids(recipe, current)
+        recipe_sample_ids([&self.publish.settings.active_recipe().recipe], current)
     }
 
     /// The same processed revision used by workspace overlays. A standalone
@@ -317,6 +380,45 @@ mod tests {
         params::DerivedSpectrum,
     };
 
+    #[test]
+    fn publication_export_collects_inactive_recipe_samples_and_panel_overrides() {
+        use crate::publication::figures::composer::CompositePanel;
+        let id = GroupId::legacy_result;
+        let recipes = [
+            CompositeRecipe {
+                samples: vec![id(1), id(2)],
+                panels: vec!["xanes".into(), "fit-k".into()],
+                ..Default::default()
+            },
+            CompositeRecipe {
+                samples: vec![id(99)],
+                panels: vec![
+                    CompositePanel {
+                        samples: Some(vec![id(3), id(2)]),
+                        ..CompositePanel::from("chi-k")
+                    },
+                    CompositePanel {
+                        samples: Some(vec![]),
+                        ..CompositePanel::from("xanes")
+                    },
+                    CompositePanel {
+                        samples: Some(vec![id(98)]),
+                        ..CompositePanel::from("fit-r")
+                    },
+                ],
+                ..Default::default()
+            },
+        ];
+        assert_eq!(
+            recipe_sample_ids(&recipes, None),
+            BTreeSet::from([id(1), id(2), id(3)])
+        );
+        assert_eq!(
+            recipe_sample_ids([&recipes[1]], None),
+            BTreeSet::from([id(2), id(3)])
+        );
+    }
+
     fn sample_catalog() -> Catalog {
         let mut catalog = Catalog::default();
         catalog.extend(
@@ -340,34 +442,34 @@ mod tests {
             panels: vec!["xanes".into()],
             ..Default::default()
         };
-        assert!(recipe_sample_ids(&recipe, Some(current.clone())).is_empty());
+        assert!(recipe_sample_ids([&recipe], Some(current.clone())).is_empty());
         recipe.figure_labels.insert(current.clone(), " \t ".into());
-        assert!(recipe_sample_ids(&recipe, Some(current.clone())).is_empty());
+        assert!(recipe_sample_ids([&recipe], Some(current.clone())).is_empty());
         recipe
             .figure_labels
             .insert(current.clone(), "Reference".into());
         assert_eq!(
-            recipe_sample_ids(&recipe, Some(current.clone())),
+            recipe_sample_ids([&recipe], Some(current.clone())),
             BTreeSet::from([current.clone()])
         );
-        assert!(recipe_sample_ids(&recipe, None).is_empty());
+        assert!(recipe_sample_ids([&recipe], None).is_empty());
 
         recipe.samples = vec![selected.clone()];
         assert_eq!(
-            recipe_sample_ids(&recipe, Some(current.clone())),
+            recipe_sample_ids([&recipe], Some(current.clone())),
             BTreeSet::from([selected.clone()]),
             "a selected sample does not need the implicit current sample"
         );
         recipe.panels.push("chi-k".into());
         recipe.panels[0].samples = Some(Vec::new());
         assert_eq!(
-            recipe_sample_ids(&recipe, Some(current.clone())),
+            recipe_sample_ids([&recipe], Some(current.clone())),
             BTreeSet::from([current.clone(), selected]),
             "an independently empty panel still needs the current label"
         );
         recipe.panels = vec!["fit-k".into()];
         recipe.samples.clear();
-        assert!(recipe_sample_ids(&recipe, Some(current)).is_empty());
+        assert!(recipe_sample_ids([&recipe], Some(current)).is_empty());
     }
 
     #[test]

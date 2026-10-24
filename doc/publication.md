@@ -511,6 +511,32 @@ under the preview and kept in the recipe. Missing samples are also listed and
 retained in the recipe. The composer is implemented in
 [`composer.rs`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/figures/composer.rs).
 
+**Reports and supporting information (unreleased).** **Publish report…** and
+**Export supporting information…** export every named recipe in insertion
+order. Available compositions follow the individual figures in `report.html`
+and `captions.md`, with continuous figure numbering. Each writes
+`figures/composed/<file_stem>.png`, `.svg` and `.pdf`, plus
+`figures/composed/<file_stem>-caption.txt`. The stem follows the recipe-name
+rules above; collisions gain `-2`, `-3`, and so on, so distinct names that
+produce the same stem keep separate files. The exporter also attempts a
+matplotlib bundle for each composition in
+`figures/composed/<file_stem>-matplotlib/`, with `make_figure.py` and the
+unshifted curve CSVs described above.
+
+At export time, rexafs resolves the sample IDs used by non-fit panels across
+all recipes against the current workspace. This includes unmarked groups,
+groups without cached results and workspace groups absent from the saved
+project. Missing samples, skipped panels and failed recipes appear in the
+export notices; other recipes continue. Filesystem failures can still stop the
+export as described below. Review the notices before using the figures.
+
+The exported `project.rxs` keeps the normal saved workspace scope; groups used
+only by recipes are not added solely for figure export. The static figures and
+optional matplotlib CSVs retain the plotted curves. Recreating a recipe inside
+rexafs requires its groups to be present in the reopened workspace. Report
+integration is implemented in the
+[folder exporter](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication.rs).
+
 ## Captions
 
 Enter a figure caption and processing/parameter/path-table captions in the editor;
@@ -604,13 +630,15 @@ journal's supporting information. It contains the complete analysis folder of
   unpacked folder, `shasum -a 256 -c manifest-sha256.txt` (macOS) or
   `sha256sum -c manifest-sha256.txt` (Linux) verifies that no file changed.
 
-The bundled `project.rxs` is always self-contained: it embeds the original
-spectra and referenced FEFF inputs with their SHA-256 checksums, as
-**Raw: embedded** does, even when the open project links to its sources by
-path (the open project and **Publish report…** keep their own setting). The
-archive therefore opens in rexafs on another computer without the source
-folders. If a source file cannot be read, or the embedded inputs would exceed
-the 1 GiB limit, the export stops with an error instead of writing a project
-with broken links. The archive is written next to its destination and moved into
-place only when complete. See the
+The bundled `project.rxs` is self-contained for its saved workspace contents:
+it embeds their original spectra and referenced FEFF inputs with SHA-256
+checksums, as **Raw: embedded** does, even when the open project links to its
+sources by path (the open project and **Publish report…** keep their own
+setting). The archive therefore opens in rexafs on another computer without
+the source folders. The unreleased recipe export described above retains this
+workspace scope; recipe-only groups absent from the project are preserved in the exported
+figures and optional matplotlib data. If a source file cannot be read, or the
+embedded inputs would exceed the 1 GiB limit, the export stops with an error
+instead of writing a project with broken links. The archive is written next to
+its destination and moved into place only when complete. See the
 [bundle exporter](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/supporting.rs).

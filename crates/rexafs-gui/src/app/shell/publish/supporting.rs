@@ -54,7 +54,7 @@ impl StudioApp {
         if self.publish.running || !self.require_publication_source(cx) {
             return;
         }
-        let snapshot = self.analysis_snapshot();
+        let snapshot = self.publication_snapshot();
         let project_generation = self.project_generation;
         let home = crate::settings::home_dir().unwrap_or_else(std::env::temp_dir);
         let rx = cx.prompt_for_new_path(&home, Some("rexafs-supporting-information.zip"));

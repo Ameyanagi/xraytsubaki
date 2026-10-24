@@ -128,9 +128,12 @@ fn sample_check(
         .selected(checked)
         .tab_index(0)
         .key_context("Control")
+        .w_full()
         .min_w_0()
+        .flex_none()
         .min_h(px(28.))
         .px_1()
+        .py(px(3.))
         .flex()
         .items_center()
         .gap_2()
@@ -158,9 +161,11 @@ fn sample_check(
         )
         .child(
             div()
+                .flex_1()
                 .min_w_0()
-                .overflow_hidden()
-                .whitespace_nowrap()
+                .whitespace_normal()
+                .line_height(px(16.))
+                .line_clamp(2)
                 .text_ellipsis()
                 .child(label),
         )
@@ -629,7 +634,7 @@ impl StudioApp {
         let offset = panel.offset_step;
         let field = cx.new(|cx| {
             NumericField::new(
-                "Offset step (y units)",
+                "Offset step",
                 "0 = overlay",
                 Some(offset),
                 FieldKind::Float,

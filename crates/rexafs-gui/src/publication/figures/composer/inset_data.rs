@@ -5,6 +5,9 @@ use super::{CompositePanel, CompositeRecipe, CompositeSample, InsetKind, Prepare
 use crate::publication::figures::{FigureData, FigureOptions, FigureSeries};
 use std::borrow::Borrow;
 
+/// Fraction of the inset's data span added above the curves for its tag.
+const INSET_TAG_HEADROOM: f64 = 0.2;
+
 /// Prepare independent inset limits and display curves. The first selected
 /// sample remains the energy and difference reference even when offsets are
 /// reversed; missing reference data is an error rather than a new reference.
@@ -214,7 +217,8 @@ pub(super) fn prepare(
         .visible_ylim(&options)
         .ok_or_else(|| error("no visible curves have data in the requested energy range."))?;
     options.ymin = Some(min);
-    options.ymax = Some(max);
+    // Headroom keeps the quantity tag in the top-left corner clear of the curves.
+    options.ymax = Some(max + INSET_TAG_HEADROOM * (max - min));
     let description = match inset.kind {
         InsetKind::PreEdge => "pre-edge region",
         InsetKind::Edge => "edge and white line",

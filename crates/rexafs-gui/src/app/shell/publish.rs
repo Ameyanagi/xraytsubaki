@@ -31,6 +31,8 @@ pub(crate) struct PublishState {
     pub(super) preview_running: bool,
     pub(super) preview: Option<Arc<RenderedFigure>>,
     pub(super) image: Option<Arc<gpui::Image>>,
+    /// Curve whose fixed colour palette is expanded in the single-figure editor.
+    pub(super) colour_series: Option<String>,
     /// Multi-panel composer view and its preview.
     pub(super) composer: composer::ComposerState,
 }

@@ -898,6 +898,62 @@ fn released_021_fixtures_preserve_weight_link_palette_and_publication() {
 }
 
 #[test]
+fn publication_series_colors_default_for_old_projects_and_survive_save_and_reopen() {
+    let temp = Temp::new();
+    for suffix in ["links", "embedded"] {
+        let mut project =
+            super::load_with_cache_root(&fixture(&format!("rexafs-0.2.1-{suffix}.rxs")), || {
+                Ok(temp.join(&format!("source-cache-{suffix}")))
+            })
+            .unwrap();
+        assert!(
+            project
+                .publication
+                .figures
+                .values()
+                .all(|options| options.series_colors.is_empty())
+        );
+        assert!(
+            project
+                .publication
+                .options("chi-k")
+                .series_colors
+                .is_empty()
+        );
+        assert!(project.publication.composite.series_colors.is_empty());
+
+        // Series keys are opaque: retain unfamiliar keys for future curves.
+        let future_key = "future:dataset/χ series \"v2\" #7";
+        let figure = project
+            .publication
+            .figures
+            .entry("chi-k".into())
+            .or_default();
+        figure.series_colors = [
+            ("data".into(), "#0072b2".into()),
+            (future_key.into(), "#e69f00".into()),
+        ]
+        .into();
+        project.publication.composite.series_colors = [
+            ("data".into(), "#009e73".into()),
+            (future_key.into(), "#cc79a7".into()),
+        ]
+        .into();
+        let expected = project.publication.clone();
+
+        for mode in [DataStorage::Paths, DataStorage::Embedded] {
+            let saved = temp.join(&format!("series-colors-{suffix}-{mode:?}.rxs"));
+            save_with_storage(&saved, &project, mode).unwrap();
+            let reopened = super::load_with_cache_root(&saved, || {
+                Ok(temp.join(&format!("reopened-cache-{suffix}-{mode:?}")))
+            })
+            .unwrap();
+            assert_eq!(reopened.publication, expected);
+        }
+    }
+}
+
+#[test]
 fn released_020_fixtures_retain_import_state_and_historical_evidence() {
     for suffix in ["links", "embedded"] {
         let project = load(&fixture(&format!("rexafs-0.2.0-{suffix}.rxs"))).unwrap();

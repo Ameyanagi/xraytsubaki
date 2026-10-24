@@ -1,9 +1,10 @@
 //! Publish · Multi-panel: compose several publication figures into one
 //! labelled grid at a journal column width (see
-//! `publication::figures::composer`). The recipe is saved with the figure
+//! `publication::figures::composer`). Named recipes are saved with the figure
 //! settings in the project.
 use super::editor::{ColourTarget, colour_swatch, enabled_when, with_tip};
 use super::*;
+use crate::accessibility::Control;
 use crate::app::shell::{button, chip, controls::icon_button, segment, segmented};
 use crate::icons::Icon;
 use crate::publication::figures::composer::{
@@ -11,7 +12,8 @@ use crate::publication::figures::composer::{
 };
 use crate::theme::Theme;
 use crate::widgets::numeric_field::{FieldEvent, FieldKind};
-use gpui::{ImageFormat, ObjectFit, SharedString, div, img, prelude::*, px};
+use crate::widgets::text_input::InputEvent;
+use gpui::{Focusable, ImageFormat, ObjectFit, SharedString, Window, div, img, prelude::*, px};
 
 /// Logical pixels per inch used by the true-size preview: the CSS reference
 /// of 96 px per inch. A display's physical pixel density differs, so the
@@ -20,15 +22,25 @@ const TRUE_SIZE_PX_PER_INCH: f32 = 96.;
 /// Highest preview resolution; exports always use the recipe's DPI.
 const PREVIEW_DPI: f64 = 200.;
 
-/// Session state of the multi-panel composer. The recipe itself lives in
-/// `PublishState::settings.composite`.
+/// Session state of the multi-panel composer. Named recipes live in
+/// `PublishState::settings`; selection changes discard the preview immediately.
 #[derive(Default)]
 pub(crate) struct ComposerState {
     /// The Publish stage shows the composer instead of the single-figure editor.
     pub open: bool,
     /// Show the preview at about its printed size instead of fitting the pane.
     true_size: bool,
+    /// Whether the named-recipe choice list is expanded.
+    recipe_menu: bool,
+    /// Inline name draft; Save applies it after validation, Cancel discards it.
+    rename: Option<Entity<TextInput>>,
+    /// Validation feedback for the current inline name draft.
+    name_error: Option<String>,
+    /// Index and name captured by the in-app recipe deletion confirmation.
+    delete_recipe: Option<(usize, String)>,
     fields: Vec<Entity<NumericField>>,
+    /// Reject events from fields replaced after a recipe or layout change.
+    fields_generation: u64,
     /// Figures and settings that produced the current preview.
     source: Option<(Vec<usize>, Vec<u8>)>,
     generation: u64,
@@ -43,6 +55,31 @@ pub(crate) struct ComposerState {
     colour_series: Option<String>,
 }
 
+impl ComposerState {
+    /// Discard all recipe-specific results and reject older background renders.
+    fn invalidate_preview(&mut self) {
+        self.source = None;
+        self.generation += 1;
+        self.running = false;
+        self.image = None;
+        self.size_mm = (0., 0.);
+        self.missing.clear();
+        self.caption.clear();
+        self.error = None;
+    }
+
+    /// Reset session controls after a project load while rejecting old renders.
+    pub(super) fn reset(&mut self) {
+        let generation = self.generation + 1;
+        let fields_generation = self.fields_generation + 1;
+        *self = Self {
+            generation,
+            fields_generation,
+            ..Default::default()
+        };
+    }
+}
+
 /// Small muted heading above a group of controls.
 fn heading(t: &Theme, text: &'static str) -> gpui::Div {
     div()
@@ -53,8 +90,311 @@ fn heading(t: &Theme, text: &'static str) -> gpui::Div {
 }
 
 impl StudioApp {
+    /// Edit only the selected recipe, retaining every other saved recipe.
     fn composite(&mut self) -> &mut CompositeRecipe {
-        &mut self.publish.settings.composite
+        self.publish.settings.active_composite_mut()
+    }
+
+    /// Cancel in-flight rendering and clear all results tied to the old recipe.
+    fn invalidate_composer_preview(&mut self) {
+        self.publish.composer.invalidate_preview();
+    }
+
+    /// Rebuild editor fields after selecting, creating or removing a recipe.
+    fn composer_recipe_changed(&mut self, cx: &mut Context<Self>) {
+        self.publish.composer.recipe_menu = false;
+        self.publish.composer.rename = None;
+        self.publish.composer.name_error = None;
+        self.publish.composer.delete_recipe = None;
+        self.invalidate_composer_preview();
+        self.composer_fields(cx);
+        cx.notify();
+    }
+
+    /// Begin an inline name draft and select its text for immediate replacement.
+    fn rename_composer_recipe(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let name = self.publish.settings.active_recipe().name.clone();
+        let theme = self.theme;
+        let field = cx.new(|cx| {
+            let mut field = TextInput::new("Recipe name", name, theme, cx);
+            field.set_accessible_name("Recipe name");
+            field.select_all_text(cx);
+            field
+        });
+        cx.subscribe(&field, |this, field, event, cx| {
+            if this
+                .publish
+                .composer
+                .rename
+                .as_ref()
+                .is_none_or(|current| current.entity_id() != field.entity_id())
+            {
+                return;
+            }
+            // TextInput also commits on blur. Keep Save explicit so clicking
+            // Cancel or selecting another recipe never applies a name draft.
+            if let InputEvent::Edited(text) = event {
+                this.publish.composer.name_error =
+                    this.publish.settings.validate_recipe_name(text).err();
+                cx.notify();
+            }
+        })
+        .detach();
+        field.read(cx).focus_handle(cx).focus(window, cx);
+        self.publish.composer.rename = Some(field);
+        self.publish.composer.name_error = None;
+        self.publish.composer.recipe_menu = false;
+        self.publish.composer.delete_recipe = None;
+        cx.notify();
+    }
+
+    /// Apply the inline name after model validation; retain invalid drafts.
+    fn save_composer_recipe_name(&mut self, cx: &mut Context<Self>) {
+        let Some(field) = &self.publish.composer.rename else {
+            return;
+        };
+        let name = field.read(cx).text().to_string();
+        match self.publish.settings.rename_recipe(&name) {
+            Ok(()) => {
+                self.publish.composer.rename = None;
+                self.publish.composer.name_error = None;
+            }
+            Err(error) => self.publish.composer.name_error = Some(error),
+        }
+        cx.notify();
+    }
+
+    /// Named recipe selection and management, using the shell's compact controls.
+    fn composer_recipe_controls(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let t = self.theme;
+        let state = &self.publish.composer;
+        let active = self.publish.settings.active_recipe_index();
+        let name = self.publish.settings.active_recipe().name.clone();
+        let can_delete = self.publish.settings.recipes().len() > 1;
+        let mut controls = div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(heading(&t, "Recipe"))
+            .child(
+                Control::new(
+                    div().id("composer-recipe-selector"),
+                    format!("Recipe: {name}"),
+                    accesskit::Role::ComboBox,
+                )
+                .expanded(state.recipe_menu)
+                .tab_index(0)
+                .key_context("Control")
+                .min_w_0()
+                .h(px(30.))
+                .px_2()
+                .flex()
+                .items_center()
+                .gap_2()
+                .rounded_sm()
+                .border_1()
+                .border_color(t.border)
+                .bg(t.surface)
+                .text_size(px(12.))
+                .cursor_pointer()
+                .hover(|d| d.bg(t.raised))
+                .focus(|d| d.border_color(t.accent))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .child(name),
+                )
+                .child(crate::app::shell::controls::icon(&t, Icon::ChevronDown))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.publish.composer.recipe_menu = !this.publish.composer.recipe_menu;
+                    this.publish.composer.delete_recipe = None;
+                    cx.notify();
+                })),
+            );
+        if state.recipe_menu {
+            let mut choices = div()
+                .id("composer-recipe-choices")
+                .max_h(px(180.))
+                .overflow_y_scroll()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .p_1()
+                .border_1()
+                .border_color(t.border)
+                .rounded_sm();
+            for (index, recipe) in self.publish.settings.recipes().iter().enumerate() {
+                choices = choices.child(
+                    button(
+                        &t,
+                        ("composer-recipe", index),
+                        recipe.name.clone(),
+                        index == active,
+                    )
+                    .min_w_0()
+                    .justify_start()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if this.publish.settings.select_recipe(index) {
+                            this.composer_recipe_changed(cx);
+                        } else {
+                            this.publish.composer.recipe_menu = false;
+                            cx.notify();
+                        }
+                    })),
+                );
+            }
+            controls = controls.child(choices);
+        }
+        controls = controls.child(
+            div()
+                .flex()
+                .flex_wrap()
+                .gap_1()
+                .child(
+                    button(&t, "composer-recipe-new", "New", false).on_click(cx.listener(
+                        |this, _, _, cx| {
+                            this.publish.settings.new_recipe();
+                            this.publish.settings.active_composite_mut().panels =
+                                CompositeRecipe::suggested_panels(
+                                    this.publish.figures.iter().map(|figure| figure.key),
+                                );
+                            this.composer_recipe_changed(cx);
+                        },
+                    )),
+                )
+                .child(
+                    button(&t, "composer-recipe-duplicate", "Duplicate", false).on_click(
+                        cx.listener(|this, _, _, cx| {
+                            this.publish.settings.duplicate_recipe();
+                            this.composer_recipe_changed(cx);
+                        }),
+                    ),
+                )
+                .child(
+                    button(&t, "composer-recipe-rename", "Rename", false).on_click(cx.listener(
+                        |this, _, window, cx| {
+                            this.rename_composer_recipe(window, cx);
+                        },
+                    )),
+                )
+                .child(
+                    enabled_when(
+                        with_tip(
+                            button(&t, "composer-recipe-delete", "Delete", false),
+                            &t,
+                            if can_delete {
+                                "Delete this recipe after confirmation."
+                            } else {
+                                "Keep at least one recipe in the project."
+                            },
+                        ),
+                        can_delete,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if this.publish.settings.recipes().len() > 1 {
+                            this.publish.composer.delete_recipe = Some((
+                                this.publish.settings.active_recipe_index(),
+                                this.publish.settings.active_recipe().name.clone(),
+                            ));
+                            this.publish.composer.rename = None;
+                            this.publish.composer.name_error = None;
+                            this.publish.composer.recipe_menu = false;
+                            cx.notify();
+                        }
+                    })),
+                ),
+        );
+        if let Some(field) = &state.rename {
+            controls = controls.child(field.clone()).child(
+                div()
+                    .flex()
+                    .justify_end()
+                    .gap_1()
+                    .child(
+                        button(&t, "composer-recipe-rename-cancel", "Cancel", false).on_click(
+                            cx.listener(|this, _, _, cx| {
+                                this.publish.composer.rename = None;
+                                this.publish.composer.name_error = None;
+                                cx.notify();
+                            }),
+                        ),
+                    )
+                    .child(
+                        enabled_when(
+                            button(&t, "composer-recipe-rename-save", "Save name", true),
+                            state.name_error.is_none(),
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.save_composer_recipe_name(cx);
+                        })),
+                    ),
+            );
+            if let Some(error) = &state.name_error {
+                controls = controls.child(
+                    div()
+                        .text_size(px(11.))
+                        .text_color(t.error)
+                        .child(error.clone()),
+                );
+            }
+        }
+        if let Some((index, name)) = &state.delete_recipe {
+            let index = *index;
+            let name = name.clone();
+            let expected_name = name.clone();
+            controls = controls.child(
+                div()
+                    .p_2()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .rounded_sm()
+                    .border_1()
+                    .border_color(t.border)
+                    .bg(t.raised)
+                    .text_size(px(12.))
+                    .child(format!("Delete “{name}”?"))
+                    .child(div().text_size(px(11.)).text_color(t.text_muted).child(
+                        "This removes the saved panel layout and shared style from this project.",
+                    ))
+                    .child(
+                        div()
+                            .flex()
+                            .justify_end()
+                            .gap_1()
+                            .child(
+                                button(&t, "composer-recipe-delete-cancel", "Cancel", false)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.publish.composer.delete_recipe = None;
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                button(&t, "composer-recipe-delete-confirm", "Delete recipe", true)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        if this.publish.settings.active_recipe_index() == index
+                                            && this.publish.settings.active_recipe().name
+                                                == expected_name
+                                            && this.publish.settings.delete_recipe()
+                                        {
+                                            this.composer_recipe_changed(cx);
+                                        } else {
+                                            this.publish.composer.delete_recipe = None;
+                                            cx.notify();
+                                        }
+                                    })),
+                            ),
+                    ),
+            );
+        }
+        controls
     }
 
     /// Single figure | Multi-panel switch shown above both editors.
@@ -91,14 +431,21 @@ impl StudioApp {
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.publish.composer.open = composer;
                     if composer {
-                        if this.publish.settings.composite.panels.is_empty() {
-                            this.publish.settings.composite.panels =
+                        // Preserve the original first-open suggestions only for
+                        // an untouched default project. Other empty recipes stay
+                        // empty when returning from the single-figure editor.
+                        let settings = &this.publish.settings;
+                        if settings.recipes().len() == 1
+                            && settings.active_recipe().name == "Figure 1"
+                            && settings.active_recipe().recipe == CompositeRecipe::default()
+                        {
+                            this.publish.settings.active_composite_mut().panels =
                                 CompositeRecipe::suggested_panels(
-                                    this.publish.figures.iter().map(|f| f.key),
+                                    this.publish.figures.iter().map(|figure| figure.key),
                                 );
                         }
                         this.composer_fields(cx);
-                        this.publish.composer.source = None;
+                        this.invalidate_composer_preview();
                     }
                     cx.notify();
                 })),
@@ -109,7 +456,9 @@ impl StudioApp {
 
     /// Rebuild the numeric fields from the current recipe.
     fn composer_fields(&mut self, cx: &mut Context<Self>) {
-        let recipe = self.publish.settings.composite.clone();
+        self.publish.composer.fields_generation += 1;
+        let generation = self.publish.composer.fields_generation;
+        let recipe = self.publish.settings.active_recipe().recipe.clone();
         let auto_height = recipe
             .grid(recipe.panels.len().max(1), recipe.dpi)
             .cell_px
@@ -142,24 +491,29 @@ impl StudioApp {
             let field = cx.new(|cx| {
                 NumericField::new(label, placeholder, value, FieldKind::Float, theme, cx)
             });
-            cx.subscribe(&field, move |this, _, event, cx| match event {
-                FieldEvent::Changed(value) => {
-                    let defaults = CompositeRecipe::default();
-                    let recipe = this.composite();
-                    match index {
-                        0 => recipe.width_mm = value.unwrap_or(defaults.width_mm),
-                        1 => recipe.panel_height_mm = *value,
-                        2 => recipe.font_size = value.unwrap_or(defaults.font_size),
-                        3 => recipe.line_width = *value,
-                        _ => recipe.dpi = value.unwrap_or(defaults.dpi),
+            cx.subscribe(&field, move |this, _, event, cx| {
+                if this.publish.composer.fields_generation != generation {
+                    return;
+                }
+                match event {
+                    FieldEvent::Changed(value) => {
+                        let defaults = CompositeRecipe::default();
+                        let recipe = this.composite();
+                        match index {
+                            0 => recipe.width_mm = value.unwrap_or(defaults.width_mm),
+                            1 => recipe.panel_height_mm = *value,
+                            2 => recipe.font_size = value.unwrap_or(defaults.font_size),
+                            3 => recipe.line_width = *value,
+                            _ => recipe.dpi = value.unwrap_or(defaults.dpi),
+                        }
+                        cx.notify();
                     }
-                    cx.notify();
+                    FieldEvent::Invalid(message) => {
+                        this.publish.composer.error = Some(message.to_string());
+                        cx.notify();
+                    }
+                    _ => (),
                 }
-                FieldEvent::Invalid(message) => {
-                    this.publish.composer.error = Some(message.to_string());
-                    cx.notify();
-                }
-                _ => (),
             })
             .detach();
             self.publish.composer.fields.push(field);
@@ -179,10 +533,11 @@ impl StudioApp {
         if state.source.as_ref() == Some(&source) {
             return;
         }
+        // Never display or copy a caption or raster produced for another
+        // recipe/settings revision while the replacement is rendering.
+        state.invalidate_preview();
         state.source = Some(source);
-        state.generation += 1;
         state.running = true;
-        state.error = None;
         let generation = state.generation;
         let timer = cx
             .background_executor()
@@ -198,7 +553,7 @@ impl StudioApp {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    let recipe = &settings.composite;
+                    let recipe = &settings.active_recipe().recipe;
                     let composed = compose(
                         recipe,
                         &figures,
@@ -227,6 +582,8 @@ impl StudioApp {
                     }
                     Err(error) => {
                         state.image = None;
+                        state.missing.clear();
+                        state.caption.clear();
                         state.error = Some(error);
                     }
                 }
@@ -246,7 +603,7 @@ impl StudioApp {
         let figures = self.publish.figures.clone();
         let settings = self.publish.settings.clone();
         let home = crate::settings::home_dir().unwrap_or_else(std::env::temp_dir);
-        let name = format!("rexafs-multi-panel.{extension}");
+        let name = format!("{}.{extension}", settings.active_recipe().file_stem());
         let rx = cx.prompt_for_new_path(&home, Some(&name));
         cx.spawn(async move |this, cx| {
             let Ok(Ok(Some(mut path))) = rx.await else {
@@ -258,8 +615,9 @@ impl StudioApp {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    let bytes = compose(&settings.composite, &figures, &settings, None)?
-                        .bytes(extension)?;
+                    let bytes =
+                        compose(&settings.active_recipe().recipe, &figures, &settings, None)?
+                            .bytes(extension)?;
                     std::fs::write(&path, bytes)
                         .map(|()| path)
                         .map_err(|e| e.to_string())
@@ -283,6 +641,52 @@ impl StudioApp {
         .detach();
     }
 
+    /// Save the current combined caption as UTF-8 text using the recipe's name.
+    fn save_composite_caption(&mut self, cx: &mut Context<Self>) {
+        if !self.require_publication_source(cx) {
+            return;
+        }
+        let state = &self.publish.composer;
+        if state.running || state.image.is_none() || state.caption.is_empty() {
+            return;
+        }
+        let caption = format!("{}\n", state.caption);
+        let name = format!(
+            "{}-caption.txt",
+            self.publish.settings.active_recipe().file_stem()
+        );
+        let home = crate::settings::home_dir().unwrap_or_else(std::env::temp_dir);
+        let rx = cx.prompt_for_new_path(&home, Some(&name));
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(mut path))) = rx.await else {
+                return;
+            };
+            if path.extension().is_none() {
+                path.set_extension("txt");
+            }
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    std::fs::write(&path, caption)
+                        .map(|()| path)
+                        .map_err(|error| error.to_string())
+                })
+                .await;
+            this.update(cx, |app, cx| {
+                match result {
+                    Ok(path) => app.set_status(
+                        crate::app::StatusKind::Success,
+                        format!("Saved {}", path.display()),
+                    ),
+                    Err(error) => app.publish.composer.error = Some(error),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// The composer's controls and preview, below the shared Publish header.
     pub(super) fn composer_panel(
         &mut self,
@@ -294,7 +698,7 @@ impl StudioApp {
         }
         self.refresh_composer_preview(cx);
         let t = self.theme;
-        let recipe = self.publish.settings.composite.clone();
+        let recipe = self.publish.settings.active_recipe().recipe.clone();
         let ready = self.publication_ready();
         let mut controls = div()
             .id("composer-controls")
@@ -307,6 +711,7 @@ impl StudioApp {
             .gap_2()
             .pr_3()
             .child(self.publish_mode_switch(cx))
+            .child(self.composer_recipe_controls(cx))
             .child(heading(&t, "Panels"));
 
         let available = |key: &str| self.publish.figures.iter().find(|f| f.key == key);
@@ -675,6 +1080,21 @@ impl StudioApp {
                             .child(caption.clone()),
                     )
                     .child(
+                        enabled_when(
+                            with_tip(
+                                button(&t, "save-composite-caption", "Save caption…", false),
+                                &t,
+                                "Save the combined panel caption as a text file.",
+                            ),
+                            can_save,
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if can_save {
+                                this.save_composite_caption(cx);
+                            }
+                        })),
+                    )
+                    .child(
                         icon_button(
                             &t,
                             "copy-composite-caption",
@@ -715,5 +1135,66 @@ impl StudioApp {
                     .child(preview),
             )
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn switching_recipe_clears_results_and_rejects_its_in_flight_render() {
+        let mut state = ComposerState {
+            open: true,
+            true_size: true,
+            source: Some((vec![10], vec![1])),
+            generation: 7,
+            fields_generation: 3,
+            running: true,
+            image: Some(Arc::new(gpui::Image::from_bytes(
+                ImageFormat::Png,
+                Vec::<u8>::new(),
+            ))),
+            size_mm: (83., 60.),
+            missing: vec!["fit-k".into()],
+            caption: "Caption from the previous recipe.".into(),
+            error: Some("Previous recipe error".into()),
+            ..Default::default()
+        };
+        let old_generation = state.generation;
+        state.invalidate_preview();
+        assert_ne!(state.generation, old_generation);
+        assert!(state.source.is_none());
+        assert!(!state.running);
+        assert!(state.image.is_none());
+        assert_eq!(state.size_mm, (0., 0.));
+        assert!(state.caption.is_empty());
+        assert!(state.missing.is_empty());
+        assert!(state.error.is_none());
+        assert!(state.open && state.true_size);
+        assert_eq!(state.fields_generation, 3);
+    }
+
+    #[test]
+    fn project_load_reset_does_not_reuse_render_or_field_generations() {
+        let mut state = ComposerState {
+            open: true,
+            recipe_menu: true,
+            delete_recipe: Some((1, "Figure 2".into())),
+            name_error: Some("Invalid draft".into()),
+            generation: 7,
+            fields_generation: 3,
+            caption: "Caption from the previous project.".into(),
+            ..Default::default()
+        };
+        state.reset();
+        assert_eq!(state.generation, 8);
+        assert_eq!(state.fields_generation, 4);
+        assert!(!state.open);
+        assert!(!state.recipe_menu);
+        assert!(state.rename.is_none());
+        assert!(state.delete_recipe.is_none());
+        assert!(state.name_error.is_none());
+        assert!(state.caption.is_empty());
     }
 }

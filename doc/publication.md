@@ -194,10 +194,26 @@ into one grid of labelled panels, (a), (b), (c)…, for a journal figure. Panels
 come from the figures available in **Single figure**: XANES, flattened μ(E),
 χ(k), |χ(R)|, χ(q) and, after a fit, the fit, residual and fit + residual
 figures (path contributions are curves you can show in the fit figures). The
-first time it opens, the composer suggests XANES, χ(k), |χ(R)| and, when a fit
-exists, Fit + residual · χ(k). **Add panel** appends a figure; the arrow moves a
-panel earlier and × removes it. Panels fill each row from left to right, at
-most 12 panels.
+initial recipe suggests XANES, χ(k), |χ(R)| and, when a fit exists, Fit + residual
+· χ(k). **Add panel** appends a figure; the arrow moves a panel earlier and ×
+removes it. Panels fill each row from left to right, at most 12 panels.
+
+**Named recipes (unreleased).** The **Recipe** selector keeps several layouts
+in the project, in the order they were created. Selecting one restores its panel
+order, dimensions, font, line width and DPI.
+
+- **New** appends and selects a default recipe, using the first unused name
+  **Figure N** and the same suggested panels as the initial recipe.
+- **Duplicate** appends and selects an independent copy of the current recipe.
+  Its name gains ` copy`, then ` copy 2`, ` copy 3`, and so on until unique; a
+  long original name is shortened to keep the result within 60 characters.
+- **Rename** edits the name inline; **Save name** applies it and **Cancel** discards
+  the draft. Names are trimmed, must contain 1–60 Unicode characters and must
+  be unique when compared after Unicode lowercase conversion. Validation
+  feedback appears beside the draft. Renaming preserves the selection and order.
+- **Delete** asks for confirmation in the app, then selects the next recipe,
+  or the previous one when deleting the last entry. The only remaining recipe
+  cannot be deleted.
 
 **Journal width** sets the total figure width to a publisher's column width.
 The values are maximum widths from the publishers' author guides, checked in
@@ -237,8 +253,19 @@ and bottom edges, and those of a column share their left and right edges. Each
 panel is rendered separately by ruviz and the panels are tiled into one image
 and nested into one SVG, the same technique as the fit + residual figure. The
 bold panel labels sit at the top-left corner of each panel, at the axis-title
-font size. The recipe (panels, width, columns, height, font, line width, DPI
-and shared colours) is saved in the `.rxs` project with the other figure settings.
+font size. Each recipe stores panels, width, columns, height, font, line width,
+DPI and shared colours; naming a recipe does not change how its panels render. **Single figure**
+settings, including captions and visible curves, remain shared across recipes,
+so changing them affects every recipe using that figure type.
+
+The `.rxs` project saves named recipes as an ordered `publication.recipes` array
+of `{name, recipe}` entries and the selection as the zero-based
+`publication.active_recipe` index. An index beyond the saved list selects its
+final recipe. An older `publication.composite` loads unchanged as **Figure 1**;
+projects without recipe data start with a default **Figure 1**. Saving writes
+only the new recipe format; the compact project encoder may omit default
+fields. Storage and migration are implemented in
+[`recipes.rs`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/figures/recipes.rs).
 
 The preview is rendered at up to 200 DPI; **Fit** fits it to the pane and
 **True size** shows it at 96 pixels per inch, close to its printed size (the
@@ -251,13 +278,21 @@ exact size depends on the display). **Save figure** renders at the chosen DPI:
 - **PDF** is vector, converted from the SVG by ruviz (svg2pdf); its page is the
   printed figure size.
 
+The suggested filename comes from the recipe
+name, for example `figure-2.pdf`. It is lowercased, keeps Unicode letters and
+digits, and replaces runs of punctuation or whitespace with a single hyphen,
+without leading or trailing hyphens. An empty result uses `figure`; reserved
+Windows device names gain a `figure-` prefix.
+
 The caption below the preview joins each panel's caption after its label, for
 example "(a) Flattened, edge-step-normalized X-ray absorption spectrum… (b) …";
-**Copy caption** copies it. Panels whose figure is unavailable, such as a fit
-panel before any fit has run, are skipped, listed under the preview and kept in
-the recipe. Each panel shows one spectrum: overlays of several samples with
-vertical offsets, an inset and a matplotlib script for the whole grid are not
-available yet. The composer is implemented in
+**Copy caption** copies it. **Save caption…** saves it as plain text,
+with a suggested filename such as `figure-2-caption.txt`. Panels whose figure
+is unavailable, such as a fit panel before any fit has run, are skipped, listed
+under the preview and kept in the recipe. Each panel shows one spectrum:
+overlays of several samples with vertical offsets, an inset and a
+matplotlib script for the whole grid are not available yet. The composer
+is implemented in
 [`composer.rs`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/figures/composer.rs).
 
 ## Captions

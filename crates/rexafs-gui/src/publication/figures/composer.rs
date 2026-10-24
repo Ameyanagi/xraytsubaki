@@ -94,7 +94,7 @@ pub(crate) const JOURNAL_WIDTHS: [JournalWidth; 6] = [
 
 /// A saved multi-panel figure: which figures form the panels and the
 /// appearance they share. Stored with the figure settings in the `.rxs`
-/// project (`publication.composite`); projects without it use the defaults.
+/// project as the contents of a named entry in `publication.recipes`.
 ///
 /// Per-figure settings from the single-figure editor still apply inside each
 /// panel: axis labels, axis limits, visible curves, legend placement, grid,
@@ -718,7 +718,7 @@ mod tests {
             recipe
         );
         let settings: FigureSettings = serde_json::from_str(r#"{"figures":{}}"#).unwrap();
-        assert_eq!(settings.composite, CompositeRecipe::default());
+        assert_eq!(settings.active_recipe().recipe, CompositeRecipe::default());
         let old: CompositeRecipe = serde_json::from_str(r#"{"panels":["chi-k"]}"#).unwrap();
         assert!(old.series_colors.is_empty());
         assert!(

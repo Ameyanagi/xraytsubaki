@@ -196,7 +196,9 @@ impl StudioApp {
                             .or_default()
                             .series_colors
                     }
-                    ColourTarget::Composite => &mut this.publish.settings.composite.series_colors,
+                    ColourTarget::Composite => {
+                        &mut this.publish.settings.active_composite_mut().series_colors
+                    }
                 };
                 if let Some(colour) = colour {
                     colours.insert(key.clone(), colour.into());

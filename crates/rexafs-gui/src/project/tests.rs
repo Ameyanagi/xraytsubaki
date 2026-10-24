@@ -1,6 +1,69 @@
 use super::*;
 
 #[test]
+fn publication_recipes_migrate_old_rxs_and_save_only_the_new_format() {
+    use crate::publication::figures::composer::CompositeRecipe;
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("legacy.rxs");
+    let recipe = CompositeRecipe {
+        panels: vec!["xanes".into(), "chi-k".into()],
+        columns: 1,
+        width_mm: 90.,
+        dpi: 300.,
+        ..Default::default()
+    };
+    save_with_storage(&path, &ProjectFile::default(), DataStorage::Paths).unwrap();
+    let mut legacy = json_file(&path);
+    legacy["publication"] = serde_json::json!({"composite": recipe});
+    std::fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+    let mut project = load_with_cache_root(&path, || Ok(temp.path().join("cache"))).unwrap();
+    assert_eq!(project.publication.recipes().len(), 1);
+    assert_eq!(project.publication.active_recipe().name, "Figure 1");
+    assert_eq!(project.publication.active_recipe().recipe, recipe);
+    project.publication.duplicate_recipe();
+    project.publication.rename_recipe("SI Figure S4").unwrap();
+    let saved = temp.path().join("named.rxs");
+    save_with_storage(&saved, &project, DataStorage::Paths).unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&std::fs::read(&saved).unwrap()).unwrap();
+    assert!(json["publication"].get("composite").is_none());
+    assert_eq!(json["publication"]["recipes"][0]["name"], "Figure 1");
+    assert_eq!(json["publication"]["recipes"][1]["name"], "SI Figure S4");
+    assert_eq!(json["publication"]["active_recipe"], 1);
+    let restored = load_with_cache_root(&saved, || Ok(temp.path().join("cache"))).unwrap();
+    assert_eq!(restored.publication, project.publication);
+}
+
+#[test]
+fn publication_recipes_default_when_old_rxs_has_no_recipe_or_publication() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("no-recipe.rxs");
+    for publication in [None, Some(serde_json::json!({"figures": {}}))] {
+        save_with_storage(&path, &ProjectFile::default(), DataStorage::Paths).unwrap();
+        let mut input = json_file(&path);
+        if let Some(publication) = publication {
+            input["publication"] = publication;
+        } else {
+            input.as_object_mut().unwrap().remove("publication");
+        }
+        std::fs::write(&path, serde_json::to_vec(&input).unwrap()).unwrap();
+        let project = load_with_cache_root(&path, || Ok(temp.path().join("cache"))).unwrap();
+        assert_eq!(project.publication.recipes().len(), 1);
+        assert_eq!(project.publication.active_recipe_index(), 0);
+        assert_eq!(project.publication.active_recipe().name, "Figure 1");
+        assert_eq!(
+            project.publication.active_recipe().recipe,
+            crate::publication::figures::composer::CompositeRecipe::default()
+        );
+        save_with_storage(&path, &project, DataStorage::Paths).unwrap();
+        let json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert!(json["publication"].get("composite").is_none());
+        let restored = load_with_cache_root(&path, || Ok(temp.path().join("cache"))).unwrap();
+        assert_eq!(restored.publication, project.publication);
+    }
+}
+
+#[test]
 fn bundled_copper_example_is_portable_and_reuses_its_extraction_folder() {
     let temp = tempfile::tempdir().unwrap();
     let project = super::copper_example_in(temp.path()).unwrap();
@@ -920,7 +983,14 @@ fn publication_series_colors_default_for_old_projects_and_survive_save_and_reope
                 .series_colors
                 .is_empty()
         );
-        assert!(project.publication.composite.series_colors.is_empty());
+        assert!(
+            project
+                .publication
+                .active_recipe()
+                .recipe
+                .series_colors
+                .is_empty()
+        );
 
         // Series keys are opaque: retain unfamiliar keys for future curves.
         let future_key = "future:dataset/χ series \"v2\" #7";
@@ -934,7 +1004,7 @@ fn publication_series_colors_default_for_old_projects_and_survive_save_and_reope
             (future_key.into(), "#e69f00".into()),
         ]
         .into();
-        project.publication.composite.series_colors = [
+        project.publication.active_composite_mut().series_colors = [
             ("data".into(), "#009e73".into()),
             (future_key.into(), "#cc79a7".into()),
         ]

@@ -49,8 +49,11 @@ curve names are written as plain text, so a `$` in them is escaped as `\$`. The
 script sets matplotlib's `mathtext.fontset` to `custom` with the sans-serif
 font, so math matches the text instead of switching to serif Computer Modern.
 The result is a close, editable reproduction rather than a pixel copy:
-matplotlib chooses its own tick positions, margins and fonts (Arial, then
-Helvetica, then DejaVu Sans). The generator is
+matplotlib chooses its own tick positions and margins. The font family list is
+Arial followed by DejaVu Sans; matplotlib 3.6 or later supports
+[font fallback](https://matplotlib.org/stable/users/explain/text/fonts.html#font-fallback)
+for individual glyphs missing from Arial, such as the subscript in Cu₂O. The
+generator is
 [`python_export.rs`](https://github.com/Ameyanagi/rexafs/blob/dev/crates/rexafs-gui/src/publication/python_export.rs).
 
 The **Single column** (3.5 × 2.6 in, 600 DPI, 8 pt), **Double column** (7.0 ×
@@ -406,6 +409,11 @@ the CSV data. Fit + residual panels retain both axes, and optional panel
 insets retain their own curves and placement. Available panels fill the grid in recipe order; unavailable panels
 are omitted without empty slots, and the script notes skipped panels and
 samples. Check these notices before using the figure.
+
+Curve-end labels use the same shortened text as the native figure, fitted to at
+most 35% of the panel width with an ellipsis (`…`). Each curve's `label` is
+editable; its `full_label` retains the complete name for legends and editing.
+CSV headers also retain complete names. Legend-mode panels keep full labels.
 
 Run the script with Python 3, numpy and matplotlib; rexafs is not required. For
 example, run `uv run --with numpy --with matplotlib python make_figure.py`.

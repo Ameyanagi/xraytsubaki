@@ -3,7 +3,7 @@ use super::*;
 use crate::publication::figures::LegendPlacement;
 use crate::publication::figures::composer::{
     CompositeRecipe, CurveLabelMode, DisplayOffset, InsetPlacement, PreparedComposition,
-    panel_label, resolve_inside_legend,
+    curve_end_label_texts, panel_label, resolve_inside_legend,
 };
 
 /// Write the named recipe's available panels into a new folder. CSV ordinates
@@ -59,6 +59,7 @@ fn composite_python_export(
         .unwrap_or_else(|| round_default(default.get_config().lines.data_width as f64));
     let mut files = Vec::new();
     let mut entries = String::new();
+    let end_labels = curve_end_label_texts(recipe, &panels, &grid)?;
     for (index, panel) in panels.iter().enumerate() {
         let spec = recipe
             .panels
@@ -82,6 +83,7 @@ fn composite_python_export(
             data,
             &options,
             &panel.offsets,
+            curve_end.then_some(&end_labels[index]),
             &mut files,
         )?;
         let inset = if let Some(inset) = &panel.inset {
@@ -90,6 +92,7 @@ fn composite_python_export(
                 &inset.data,
                 &inset.options,
                 &inset.offsets,
+                None,
                 &mut files,
             )?;
             let bounds = match inset.placement {
@@ -102,7 +105,16 @@ fn composite_python_export(
             format!(
                 "{{\"bounds\": {bounds}, \"quantity\": {}, {}, \"series\": [\n{inset_series}        ]}}",
                 py_str(inset.quantity),
-                axes_settings(&inset.data, &inset.options)
+                // Inset y limits are never typed by the user; leave them
+                // automatic so the script fits them to its offset curves.
+                axes_settings(
+                    &inset.data,
+                    &FigureOptions {
+                        ymin: None,
+                        ymax: None,
+                        ..inset.options.clone()
+                    }
+                )
             )
         } else {
             "None".into()
@@ -144,6 +156,7 @@ fn composite_python_export(
                 &strip,
                 &strip_options,
                 &[],
+                None,
                 &mut files,
             )?;
             format!(
@@ -202,6 +215,8 @@ LINE_WIDTH = {line_width:?}
 SKIPPED = [{notices}]
 
 # Per-panel settings. Each CSV is unshifted; change "offset" to adjust stacking.
+# Curve-end "label" matches the shortened native text. "full_label" retains
+# the complete name for editing and legends; CSV headers also keep full names.
 # Inset bounds are (left, bottom, width, height) fractions of the main axes.
 # Limits are (min, max), or None for matplotlib's automatic range.
 PANELS = [
@@ -231,6 +246,7 @@ fn series_entries(
     data: &FigureData,
     options: &FigureOptions,
     offsets: &[Option<DisplayOffset>],
+    end_labels: Option<&std::collections::BTreeMap<usize, String>>,
     files: &mut Vec<(String, String)>,
 ) -> Result<String, String> {
     let mut entries = String::new();
@@ -248,9 +264,15 @@ fn series_entries(
             file.clone(),
             series_csv(curve, &data.xlabel, data.ylabel(options), y)?,
         ));
+        let label = end_labels
+            .and_then(|labels| labels.get(&source_index))
+            .unwrap_or(&curve.label);
+        let full_label = end_labels.map_or_else(String::new, |_| {
+            format!(", \"full_label\": {}", py_str(&plain_text(&curve.label)))
+        });
         entries.push_str(&format!(
-            "            {{\"file\": {}, \"label\": {}, \"color\": {}, \"linestyle\": {}, \"offset\": {:?}}},\n",
-            py_str(&file), py_str(&plain_text(&curve.label)), py_str(&series_color(curve, options, index)),
+            "            {{\"file\": {}, \"label\": {}{full_label}, \"color\": {}, \"linestyle\": {}, \"offset\": {:?}}},\n",
+            py_str(&file), py_str(&plain_text(label)), py_str(&series_color(curve, options, index)),
             py_str(if curve.dashed { "--" } else { "-" }), shift.map_or(0., |shift| shift.value),
         ));
     }
@@ -301,7 +323,7 @@ def draw_curves(ax, settings, width):
     for series in settings["series"]:
         x, y = load_series(series["file"])
         y = y + series["offset"]
-        ax.plot(x, y, label=series["label"], color=series["color"],
+        ax.plot(x, y, label=series.get("full_label", series["label"]), color=series["color"],
                 linestyle=series["linestyle"], linewidth=width)
         curves.append((x, y, series))
     for guide in settings["guides"]:
@@ -392,6 +414,9 @@ for ax, panel in zip(axes.flat, PANELS):
     if inset is not None:
         inset_ax = ax.inset_axes(inset["bounds"])
         draw_curves(inset_ax, inset, 0.7 * LINE_WIDTH)
+        # Headroom keeps the quantity tag clear of the curves, as in rexafs.
+        low, high = inset_ax.get_ylim()
+        inset_ax.set_ylim(low, high + 0.2 * (high - low))
         inset_ax.tick_params(labelsize=max(4, 0.8 * FONT_SIZE))
         inset_ax.set_yticks([])
         inset_ax.text(0.04, 0.96, inset["quantity"], transform=inset_ax.transAxes,
@@ -544,6 +569,7 @@ mod tests {
             "HEIGHT_MM = 101.6",
             "DPI = 300.0",
             "FONT_SIZE = 9.0",
+            r#""font.family": ["Arial", "DejaVu Sans"],"#,
             "LINE_WIDTH = 1.25",
             "plt.subplots(ROWS, COLS, figsize=(WIDTH_MM / 25.4, HEIGHT_MM / 25.4)",
             "ax.inset_axes(inset[\"bounds\"])",
@@ -635,6 +661,95 @@ mod tests {
                     (7104., 0.)
                 ]
             );
+        }
+    }
+
+    #[test]
+    fn curve_end_text_matches_native_and_full_names_remain_editable() {
+        use crate::publication::figures::composer::compose_prepared;
+
+        let samples: Vec<_> = (1..=3)
+            .map(|id| {
+                let label =
+                    format!("Synthetic {id:02} · Cu₂O cafe\u{301} 100.0% · CuO 0.0% · Cu 0.0%");
+                CompositeSample {
+                    id: GroupId::legacy_result(id),
+                    label: label.clone(),
+                    color: "#0072b2".into(),
+                    figures: vec![Arc::new(figure(
+                        "xanes",
+                        &label,
+                        vec![if id == 1 { 100. } else { id as f64 / 3. }; 5],
+                    ))],
+                }
+            })
+            .collect();
+        let mut recipe = CompositeRecipe {
+            samples: samples.iter().map(|sample| sample.id.clone()).collect(),
+            panels: vec![
+                CompositePanel {
+                    label_mode: CurveLabelMode::CurveEnd,
+                    .."xanes".into()
+                },
+                "xanes".into(),
+            ],
+            dpi: 100.,
+            ..Default::default()
+        };
+        // Hide the last curve, clip the first one, and repeat the middle ID.
+        // Only source indices 1 and 3 receive native direct labels.
+        recipe.samples.push(samples[1].id.clone());
+        let mut settings = FigureSettings::default();
+        settings.figures.insert(
+            "xanes".into(),
+            FigureOptions {
+                ymin: Some(0.),
+                ymax: Some(2.),
+                hidden: ["result:3/mu".into()].into(),
+                ..Default::default()
+            },
+        );
+        let empty: Vec<FigureData> = Vec::new();
+        // The narrow grid exercises the available-margin cap as well as 35%.
+        for width_mm in [177.8, 66.04] {
+            recipe.width_mm = width_mm;
+            recipe.panel_height_mm = Some(50.8);
+            let prepared = prepare_panels(&recipe, &empty, &samples, &settings).unwrap();
+            let files = composite_python_export("Long names", &recipe, &prepared).unwrap();
+            let script = &files[0].1;
+            let native = compose_prepared(&recipe, &prepared, None).unwrap();
+            let records: Vec<serde_json::Value> = script
+                .lines()
+                .filter(|line| line.contains("\"file\": "))
+                .map(|line| serde_json::from_str(line.trim().trim_end_matches(',')).unwrap())
+                .collect();
+            assert_eq!(records.len(), 6);
+            assert_eq!(native.svg.matches("class=\"curve-end-label\"").count(), 2);
+            for record in &records[..3] {
+                let label = record["label"].as_str().unwrap();
+                let full = record["full_label"].as_str().unwrap();
+                assert!(samples.iter().any(|sample| sample.label == full));
+                if full == samples[0].label {
+                    assert_eq!(label, full); // Fully clipped; no native annotation.
+                } else {
+                    assert!(label.ends_with('…'), "{label}");
+                    assert!(full.starts_with(label.trim_end_matches('…')));
+                    assert!(native.svg.contains(&format!(">{label}</tspan>")));
+                }
+                let csv = &files
+                    .iter()
+                    .find(|(name, _)| name == record["file"].as_str().unwrap())
+                    .unwrap()
+                    .1;
+                let mut reader = csv::Reader::from_reader(csv.as_bytes());
+                assert_eq!(reader.headers().unwrap()[0], format!("{full}: Energy (eV)"));
+            }
+            // Legend entries keep complete names, including repeated IDs.
+            for record in &records[3..] {
+                assert!(record.get("full_label").is_none());
+                assert!(samples.iter().any(|sample| sample.label == record["label"]));
+            }
+            assert!(script.contains("label=series.get(\"full_label\", series[\"label\"])"));
         }
     }
 

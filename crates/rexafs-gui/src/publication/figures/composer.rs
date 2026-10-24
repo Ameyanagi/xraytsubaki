@@ -882,21 +882,12 @@ pub(crate) fn compose_prepared(
     }
     let grid = recipe.grid(chosen.len(), dpi.unwrap_or(recipe.dpi));
 
-    // Panel labels use the axis-title size and need room above every panel.
     let metrics = Metrics::of(&Plot::new().font_size(recipe.font_size as f32));
     let label_pt = metrics.label_pt();
-    let mut frame: Frame = [
-        0.,
-        0.,
-        (LABEL_INSET_PT + 1.2 * label_pt + 0.6 * metrics.tick_pt() + 2.) / 72.,
-        0.,
-    ];
-    let mut built = Vec::new();
     let mut captions = Vec::new();
     for (index, prepared) in chosen.iter().enumerate() {
         let data = &prepared.data;
-        let mut options = recipe.panel_options(prepared.options.clone(), &grid);
-        options.validate()?;
+        let options = recipe.panel_options(prepared.options.clone(), &grid);
         let mut caption = format!("{} {}", panel_label(index), data.caption(&options));
         if let Some(offsets) = &prepared.offset_caption {
             caption.push(' ');
@@ -907,68 +898,9 @@ pub(crate) fn compose_prepared(
             caption.push_str(&inset.caption);
         }
         captions.push(caption);
-        let (panel, needs) = match &data.residual {
-            Some(residual) => {
-                let panels = layout::fit_residual_panels(data, residual, &options)?;
-                let needs = panels.frame;
-                (Built::FitResidual(Box::new(panels)), needs)
-            }
-            None => {
-                let end_labels = if !recipe.panels[prepared.index].uses_current_fit()
-                    && recipe.panels[prepared.index].label_mode == CurveLabelMode::CurveEnd
-                {
-                    options.legend = false;
-                    curve_end_labels(data, &mut options, recipe.font_size)?
-                } else {
-                    Vec::new()
-                };
-                resolve_inside_legend(
-                    data,
-                    &mut options,
-                    prepared.inset.as_ref().map(|inset| inset.placement),
-                );
-                let plot = data.panel(&options, false)?;
-                let metrics = Metrics::of(&plot);
-                let ylim = options
-                    .ymin
-                    .zip(options.ymax)
-                    .or_else(|| data.visible_ylim(&options));
-                let needs = [
-                    metrics.left(layout::tick_chars(ylim, 10).unwrap_or(5)),
-                    metrics.right(layout::tick_chars(data.xlim(&options), 10).unwrap_or(4)),
-                    0.,
-                    metrics.bottom(),
-                ];
-                (Built::Single(Box::new(plot), end_labels), needs)
-            }
-        };
-        for (shared, need) in frame.iter_mut().zip(needs) {
-            *shared = shared.max(need);
-        }
-        built.push(panel);
     }
-
-    if built
-        .iter()
-        .any(|panel| matches!(panel, Built::Single(_, labels) if !labels.is_empty()))
-    {
-        let panel_width = grid.cell_px.0 as f64 / grid.dpi;
-        let available_margin = panel_width - frame[0] - 0.5;
-        if frame[1] > available_margin {
-            return Err(CURVE_END_WIDTH_ERROR.into());
-        }
-        // rexafs reserves at most 35% of a panel for names, including padding.
-        // Narrow panels use less so at least half an inch remains for data.
-        let label_width = (panel_width * 0.35).min(available_margin) - END_LABEL_PADDING_IN;
-        for panel in &mut built {
-            if let Built::Single(_, labels) = panel {
-                for label in labels {
-                    fit_end_label(label, label_width, grid.dpi, recipe.font_size)?;
-                    frame[1] = frame[1].max(label.width_in + END_LABEL_PADDING_IN);
-                }
-            }
-        }
-    }
+    let chosen_refs: Vec<_> = chosen.iter().collect();
+    let (built, frame) = composition_layout(recipe, &chosen_refs, &grid)?;
 
     let (width, height) = grid.size_px();
     let (cell_w, cell_h) = grid.cell_px;
@@ -1068,6 +1000,125 @@ pub(crate) fn compose_prepared(
     })
 }
 
+/// Resolve the native panels, shared margins and fitted direct labels before
+/// rendering. The Python exporter reuses this layout at the recipe's DPI.
+fn composition_layout(
+    recipe: &CompositeRecipe,
+    chosen: &[&PreparedPanel],
+    grid: &Grid,
+) -> Result<(Vec<Built>, Frame), String> {
+    // Panel labels use the axis-title size and need room above every panel.
+    let metrics = Metrics::of(&Plot::new().font_size(recipe.font_size as f32));
+    let label_pt = metrics.label_pt();
+    let mut frame: Frame = [
+        0.,
+        0.,
+        (LABEL_INSET_PT + 1.2 * label_pt + 0.6 * metrics.tick_pt() + 2.) / 72.,
+        0.,
+    ];
+    let mut built = Vec::new();
+    for prepared in chosen {
+        let spec = recipe
+            .panels
+            .get(prepared.index)
+            .ok_or("Prepared panel does not belong to this recipe.")?;
+        let data = &prepared.data;
+        let mut options = recipe.panel_options(prepared.options.clone(), grid);
+        options.validate()?;
+        let (panel, needs) = match &data.residual {
+            Some(residual) => {
+                let panels = layout::fit_residual_panels(data, residual, &options)?;
+                let needs = panels.frame;
+                (Built::FitResidual(Box::new(panels)), needs)
+            }
+            None => {
+                let end_labels =
+                    if !spec.uses_current_fit() && spec.label_mode == CurveLabelMode::CurveEnd {
+                        options.legend = false;
+                        curve_end_labels(data, &mut options, recipe.font_size)?
+                    } else {
+                        Vec::new()
+                    };
+                resolve_inside_legend(
+                    data,
+                    &mut options,
+                    prepared.inset.as_ref().map(|inset| inset.placement),
+                );
+                let plot = data.panel(&options, false)?;
+                let metrics = Metrics::of(&plot);
+                let ylim = options
+                    .ymin
+                    .zip(options.ymax)
+                    .or_else(|| data.visible_ylim(&options));
+                let needs = [
+                    metrics.left(layout::tick_chars(ylim, 10).unwrap_or(5)),
+                    metrics.right(layout::tick_chars(data.xlim(&options), 10).unwrap_or(4)),
+                    0.,
+                    metrics.bottom(),
+                ];
+                (Built::Single(Box::new(plot), end_labels), needs)
+            }
+        };
+        for (shared, need) in frame.iter_mut().zip(needs) {
+            *shared = shared.max(need);
+        }
+        built.push(panel);
+    }
+
+    if built
+        .iter()
+        .any(|panel| matches!(panel, Built::Single(_, labels) if !labels.is_empty()))
+    {
+        let panel_width = grid.cell_px.0 as f64 / grid.dpi;
+        let available_margin = panel_width - frame[0] - 0.5;
+        if frame[1] > available_margin {
+            return Err(CURVE_END_WIDTH_ERROR.into());
+        }
+        // rexafs reserves at most 35% of a panel for names, including padding.
+        // Narrow panels use less so at least half an inch remains for data.
+        let label_width = (panel_width * 0.35).min(available_margin) - END_LABEL_PADDING_IN;
+        for panel in &mut built {
+            if let Built::Single(_, labels) = panel {
+                for label in labels {
+                    fit_end_label(label, label_width, grid.dpi, recipe.font_size)?;
+                    frame[1] = frame[1].max(label.width_in + END_LABEL_PADDING_IN);
+                }
+            }
+        }
+    }
+
+    Ok((built, frame))
+}
+
+/// Native curve-end text keyed by each curve's source index, one map per panel.
+/// Fully clipped curves have no label; source indices preserve the association
+/// when earlier curves are hidden or clipped, or sample IDs are repeated.
+pub(crate) fn curve_end_label_texts(
+    recipe: &CompositeRecipe,
+    chosen: &[&PreparedPanel],
+    grid: &Grid,
+) -> Result<Vec<BTreeMap<usize, String>>, String> {
+    if !chosen.iter().any(|panel| {
+        panel.data.residual.is_none()
+            && recipe.panels.get(panel.index).is_some_and(|spec| {
+                !spec.uses_current_fit() && spec.label_mode == CurveLabelMode::CurveEnd
+            })
+    }) {
+        return Ok(chosen.iter().map(|_| BTreeMap::new()).collect());
+    }
+    let (panels, _) = composition_layout(recipe, chosen, grid)?;
+    Ok(panels
+        .into_iter()
+        .map(|panel| match panel {
+            Built::Single(_, labels) => labels
+                .into_iter()
+                .map(|label| (label.source_index, label.text))
+                .collect(),
+            Built::FitResidual(_) => BTreeMap::new(),
+        })
+        .collect())
+}
+
 /// Gap between a panel's top-left corner and its label, in points.
 const LABEL_INSET_PT: f64 = 2.;
 /// Four points between the axes and names, and four points at the panel edge.
@@ -1076,6 +1127,7 @@ const CURVE_END_WIDTH_ERROR: &str = "Curve-end labels leave less than 0.5 in of 
 
 /// One literal label, measured at the output DPI before margins are fixed.
 struct EndLabel {
+    source_index: usize,
     text: String,
     color: ruviz::prelude::Color,
     raster: ruviz::render::typst_text::TypstRasterOutput,
@@ -1140,13 +1192,14 @@ fn curve_end_labels(
     let visible: Vec<_> = data
         .series(options)
         .iter()
-        .filter(|curve| curve.visible(options) && !curve.x.is_empty())
+        .enumerate()
+        .filter(|(_, curve)| curve.visible(options) && !curve.x.is_empty())
         .collect();
     let xlim = data.xlim(options).or_else(|| {
         let mut bounds: Option<(f64, f64)> = None;
         for value in visible
             .iter()
-            .flat_map(|curve| curve.x.iter().copied())
+            .flat_map(|(_, curve)| curve.x.iter().copied())
             .filter(|value| value.is_finite())
         {
             bounds = Some(bounds.map_or((value, value), |(min, max)| {
@@ -1181,7 +1234,7 @@ fn curve_end_labels(
     let dpi = options.dimensions().2;
     let palette = Plot::new().get_theme();
     let mut labels = Vec::new();
-    for (index, curve) in visible.iter().enumerate() {
+    for (index, (source_index, curve)) in visible.iter().enumerate() {
         let mut endpoint: Option<(f64, f64)> = None;
         let mut include = |x: f64, y: f64| {
             if x.is_finite()
@@ -1228,6 +1281,7 @@ fn curve_end_labels(
         )
         .map_err(|error| error.to_string())?;
         labels.push(EndLabel {
+            source_index: *source_index,
             text: curve.label.clone(),
             color,
             width_in: raster.pixmap.width() as f64 / dpi,
